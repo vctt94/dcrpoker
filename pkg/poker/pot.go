@@ -181,7 +181,12 @@ func (pm *potManager) distributePots(players []*Player) error {
 		// Uncontested pot path.
 		if len(alive) == 1 {
 			w := alive[0]
-			players[w].balance += pot.amount
+			// credit winner under lock
+			if players[w] != nil {
+				players[w].mu.Lock()
+				players[w].balance += pot.amount
+				players[w].mu.Unlock()
+			}
 			pm.pots[pi].amount = 0
 			for j := range pm.pots[pi].eligibility {
 				pm.pots[pi].eligibility[j] = false
@@ -196,7 +201,12 @@ func (pm *potManager) distributePots(players []*Player) error {
 		var winners []int
 		var best *HandValue
 		for _, idx := range alive {
-			hv := players[idx].handValue
+			var hv *HandValue
+			if players[idx] != nil {
+				players[idx].mu.RLock()
+				hv = players[idx].handValue
+				players[idx].mu.RUnlock()
+			}
 			if hv == nil {
 				return fmt.Errorf("[pot %d] player %d eligible at showdown but HandValue == nil", pi, idx)
 			}
@@ -225,7 +235,11 @@ func (pm *potManager) distributePots(players []*Player) error {
 			if i == 0 && rem > 0 {
 				add += rem
 			}
-			players[idx].balance += add
+			if players[idx] != nil {
+				players[idx].mu.Lock()
+				players[idx].balance += add
+				players[idx].mu.Unlock()
+			}
 		}
 
 		// Mark pot as settled.
@@ -254,7 +268,11 @@ func (pm *potManager) returnUncalledBet(players []*Player) {
 
 	if hiPlayer >= 0 && hi > second {
 		uncalled := hi - second
-		players[hiPlayer].balance += uncalled
+		if players[hiPlayer] != nil {
+			players[hiPlayer].mu.Lock()
+			players[hiPlayer].balance += uncalled
+			players[hiPlayer].mu.Unlock()
+		}
 		pm.currentBets[hiPlayer] -= uncalled
 		pm.totalBets[hiPlayer] -= uncalled
 

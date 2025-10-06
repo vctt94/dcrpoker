@@ -123,7 +123,7 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 				p.mu.Unlock()
 				return stateInGame
 
-			case evCallDelta: // ← NEW: allow call while FSM is still AT_TABLE
+			case evCallDelta: // allow call while FSM is still AT_TABLE
 				p.mu.Lock()
 				can := e.Amt > 0 && e.Amt <= p.balance
 				if can {
@@ -144,6 +144,15 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 				}
 				// invalid or ignored, stay at table
 
+			case evReeval:
+				// re-check derived all-in from external mutation
+				p.mu.RLock()
+				zero := p.balance == 0 && p.currentBet > 0
+				p.mu.RUnlock()
+				if zero {
+					return stateAllIn
+				}
+
 			case evDisconnect:
 				p.mu.Lock()
 				p.isDisconnected = true
@@ -160,95 +169,93 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 	p.stateID.Store(int32(psInGame))
 
-	for {
-		// Derived ALL-IN: evaluated each loop iteration
-		if p.balance == 0 && p.currentBet > 0 {
+	for ev := range in {
+		// Derived ALL-IN: evaluated each loop iteration (under read lock)
+		p.mu.RLock()
+		zeroAllIn := (p.balance == 0 && p.currentBet > 0)
+		p.mu.RUnlock()
+		if zeroAllIn {
 			return stateAllIn
 		}
 
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
-			}
-			switch e := ev.(type) {
-			case evYourTurn:
-				p.mu.Lock()
-				p.isTurn = true
-				p.mu.Unlock()
+		switch e := ev.(type) {
+		case evYourTurn:
+			p.mu.Lock()
+			p.isTurn = true
+			p.mu.Unlock()
 
-			case evBet:
-				p.mu.Lock()
-				can := p.isTurn && e.Amt > 0 && e.Amt <= p.balance
-				if can {
-					p.balance -= e.Amt
-					p.currentBet += e.Amt
-					p.lastAction = time.Now()
-					p.isTurn = false
-				}
-				zero := (p.balance == 0)
-				p.mu.Unlock()
-				if can && zero {
-					return stateAllIn
-				}
-
-			case evCall:
-				// Amount computed by table; state only observes results.
-				p.mu.Lock()
+		case evBet:
+			p.mu.Lock()
+			can := p.isTurn && e.Amt > 0 && e.Amt <= p.balance
+			if can {
+				p.balance -= e.Amt
+				p.currentBet += e.Amt
 				p.lastAction = time.Now()
 				p.isTurn = false
-				zero := (p.balance == 0 && p.currentBet > 0)
-				p.mu.Unlock()
+			}
+			zero := (p.balance == 0)
+			p.mu.Unlock()
+			if can && zero {
+				return stateAllIn
+			}
+
+		case evCall:
+			// Amount computed by table; state only observes results.
+			p.mu.Lock()
+			p.lastAction = time.Now()
+			p.isTurn = false
+			zero := (p.balance == 0 && p.currentBet > 0)
+			p.mu.Unlock()
+			if zero {
+				return stateAllIn
+			}
+
+		case evFold:
+			return stateFolded
+
+		case evEndHand:
+			p.mu.Lock()
+			p.currentBet = 0
+			p.isTurn = false
+			p.mu.Unlock()
+			return stateAtTable
+
+		case evDisconnect:
+			p.mu.Lock()
+			p.isDisconnected = true
+			p.mu.Unlock()
+
+		case evLeave:
+			return stateLeft
+
+		case evCallDelta:
+			p.mu.Lock()
+			can := e.Amt > 0 && e.Amt <= p.balance
+			if can {
+				p.balance -= e.Amt
+				p.currentBet += e.Amt
+				p.lastAction = time.Now()
+			}
+			zero := p.balance == 0 && p.currentBet > 0
+			p.mu.Unlock()
+			if can {
 				if zero {
 					return stateAllIn
 				}
+				return stateInGame
+			}
 
-			case evFold:
-				return stateFolded
-
-			case evEndHand:
-				p.mu.Lock()
-				p.currentBet = 0
-				p.isTurn = false
-				p.mu.Unlock()
-				return stateAtTable
-
-			case evDisconnect:
-				p.mu.Lock()
-				p.isDisconnected = true
-				p.mu.Unlock()
-
-			case evLeave:
-				return stateLeft
-
-			case evCallDelta:
-				p.mu.Lock()
-				can := e.Amt > 0 && e.Amt <= p.balance
-				if can {
-					p.balance -= e.Amt
-					p.currentBet += e.Amt
-					p.lastAction = time.Now()
-				}
-				zero := p.balance == 0 && p.currentBet > 0
-				p.mu.Unlock()
-				if can {
-					if zero {
-						return stateAllIn
-					}
-					return stateInGame
-				}
-
-			case evReeval:
-				// ← NEW: re-check derived condition after external chip mutation
-				p.mu.RLock()
-				zero := p.balance == 0 && p.currentBet > 0
-				p.mu.RUnlock()
-				if zero {
-					return stateAllIn
-				}
+		case evReeval:
+			// ← NEW: re-check derived condition after external chip mutation
+			p.mu.RLock()
+			zero := p.balance == 0 && p.currentBet > 0
+			p.mu.RUnlock()
+			if zero {
+				return stateAllIn
 			}
 		}
 	}
+	return nil
 }
 
 func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
@@ -257,46 +264,40 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 	p.isTurn = false
 	p.mu.Unlock()
 
-	for {
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
-			}
-			switch ev.(type) {
-			case evFold:
-				// ignored by policy
-			case evEndHand:
-				p.mu.Lock()
-				p.currentBet = 0
-				p.mu.Unlock()
-				return stateAtTable
-			case evLeave:
-				return stateLeft
-			}
+	for ev := range in {
+		switch ev.(type) {
+		case evFold:
+			// ignored by policy
+		case evEndHand:
+			p.mu.Lock()
+			p.currentBet = 0
+			p.mu.Unlock()
+			return stateAtTable
+		case evLeave:
+			return stateLeft
 		}
 	}
+	return nil
 }
 
 func stateFolded(p *Player, in <-chan any) PlayerStateFn {
 	p.stateID.Store(int32(psFolded))
+	p.mu.Lock()
 	p.isTurn = false
+	p.mu.Unlock()
 
-	for {
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
-			}
-			switch ev.(type) {
-			case evEndHand:
-				p.currentBet = 0
-				return stateAtTable
-			case evLeave:
-				return stateLeft
-			}
+	for ev := range in {
+		switch ev.(type) {
+		case evEndHand:
+			p.mu.Lock()
+			p.currentBet = 0
+			p.mu.Unlock()
+			return stateAtTable
+		case evLeave:
+			return stateLeft
 		}
 	}
+	return nil
 }
 
 func stateLeft(p *Player, _ <-chan any) PlayerStateFn {
@@ -311,6 +312,7 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 	}
 
 	// Set stack for the new hand (table-sourced).
+	p.mu.Lock()
 	p.balance = startingChips
 	p.startingBalance = startingChips
 	p.lastAction = time.Now()
@@ -320,6 +322,7 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 	p.currentBet = 0
 	p.handDescription = ""
 	p.isTurn = false
+	p.mu.Unlock()
 
 	// Ensure we return to AT_TABLE first, then start the new hand.
 	p.sm.Send(evEndHand{})   // FOLDED/ALL_IN/etc. -> AT_TABLE
@@ -536,47 +539,29 @@ func (p *Player) SetStartingBalance(balance int64) {
 }
 
 // Marker interface for player events (optional, for readability).
-type playerEvent interface{ isPlayerEvent() }
+
+type evCallDelta struct{ Amt int64 }
 
 type evReady struct{}
 
-func (evReady) isPlayerEvent() {}
-
 type evStartHand struct{}
-
-func (evStartHand) isPlayerEvent() {}
 
 type evYourTurn struct{}
 
-func (evYourTurn) isPlayerEvent() {}
-
 type evBet struct{ Amt int64 }
-
-func (evBet) isPlayerEvent() {}
 
 type evCall struct{}
 
-func (evCall) isPlayerEvent() {}
-
 type evFold struct{}
 
-func (evFold) isPlayerEvent() {}
-
-type evAllIn struct{}          // not strictly needed; all-in is derived from stack, but provided if you want it
-func (evAllIn) isPlayerEvent() {}
+type evAllIn struct{} // not strictly needed; all-in is derived from stack, but provided if you want it
 
 type evReeval struct{}
 type evEndHand struct{}
 
-func (evEndHand) isPlayerEvent() {}
-
 type evDisconnect struct{}
 
-func (evDisconnect) isPlayerEvent() {}
-
 type evLeave struct{}
-
-func (evLeave) isPlayerEvent() {}
 
 type PlayerStateFn = statemachine.StateFn[Player]
 

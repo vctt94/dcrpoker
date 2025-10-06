@@ -135,16 +135,16 @@ func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.phase = pokerrpc.GamePhase_NEW_HAND_DEALING
 	g.mu.Unlock()
-	for {
-		switch ev := (<-in).(type) {
+	for ev := range in {
+		switch ev.(type) {
 		case evStartHand:
 			return statePreDeal
 		case evGotoShowdown:
 			return stateShowdown
 		default:
-			_ = ev
 		}
 	}
+	return nil
 }
 
 func statePreDeal(g *Game, in <-chan any) GameStateFn {
@@ -164,10 +164,12 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 		} else {
 			g.dealer = (g.dealer + 1) % numPlayers
 		}
-		// Update isDealer flags
+		// Update isDealer flags (protect player fields)
 		for i, p := range g.players {
 			if p != nil {
+				p.mu.Lock()
 				p.isDealer = (i == g.dealer)
+				p.mu.Unlock()
 			}
 		}
 	}
@@ -202,7 +204,9 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 		if p == nil {
 			return
 		}
+		p.mu.Lock()
 		if p.currentBet >= amount {
+			p.mu.Unlock()
 			return
 		}
 		if amount > p.balance {
@@ -210,9 +214,12 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 		}
 		p.balance -= amount
 		p.currentBet += amount
+		// read-after-write under lock
+		newBet := p.currentBet
+		p.mu.Unlock()
 		g.potManager.addBet(pos, amount, g.players) // contract: g.mu held
-		if p.currentBet > g.currentBet {
-			g.currentBet = p.currentBet
+		if newBet > g.currentBet {
+			g.currentBet = newBet
 		}
 	}
 
@@ -226,8 +233,10 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 	}
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
 		if p := g.players[g.currentPlayer]; p != nil {
+			p.mu.Lock()
 			p.isTurn = true
 			p.lastAction = time.Now()
+			p.mu.Unlock()
 		}
 	}
 	// phase stays PRE_FLOP (already set in statePreDeal)
@@ -248,24 +257,24 @@ func statePreFlop(g *Game, in <-chan any) GameStateFn {
 		}
 	}
 
-	for {
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
+	for ev := range in {
+		switch ev.(type) {
+		case evGotoShowdown:
+			return stateShowdown
+		case evAdvance:
+			g.mu.Lock()
+			can := g.betRound == 0
+			if can {
+				g.betRound++
 			}
-			switch ev.(type) {
-			case evGotoShowdown:
-				return stateShowdown
-			case evAdvance:
-				if g.betRound == 0 {
-					g.betRound++
-					return stateFlop
-				}
-			default:
+			g.mu.Unlock()
+			if can {
+				return stateFlop
 			}
+		default:
 		}
 	}
+	return nil
 }
 
 func stateFlop(g *Game, in <-chan any) GameStateFn {
@@ -275,28 +284,23 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.phase = pokerrpc.GamePhase_FLOP
 	g.mu.Unlock()
 	// wait events ...
-	for {
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
+	for ev := range in {
+		switch ev.(type) {
+		case evGotoShowdown:
+			return stateShowdown
+		case evAdvance:
+			g.mu.Lock()
+			can := g.betRound == 1
+			if can {
+				g.betRound++
 			}
-			switch ev.(type) {
-			case evGotoShowdown:
-				return stateShowdown
-			case evAdvance:
-				g.mu.Lock()
-				can := g.betRound == 1
-				if can {
-					g.betRound++
-				}
-				g.mu.Unlock()
-				if can {
-					return stateTurn
-				}
+			g.mu.Unlock()
+			if can {
+				return stateTurn
 			}
 		}
 	}
+	return nil
 }
 
 func stateTurn(g *Game, in <-chan any) GameStateFn {
@@ -306,24 +310,24 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.phase = pokerrpc.GamePhase_TURN
 	g.mu.Unlock()
 
-	for {
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
+	for ev := range in {
+		switch ev.(type) {
+		case evGotoShowdown:
+			return stateShowdown
+		case evAdvance:
+			g.mu.Lock()
+			can := g.betRound == 2
+			if can {
+				g.betRound++
 			}
-			switch ev.(type) {
-			case evGotoShowdown:
-				return stateShowdown
-			case evAdvance:
-				if g.betRound == 2 {
-					g.betRound++
-					return stateRiver
-				}
-			default:
+			g.mu.Unlock()
+			if can {
+				return stateRiver
 			}
+		default:
 		}
 	}
+	return nil
 }
 
 func stateRiver(g *Game, in <-chan any) GameStateFn {
@@ -333,23 +337,18 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.phase = pokerrpc.GamePhase_RIVER
 	g.mu.Unlock()
 
-	for {
-		select {
-		case ev, ok := <-in:
-			if !ok {
-				return nil
-			}
-			switch ev.(type) {
-			case evGotoShowdown:
+	for ev := range in {
+		switch ev.(type) {
+		case evGotoShowdown:
+			return stateShowdown
+		case evAdvance:
+			if g.betRound == 3 {
 				return stateShowdown
-			case evAdvance:
-				if g.betRound == 3 {
-					return stateShowdown
-				}
-			default:
 			}
+		default:
 		}
 	}
+	return nil
 }
 
 func stateShowdown(g *Game, in <-chan any) GameStateFn {
@@ -365,8 +364,7 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 	}
 
 	// Stay here until a new hand is started
-	for {
-		ev := <-in
+	for ev := range in {
 		switch ev.(type) {
 		case evStartHand:
 			g.log.Debugf("stateShowdown: received evStartHand, transitioning to statePreDeal")
@@ -375,6 +373,7 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 			g.log.Debugf("stateShowdown: ignoring event %T while waiting for evStartHand", ev)
 		}
 	}
+	return nil
 }
 
 func stateEnd(*Game, <-chan any) GameStateFn { return nil }
@@ -398,15 +397,7 @@ func (g *Game) StateFlop() {
 		return
 	}
 
-	// Deal 3 cards to community
-	for i := 0; i < 3; i++ {
-		card, ok := g.deck.Draw()
-		if !ok {
-			// Handle error
-			return
-		}
-		g.communityCards = append(g.communityCards, card)
-	}
+	g.dealFlop()
 
 	// Update phase
 	g.phase = pokerrpc.GamePhase_FLOP
@@ -423,13 +414,7 @@ func (g *Game) StateTurn() {
 		return
 	}
 
-	// Deal 1 card to community
-	card, ok := g.deck.Draw()
-	if !ok {
-		// Handle error
-		return
-	}
-	g.communityCards = append(g.communityCards, card)
+	g.dealTurn()
 
 	g.phase = pokerrpc.GamePhase_TURN
 }
@@ -445,13 +430,7 @@ func (g *Game) StateRiver() {
 		return
 	}
 
-	// Deal 1 card to community
-	card, ok := g.deck.Draw()
-	if !ok {
-		// Handle error
-		return
-	}
-	g.communityCards = append(g.communityCards, card)
+	g.dealRiver()
 
 	g.phase = pokerrpc.GamePhase_RIVER
 }
@@ -546,9 +525,11 @@ func (g *Game) SetPlayers(users []*User) {
 		player := NewPlayer(user.ID, user.Name, g.config.StartingChips)
 
 		// Copy table-level state from user
+		player.mu.Lock()
 		player.tableSeat = user.TableSeat
 		player.isReady = user.IsReady
 		player.lastAction = time.Now() // Set current time since User doesn't have LastAction
+		player.mu.Unlock()
 
 		g.players[i] = player
 	}
@@ -730,8 +711,10 @@ func (g *Game) handlePlayerFold(playerID string) error {
 	// Make the fold visible immediately to game logic.
 	// We own g.mu here; Player’s fast snapshot is atomic.
 	p.stateID.Store(int32(psFolded))
+	p.mu.Lock()
 	p.isTurn = false
 	p.lastAction = time.Now()
+	p.mu.Unlock()
 	// Keep the FSM in sync (it will move into stateFolded too).
 	p.sm.Send(evFold{})
 
@@ -751,8 +734,8 @@ func (g *Game) handlePlayerFold(playerID string) error {
 	// 5) move turn to next alive player
 	g.advanceToNextPlayer(time.Now()) // must skip folded players
 
-	// 6) the missing piece: re-evaluate round completion
-	g.maybeCompleteBettingRound() // same method used by bet/check paths
+	// 6) let table wrapper trigger round evaluation outside our lock to
+	// avoid nested locking and FSM re-entrancy; Table.HandleFold calls it.
 
 	return nil
 }
@@ -800,11 +783,16 @@ func (g *Game) handlePlayerCall(playerID string) error {
 		return fmt.Errorf("invalid call amount")
 	}
 
-	// Hand state over to the FSM (single writer of player fields)
-	if player.sm == nil {
-		return fmt.Errorf("player state machine not initialized")
+	// Apply chip movements directly under player lock to avoid async races.
+	player.mu.Lock()
+	player.balance -= delta
+	player.currentBet += delta
+	player.lastAction = time.Now()
+	player.mu.Unlock()
+	// Nudge FSM to re-evaluate derived ALL_IN state if needed.
+	if player.sm != nil {
+		player.sm.Send(evReeval{})
 	}
-	player.sm.Send(evCallDelta{Amt: delta})
 
 	// Pot bookkeeping is table-owned; we can book immediately with the same delta.
 	for i, p := range g.players {
@@ -842,7 +830,9 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 			player.currentBet, g.currentBet)
 	}
 
+	player.mu.Lock()
 	player.lastAction = time.Now()
+	player.mu.Unlock()
 	g.actionsInRound++
 	g.advanceToNextPlayer(time.Now())
 
@@ -880,10 +870,14 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 	}
 
 	if delta > 0 {
+		player.mu.Lock()
 		player.balance -= delta
+		player.mu.Unlock()
 	}
+	player.mu.Lock()
 	player.currentBet = amount
 	player.lastAction = time.Now()
+	player.mu.Unlock()
 
 	if amount > g.currentBet {
 		g.currentBet = amount
@@ -932,7 +926,9 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 	// Clear isTurn flag on the current player before advancing
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
 		if p := g.players[g.currentPlayer]; p != nil {
+			p.mu.Lock()
 			p.isTurn = false
+			p.mu.Unlock()
 		}
 	}
 
@@ -949,8 +945,10 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 
 		// Skip folded players and all-in players (they can't act)
 		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" && g.players[g.currentPlayer].GetCurrentStateString() != "ALL_IN" {
+			g.players[g.currentPlayer].mu.Lock()
 			g.players[g.currentPlayer].isTurn = true
 			g.players[g.currentPlayer].lastAction = now
+			g.players[g.currentPlayer].mu.Unlock()
 			break
 		}
 	}
@@ -1017,7 +1015,9 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 		prev := make(map[string]int64, len(g.players))
 		for _, p := range g.players {
 			if p != nil {
+				p.mu.RLock()
 				prev[p.id] = p.balance
+				p.mu.RUnlock()
 			}
 		}
 
@@ -1029,7 +1029,9 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			if p == nil {
 				continue
 			}
+			p.mu.RLock()
 			delta := p.balance - prev[p.id]
+			p.mu.RUnlock()
 			if delta > 0 {
 				result.Winners = append(result.Winners, p.id)
 
@@ -1040,8 +1042,10 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 					if err != nil {
 						return nil, fmt.Errorf("failed to evaluate hand for player %s: %w", p.id, err)
 					}
+					p.mu.Lock()
 					p.handValue = &hv
 					p.handDescription = GetHandDescription(hv)
+					p.mu.Unlock()
 					best = hv.BestHand
 				} else {
 					best = p.hand
@@ -1140,8 +1144,10 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	prev := make(map[string]int64, len(g.players))
 	for _, p := range g.players {
 		if p != nil {
+			p.mu.RLock()
 			prev[p.id] = p.balance
 			g.log.Debugf("handleShowdown: player %s balance before distribution=%d", p.id, p.balance)
+			p.mu.RUnlock()
 		}
 	}
 
@@ -1156,15 +1162,20 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 		if p == nil {
 			continue
 		}
+		p.mu.RLock()
 		delta := p.balance - prev[p.id]
 		g.log.Debugf("handleShowdown: player %s balance after distribution=%d delta=%d", p.id, p.balance, delta)
+		p.mu.RUnlock()
 		if delta > 0 {
 			result.Winners = append(result.Winners, p.id)
 			var handRank pokerrpc.HandRank
 			var best []Card
-			if p.handValue != nil {
-				handRank = p.handValue.HandRank
-				best = p.handValue.BestHand
+			p.mu.RLock()
+			hv := p.handValue
+			p.mu.RUnlock()
+			if hv != nil {
+				handRank = hv.HandRank
+				best = hv.BestHand
 			} else {
 				best = p.hand
 			}
@@ -1227,19 +1238,37 @@ func (g *Game) maybeCompleteBettingRound() {
 	// - activePlayers == 1: only one player could act, but with no opponent able to respond,
 	//   further betting isn't possible (e.g., heads-up where one is all-in, or multi-way with only one non-all-in).
 	if activePlayers == 0 || activePlayers == 1 {
-		// Before closing the round and fast-forwarding streets, refund any
-		// uncalled portion of the last bet to avoid creating a bogus side pot.
+		// Refund any uncalled portion before closing the round.
 		g.potManager.returnUncalledBet(g.players)
+		// Fast‑forward missing streets and set phase before signaling showdown.
 		switch g.phase {
 		case pokerrpc.GamePhase_PRE_FLOP:
-			g.StateFlop()
-			g.StateTurn()
-			g.StateRiver()
+			g.dealFlop()
+			g.currentBet = 0
+			g.potManager.currentBets = make(map[int]int64)
+			g.phase = pokerrpc.GamePhase_FLOP
+			g.dealTurn()
+			g.currentBet = 0
+			g.potManager.currentBets = make(map[int]int64)
+			g.phase = pokerrpc.GamePhase_TURN
+			g.dealRiver()
+			g.currentBet = 0
+			g.potManager.currentBets = make(map[int]int64)
+			g.phase = pokerrpc.GamePhase_RIVER
 		case pokerrpc.GamePhase_FLOP:
-			g.StateTurn()
-			g.StateRiver()
+			g.dealTurn()
+			g.currentBet = 0
+			g.potManager.currentBets = make(map[int]int64)
+			g.phase = pokerrpc.GamePhase_TURN
+			g.dealRiver()
+			g.currentBet = 0
+			g.potManager.currentBets = make(map[int]int64)
+			g.phase = pokerrpc.GamePhase_RIVER
 		case pokerrpc.GamePhase_TURN:
-			g.StateRiver()
+			g.dealRiver()
+			g.currentBet = 0
+			g.potManager.currentBets = make(map[int]int64)
+			g.phase = pokerrpc.GamePhase_RIVER
 		}
 		g.phase = pokerrpc.GamePhase_SHOWDOWN
 		g.sm.Send(evGotoShowdown{})
@@ -1272,14 +1301,20 @@ func (g *Game) maybeCompleteBettingRound() {
 		}
 		// All-in players are considered matched regardless of their bet amount
 		if state == "ALL_IN" {
-			g.log.Debugf("maybeAdvancePhase: player %d (%s) is ALL_IN with bet %d, considered matched", i, p.id, p.currentBet)
+			p.mu.RLock()
+			cb := p.currentBet
+			p.mu.RUnlock()
+			g.log.Debugf("maybeAdvancePhase: player %d (%s) is ALL_IN with bet %d, considered matched", i, p.id, cb)
 			continue
 		}
-		if p.currentBet != g.currentBet {
-			g.log.Debugf("maybeAdvancePhase: player %d (%s) has unmatched bet: %d != %d", i, p.id, p.currentBet, g.currentBet)
+		p.mu.RLock()
+		cb := p.currentBet
+		p.mu.RUnlock()
+		if cb != g.currentBet {
+			g.log.Debugf("maybeAdvancePhase: player %d (%s) has unmatched bet: %d != %d", i, p.id, cb, g.currentBet)
 			unmatchedPlayers++
 		} else {
-			g.log.Debugf("maybeAdvancePhase: player %d (%s) has matched bet: %d", i, p.id, p.currentBet)
+			g.log.Debugf("maybeAdvancePhase: player %d (%s) has matched bet: %d", i, p.id, cb)
 		}
 	}
 
@@ -1291,30 +1326,40 @@ func (g *Game) maybeCompleteBettingRound() {
 	// Betting round is complete - advance to next phase
 	switch g.phase {
 	case pokerrpc.GamePhase_PRE_FLOP:
-		g.StateFlop()
+		// Deal flop and transition phase immediately.
+		g.dealFlop()
+		g.currentBet = 0
+		g.potManager.currentBets = make(map[int]int64)
+		g.phase = pokerrpc.GamePhase_FLOP
 		g.sm.Send(evAdvance{})
-		g.log.Debug("maybeAdvancePhase: advanced to FLOP")
 	case pokerrpc.GamePhase_FLOP:
-		g.StateTurn()
+		g.dealTurn()
+		g.currentBet = 0
+		g.potManager.currentBets = make(map[int]int64)
+		g.phase = pokerrpc.GamePhase_TURN
 		g.sm.Send(evAdvance{})
-		g.log.Debug("maybeAdvancePhase: advanced to TURN")
 	case pokerrpc.GamePhase_TURN:
-		g.StateRiver()
+		g.dealRiver()
+		g.currentBet = 0
+		g.potManager.currentBets = make(map[int]int64)
+		g.phase = pokerrpc.GamePhase_RIVER
 		g.sm.Send(evAdvance{})
-		g.log.Debug("maybeAdvancePhase: advanced to RIVER")
 	case pokerrpc.GamePhase_RIVER:
 		g.phase = pokerrpc.GamePhase_SHOWDOWN
 		g.sm.Send(evGotoShowdown{})
-		g.log.Debug("maybeAdvancePhase: advanced to SHOWDOWN")
 		return
 	}
 
 	// Reset for new betting round
 	for _, p := range g.players {
-		p.currentBet = 0
+		if p != nil {
+			p.mu.Lock()
+			p.currentBet = 0
+			p.mu.Unlock()
+		}
 	}
-	g.currentBet = 0
-	g.ResetActionsInRound() // Reset actions counter for new betting round
+	// table-wide currentBet is reset by FSM state handlers; avoid double-write here
+	g.actionsInRound = 0 // safe: we already hold g.mu via wrapper
 
 	// Reset current player for new betting round
 	g.initializeCurrentPlayer()
@@ -1326,7 +1371,9 @@ func (g *Game) maybeCompleteBettingRound() {
 	// Set the new current player's LastAction to now for the new betting round
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
 		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" {
+			g.players[g.currentPlayer].mu.Lock()
 			g.players[g.currentPlayer].lastAction = time.Now()
+			g.players[g.currentPlayer].mu.Unlock()
 		}
 	}
 }
@@ -1569,56 +1616,65 @@ func (g *Game) scheduleAutoStart() {
 	// Mark that auto-start is pending
 	g.autoStartCanceled = false
 
-	// Schedule the auto-start
-	g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
-		// Check if auto-start was canceled (without holding lock)
-		g.mu.Lock()
-		canceled := g.autoStartCanceled
-		callbacks := g.autoStartCallbacks
-		log := g.log
-		g.mu.Unlock()
+	// Schedule the auto-start with self-rescheduling if conditions aren't met
+	var scheduleCheck func()
+	scheduleCheck = func() {
+		g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
+			// Check if auto-start was canceled (without holding lock)
+			g.mu.Lock()
+			canceled := g.autoStartCanceled
+			callbacks := g.autoStartCallbacks
+			log := g.log
+			cfg := g.config
+			g.mu.Unlock()
 
-		if canceled {
-			return
-		}
+			if canceled {
+				return
+			}
 
-		if callbacks == nil {
-			return
-		}
+			if callbacks == nil {
+				return
+			}
 
-		readyCount := 0
-		for _, player := range g.players {
-			// Count players who have any chips left. Short stacks will auto-post
-			// blinds all-in when needed during hand setup.
-			if player.balance > 0 {
-				readyCount++
-				// Log explicitly that short stacks are still eligible for auto-start.
-				if player.balance < g.config.BigBlind {
-					log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", player.id, player.balance, g.config.BigBlind)
+			readyCount := 0
+			for _, player := range g.players {
+				// Count players who have any chips left. Short stacks will auto-post
+				// blinds all-in when needed during hand setup.
+				if player.balance > 0 {
+					readyCount++
+					// Log explicitly that short stacks are still eligible for auto-start.
+					if player.balance < cfg.BigBlind {
+						log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", player.id, player.balance, cfg.BigBlind)
+					} else {
+						log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", player.id, player.balance, cfg.BigBlind)
+					}
 				} else {
-					log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", player.id, player.balance, g.config.BigBlind)
+					log.Debugf("Player %s not ready for auto-start: balance=0", player.id)
 				}
-			} else {
-				log.Debugf("Player %s not ready for auto-start: balance=0", player.id)
 			}
-		}
 
-		minRequired := callbacks.MinPlayers()
-		log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
-		if readyCount >= minRequired {
-			err := callbacks.StartNewHand()
-			if err != nil {
-				log.Debugf("Auto-start new hand failed: %v", err)
-			} else {
-				if callbacks.OnNewHandStarted != nil {
-					// Invoke the callback
-					go callbacks.OnNewHandStarted()
+			minRequired := callbacks.MinPlayers()
+			log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
+			if readyCount >= minRequired {
+				err := callbacks.StartNewHand()
+				if err != nil {
+					log.Debugf("Auto-start new hand failed: %v", err)
+					// Reschedule on failure
+					scheduleCheck()
+				} else {
+					if callbacks.OnNewHandStarted != nil {
+						// Invoke the callback
+						go callbacks.OnNewHandStarted()
+					}
 				}
+			} else {
+				// Not enough players yet - reschedule to check again
+				log.Debugf("Not enough players for auto-start: %d < %d, will check again", readyCount, minRequired)
+				scheduleCheck()
 			}
-		} else {
-			log.Debugf("Not enough players for auto-start: %d < %d", readyCount, minRequired)
-		}
-	})
+		})
+	}
+	scheduleCheck()
 }
 
 // CancelAutoStart cancels any pending auto-start timer
@@ -1681,6 +1737,7 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 		}
 		copy(playerCopy.hand, player.hand)
 		player.mu.RUnlock()
+
 		playersCopy[i] = playerCopy
 	}
 
@@ -1750,12 +1807,34 @@ func (g *Game) SetOnNewHandStartedCallback(cb func()) {
 	g.autoStartCallbacks.OnNewHandStarted = cb
 }
 
-type evAdvance struct{}        // advance current betting/phase when conditions met
-func (evAdvance) isGameEvent() {}
+// dealFlop adds three community cards. Caller MUST hold g.mu.
+func (g *Game) dealFlop() {
+	need := 3 - len(g.communityCards)
+	for i := 0; i < need; i++ {
+		if card, ok := g.deck.Draw(); ok {
+			g.communityCards = append(g.communityCards, card)
+		}
+	}
+}
 
-type evGotoShowdown struct{}        // force immediate showdown (e.g., only one alive)
-func (evGotoShowdown) isGameEvent() {}
+// dealTurn adds one community card. Caller MUST hold g.mu.
+func (g *Game) dealTurn() {
+	if len(g.communityCards) < 4 {
+		if card, ok := g.deck.Draw(); ok {
+			g.communityCards = append(g.communityCards, card)
+		}
+	}
+}
 
-type evCallDelta struct{ Amt int64 }
+// dealRiver adds one community card. Caller MUST hold g.mu.
+func (g *Game) dealRiver() {
+	if len(g.communityCards) < 5 {
+		if card, ok := g.deck.Draw(); ok {
+			g.communityCards = append(g.communityCards, card)
+		}
+	}
+}
 
-func (evCallDelta) isPlayerEvent() {}
+type evAdvance struct{} // advance current betting/phase when conditions met
+
+type evGotoShowdown struct{} // force immediate showdown (e.g., only one alive)

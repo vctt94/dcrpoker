@@ -206,8 +206,8 @@ func (t *Table) allPlayersReady() bool {
 
 // WAITING_FOR_PLAYERS
 func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
-	for {
-		switch (<-in).(type) {
+	for ev := range in {
+		switch ev.(type) {
 		case evUsersChanged:
 			if t.allPlayersReady() {
 				return tableStatePlayersReady
@@ -224,13 +224,14 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 		default:
 		}
 	}
+	return nil
 }
 
 // PLAYERS_READY
 func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
-	for {
+	for ev := range in {
 		fmt.Println("tableStatePlayersReady")
-		switch (<-in).(type) {
+		switch ev.(type) {
 		case evUsersChanged:
 			if !t.allPlayersReady() {
 				return tableStateWaitingForPlayers
@@ -244,17 +245,19 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 		default:
 		}
 	}
+	return nil
 }
 
 // GAME_ACTIVE
 func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
-	for {
-		switch (<-in).(type) {
+	for ev := range in {
+		switch ev.(type) {
 		case evGameEnded:
 			return tableStateWaitingForPlayers
 		default:
 		}
 	}
+	return nil
 }
 
 // GetTableStateString returns a string representation of the current table state
@@ -485,20 +488,7 @@ func (t *Table) handleShowdown() error {
 	// Schedule auto-start of the next hand strictly after showdown resolution
 	if t.config.AutoStartDelay > 0 {
 		t.log.Debugf("Scheduling auto-start for new hand with delay %v", t.config.AutoStartDelay)
-		// Provide callbacks if not already set (check with game lock)
-		if !t.game.HasAutoStartCallbacks() {
-			t.game.SetAutoStartCallbacks(&AutoStartCallbacks{
-				MinPlayers: func() int {
-					remainingPlayers := len(t.users)
-					if remainingPlayers >= 2 {
-						return 2 // Allow heads-up play
-					}
-					return t.config.MinPlayers
-				},
-				StartNewHand:     func() error { return t.startNewHand() },
-				OnNewHandStarted: nil,
-			})
-		}
+		t.ensureAutoStartCallbacks()
 		t.game.ScheduleAutoStart()
 	}
 	t.mu.Unlock()
@@ -840,14 +830,19 @@ func (t *Table) HandleTimeouts() {
 	}
 
 	// Respect monotonic time: compare against a deadline derived from lastAction.
-	// (Assumes lastAction preserves monotonic clock; if you copy it into the snapshot, keep the monotonic part.)
-	deadline := cp.lastAction.Add(t.config.TimeBank)
+	// Protect reads with player lock to avoid data races with actions.
+	cp.mu.RLock()
+	la := cp.lastAction
+	curBet := cp.currentBet
+	pid := cp.id
+	cp.mu.RUnlock()
+	deadline := la.Add(t.config.TimeBank)
 	if time.Now().Before(deadline) {
 		return
 	}
 
-	playerID := cp.id
-	need := g.GetCurrentBet() - cp.currentBet
+	playerID := pid
+	need := g.GetCurrentBet() - curBet
 
 	// Decide from snapshot WITHOUT holding any locks, then perform exactly one mutating call.
 	// Use table-level wrappers (Check/Fold/MakeBet) if they enforce your global lock order.
@@ -934,7 +929,8 @@ func (t *Table) MaybeCompleteBettingRound() error {
 	// Otherwise, delegate to Game layer for normal progression
 	phaseBefore := t.game.GetPhase()
 	t.log.Debugf("table.maybeAdvancePhase: delegating (phase=%v actionsInRound=%d currentBet=%d)", phaseBefore, t.game.GetActionsInRound(), t.game.GetCurrentBet())
-	t.game.maybeCompleteBettingRound()
+	// Use the concurrency-safe wrapper to avoid races with FSM state writes
+	t.game.MaybeCompleteBettingRound()
 	phaseAfter := t.game.GetPhase()
 
 	// If phase changed, publish NEW_ROUND event to notify players
@@ -1167,7 +1163,9 @@ func (t *Table) postBlindsFromGame() error {
 	// Reset all player bets before posting blinds
 	for _, player := range t.game.players {
 		if player != nil {
+			player.mu.Lock()
 			player.currentBet = 0
+			player.mu.Unlock()
 		}
 	}
 
@@ -1183,9 +1181,11 @@ func (t *Table) postBlindsFromGame() error {
 			t.log.Debugf("Player %s all-in for small blind: posting %d (had %d)", player.id, smallBlindAmount, player.balance)
 		}
 
-		// Apply changes first, then set state accordingly
+		// Apply changes under player lock
+		player.mu.Lock()
 		player.balance -= smallBlindAmount
 		player.currentBet = smallBlindAmount
+		player.mu.Unlock()
 
 		t.game.potManager.addBet(smallBlindPos, smallBlindAmount, t.game.players)
 
@@ -1206,9 +1206,11 @@ func (t *Table) postBlindsFromGame() error {
 			t.log.Debugf("Player %s all-in for big blind: posting %d (had %d)", player.id, bigBlindAmount, player.balance)
 		}
 
-		// Apply changes first, then set state accordingly
+		// Apply changes under player lock
+		player.mu.Lock()
 		player.balance -= bigBlindAmount
 		player.currentBet = bigBlindAmount
+		player.mu.Unlock()
 
 		t.game.potManager.addBet(bigBlindPos, bigBlindAmount, t.game.players)
 		t.game.currentBet = bigBlindAmount // Set current bet to big blind amount
@@ -1237,7 +1239,9 @@ func (t *Table) dealCardsToPlayers(activePlayers []*User) error {
 			found := false
 			for _, player := range t.game.players {
 				if player.id == u.ID {
+					player.mu.Lock()
 					player.hand = append(player.hand, card)
+					player.mu.Unlock()
 					found = true
 					break
 				}
@@ -1245,8 +1249,6 @@ func (t *Table) dealCardsToPlayers(activePlayers []*User) error {
 
 			if !found {
 				t.log.Debugf("DEBUG: Could not find game player for user %s when dealing cards", u.ID)
-			} else {
-
 			}
 		}
 	}
@@ -1430,6 +1432,28 @@ func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error 
 
 	u.DCRAccountBalance = newBalance
 	return nil
+}
+
+// ensureAutoStartCallbacks sets up auto-start callbacks if not already configured.
+// Caller must NOT hold t.mu; the callbacks will acquire locks as needed.
+func (t *Table) ensureAutoStartCallbacks() {
+	if t.game == nil || t.game.HasAutoStartCallbacks() {
+		return
+	}
+
+	t.game.SetAutoStartCallbacks(&AutoStartCallbacks{
+		MinPlayers: func() int {
+			t.mu.RLock()
+			remaining := len(t.users)
+			t.mu.RUnlock()
+			if remaining >= 2 {
+				return 2 // Allow heads-up play
+			}
+			return t.config.MinPlayers
+		},
+		StartNewHand:     func() error { return t.startNewHand() },
+		OnNewHandStarted: nil,
+	})
 }
 
 // XX We need to properly fix this restore for clients. and properly restore game state from sm

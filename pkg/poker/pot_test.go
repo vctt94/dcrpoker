@@ -9,6 +9,25 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
+// test-safe helper setters to avoid data races with the Player FSM.
+func setBalance(p *Player, v int64) {
+	p.mu.Lock()
+	p.balance = v
+	p.mu.Unlock()
+}
+
+func setHandValue(p *Player, hv *HandValue) {
+	p.mu.Lock()
+	p.handValue = hv
+	p.mu.Unlock()
+}
+
+func setHandDesc(p *Player, d string) {
+	p.mu.Lock()
+	p.handDescription = d
+	p.mu.Unlock()
+}
+
 func equalBool(a, b []bool) bool {
 	if len(a) != len(b) {
 		return false
@@ -218,14 +237,14 @@ func TestPotDistribution(t *testing.T) {
 
 	// Set up hand values and states manually for test
 	players[0].sm.Send(evAllIn{})
-	players[0].handValue = &HandValue{Rank: TwoPair, RankValue: 3500} // Two Pair, Aces (lower rank value = better)
+	setHandValue(players[0], &HandValue{Rank: TwoPair, RankValue: 3500}) // Two Pair, Aces (lower rank value = better)
 	players[0].sm.Send(evStartHand{})
 
-	players[1].handValue = &HandValue{Rank: Pair, RankValue: 4000} // Pair of 10s (higher rank value = worse)
+	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 4000}) // Pair of 10s (higher rank value = worse)
 	players[1].sm.Send(evStartHand{})
 
 	players[2].sm.Send(evAllIn{})
-	players[2].handValue = &HandValue{Rank: ThreeOfAKind, RankValue: 500} // Three of a kind, 5s (lowest rank value = best overall)
+	setHandValue(players[2], &HandValue{Rank: ThreeOfAKind, RankValue: 500}) // Three of a kind, 5s (lowest rank value = best overall)
 	players[2].sm.Send(evStartHand{})
 
 	// Player 0 bets 50
@@ -259,9 +278,9 @@ func TestPotDistribution(t *testing.T) {
 	pm.pots = append(pm.pots, sidepot)
 
 	// Reset player balances for cleaner testing
-	players[0].balance = 0
-	players[1].balance = 0
-	players[2].balance = 0
+	setBalance(players[0], 0)
+	setBalance(players[1], 0)
+	setBalance(players[2], 0)
 
 	// Distribute pots
 	if err := pm.distributePots(players); err != nil {
@@ -297,8 +316,8 @@ func TestTiepotDistribution(t *testing.T) {
 	}
 
 	// Set hand values
-	players[0].handValue = &HandValue{Rank: Pair, RankValue: 10} // Player 0: Pair of 10s
-	players[1].handValue = &HandValue{Rank: Pair, RankValue: 10} // Player 1: Pair of 10s
+	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 10}) // Player 0: Pair of 10s
+	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 10}) // Player 1: Pair of 10s
 
 	// Both players bet 50
 	pm.addBet(0, 50, players)
@@ -331,9 +350,9 @@ func TestOddChipDistribution(t *testing.T) {
 	}
 
 	// Set hand values
-	players[0].handValue = &HandValue{Rank: Pair, RankValue: 10} // Player 0: Pair of 10s
-	players[1].handValue = &HandValue{Rank: Pair, RankValue: 10} // Player 1: Pair of 10s
-	players[2].handValue = &HandValue{Rank: Pair, RankValue: 10} // Player 2: Pair of 10s
+	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 10}) // Player 0: Pair of 10s
+	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 10}) // Player 1: Pair of 10s
+	setHandValue(players[2], &HandValue{Rank: Pair, RankValue: 10}) // Player 2: Pair of 10s
 
 	// All players bet 50
 	pm.addBet(0, 50, players)
@@ -363,9 +382,9 @@ func TestOddChipDistribution(t *testing.T) {
 	pm = NewPotManager(3)
 
 	// Reset player balances
-	players[0].balance = 0
-	players[1].balance = 0
-	players[2].balance = 0
+	setBalance(players[0], 0)
+	setBalance(players[1], 0)
+	setBalance(players[2], 0)
 
 	// All players bet 50, plus 1 extra chip
 	pm.addBet(0, 50, players)
@@ -531,14 +550,14 @@ func TestHeadsUppotDistributionAfterCall(t *testing.T) {
 	// Both players check through flop, turn, river (no additional bets)
 
 	// Update players for showdown (set balances to 0 for testing)
-	players[0].balance = 0 // Player 0 wins
-	players[1].balance = 0 // Player 1 loses
+	setBalance(players[0], 0) // Player 0 wins
+	setBalance(players[1], 0) // Player 1 loses
 
 	// Set up hand values and states manually for test
 	players[0].sm.Send(evStartHand{})
-	players[0].handValue = &HandValue{Rank: Pair, RankValue: 100}
+	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 100})
 	players[1].sm.Send(evStartHand{})
-	players[1].handValue = &HandValue{Rank: HighCard, RankValue: 1000}
+	setHandValue(players[1], &HandValue{Rank: HighCard, RankValue: 1000})
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
 	if err := pm.distributePots(players); err != nil {
@@ -679,11 +698,11 @@ func TestBetTrackingRegression(t *testing.T) {
 				}
 
 				if isWinner {
-					player.handValue = &HandValue{Rank: Pair, RankValue: 100}
-					player.handDescription = "Pair of Tens"
+					setHandValue(player, &HandValue{Rank: Pair, RankValue: 100})
+					setHandDesc(player, "Pair of Tens")
 				} else {
-					player.handValue = &HandValue{Rank: HighCard, RankValue: 1000 + i}
-					player.handDescription = "High Card"
+					setHandValue(player, &HandValue{Rank: HighCard, RankValue: 1000 + i})
+					setHandDesc(player, "High Card")
 				}
 				// Set players to in-game state
 				player.sm.Send(evStartHand{})
@@ -1074,10 +1093,10 @@ func TestShowdownWinningsNotification_potZeroedAfterDistribution(t *testing.T) {
 	}
 
 	// Set hand values
-	players[0].handValue = &HandValue{Rank: Pair, RankValue: 100} // Winner
-	players[0].handDescription = "Pair of Tens"
-	players[1].handValue = &HandValue{Rank: HighCard, RankValue: 1000} // Loser
-	players[1].handDescription = "High Card"
+	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 100}) // Winner
+	setHandDesc(players[0], "Pair of Tens")
+	setHandValue(players[1], &HandValue{Rank: HighCard, RankValue: 1000}) // Loser
+	setHandDesc(players[1], "High Card")
 
 	// Bets: 50 + 50 = 100
 	pm.addBet(0, 50, players)
@@ -1169,9 +1188,9 @@ func TestContested_EqualStacks_SingleWinner(t *testing.T) {
 	pm.addBet(2, 20, players)
 
 	// showdown winners: only A (index 0)
-	players[0].handValue = &HandValue{HandRank: pokerrpc.HandRank_PAIR, RankValue: 0}
-	players[1].handValue = &HandValue{HandRank: pokerrpc.HandRank_HIGH_CARD, RankValue: 1}
-	players[2].handValue = &HandValue{HandRank: pokerrpc.HandRank_HIGH_CARD, RankValue: 1}
+	setHandValue(players[0], &HandValue{HandRank: pokerrpc.HandRank_PAIR, RankValue: 0})
+	setHandValue(players[1], &HandValue{HandRank: pokerrpc.HandRank_HIGH_CARD, RankValue: 1})
+	setHandValue(players[2], &HandValue{HandRank: pokerrpc.HandRank_HIGH_CARD, RankValue: 1})
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
 
@@ -1196,9 +1215,9 @@ func TestContested_Sidepot_BWinsMain_CWinsSide(t *testing.T) {
 	pm.addBet(1, 50, players)  // B (all-in)
 	pm.addBet(2, 100, players) // C
 
-	players[0].handValue = &HandValue{RankValue: 2} // A
-	players[1].handValue = &HandValue{RankValue: 1} // B (best)
-	players[2].handValue = &HandValue{RankValue: 2} // C
+	setHandValue(players[0], &HandValue{RankValue: 2}) // A
+	setHandValue(players[1], &HandValue{RankValue: 1}) // B (best)
+	setHandValue(players[2], &HandValue{RankValue: 2}) // C
 
 	// (Optional sanity checks)
 	if got := pm.getTotalPot(); got != 250 {
@@ -1285,9 +1304,9 @@ func TestContested_TieSplitRemainder(t *testing.T) {
 	pm.addBet(1, 50, players)
 	pm.addBet(2, 50, players)
 
-	players[0].handValue = &HandValue{HandRank: 5, RankValue: 100} // Straight
-	players[1].handValue = &HandValue{HandRank: 3, RankValue: 200} // Trips (worse)
-	players[2].handValue = &HandValue{HandRank: 5, RankValue: 100} // Straight (tie)
+	setHandValue(players[0], &HandValue{HandRank: 5, RankValue: 100}) // Straight
+	setHandValue(players[1], &HandValue{HandRank: 3, RankValue: 200}) // Trips (worse)
+	setHandValue(players[2], &HandValue{HandRank: 5, RankValue: 100}) // Straight (tie)
 
 	bals, pot := settle(t, pm, players)
 	if pot != 150 {
@@ -1342,8 +1361,8 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 
 	// Set hand values so that P1 beats P0. Lower RankValue is better
 	// (chehsunliu semantics), so give P1 the lower value.
-	players[0].handValue = &HandValue{Rank: HighCard, RankValue: 1000}
-	players[1].handValue = &HandValue{Rank: Pair, RankValue: 100}
+	setHandValue(players[0], &HandValue{Rank: HighCard, RankValue: 1000})
+	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 100})
 
 	if err := pm.distributePots(players); err != nil {
 		t.Fatalf("distributePots failed: %v", err)

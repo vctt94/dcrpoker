@@ -14,32 +14,32 @@ import (
 func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream pokerrpc.PokerService_StartGameStreamServer) error {
 	tableID, playerID := req.TableId, req.PlayerId
 
-    // Get or create the table bucket (single step).
-    bAny, _ := s.gameStreams.LoadOrStore(tableID, &bucket{})
-    b := bAny.(*bucket)
+	// Get or create the table bucket (single step).
+	bAny, _ := s.gameStreams.LoadOrStore(tableID, &bucket{})
+	b := bAny.(*bucket)
 
-    // Register player stream. If a stream already exists for this player,
-    // replace it with the newest one without incrementing the count. This
-    // ensures the most recent attachment (e.g., Flutter UI) receives updates
-    // and avoids starving newer clients when multiple components attach.
-    if _, loaded := b.streams.Load(playerID); loaded {
-        b.streams.Store(playerID, stream)
-    } else {
-        b.streams.Store(playerID, stream)
-        b.count.Add(1)
-    }
+	// Register player stream. If a stream already exists for this player,
+	// replace it with the newest one without incrementing the count. This
+	// ensures the most recent attachment (e.g., Flutter UI) receives updates
+	// and avoids starving newer clients when multiple components attach.
+	if _, loaded := b.streams.Load(playerID); loaded {
+		b.streams.Store(playerID, stream)
+	} else {
+		b.streams.Store(playerID, stream)
+		b.count.Add(1)
+	}
 
-    // Unregister on exit only if this goroutine still owns the stored stream.
-    // This prevents a replaced (older) stream from deleting the newer mapping.
-    defer func() {
-        if v, present := b.streams.Load(playerID); present && v == stream {
-            b.streams.Delete(playerID)
-            if b.count.Add(-1) == 0 {
-                // Remove this bucket iff it's still the same one we used.
-                s.gameStreams.CompareAndDelete(tableID, b)
-            }
-        }
-    }()
+	// Unregister on exit only if this goroutine still owns the stored stream.
+	// This prevents a replaced (older) stream from deleting the newer mapping.
+	defer func() {
+		if v, present := b.streams.Load(playerID); present && v == stream {
+			b.streams.Delete(playerID)
+			if b.count.Add(-1) == 0 {
+				// Remove this bucket iff it's still the same one we used.
+				s.gameStreams.CompareAndDelete(tableID, b)
+			}
+		}
+	}()
 
 	// Send initial game state.
 	gs, err := s.buildGameState(tableID, playerID)
@@ -325,10 +325,7 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 					Value: card.GetValue(),
 				}
 			}
-			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v)", len(p.Hand()), p.ID(), game.GetPhase())
-		} else {
-			// Debug: Log why cards are not being shown
-			s.log.Debugf("DEBUG: Not showing cards for player %s: phase=%v, handSize=%d", p.ID(), game.GetPhase(), len(p.Hand()))
+			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v, state=%s)", len(p.Hand()), p.ID(), game.GetPhase(), p.GetCurrentStateString())
 		}
 	} else if game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && len(p.Hand()) > 0 {
 		// Show other players' cards only during showdown
