@@ -157,7 +157,12 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get tables: %v", err)
 		}
-		return tables, nil
+		// Convert protobuf tables to DTOs with explicit field types
+		dtos := make([]*pokerTable, 0, len(tables))
+		for _, t := range tables {
+			dtos = append(dtos, tableFromProto(t))
+		}
+		return dtos, nil
 
 	case CTJoinPokerTable:
 		var req joinPokerTable
@@ -172,10 +177,6 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, fmt.Errorf("failed to join table: %v", err)
 		}
 
-		// Immediately start game stream; make failures fatal (no silent fallbacks).
-		if err := cc.c.StartGameStream(cc.ctx); err != nil {
-			return nil, fmt.Errorf("failed to start game stream: %v", err)
-		}
 		notify(NTLogLine, fmt.Sprintf("CTJoinPokerTable ok: player=%s table=%s", cc.ID.String(), req.TableID), nil)
 		return map[string]string{"status": "joined", "table_id": req.TableID}, nil
 

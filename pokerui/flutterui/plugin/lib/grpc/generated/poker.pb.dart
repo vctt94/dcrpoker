@@ -2841,7 +2841,7 @@ class Player extends $pb.GeneratedMessage {
     ..aOB(9, _omitFieldNames ? '' : 'isDealer')
     ..aOB(10, _omitFieldNames ? '' : 'isReady')
     ..aOS(11, _omitFieldNames ? '' : 'handDescription')
-    ..e<PlayerState>(12, _omitFieldNames ? '' : 'playerState', $pb.PbFieldType.OE, defaultOrMaker: PlayerState.PLAYER_STATE_AT_TABLE, valueOf: PlayerState.valueOf, enumValues: PlayerState.values)
+    ..e<PlayerState>(12, _omitFieldNames ? '' : 'playerState', $pb.PbFieldType.OE, defaultOrMaker: PlayerState.PLAYER_STATE_UNINITIALIZED, valueOf: PlayerState.valueOf, enumValues: PlayerState.values)
     ..hasRequiredFields = false
   ;
 

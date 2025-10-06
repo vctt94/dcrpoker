@@ -41,13 +41,15 @@ class GamePhase extends $pb.ProtobufEnum {
 
 /// PlayerState captures the per-player state machine state.
 class PlayerState extends $pb.ProtobufEnum {
-  static const PlayerState PLAYER_STATE_AT_TABLE = PlayerState._(0, _omitEnumNames ? '' : 'PLAYER_STATE_AT_TABLE');
-  static const PlayerState PLAYER_STATE_IN_GAME = PlayerState._(1, _omitEnumNames ? '' : 'PLAYER_STATE_IN_GAME');
-  static const PlayerState PLAYER_STATE_ALL_IN = PlayerState._(2, _omitEnumNames ? '' : 'PLAYER_STATE_ALL_IN');
-  static const PlayerState PLAYER_STATE_FOLDED = PlayerState._(3, _omitEnumNames ? '' : 'PLAYER_STATE_FOLDED');
-  static const PlayerState PLAYER_STATE_LEFT = PlayerState._(4, _omitEnumNames ? '' : 'PLAYER_STATE_LEFT');
+  static const PlayerState PLAYER_STATE_UNINITIALIZED = PlayerState._(0, _omitEnumNames ? '' : 'PLAYER_STATE_UNINITIALIZED');
+  static const PlayerState PLAYER_STATE_AT_TABLE = PlayerState._(1, _omitEnumNames ? '' : 'PLAYER_STATE_AT_TABLE');
+  static const PlayerState PLAYER_STATE_IN_GAME = PlayerState._(2, _omitEnumNames ? '' : 'PLAYER_STATE_IN_GAME');
+  static const PlayerState PLAYER_STATE_ALL_IN = PlayerState._(3, _omitEnumNames ? '' : 'PLAYER_STATE_ALL_IN');
+  static const PlayerState PLAYER_STATE_FOLDED = PlayerState._(4, _omitEnumNames ? '' : 'PLAYER_STATE_FOLDED');
+  static const PlayerState PLAYER_STATE_LEFT = PlayerState._(5, _omitEnumNames ? '' : 'PLAYER_STATE_LEFT');
 
   static const $core.List<PlayerState> values = <PlayerState> [
+    PLAYER_STATE_UNINITIALIZED,
     PLAYER_STATE_AT_TABLE,
     PLAYER_STATE_IN_GAME,
     PLAYER_STATE_ALL_IN,

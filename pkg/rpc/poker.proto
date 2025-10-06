@@ -63,11 +63,12 @@ enum GamePhase {
 
 // PlayerState captures the per-player state machine state.
 enum PlayerState {
-  PLAYER_STATE_AT_TABLE = 0;
-  PLAYER_STATE_IN_GAME  = 1;
-  PLAYER_STATE_ALL_IN   = 2;
-  PLAYER_STATE_FOLDED   = 3;
-  PLAYER_STATE_LEFT     = 4;
+  PLAYER_STATE_UNINITIALIZED = 0;
+  PLAYER_STATE_AT_TABLE = 1;
+  PLAYER_STATE_IN_GAME  = 2;
+  PLAYER_STATE_ALL_IN   = 3;
+  PLAYER_STATE_FOLDED   = 4;
+  PLAYER_STATE_LEFT     = 5;
 }
 
 enum NotificationType {

@@ -1,60 +1,95 @@
 package statemachine
 
 import (
+	"context"
+	"reflect"
+	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
-// StateFn represents a state function following Rob Pike's pattern
-type StateFn[T any] func(*T) StateFn[T]
+// StateFn is Rob Pike–style: it owns its loop and returns the next state (or nil to stop).
+// The input channel carries arbitrary events (typically small structs).
+type StateFn[T any] func(*T, <-chan any) StateFn[T]
 
-// StateMachine is a simple, thread-safe state machine wrapper following Rob Pike's pattern
-// State functions are the states themselves, and each returns the next state function
-type StateMachine[T any] struct {
-	// Core state machine fields
-	entity  *T           // Reference to the entity
-	stateFn StateFn[T]   // Current state function
-	mutex   sync.RWMutex // Thread safety
+// Machine runs a single goroutine that owns all transitions and entity mutations.
+type Machine[T any] struct {
+	entity    *T
+	inbox     chan any
+	stateSnap atomic.Value // stores StateFn[T]
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	closeOnce sync.Once
 }
 
-// NewStateMachine creates a new state machine for the given entity
-func NewStateMachine[T any](entity *T, initialStateFn StateFn[T]) *StateMachine[T] {
-	return &StateMachine[T]{
-		entity:  entity,
-		stateFn: initialStateFn,
+// New creates a machine with an initial state and buffered inbox.
+func New[T any](entity *T, initial StateFn[T], inboxSize int) *Machine[T] {
+	m := &Machine[T]{entity: entity, inbox: make(chan any, inboxSize)}
+	m.stateSnap.Store(initial) // typed-nil is fine
+	return m
+}
+
+// Start launches the Pike loop.
+func (m *Machine[T]) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, m.cancel = context.WithCancel(ctx)
+	m.wg.Add(1)
+	go func() {
+		defer m.wg.Done()
+		state, _ := m.stateSnap.Load().(StateFn[T])
+		for state != nil {
+			next := state(m.entity, m.inbox) // single owner => no races
+			m.stateSnap.Store(next)
+			state = next
+			select {
+			default:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+}
+
+// Stop cancels and waits for the loop to exit.
+func (m *Machine[T]) Stop() {
+	m.closeOnce.Do(func() {
+		close(m.inbox) // unblock receivers with ok=false
+		if m.cancel != nil {
+			m.cancel() // optional, keep for outside listeners
+		}
+	})
+	m.wg.Wait()
+}
+
+// Send enqueues an event (may block if inbox is full).
+func (m *Machine[T]) Send(ev any) { m.inbox <- ev }
+
+// TrySend enqueues without blocking; returns false if full.
+func (m *Machine[T]) TrySend(ev any) bool {
+	select {
+	case m.inbox <- ev:
+		return true
+	default:
+		return false
 	}
 }
 
-// Dispatch calls the current state function once and transitions to the returned state
-// stateFn is optional - if provided, it will be set as the current state before execution
-func (sm *StateMachine[T]) Dispatch(stateFn StateFn[T]) {
-	sm.mutex.Lock()
-	currentStateFn := stateFn
-	sm.stateFn = currentStateFn
-	sm.mutex.Unlock()
-
-	if currentStateFn == nil {
-		return
+// Current returns the current state function (snapshot).
+func (m *Machine[T]) Current() StateFn[T] {
+	v := m.stateSnap.Load()
+	if v == nil {
+		return nil
 	}
-
-	// Execute the state function to get the next state
-	nextStateFn := currentStateFn(sm.entity)
-
-	// Update to the next state
-	sm.mutex.Lock()
-	sm.stateFn = nextStateFn
-	sm.mutex.Unlock()
+	fn, _ := v.(StateFn[T])
+	return fn
 }
 
-// GetCurrentState returns the current state function (thread-safe)
-func (sm *StateMachine[T]) GetCurrentState() StateFn[T] {
-	sm.mutex.RLock()
-	defer sm.mutex.RUnlock()
-	return sm.stateFn
-}
-
-// SetState sets the state function without triggering callbacks
-func (sm *StateMachine[T]) SetState(stateFn StateFn[T]) {
-	sm.mutex.Lock()
-	sm.stateFn = stateFn
-	sm.mutex.Unlock()
+// NameOf (optional) is handy for logging transitions.
+func NameOf[T any](fn StateFn[T]) string {
+	if fn == nil {
+		return "<nil>"
+	}
+	return runtime.FuncForPC(reflect.ValueOf(fn).Pointer()).Name()
 }

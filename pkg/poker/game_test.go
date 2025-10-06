@@ -71,19 +71,22 @@ func TestNewGame(t *testing.T) {
 	}
 }
 
-func TestNewGamePanicsOnInvalidPlayers(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic with < 2 players")
-		}
-	}()
-
+func TestNewGameErrorsOnInvalidPlayers(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:    1,
 		StartingChips: 100,
 		Log:           createTestLogger(),
 	}
-	NewGame(cfg)
+
+	_, err := NewGame(cfg)
+	if err == nil {
+		t.Error("Expected error with < 2 players")
+	}
+
+	expectedErr := "poker: must have at least 2 players"
+	if err.Error() != expectedErr {
+		t.Errorf("Expected error '%s', got '%s'", expectedErr, err.Error())
+	}
 }
 
 func TestDealCards(t *testing.T) {
@@ -305,7 +308,7 @@ func TestTieBreakerShowdown(t *testing.T) {
 	}
 
 	// Mark player 3 as folded
-	player3.stateMachine.Dispatch(playerStateFolded)
+	player3.sm.Send(evFold{})
 
 	// Set up pot
 	game.potManager = NewPotManager(3)
@@ -400,9 +403,9 @@ func TestSidePotShowdown(t *testing.T) {
 	game.potManager.addBet(2, 30, game.players)
 
 	// Hand strengths: p3 wins main, p1 wins side
-	game.players[0].stateMachine.Dispatch(playerStateInGame)
-	game.players[1].stateMachine.Dispatch(playerStateInGame)
-	game.players[2].stateMachine.Dispatch(playerStateInGame)
+	game.players[0].sm.Send(evStartHand{})
+	game.players[1].sm.Send(evStartHand{})
+	game.players[2].sm.Send(evStartHand{})
 
 	// Give explicit evaluated values via EvaluateHand semantics
 	hv3, err := EvaluateHand([]Card{{suit: Hearts, value: Five}, {suit: Clubs, value: Five}}, []Card{{suit: Diamonds, value: Five}, {suit: Spades, value: Two}, {suit: Hearts, value: Three}, {suit: Clubs, value: Nine}, {suit: Diamonds, value: Queen}}) // trips
@@ -544,8 +547,8 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 	game.potManager.addBet(1, 50, game.players)
 
 	// Mark both players as all-in and not folded
-	game.players[0].stateMachine.Dispatch(playerStateAllIn)
-	game.players[1].stateMachine.Dispatch(playerStateAllIn)
+	game.players[0].sm.Send(evAllIn{})
+	game.players[1].sm.Send(evAllIn{})
 	game.players[0].lastAction = time.Now()
 	game.players[1].lastAction = time.Now()
 
@@ -640,10 +643,23 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	g.players[1].balance = 1000
 	g.currentPlayer = 0 // SB to act
 
+	// Debug: Check player state before call
+	t.Logf("Before call - SB state: %s, balance: %d, currentBet: %d",
+		g.players[0].GetCurrentStateString(), g.players[0].balance, g.players[0].currentBet)
+
 	// SB tries to call but cannot fully match; should go all-in for +5 only.
 	if err := g.handlePlayerCall("sb"); err != nil {
 		t.Fatalf("handlePlayerCall error: %v", err)
 	}
+
+	// Debug: Check player state after call
+	t.Logf("After call - SB state: %s, balance: %d, currentBet: %d",
+		g.players[0].GetCurrentStateString(), g.players[0].balance, g.players[0].currentBet)
+
+	// Give the state machine more time to process the evCall event
+	time.Sleep(50 * time.Millisecond)
+	t.Logf("After sleep - SB state: %s, balance: %d, currentBet: %d",
+		g.players[0].GetCurrentStateString(), g.players[0].balance, g.players[0].currentBet)
 
 	if g.players[0].balance != 0 {
 		t.Fatalf("SB expected balance 0 after all-in call, got %d", g.players[0].balance)

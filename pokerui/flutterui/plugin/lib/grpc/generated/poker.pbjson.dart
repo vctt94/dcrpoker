@@ -36,19 +36,21 @@ final $typed_data.Uint8List gamePhaseDescriptor = $convert.base64Decode(
 const PlayerState$json = {
   '1': 'PlayerState',
   '2': [
-    {'1': 'PLAYER_STATE_AT_TABLE', '2': 0},
-    {'1': 'PLAYER_STATE_IN_GAME', '2': 1},
-    {'1': 'PLAYER_STATE_ALL_IN', '2': 2},
-    {'1': 'PLAYER_STATE_FOLDED', '2': 3},
-    {'1': 'PLAYER_STATE_LEFT', '2': 4},
+    {'1': 'PLAYER_STATE_UNINITIALIZED', '2': 0},
+    {'1': 'PLAYER_STATE_AT_TABLE', '2': 1},
+    {'1': 'PLAYER_STATE_IN_GAME', '2': 2},
+    {'1': 'PLAYER_STATE_ALL_IN', '2': 3},
+    {'1': 'PLAYER_STATE_FOLDED', '2': 4},
+    {'1': 'PLAYER_STATE_LEFT', '2': 5},
   ],
 };
 
 /// Descriptor for `PlayerState`. Decode as a `google.protobuf.EnumDescriptorProto`.
 final $typed_data.Uint8List playerStateDescriptor = $convert.base64Decode(
-    'CgtQbGF5ZXJTdGF0ZRIZChVQTEFZRVJfU1RBVEVfQVRfVEFCTEUQABIYChRQTEFZRVJfU1RBVE'
-    'VfSU5fR0FNRRABEhcKE1BMQVlFUl9TVEFURV9BTExfSU4QAhIXChNQTEFZRVJfU1RBVEVfRk9M'
-    'REVEEAMSFQoRUExBWUVSX1NUQVRFX0xFRlQQBA==');
+    'CgtQbGF5ZXJTdGF0ZRIeChpQTEFZRVJfU1RBVEVfVU5JTklUSUFMSVpFRBAAEhkKFVBMQVlFUl'
+    '9TVEFURV9BVF9UQUJMRRABEhgKFFBMQVlFUl9TVEFURV9JTl9HQU1FEAISFwoTUExBWUVSX1NU'
+    'QVRFX0FMTF9JThADEhcKE1BMQVlFUl9TVEFURV9GT0xERUQQBBIVChFQTEFZRVJfU1RBVEVfTE'
+    'VGVBAF');
 
 @$core.Deprecated('Use notificationTypeDescriptor instead')
 const NotificationType$json = {

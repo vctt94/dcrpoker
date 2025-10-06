@@ -525,7 +525,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	assert.Equal(t, 1, len(winners.Winners), "expected 1 winner")
 	assert.Equal(t, "player4", winners.Winners[0].PlayerId, "expected player4 to win")
 
-	// Verify pot amount: 240 (pre-flop) + 200 (flop) + 400 (turn) + 300 (river) = 1140
+	// Verify pot amount: 240 (pre-flop) + 200 (flop) + 400 (turn) + 300 (river) = 1140 (headline pot amount)
 	assert.Equal(t, int64(1140), winners.Winners[0].Winnings, "unexpected pot amount in winner response")
 }
 

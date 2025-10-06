@@ -782,7 +782,6 @@ abstract class PluginPlatform {
     final res = await asyncCall(CTGetPokerTables, "");
     if (res == null) return [];
 
-    // Normalize payload across platforms and older/newer Go responses.
     final list = _asJsonListOrWrap(res);
     print("DEBUG: GetPokerTables response: $list");
 
@@ -791,15 +790,8 @@ abstract class PluginPlatform {
       if (item is! Map) {
         throw Exception("Invalid table item type: ${item.runtimeType}");
       }
-      final m = Map<String, dynamic>.from(item);
-      // Backwards-compat: some backends may omit these flags; default to false.
-      if (m['game_started'] == null) {
-        m['game_started'] = false;
-      }
-      if (m['all_players_ready'] == null) {
-        m['all_players_ready'] = false;
-      }
-      return PokerTable.fromJson(m);
+      // Go DTO now guarantees all fields are properly typed
+      return PokerTable.fromJson(Map<String, dynamic>.from(item));
     }).toList();
   }
 

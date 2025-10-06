@@ -715,8 +715,8 @@ class PokerPainter extends CustomPainter {
     }
     if (hero == null) return;
 
-    // Draw only during an active hand
-    if (gameState.phase == pr.GamePhase.WAITING || gameState.phase == pr.GamePhase.NEW_HAND_DEALING) return;
+    // do not draw during waiting phase
+    if (gameState.phase == pr.GamePhase.WAITING) return;
 
     // Determine sizes relative to viewport
     final cw = math.min(size.width * 0.06, 54.0);

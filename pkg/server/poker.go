@@ -12,40 +12,45 @@ import (
 )
 
 func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream pokerrpc.PokerService_StartGameStreamServer) error {
-	// Register the stream
-	s.gameStreamsMu.Lock()
-	if s.gameStreams[req.TableId] == nil {
-		s.gameStreams[req.TableId] = make(map[string]pokerrpc.PokerService_StartGameStreamServer)
-	}
-	s.gameStreams[req.TableId][req.PlayerId] = stream
-	s.gameStreamsMu.Unlock()
+	tableID, playerID := req.TableId, req.PlayerId
 
-	// Remove stream when done
-	defer func() {
-		s.gameStreamsMu.Lock()
-		if tableStreams, exists := s.gameStreams[req.TableId]; exists {
-			delete(tableStreams, req.PlayerId)
-			if len(tableStreams) == 0 {
-				delete(s.gameStreams, req.TableId)
-			}
-		}
-		s.gameStreamsMu.Unlock()
-	}()
+    // Get or create the table bucket (single step).
+    bAny, _ := s.gameStreams.LoadOrStore(tableID, &bucket{})
+    b := bAny.(*bucket)
 
-	// Send initial game state
-	gameState, err := s.buildGameState(req.TableId, req.PlayerId)
+    // Register player stream. If a stream already exists for this player,
+    // replace it with the newest one without incrementing the count. This
+    // ensures the most recent attachment (e.g., Flutter UI) receives updates
+    // and avoids starving newer clients when multiple components attach.
+    if _, loaded := b.streams.Load(playerID); loaded {
+        b.streams.Store(playerID, stream)
+    } else {
+        b.streams.Store(playerID, stream)
+        b.count.Add(1)
+    }
+
+    // Unregister on exit only if this goroutine still owns the stored stream.
+    // This prevents a replaced (older) stream from deleting the newer mapping.
+    defer func() {
+        if v, present := b.streams.Load(playerID); present && v == stream {
+            b.streams.Delete(playerID)
+            if b.count.Add(-1) == 0 {
+                // Remove this bucket iff it's still the same one we used.
+                s.gameStreams.CompareAndDelete(tableID, b)
+            }
+        }
+    }()
+
+	// Send initial game state.
+	gs, err := s.buildGameState(tableID, playerID)
 	if err != nil {
 		return err
 	}
-
-	if err := stream.Send(gameState); err != nil {
+	if err := stream.Send(gs); err != nil {
 		return err
 	}
 
-	// Keep stream open and wait for context cancellation
-	// Game state updates will be sent via the notification system when events occur
-	ctx := stream.Context()
-	<-ctx.Done()
+	<-stream.Context().Done()
 	return nil
 }
 
@@ -129,7 +134,7 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 	}
 
 	// DCR account balance is independent of chip bets; this just returns the wallet balance.
-	balance, err := s.db.GetPlayerBalance(req.PlayerId)
+	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
 	if err != nil {
 		return nil, err
 	}
@@ -290,16 +295,17 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 
 // buildPlayerForUpdate creates a Player proto message with appropriate card visibility
 func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string, game *poker.Game) *pokerrpc.Player {
+	stateStr := p.GetCurrentStateString()
 	player := &pokerrpc.Player{
 		Id:      p.ID(),
 		Balance: p.Balance(),
 		IsReady: p.IsReady(),
-		Folded:  p.GetCurrentStateString() == "FOLDED",
+		Folded:  stateStr == "FOLDED",
 		// Surface all-in status to clients so UIs can render an explicit
 		// ALL-IN badge without inferring from balance/current bet.
-		IsAllIn:     p.GetCurrentStateString() == "ALL_IN",
+		IsAllIn:     stateStr == "ALL_IN",
 		CurrentBet:  p.CurrentBet(),
-		PlayerState: p.RPCPlayerState(),
+		PlayerState: p.ProtoState(),
 	}
 
 	// Early return if game doesn't exist or player has no cards
@@ -307,11 +313,11 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 		return player
 	}
 
-	// Show cards if it's the requesting player's own data (except during NEW_HAND_DEALING to avoid race conditions)
-	// OR during showdown for all players
+	// Show cards if it's the requesting player's own data, regardless of phase
+	// (UI already hides during waiting; we proactively surface once dealt).
 	if p.ID() == requestingPlayerID {
-		// Show own cards during all active game phases (not just showdown)
-		if game.GetPhase() != pokerrpc.GamePhase_NEW_HAND_DEALING && len(p.Hand()) > 0 {
+		// Show own cards as soon as they exist
+		if len(p.Hand()) > 0 {
 			player.Hand = make([]*pokerrpc.Card, len(p.Hand()))
 			for i, card := range p.Hand() {
 				player.Hand[i] = &pokerrpc.Card{

@@ -21,36 +21,36 @@ func NewNotificationHandler(server *Server) *NotificationHandler {
 
 // HandleEvent processes an event and broadcasts appropriate notifications
 func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
-    switch event.Type {
-    case pokerrpc.NotificationType_TABLE_CREATED:
-        nh.handleTableCreated(event)
-    case pokerrpc.NotificationType_TABLE_REMOVED:
-        nh.handleTableRemoved(event)
-    case pokerrpc.NotificationType_BET_MADE:
-        nh.handleBetMade(event)
-    case pokerrpc.NotificationType_PLAYER_FOLDED:
-        nh.handlePlayerFolded(event)
-    case pokerrpc.NotificationType_CALL_MADE:
-        nh.handleCallMade(event)
-    case pokerrpc.NotificationType_CHECK_MADE:
-        nh.handleCheckMade(event)
-    case pokerrpc.NotificationType_GAME_STARTED:
-        nh.handleGameStarted(event)
-    case pokerrpc.NotificationType_GAME_ENDED:
-        nh.handleGameEnded(event)
-    case pokerrpc.NotificationType_PLAYER_READY:
-        nh.handlePlayerReady(event)
-    case pokerrpc.NotificationType_PLAYER_JOINED:
-        nh.handlePlayerJoined(event)
-    case pokerrpc.NotificationType_PLAYER_LEFT:
-        nh.handlePlayerLeft(event)
-    case pokerrpc.NotificationType_NEW_HAND_STARTED:
-        nh.handleNewHandStarted(event)
-    case pokerrpc.NotificationType_SHOWDOWN_RESULT:
-        nh.handleShowdownResult(event)
-    case pokerrpc.NotificationType_PLAYER_ALL_IN:
-        nh.handlePlayerAllIn(event)
-    }
+	switch event.Type {
+	case pokerrpc.NotificationType_TABLE_CREATED:
+		nh.handleTableCreated(event)
+	case pokerrpc.NotificationType_TABLE_REMOVED:
+		nh.handleTableRemoved(event)
+	case pokerrpc.NotificationType_BET_MADE:
+		nh.handleBetMade(event)
+	case pokerrpc.NotificationType_PLAYER_FOLDED:
+		nh.handlePlayerFolded(event)
+	case pokerrpc.NotificationType_CALL_MADE:
+		nh.handleCallMade(event)
+	case pokerrpc.NotificationType_CHECK_MADE:
+		nh.handleCheckMade(event)
+	case pokerrpc.NotificationType_GAME_STARTED:
+		nh.handleGameStarted(event)
+	case pokerrpc.NotificationType_GAME_ENDED:
+		nh.handleGameEnded(event)
+	case pokerrpc.NotificationType_PLAYER_READY:
+		nh.handlePlayerReady(event)
+	case pokerrpc.NotificationType_PLAYER_JOINED:
+		nh.handlePlayerJoined(event)
+	case pokerrpc.NotificationType_PLAYER_LEFT:
+		nh.handlePlayerLeft(event)
+	case pokerrpc.NotificationType_NEW_HAND_STARTED:
+		nh.handleNewHandStarted(event)
+	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
+		nh.handleShowdownResult(event)
+	case pokerrpc.NotificationType_PLAYER_ALL_IN:
+		nh.handlePlayerAllIn(event)
+	}
 }
 
 func (nh *NotificationHandler) handleTableCreated(event *GameEvent) {
@@ -224,12 +224,12 @@ func (nh *NotificationHandler) handlePlayerAllIn(event *GameEvent) {
 		nh.server.log.Warnf("PLAYER_ALL_IN without PlayerAllInPayload; skipping (table=%s)", event.TableID)
 		return
 	}
-    notification := &pokerrpc.Notification{
-        Type:     pokerrpc.NotificationType_PLAYER_ALL_IN,
-        PlayerId: pl.PlayerID,
-        TableId:  event.TableID,
-        Amount:   pl.Amount,
-    }
+	notification := &pokerrpc.Notification{
+		Type:     pokerrpc.NotificationType_PLAYER_ALL_IN,
+		PlayerId: pl.PlayerID,
+		TableId:  event.TableID,
+		Amount:   pl.Amount,
+	}
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }
 
@@ -311,7 +311,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSna
 			// Show own cards during all active game phases
 			gamePhase := tableSnapshot.GameSnapshot.Phase
 
-			if tableSnapshot.GameSnapshot.Phase != pokerrpc.GamePhase_NEW_HAND_DEALING && len(ps.Hand) > 0 {
+			if len(ps.Hand) > 0 {
 				player.Hand = make([]*pokerrpc.Card, len(ps.Hand))
 				for i, card := range ps.Hand {
 					player.Hand[i] = &pokerrpc.Card{

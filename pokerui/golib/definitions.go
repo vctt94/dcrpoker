@@ -119,6 +119,42 @@ func playerFromServer(sp *pokerrpc.Player) (*player, error) {
 	}, nil
 }
 
+// pokerTable represents a poker table DTO for Flutter
+// All fields are explicitly set to avoid JSON type ambiguity
+type pokerTable struct {
+	ID              string `json:"id"`
+	HostID          string `json:"host_id"`
+	SmallBlind      int64  `json:"small_blind"`
+	BigBlind        int64  `json:"big_blind"`
+	MaxPlayers      int32  `json:"max_players"`
+	MinPlayers      int32  `json:"min_players"`
+	CurrentPlayers  int32  `json:"current_players"`
+	MinBalance      int64  `json:"min_balance"`
+	BuyIn           int64  `json:"buy_in"`
+	GameStarted     bool   `json:"game_started"`
+	AllPlayersReady bool   `json:"all_players_ready"`
+}
+
+// tableFromProto converts a protobuf Table to a clean DTO with all fields explicitly set
+func tableFromProto(t *pokerrpc.Table) *pokerTable {
+	if t == nil {
+		return nil
+	}
+	return &pokerTable{
+		ID:              t.Id,
+		HostID:          t.HostId,
+		SmallBlind:      t.SmallBlind,
+		BigBlind:        t.BigBlind,
+		MaxPlayers:      t.MaxPlayers,
+		MinPlayers:      t.MinPlayers,
+		CurrentPlayers:  t.CurrentPlayers,
+		MinBalance:      t.MinBalance,
+		BuyIn:           t.BuyIn,
+		GameStarted:     t.GameStarted,
+		AllPlayersReady: t.AllPlayersReady,
+	}
+}
+
 // localInfo represents local client information
 type localInfo struct {
 	// Full hex-encoded client ID used by the server.
@@ -247,11 +283,11 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		nick = nresp.Nick
 		clientID.FromBytes(nresp.Identity)
 	}
-	// Start the notification stream
-	if err := pc.StartNotificationStream(ctx); err != nil {
-		cancel()
-		return nil, fmt.Errorf("failed to start notifications: %v", err)
-	}
+	// XXX Move notification stream to our golib?
+	// if err := pc.StartNotificationStream(ctx); err != nil {
+	// 	cancel()
+	// 	return nil, fmt.Errorf("failed to start notifications: %v", err)
+	// }
 
 	cctx := &clientCtx{
 		ID:     pc.ID,

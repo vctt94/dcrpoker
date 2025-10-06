@@ -99,7 +99,7 @@ func (s *State) HandlePM(ctx context.Context, bot *kit.Bot, pm *types.ReceivedPM
 
 	switch cmd {
 	case "balance":
-		balance, err := s.db.GetPlayerBalance(playerID)
+		balance, err := s.db.GetPlayerBalance(ctx, playerID)
 		if err != nil {
 			bot.SendPM(ctx, pm.Nick, "Error checking balance: "+err.Error())
 			return
@@ -159,7 +159,7 @@ func (s *State) handleCreateTable(ctx context.Context, bot *kit.Bot, pm *types.R
 	}
 
 	// Check player balance
-	balance, err := s.db.GetPlayerBalance(playerID)
+	balance, err := s.db.GetPlayerBalance(ctx, playerID)
 	if err != nil {
 		bot.SendPM(ctx, pm.Nick, "Error checking balance: "+err.Error())
 		return
@@ -192,7 +192,7 @@ func (s *State) handleCreateTable(ctx context.Context, bot *kit.Bot, pm *types.R
 	}
 
 	// Deduct DCR buy-in from creator's account balance
-	err = s.db.UpdatePlayerBalance(playerID, -int64(buyIn), "table buy-in", "created table")
+	err = s.db.UpdatePlayerBalance(ctx, playerID, -int64(buyIn), "table buy-in", "created table")
 	if err != nil {
 		bot.SendPM(ctx, pm.Nick, "Error deducting buy-in: "+err.Error())
 		return
@@ -224,7 +224,7 @@ func (s *State) handleJoinTable(ctx context.Context, bot *kit.Bot, pm *types.Rec
 	}
 
 	// Check player DCR balance
-	dcrBalance, err := s.db.GetPlayerBalance(playerID)
+	dcrBalance, err := s.db.GetPlayerBalance(ctx, playerID)
 	if err != nil {
 		bot.SendPM(ctx, pm.Nick, "Error checking balance: "+err.Error())
 		return
@@ -261,7 +261,7 @@ func (s *State) handleJoinTable(ctx context.Context, bot *kit.Bot, pm *types.Rec
 	}
 
 	// Deduct DCR buy-in from player's account balance
-	err = s.db.UpdatePlayerBalance(playerID, -config.BuyIn, "table buy-in", "joined table")
+	err = s.db.UpdatePlayerBalance(ctx, playerID, -config.BuyIn, "table buy-in", "joined table")
 	if err != nil {
 		// If balance update fails, remove player from table
 		table.RemoveUser(playerID)

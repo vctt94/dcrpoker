@@ -12,6 +12,11 @@ class PokerMainContent extends StatefulWidget {
 }
 
 class _PokerMainContentState extends State<PokerMainContent> {
+  // Safely shorten an ID for debug/UI without throwing on short/empty strings.
+  String _shortId(String s, [int n = 8]) {
+    if (s.isEmpty) return '';
+    return s.length <= n ? s : s.substring(0, n);
+  }
   @override
   Widget build(BuildContext context) {
     // Guard against stale state: if not seated, always render browsing
@@ -140,7 +145,7 @@ class _PokerMainContentState extends State<PokerMainContent> {
                       const Icon(Icons.table_restaurant, color: Colors.blue, size: 24),
                       const SizedBox(width: 8),
                       Text(
-                        'Table ${table.id.substring(0, 8)}...',
+                        'Table ${_shortId(table.id)}...',
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -280,7 +285,7 @@ class _PokerMainContentState extends State<PokerMainContent> {
     // during PRE_FLOP and later.
     // Example: UI DEBUG: my=... curr=... hand=2 phase=...
     // ignore: avoid_print
-    print('DEBUG: UI HandInProgress - my=${model.playerId.substring(0, 8)} curr=${game.currentPlayerId.substring(0, 8)} hand=$myHandCnt phase=${game.phase}');
+    print('DEBUG: UI HandInProgress - my=${_shortId(model.playerId)} curr=${_shortId(game.currentPlayerId)} hand=$myHandCnt phase=${game.phase}');
 
     final focusNode = FocusNode();
     final pokerGame = PokerGame(model.playerId, model);

@@ -662,11 +662,14 @@ class PokerModel extends ChangeNotifier {
       print('DEBUG: My cards: ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
     }
 
-    // Drive coarse UI state from phase only for the active table
+    // Drive coarse UI state from server phase:
+    // - SHOWDOWN -> showdown view
+    // - Any non-WAITING phase -> hand in progress (even NEW_HAND_DEALING)
+    // This avoids relying solely on gameStarted, which can lag in some snapshots.
     if (u.phase == pr.GamePhase.SHOWDOWN) {
       _state = PokerState.showdown;
       unawaited(_refreshLastWinners());
-    } else if (u.gameStarted) {
+    } else if (u.phase != pr.GamePhase.WAITING) {
       _state = PokerState.handInProgress;
     } else {
       _state = PokerState.inLobby;

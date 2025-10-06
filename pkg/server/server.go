@@ -2,6 +2,7 @@ package server
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
@@ -16,6 +17,16 @@ type NotificationStream struct {
 	done     chan struct{}
 }
 
+// bucket manages game stream connections for a specific poker table.
+// It serves as a container for all active player streams connected to a table,
+// allowing efficient broadcasting of game state updates to all players at that table.
+// The bucket is automatically created when the first player connects to a table
+// and is removed when the last player disconnects.
+type bucket struct {
+	streams sync.Map     // playerID -> pokerrpc.PokerService_StartGameStreamServer
+	count   atomic.Int32 // active players in this table
+}
+
 // Server implements both PokerService and LobbyService
 type Server struct {
 	pokerrpc.UnimplementedPokerServiceServer
@@ -27,16 +38,24 @@ type Server struct {
 	tables sync.Map // key: string (tableID) -> value: *poker.Table
 
 	// Notification streaming
-	notificationStreams map[string]*NotificationStream
-	notificationMu      sync.RWMutex
+	notificationStreams sync.Map // key: playerID string -> *NotificationStream
 
 	// Game streaming
-	gameStreams   map[string]map[string]pokerrpc.PokerService_StartGameStreamServer // tableID -> playerID -> stream
-	gameStreamsMu sync.RWMutex
+	// Maps tableID to bucket containing all active player streams for that table
+	// Each bucket manages streams for players connected to a specific table
+	gameStreams sync.Map // key: tableID string -> value: *bucket
 
 	// Table state saving synchronization
-	saveMutexes map[string]*sync.Mutex // tableID -> mutex for that table's saves
-	saveMu      sync.RWMutex           // protects saveMutexes map
+	// key: tableID string -> *sync.Mutex (serialize saves per table)
+	saveMutexes sync.Map
+
+	// Broadcast serialization per table (notifications + game state streams)
+	// key: tableID string -> *sync.Mutex
+	broadcastMutexes sync.Map
+
+	// Notification send serialization per player
+	// key: playerID string -> *sync.Mutex
+	notifSendMutexes sync.Map
 
 	// WaitGroup to ensure all async save goroutines complete before Shutdown
 	saveWg sync.WaitGroup
@@ -48,17 +67,10 @@ type Server struct {
 // NewServer creates a new poker server
 func NewServer(db Database, logBackend *logging.LogBackend) *Server {
 	server := &Server{
-		log:                 logBackend.Logger("SERVER"),
-		logBackend:          logBackend,
-		db:                  db,
-		notificationStreams: make(map[string]*NotificationStream),
-		gameStreams:         make(map[string]map[string]pokerrpc.PokerService_StartGameStreamServer),
-		saveMutexes:         make(map[string]*sync.Mutex),
+		log:        logBackend.Logger("SERVER"),
+		logBackend: logBackend,
+		db:         db,
 	}
-
-	// Initialize event processor for deadlock-free architecture
-	server.eventProcessor = NewEventProcessor(server, 1000, 3) // queue size: 1000, workers: 3
-	server.eventProcessor.Start()
 
 	// Load persisted tables on startup
 	err := server.loadAllTables()
@@ -66,6 +78,9 @@ func NewServer(db Database, logBackend *logging.LogBackend) *Server {
 		server.log.Errorf("Failed to load persisted tables: %v", err)
 	}
 
+	// Initialize event processor for deadlock-free architecture
+	server.eventProcessor = NewEventProcessor(server, 1000, 3) // queue size: 1000, workers: 3
+	server.eventProcessor.Start()
 	return server
 }
 
@@ -74,6 +89,13 @@ func (s *Server) Stop() {
 	if s.eventProcessor != nil {
 		s.eventProcessor.Stop()
 	}
+
+	// Stop all table timeout goroutines
+	tables := s.getAllTables()
+	for _, table := range tables {
+		table.StopTimeout()
+	}
+
 	// Wait for any in-flight asynchronous saves to complete before returning.
 	s.saveWg.Wait()
 }

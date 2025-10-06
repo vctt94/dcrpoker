@@ -51,11 +51,6 @@ func (pm *potManager) addBet(playerIndex int, amount int64, players []*Player) {
 	pm.rebuildPotsIncremental(players)
 }
 
-// getMainPot returns the main pot
-func (pm *potManager) getMainPot() *pot {
-	return pm.pots[0]
-}
-
 // getTotalPot returns the total amount across all pots
 func (pm *potManager) getTotalPot() int64 {
 	var total int64

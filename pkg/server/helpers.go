@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
-	"sort"
 	"sync"
+	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server/internal/db"
@@ -27,102 +29,35 @@ func (s *Server) buildGameState(tableID, requestingPlayerID string) (*pokerrpc.G
 	return s.buildGameStateForPlayer(table, game, requestingPlayerID), nil
 }
 
-// saveTableState persists the current table state to the database
+// saveTableState persists a fast-restore snapshot (opaque JSON blob) to the DB.
+// Canonical state is history (hands/actions); this is only a cache to speed up
+// warm starts and reconnects.
 func (s *Server) saveTableState(tableID string) error {
 	table, ok := s.getTable(tableID)
 	if !ok {
 		return fmt.Errorf("table not found")
 	}
 
-	// Get atomic snapshot of table state to prevent race conditions
+	// Take an atomic snapshot from the runtime (table implements this).
+	// This should contain everything you want for quick hydration:
+	// config, users (seats/ready), and the game's own snapshot if you include it.
 	tableSnapshot := table.GetStateSnapshot()
 
-	// Create table state for database
-	dbTableState := &db.TableState{
-		ID:            tableID,
-		HostID:        tableSnapshot.Config.HostID,
-		BuyIn:         tableSnapshot.Config.BuyIn,
-		MinPlayers:    tableSnapshot.Config.MinPlayers,
-		MaxPlayers:    tableSnapshot.Config.MaxPlayers,
-		SmallBlind:    tableSnapshot.Config.SmallBlind,
-		BigBlind:      tableSnapshot.Config.BigBlind,
-		MinBalance:    tableSnapshot.Config.MinBalance,
-		StartingChips: tableSnapshot.Config.StartingChips,
-		GameStarted:   tableSnapshot.GameStarted,
-		GamePhase:     tableSnapshot.GamePhase.String(),
-		CreatedAt:     "", // Will be set by database
-		LastAction:    "", // Will be set by database
+	// Marshal to JSON (opaque payload for db.table_snapshots).
+	payload, err := json.Marshal(tableSnapshot)
+	if err != nil {
+		return fmt.Errorf("marshal snapshot: %w", err)
 	}
 
-	// Add game-specific state if game exists
-	if tableSnapshot.Game != nil {
-		dbTableState.Dealer = tableSnapshot.Game.Dealer
-		dbTableState.CurrentPlayer = tableSnapshot.Game.CurrentPlayer
-		dbTableState.CurrentBet = tableSnapshot.Game.CurrentBet
-		dbTableState.Pot = tableSnapshot.Game.Pot
-		dbTableState.Round = tableSnapshot.Game.Round
-		dbTableState.BetRound = tableSnapshot.Game.BetRound
-		dbTableState.CommunityCards = tableSnapshot.Game.CommunityCards
-		dbTableState.DeckState = tableSnapshot.Game.DeckState
-	}
-
-	// Build an aggregated, de-duplicated set of player states.
-	playerStateMap := make(map[string]*db.PlayerState)
-
-	// First gather the table users (these include players that might not yet be seated in a running game).
-	for _, user := range tableSnapshot.Users {
-		ps := &db.PlayerState{
-			PlayerID:        user.ID,
-			TableID:         tableID,
-			TableSeat:       user.TableSeat,
-			IsReady:         user.IsReady,
-			Balance:         0,
-			StartingBalance: 0,
-			GameState:       "AT_TABLE",
-		}
-		playerStateMap[user.ID] = ps
-	}
-
-	// Then override/add any players that are part of the active game so that their in-game state is captured.
-	if tableSnapshot.Game != nil {
-		for _, player := range tableSnapshot.Game.Players {
-			grpcPlayer := player.Marshal()
-			ps := &db.PlayerState{
-				PlayerID:        grpcPlayer.Id,
-				TableID:         tableID,
-				TableSeat:       player.TableSeat(),
-				IsReady:         grpcPlayer.IsReady,
-				Balance:         grpcPlayer.Balance,
-				StartingBalance: player.StartingBalance(),
-				CurrentBet:      grpcPlayer.CurrentBet,
-				HasFolded:       grpcPlayer.Folded,
-				IsAllIn:         grpcPlayer.IsAllIn,
-				IsDealer:        grpcPlayer.IsDealer,
-				IsTurn:          grpcPlayer.IsTurn,
-				GameState:       player.GetCurrentStateString(),
-				Hand:            convertGRPCHandToInterface(grpcPlayer.Hand),
-				HandDescription: grpcPlayer.HandDescription,
-			}
-			playerStateMap[grpcPlayer.Id] = ps
-		}
-	}
-
-	// Convert map to slice for saving, but ensure deterministic ordering by table seat so
-	// that the saved CurrentPlayer index will correctly map back to the same player
-	// after restoration regardless of map iteration order.
-	aggregatedPlayerStates := make([]*db.PlayerState, 0, len(playerStateMap))
-	for _, ps := range playerStateMap {
-		aggregatedPlayerStates = append(aggregatedPlayerStates, ps)
-	}
-
-	// Sort by TableSeat to guarantee stable order across save/load cycles.
-	sort.Slice(aggregatedPlayerStates, func(i, j int) bool {
-		return aggregatedPlayerStates[i].TableSeat < aggregatedPlayerStates[j].TableSeat
+	// Upsert snapshot in the DB.
+	ctx := context.Background()
+	err = s.db.UpsertSnapshot(ctx, db.Snapshot{
+		TableID:    tableID,
+		SnapshotAt: time.Now(),
+		Payload:    payload,
 	})
-
-	// Persist the whole snapshot atomically.
-	if err := s.db.SaveSnapshot(dbTableState, aggregatedPlayerStates); err != nil {
-		return fmt.Errorf("failed to save table snapshot: %v", err)
+	if err != nil {
+		return fmt.Errorf("upsert snapshot: %w", err)
 	}
 
 	return nil
@@ -130,47 +65,20 @@ func (s *Server) saveTableState(tableID string) error {
 
 // saveTableStateAsync saves table state asynchronously to avoid blocking game operations
 func (s *Server) saveTableStateAsync(tableID string, reason string) {
-	// Get or create a mutex for this table
-	s.saveMu.Lock()
-	saveMutex, exists := s.saveMutexes[tableID]
-	if !exists {
-		saveMutex = &sync.Mutex{}
-		s.saveMutexes[tableID] = saveMutex
-	}
-	s.saveMu.Unlock()
+	// Get or create a mutex for this table using concurrent map
+	v, _ := s.saveMutexes.LoadOrStore(tableID, &sync.Mutex{})
+	saveMutex, _ := v.(*sync.Mutex)
 
-	// Increment the WaitGroup to track this goroutine
+	// Track this goroutine
 	s.saveWg.Add(1)
 
 	go func() {
-		// Ensure the WaitGroup is decremented upon completion
 		defer s.saveWg.Done()
-		// Acquire the table-specific mutex to serialize saves for this table
 		saveMutex.Lock()
 		defer saveMutex.Unlock()
 
-		err := s.saveTableState(tableID)
-		if err != nil {
+		if err := s.saveTableState(tableID); err != nil {
 			s.log.Errorf("Failed to save table state for %s (%s): %v", tableID, reason, err)
 		}
 	}()
-}
-
-// convertGRPCHandToInterface converts gRPC hand to interface for database storage
-func convertGRPCHandToInterface(grpcHand []*pokerrpc.Card) interface{} {
-	if len(grpcHand) == 0 {
-		return "[]"
-	}
-
-	// Convert to JSON string for storage
-	handCards := make([]map[string]interface{}, len(grpcHand))
-	for i, card := range grpcHand {
-		handCards[i] = map[string]interface{}{
-			"suit":  card.Suit,
-			"value": card.Value,
-		}
-	}
-
-	// This will be marshaled to JSON by the database layer
-	return handCards
 }
