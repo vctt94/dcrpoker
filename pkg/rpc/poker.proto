@@ -342,6 +342,8 @@ message Player {
   bool is_ready = 10;
   string hand_description = 11; // Hand evaluation description (available during showdown)
   PlayerState player_state = 12; // Canonical player state (enum)
+  bool is_small_blind = 13; // True if this player is the small blind for current hand
+  bool is_big_blind = 14;   // True if this player is the big blind for current hand
 }
 
 message Card {

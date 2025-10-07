@@ -296,6 +296,7 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 // buildPlayerForUpdate creates a Player proto message with appropriate card visibility
 func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string, game *poker.Game) *pokerrpc.Player {
 	stateStr := p.GetCurrentStateString()
+	grpcPlayer := p.Marshal() // Get full marshaled player with all fields
 	player := &pokerrpc.Player{
 		Id:      p.ID(),
 		Balance: p.Balance(),
@@ -303,9 +304,24 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 		Folded:  stateStr == "FOLDED",
 		// Surface all-in status to clients so UIs can render an explicit
 		// ALL-IN badge without inferring from balance/current bet.
-		IsAllIn:     stateStr == "ALL_IN",
-		CurrentBet:  p.CurrentBet(),
-		PlayerState: p.ProtoState(),
+		IsAllIn:      stateStr == "ALL_IN",
+		CurrentBet:   p.CurrentBet(),
+		PlayerState:  p.ProtoState(),
+		IsDealer:     grpcPlayer.IsDealer,
+		IsSmallBlind: grpcPlayer.IsSmallBlind,
+		IsBigBlind:   grpcPlayer.IsBigBlind,
+		IsTurn:       grpcPlayer.IsTurn,
+	}
+
+	// Debug log position flags - especially log inconsistent states
+	if grpcPlayer.IsDealer || grpcPlayer.IsSmallBlind || grpcPlayer.IsBigBlind {
+		s.log.Debugf("DEBUG SERVER buildPlayerForUpdate: %s isDealer=%v isSB=%v isBB=%v phase=%v",
+			p.ID(), grpcPlayer.IsDealer, grpcPlayer.IsSmallBlind, grpcPlayer.IsBigBlind,
+			game.GetPhase())
+	}
+	// Log warning for inconsistent heads-up state (dealer should also be SB in heads-up)
+	if game != nil && len(game.GetPlayers()) == 2 && grpcPlayer.IsDealer && !grpcPlayer.IsSmallBlind {
+		s.log.Warnf("INCONSISTENT STATE: Player %s is dealer but not SB in heads-up! phase=%v", p.ID(), game.GetPhase())
 	}
 
 	// Early return if game doesn't exist or player has no cards
@@ -339,7 +355,7 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 	}
 
 	// Include hand description during showdown
-	if game != nil && game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && p.HandDescription() != "" {
+	if game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && p.HandDescription() != "" {
 		player.HandDescription = p.HandDescription()
 	}
 
@@ -399,6 +415,10 @@ func (s *Server) buildGameStateForPlayer(table *poker.Table, game *poker.Game, r
 			currentPlayerID = table.GetCurrentPlayerID()
 		}
 	}
+
+	// Note: Do not override per-player IsTurn here; the Player FSM is the
+	// single authority for that flag. UIs should rely on CurrentPlayer for
+	// highlighting to avoid transient races between EndTurn/StartTurn events.
 
 	return &pokerrpc.GameUpdate{
 		TableId:         table.GetConfig().ID,

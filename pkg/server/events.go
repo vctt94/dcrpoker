@@ -45,6 +45,8 @@ type PlayerSnapshot struct {
 	HasFolded         bool
 	IsAllIn           bool
 	IsDealer          bool
+	IsSmallBlind      bool
+	IsBigBlind        bool
 	IsTurn            bool
 	GameState         string
 	HandDescription   string

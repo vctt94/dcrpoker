@@ -234,5 +234,12 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	// Set coarse game state: dealer, counters, current bet, phase
 	g.SetGameState(gs.Dealer, gs.Round, gs.BetRound, gs.CurrentBet, gs.Pot, phase)
 
+	// If snapshot had a known current player ID, prefer it to avoid
+	// re-deriving actor mid-street, which can be ambiguous without
+	// per-player bet deltas.
+	if gs.CurrentPlayer != "" {
+		g.SetCurrentPlayerByID(gs.CurrentPlayer)
+	}
+
 	return nil
 }

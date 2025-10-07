@@ -49,6 +49,8 @@ class UiPlayer {
   final bool isTurn;
   final bool isAllIn;
   final bool isDealer;
+  final bool isSmallBlind;
+  final bool isBigBlind;
   final bool isReady;
   final String handDesc;   // only meaningful at showdown
 
@@ -62,11 +64,19 @@ class UiPlayer {
     required this.isTurn,
     required this.isAllIn,
     required this.isDealer,
+    required this.isSmallBlind,
+    required this.isBigBlind,
     required this.isReady,
     required this.handDesc,
   });
 
-  factory UiPlayer.fromProto(pr.Player p) => UiPlayer(
+  factory UiPlayer.fromProto(pr.Player p) {
+    // Debug log position flags
+    if (p.isDealer || p.isSmallBlind || p.isBigBlind) {
+      print('DEBUG fromProto: Player ${p.id} proto.isDealer=${p.isDealer} proto.isSB=${p.isSmallBlind} proto.isBB=${p.isBigBlind}');
+    }
+    
+    return UiPlayer(
         id: p.id,
         name: p.name,
         balance: p.balance.toInt(),
@@ -76,9 +86,12 @@ class UiPlayer {
         isTurn: p.isTurn,
         isAllIn: p.isAllIn,
         isDealer: p.isDealer,
+        isSmallBlind: p.isSmallBlind,
+        isBigBlind: p.isBigBlind,
         isReady: p.isReady,
         handDesc: p.handDescription,
       );
+  }
 }
 
 @immutable
@@ -232,6 +245,7 @@ class PokerModel extends ChangeNotifier {
   // Cached readiness
   bool _iAmReady = false;
   bool _seated = false; // track whether user is seated at any table
+  bool _restoring = false; // guard against repeated restore/join loops
 
   PokerModel({
     required this.lobby,
@@ -494,6 +508,18 @@ class PokerModel extends ChangeNotifier {
 
   Future<bool> joinTable(String tableId) async {
     try {
+      // Dedup: if we're already seated at this table, just (re)attach streams
+      // and refresh state instead of calling server Join again.
+      if (_seated && currentTableId == tableId) {
+        print('DEBUG: joinTable dedup - already seated at $tableId; reattaching stream');
+        await _attachGameStream();
+        await refreshGameState();
+        await _refreshLastWinners();
+        _resetBackoff();
+        notifyListeners();
+        return true;
+      }
+
       // Delegate join to embedded Go client to avoid Flutter-side identity mismatches
       final res = await Golib.joinPokerTable(JoinPokerTableArgs(tableId));
       if ((res['status'] as String?) != 'joined') {
@@ -545,15 +571,28 @@ class PokerModel extends ChangeNotifier {
   Future<void> _restoreCurrentTable() async {
     try {
       // Use golib to discover any existing table and keep Go client in sync
+      if (_restoring) return;
+      _restoring = true;
       final tid = await Golib.getPokerCurrentTable();
       print('DEBUG: _restoreCurrentTable - tid=$tid');
       if (tid.isEmpty) return;
+
+      // If we're already seated on this table, avoid re-joining; ensure stream/state.
+      if (_seated && currentTableId == tid) {
+        print('DEBUG: _restoreCurrentTable - already at $tid, skipping rejoin');
+        await _attachGameStream();
+        await refreshGameState();
+        return;
+      }
+
       // Re-join via golib to reconcile client-side state and attach streams
       await joinTable(tid);
       // Proactively refresh the state in case we attached mid-hand.
       await refreshGameState();
     } catch (_) {
       // ignore
+    } finally {
+      _restoring = false;
     }
   }
 

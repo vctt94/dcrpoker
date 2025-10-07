@@ -481,15 +481,14 @@ func (t *Table) handleShowdown() error {
 	t.game.ResetActionsInRound()
 	t.lastAction = time.Now()
 
-	if t.config.AutoStartDelay == 0 {
-		t.log.Debugf("Auto-start delay is 0, skipping auto-start")
-	}
-
 	// Schedule auto-start of the next hand strictly after showdown resolution
-	if t.config.AutoStartDelay > 0 {
+	// Delay of 0 or positive = auto-start enabled; negative = manual start only
+	if t.config.AutoStartDelay >= 0 {
 		t.log.Debugf("Scheduling auto-start for new hand with delay %v", t.config.AutoStartDelay)
 		t.ensureAutoStartCallbacks()
 		t.game.ScheduleAutoStart()
+	} else {
+		t.log.Debugf("Auto-start disabled (delay < 0), waiting for manual start")
 	}
 	t.mu.Unlock()
 

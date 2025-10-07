@@ -298,13 +298,19 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSna
 	var players []*pokerrpc.Player
 	for _, ps := range tableSnapshot.Players {
 		player := &pokerrpc.Player{
-			Id:          ps.ID,
-			Balance:     ps.Balance,
-			IsReady:     ps.IsReady,
-			Folded:      ps.HasFolded,
-			IsAllIn:     ps.IsAllIn,
-			CurrentBet:  ps.HasBet,
-			PlayerState: toRPCPlayerState(ps.GameState),
+			Id:           ps.ID,
+			Balance:      ps.Balance,
+			IsReady:      ps.IsReady,
+			Folded:       ps.HasFolded,
+			IsAllIn:      ps.IsAllIn,
+			CurrentBet:   ps.HasBet,
+			PlayerState:  toRPCPlayerState(ps.GameState),
+			IsDealer:     ps.IsDealer,
+			IsSmallBlind: ps.IsSmallBlind,
+			IsBigBlind:   ps.IsBigBlind,
+			// Use FSM-derived snapshot value. UIs should prefer
+			// GameUpdate.CurrentPlayer for highlighting.
+			IsTurn: ps.IsTurn,
 		}
 
 		if ps.ID == requestingPlayerID {

@@ -442,9 +442,22 @@ class PokerGame {
           await pokerModel.check();
           break;
         case 'B':
-          // For now, bet a fixed amount. In a real implementation, 
-          // you'd want a bet input dialog
-          await pokerModel.makeBet(100);
+          // Smart default: bet at least current bet, target 3x BB when available.
+          final g = pokerModel.game;
+          int currentBet = g?.currentBet ?? 0;
+          // Find current table to get blinds
+          final tid = pokerModel.currentTableId;
+          final table = tid == null
+              ? null
+              : pokerModel.tables.where((t) => t.id == tid).cast<UiTable?>().firstWhere(
+                    (t) => t != null,
+                    orElse: () => null,
+                  );
+          final bb = table?.bigBlind ?? 0;
+          final target = math.max(currentBet, bb * 3);
+          if (target > 0) {
+            await pokerModel.makeBet(target);
+          }
           break;
         default:
           return;
@@ -620,14 +633,52 @@ class PokerPainter extends CustomPainter {
 
   void _drawPlayers(Canvas canvas, Size size, double centerX, double centerY, double tableRadius) {
     final playerRadius = 30.0;
-    
-    for (int i = 0; i < gameState.players.length; i++) {
-      final player = gameState.players[i];
-      final angle = (i * 2 * 3.14159) / gameState.players.length;
+    final players = gameState.players;
+    final count = players.length;
+    if (count == 0) return;
+
+    // Find hero index for positioning
+    final heroIndex = players.indexWhere((p) => p.id == currentPlayerId);
+
+    for (int i = 0; i < count; i++) {
+      final player = players[i];
+      
+      // Position hero at the bottom (pi/2 radians = 90 degrees = bottom)
+      // Other players arranged around the table
+      double angle;
+      if (i == heroIndex) {
+        // Hero always at bottom
+        angle = math.pi / 2;
+      } else if (heroIndex == -1) {
+        // No hero found, distribute evenly
+        angle = (i * 2 * math.pi) / count;
+      } else {
+        // Arrange other players around the table
+        // Adjust index to account for hero being at bottom
+        final adjustedIndex = i > heroIndex ? i - 1 : i;
+        final otherCount = count - 1; // excluding hero
+        if (otherCount > 0) {
+          // Distribute others around the top half/sides
+          // Start from left (pi) and go counterclockwise, skipping bottom (pi/2)
+          final step = (2 * math.pi) / (otherCount + 1);
+          angle = math.pi + (adjustedIndex + 1) * step;
+        } else {
+          angle = (i * 2 * math.pi) / count;
+        }
+      }
+      
       final playerX = centerX + (tableRadius + 50) * math.cos(angle);
       final playerY = centerY + (tableRadius + 50) * math.sin(angle);
-      
-      _drawPlayer(canvas, playerX, playerY, playerRadius, player, i);
+
+      _drawPlayer(
+        canvas,
+        playerX,
+        playerY,
+        playerRadius,
+        player,
+        i,
+        angle,
+      );
 
       // Draw opponent backs near their seat if their hand is hidden but they are in-hand.
       // If a player's hand is known (e.g., at showdown or hero), it will be drawn elsewhere.
@@ -646,30 +697,57 @@ class PokerPainter extends CustomPainter {
     }
   }
 
-  void _drawPlayer(Canvas canvas, double x, double y, double radius, UiPlayer player, int index) {
+  void _drawPlayer(
+    Canvas canvas,
+    double x,
+    double y,
+    double radius,
+    UiPlayer player,
+    int index,
+    double angle,
+  ) {
+    final isHero = player.id == currentPlayerId;
+    // Compute turn highlight based on authoritative currentPlayerId from
+    // the game state to avoid transient races in per-player isTurn flags.
+    final isCurrent = player.id == gameState.currentPlayerId;
+    final heroColor = const Color(0xFF2E6DD8);
+    final otherColor = Colors.grey.shade700;
+    
     // Player circle
     final playerPaint = Paint()
-      ..color = player.id == currentPlayerId ? Colors.blue : Colors.grey.shade600
+      ..color = isHero ? heroColor : otherColor
       ..style = PaintingStyle.fill;
-    
+
     canvas.drawCircle(Offset(x, y), radius, playerPaint);
+    
+    // Soft halo when it's their turn
+    if (isCurrent) {
+      final haloPaint = Paint()
+        ..color = Colors.yellowAccent.withOpacity(0.3)
+        ..style = PaintingStyle.fill
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
+      canvas.drawCircle(Offset(x, y), radius + 4, haloPaint);
+    }
     
     // Player border
     final borderPaint = Paint()
-      ..color = player.isTurn ? Colors.yellow : Colors.white
+      ..color = isCurrent ? Colors.yellowAccent : Colors.white24
       ..style = PaintingStyle.stroke
-      ..strokeWidth = player.isTurn ? 3 : 1;
+      ..strokeWidth = isCurrent ? 2.5 : 1.5;
     
     canvas.drawCircle(Offset(x, y), radius, borderPaint);
     
-    // Player name
+    // Player name (show more characters)
+    final displayName = player.name.isNotEmpty 
+        ? (player.name.length > 2 ? player.name.substring(0, 2).toUpperCase() : player.name.toUpperCase())
+        : 'P${index + 1}';
     final textPainter = TextPainter(
       text: TextSpan(
-        text: player.name.isNotEmpty ? player.name.substring(0, 1).toUpperCase() : 'P${index + 1}',
+        text: displayName,
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 12,
-          fontWeight: FontWeight.bold,
+          fontSize: 13,
+          fontWeight: FontWeight.w800,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -679,23 +757,59 @@ class PokerPainter extends CustomPainter {
       canvas,
       Offset(x - textPainter.width / 2, y - textPainter.height / 2),
     );
+
+    // Use blind positions from server instead of calculating client-side
+    final badges = <_SeatBadge>[];
     
-    // Player chips
+    // Debug log position flags
+    if (player.isDealer || player.isSmallBlind || player.isBigBlind) {
+      print('DEBUG DART: Player ${player.id} isDealer=${player.isDealer} isSB=${player.isSmallBlind} isBB=${player.isBigBlind}');
+    }
+    
+    if (player.isDealer) {
+      badges.add(const _SeatBadge('D', Colors.amber));
+    }
+    if (player.isSmallBlind) {
+      badges.add(const _SeatBadge('SB', Colors.cyan));
+    }
+    if (player.isBigBlind) {
+      badges.add(const _SeatBadge('BB', Colors.pinkAccent));
+    }
+    _drawRoleBadges(canvas, x, y, radius, badges, isHero, angle);
+
+    // Player chips (styled like a badge)
     if (player.balance > 0) {
       final chipText = TextPainter(
         text: TextSpan(
           text: '${player.balance}',
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 8,
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
           ),
         ),
         textDirection: TextDirection.ltr,
       );
       chipText.layout();
+      
+      // Draw chip badge background
+      final chipBadgeWidth = chipText.width + 12;
+      final chipBadgeHeight = 16.0;
+      final chipBadgeRect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(
+          x - chipBadgeWidth / 2,
+          y + radius + 8,
+          chipBadgeWidth,
+          chipBadgeHeight,
+        ),
+        const Radius.circular(8),
+      );
+      final chipBgPaint = Paint()..color = Colors.black.withOpacity(0.7);
+      canvas.drawRRect(chipBadgeRect, chipBgPaint);
+      
       chipText.paint(
         canvas,
-        Offset(x - chipText.width / 2, y + radius + 5),
+        Offset(x - chipText.width / 2, y + radius + 10),
       );
     }
   }
@@ -703,6 +817,64 @@ class PokerPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant PokerPainter old) => 
       old.gameState != gameState || old.currentPlayerId != currentPlayerId;
+
+  void _drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<_SeatBadge> badges, bool isHero, double angle) {
+    if (badges.isEmpty) return;
+
+    const double badgeHeight = 18.0;
+    const double horizontalPadding = 8.0;
+    const double gap = 5.0;
+    const textStyle = TextStyle(
+      color: Colors.black,
+      fontSize: 11,
+      fontWeight: FontWeight.w900,
+    );
+
+    final layouts = <_BadgeLayout>[];
+    double totalWidth = -gap;
+    for (final badge in badges) {
+      final painter = TextPainter(
+        text: TextSpan(text: badge.label, style: textStyle),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      final width = painter.width + horizontalPadding * 2;
+      layouts.add(_BadgeLayout(badge, painter, width));
+      totalWidth += width + gap;
+    }
+
+    // Use less spacing for hero at bottom to avoid overlap with hole cards
+    // Hero is at angle ≈ pi/2 (90 degrees = bottom)
+    final isAtBottom = (angle - math.pi / 2).abs() < 0.1;
+    final verticalOffset = (isHero && isAtBottom) ? 12.0 : 30.0;
+    
+    double drawX = centerX - totalWidth / 2;
+    final drawY = centerY - radius - badgeHeight - verticalOffset;
+    for (final layout in layouts) {
+      final rect = RRect.fromRectAndRadius(
+        Rect.fromLTWH(drawX, drawY, layout.width, badgeHeight),
+        const Radius.circular(6),
+      );
+      
+      // Add subtle shadow for depth
+      final shadowPaint = Paint()
+        ..color = Colors.black.withOpacity(0.3)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
+      canvas.drawRRect(rect, shadowPaint);
+      
+      // Draw badge background
+      final paint = Paint()..color = layout.badge.color.withOpacity(0.95);
+      canvas.drawRRect(rect, paint);
+      
+      layout.textPainter.paint(
+        canvas,
+        Offset(
+          drawX + (layout.width - layout.textPainter.width) / 2,
+          drawY + (badgeHeight - layout.textPainter.height) / 2,
+        ),
+      );
+      drawX += layout.width + gap;
+    }
+  }
 
   void _drawHeroHoleCards(Canvas canvas, Size size) {
     // Find hero in current players
@@ -725,8 +897,9 @@ class PokerPainter extends CustomPainter {
 
     // Bottom-center placement with safe margin
     final centerX = size.width / 2;
-    // Leave room for action buttons overlay positioned at bottom:20 in UI
-    final marginBottom = 96.0;
+    // Leave room for action buttons (at bottom:20) + player circle + badges + chips
+    // Total: ~20 (buttons) + 60 (player radius*2) + 20 (badges) + 20 (chips) + gaps = 180px
+    final marginBottom = 80.0;
     final y = size.height - ch - marginBottom;
     final startX = centerX - cw - gap / 2;
 
@@ -740,4 +913,19 @@ class PokerPainter extends CustomPainter {
       _drawCardBack(canvas, startX + cw + gap, y, cw, ch);
     }
   }
+}
+
+class _SeatBadge {
+  const _SeatBadge(this.label, this.color);
+
+  final String label;
+  final Color color;
+}
+
+class _BadgeLayout {
+  _BadgeLayout(this.badge, this.textPainter, this.width);
+
+  final _SeatBadge badge;
+  final TextPainter textPainter;
+  final double width;
 }

@@ -109,15 +109,9 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 
 	// Reconnect: already seated in-memory.
 	if existingUser := table.GetUser(req.PlayerId); existingUser != nil {
-		if evt, err := s.buildGameEvent(
-			pokerrpc.NotificationType_PLAYER_JOINED,
-			req.TableId,
-			PlayerJoinedPayload{PlayerID: req.PlayerId},
-		); err == nil {
-			s.eventProcessor.PublishEvent(evt)
-		} else {
-			s.log.Errorf("Failed to build PLAYER_JOINED event: %v", err)
-		}
+		// Do not emit PLAYER_JOINED again for reconnections to avoid client
+		// feedback loops. The reconnecting client will immediately attach a
+		// game stream and receive the initial snapshot.
 		return &pokerrpc.JoinTableResponse{
 			Success:    true,
 			Message:    fmt.Sprintf("Reconnected. You have %d DCR balance.", existingUser.DCRAccountBalance),

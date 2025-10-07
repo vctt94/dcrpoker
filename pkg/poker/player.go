@@ -28,6 +28,8 @@ type Player struct {
 	hand            []Card
 	currentBet      int64
 	isDealer        bool
+	isSmallBlind    bool
+	isBigBlind      bool
 	isTurn          bool
 
 	// Pike state machine
@@ -62,16 +64,6 @@ func (p *Player) Close() { p.sm.Stop() }
 
 // ------------ Player public API (thread-safe; only sends events) ------------
 
-func (p *Player) ReadyUp()      { p.sm.Send(evReady{}) }
-func (p *Player) StartHand()    { p.sm.Send(evStartHand{}) }
-func (p *Player) YourTurn()     { p.sm.Send(evYourTurn{}) }
-func (p *Player) Bet(amt int64) { p.sm.Send(evBet{Amt: amt}) }
-func (p *Player) Call()         { p.sm.Send(evCall{}) }
-func (p *Player) Fold()         { p.sm.Send(evFold{}) }
-func (p *Player) EndHand()      { p.sm.Send(evEndHand{}) }
-func (p *Player) Disconnect()   { p.sm.Send(evDisconnect{}) }
-func (p *Player) LeaveTable()   { p.sm.Send(evLeave{}) }
-
 func (p *Player) StateID() playerState { return playerState(p.stateID.Load()) }
 func (p *Player) ProtoState() pokerrpc.PlayerState {
 	switch p.StateID() {
@@ -95,7 +87,6 @@ func (p *Player) ProtoState() pokerrpc.PlayerState {
 func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 	p.mu.Lock()
 	p.isTurn = false
-	p.isDealer = false
 	p.mu.Unlock()
 	p.stateID.Store(int32(psAtTable))
 
@@ -179,9 +170,15 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 		}
 
 		switch e := ev.(type) {
-		case evYourTurn:
+		case evStartTurn:
 			p.mu.Lock()
 			p.isTurn = true
+			p.lastAction = time.Now()
+			p.mu.Unlock()
+
+		case evEndTurn:
+			p.mu.Lock()
+			p.isTurn = false
 			p.mu.Unlock()
 
 		case evBet:
@@ -380,7 +377,7 @@ func (p *Player) Marshal() *pokerrpc.Player {
 
 	stateStr := p.GetCurrentStateString()
 
-	return &pokerrpc.Player{
+	proto := &pokerrpc.Player{
 		Id:              p.id,
 		Name:            p.name,
 		Balance:         p.balance,
@@ -390,10 +387,20 @@ func (p *Player) Marshal() *pokerrpc.Player {
 		IsTurn:          p.isTurn,
 		IsAllIn:         stateStr == "ALL_IN",
 		IsDealer:        p.isDealer,
+		IsSmallBlind:    p.isSmallBlind,
+		IsBigBlind:      p.isBigBlind,
 		IsReady:         p.isReady,
 		HandDescription: p.handDescription,
 		PlayerState:     p.ProtoState(), // renamed to ProtoState below
 	}
+
+	// Debug log when marshaling
+	if p.isDealer || p.isSmallBlind || p.isBigBlind {
+		// Using basic print since we don't have logger here
+		println("DEBUG MARSHAL:", p.id, "isDealer=", p.isDealer, "isSB=", p.isSmallBlind, "isBB=", p.isBigBlind)
+	}
+
+	return proto
 }
 
 // Unmarshal updates the Player from a gRPC mirror.
@@ -409,6 +416,8 @@ func (p *Player) Unmarshal(grpcPlayer *pokerrpc.Player) {
 	p.currentBet = grpcPlayer.CurrentBet
 	p.isTurn = grpcPlayer.IsTurn
 	p.isDealer = grpcPlayer.IsDealer
+	p.isSmallBlind = grpcPlayer.IsSmallBlind
+	p.isBigBlind = grpcPlayer.IsBigBlind
 	p.isReady = grpcPlayer.IsReady
 	p.handDescription = grpcPlayer.HandDescription
 
@@ -538,6 +547,9 @@ func (p *Player) SetStartingBalance(balance int64) {
 	p.mu.Unlock()
 }
 
+func (p *Player) StartTurn() { p.sm.Send(evStartTurn{}) }
+func (p *Player) EndTurn()   { p.sm.Send(evEndTurn{}) }
+
 // Marker interface for player events (optional, for readability).
 
 type evCallDelta struct{ Amt int64 }
@@ -546,7 +558,9 @@ type evReady struct{}
 
 type evStartHand struct{}
 
-type evYourTurn struct{}
+type evStartTurn struct{}
+
+type evEndTurn struct{}
 
 type evBet struct{ Amt int64 }
 

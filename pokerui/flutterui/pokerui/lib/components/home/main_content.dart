@@ -12,10 +12,19 @@ class PokerMainContent extends StatefulWidget {
 }
 
 class _PokerMainContentState extends State<PokerMainContent> {
+  final TextEditingController _betCtrl = TextEditingController();
+  bool _showBetInput = false;
+
   // Safely shorten an ID for debug/UI without throwing on short/empty strings.
   String _shortId(String s, [int n = 8]) {
     if (s.isEmpty) return '';
     return s.length <= n ? s : s.substring(0, n);
+  }
+
+  @override
+  void dispose() {
+    _betCtrl.dispose();
+    super.dispose();
   }
   @override
   Widget build(BuildContext context) {
@@ -312,27 +321,152 @@ class _PokerMainContentState extends State<PokerMainContent> {
                 ),
                 const SizedBox(width: 12),
                 if (model.isMyTurn) ...[
+                  // Fold is always available on your turn
                   ElevatedButton(
                     onPressed: () => model.fold(),
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                     child: const Text('Fold (F)'),
                   ),
                   const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () => model.check(),
-                    child: const Text('Check (K)'),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () => model.callBet(),
-                    child: const Text('Call (C)'),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: () => model.makeBet(100), // Fixed bet for now
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                    child: const Text('Bet (B)'),
-                  ),
+                  // Show Check or Call only when appropriate
+                  Builder(builder: (context) {
+                    final g = model.game;
+                    final me = model.me;
+                    final currentBet = g?.currentBet ?? 0;
+                    final myBet = me?.currentBet ?? 0;
+                    final canCheck = myBet >= currentBet;
+                    final toCall = (currentBet - myBet) > 0 ? (currentBet - myBet) : 0;
+                    return Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (canCheck) ...[
+                          ElevatedButton(
+                            onPressed: () => model.check(),
+                            child: const Text('Check (K)'),
+                          ),
+                          const SizedBox(width: 8),
+                        ] else ...[
+                          ElevatedButton(
+                            onPressed: () => model.callBet(),
+                            child: Text('Call${toCall > 0 ? ' ($toCall)' : ''} (C)'),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        // Bet/Raise button toggles bet input visibility
+                        Builder(builder: (context) {
+                          final tid = model.currentTableId;
+                          final table = tid == null
+                              ? null
+                              : (() {
+                                  final matches = model.tables.where((t) => t.id == tid).toList();
+                                  return matches.isNotEmpty ? matches.first : null;
+                                })();
+                          final bb = table?.bigBlind ?? 0;
+                          final isRaise = currentBet > 0 && myBet < currentBet;
+
+                          void seedDefault() {
+                            final seed = (bb * 3);
+                            final defAmt = (seed > currentBet) ? seed : currentBet;
+                            if (defAmt > 0) {
+                              _betCtrl.text = defAmt.toString();
+                            }
+                          }
+
+                          Future<void> submitBet() async {
+                            final raw = _betCtrl.text.trim();
+                            final amt = int.tryParse(raw) ?? 0;
+                            if (amt <= 0) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Enter a valid bet amount')),
+                              );
+                              return;
+                            }
+                            // Let server validate, but pre-check to guide UX
+                            if (currentBet > 0 && amt < currentBet) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Amount must be ≥ current bet ($currentBet)')),
+                              );
+                              return;
+                            }
+                            final ok = await model.makeBet(amt);
+                            if (!ok && model.errorMessage.isNotEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(model.errorMessage)),
+                              );
+                              return;
+                            }
+                            setState(() {
+                              _showBetInput = false;
+                            });
+                          }
+
+                          void setTo3xBB() {
+                            final amt = (bb * 3);
+                            final defAmt = (amt > currentBet) ? amt : currentBet;
+                            _betCtrl.text = defAmt.toString();
+                          }
+
+                          if (!_showBetInput) {
+                            return ElevatedButton(
+                              onPressed: () {
+                                setState(() {
+                                  _showBetInput = true;
+                                });
+                                if (_betCtrl.text.isEmpty) seedDefault();
+                              },
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                              child: Text(isRaise ? 'Raise' : 'Bet'),
+                            );
+                          }
+
+                          // Bet input row (visible after pressing Bet/Raise)
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 90,
+                                child: TextField(
+                                  controller: _betCtrl,
+                                  keyboardType: TextInputType.number,
+                                  style: const TextStyle(color: Colors.white),
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    hintText: isRaise ? 'Raise' : 'Bet',
+                                    hintStyle: const TextStyle(color: Colors.white70),
+                                    filled: true,
+                                    fillColor: Colors.black54,
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(color: Colors.white24),
+                                    ),
+                                  ),
+                                  onSubmitted: (_) => submitBet(),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              ElevatedButton(onPressed: bb > 0 ? setTo3xBB : null, child: const Text('3x BB')),
+                              const SizedBox(width: 6),
+                              ElevatedButton(
+                                onPressed: submitBet,
+                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                                child: Text(isRaise ? 'Raise' : 'Bet'),
+                              ),
+                              const SizedBox(width: 6),
+                              TextButton(
+                                onPressed: () {
+                                  setState(() {
+                                    _showBetInput = false;
+                                  });
+                                },
+                                child: const Text('Cancel'),
+                              )
+                            ],
+                          );
+                        }),
+                      ],
+                    );
+                  }),
                 ] else ...[
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),

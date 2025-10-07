@@ -150,7 +150,6 @@ func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
 func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.round++
-	g.deck.Shuffle()
 	g.communityCards = nil
 	g.currentBet = 0
 	g.betRound = 0
@@ -164,12 +163,35 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 		} else {
 			g.dealer = (g.dealer + 1) % numPlayers
 		}
-		// Update isDealer flags (protect player fields)
+
+		// Calculate blind positions
+		sbPos := (g.dealer + 1) % numPlayers
+		bbPos := (g.dealer + 2) % numPlayers
+		if numPlayers == 2 {
+			// In heads-up, dealer is small blind
+			sbPos = g.dealer
+			bbPos = (g.dealer + 1) % numPlayers
+		}
+
+		// Set position flags SYNCHRONOUSLY under player locks
+		// This MUST happen atomically before any snapshot can be taken
+		// to avoid race conditions where UI sees dealer but not blind flags
 		for i, p := range g.players {
 			if p != nil {
 				p.mu.Lock()
 				p.isDealer = (i == g.dealer)
+				p.isSmallBlind = (i == sbPos)
+				p.isBigBlind = (i == bbPos)
 				p.mu.Unlock()
+				g.log.Debugf("DEBUG POSITIONS: Set Player[%d] %s dealer=%v sb=%v bb=%v",
+					i, p.id, i == g.dealer, i == sbPos, i == bbPos)
+			}
+		}
+
+		// AFTER position flags are set, notify all players to start the hand
+		for _, p := range g.players {
+			if p != nil && p.sm != nil {
+				p.sm.Send(evStartHand{})
 			}
 		}
 	}
@@ -192,6 +214,7 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 	if numPlayers < 2 {
 		return stateEnd
 	}
+	// Calculate blind positions (flags were already set in statePreDeal)
 	sbPos := (g.dealer + 1) % numPlayers
 	bbPos := (g.dealer + 2) % numPlayers
 	if numPlayers == 2 {
@@ -233,10 +256,7 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 	}
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
 		if p := g.players[g.currentPlayer]; p != nil {
-			p.mu.Lock()
-			p.isTurn = true
-			p.lastAction = time.Now()
-			p.mu.Unlock()
+			p.StartTurn()
 		}
 	}
 	// phase stays PRE_FLOP (already set in statePreDeal)
@@ -506,6 +526,30 @@ func (g *Game) GetCurrentPlayerObject() *Player {
 	return nil
 }
 
+// SetCurrentPlayerByID sets the current player to the seat matching the given
+// player ID, if present. If no matching player exists, the call is ignored.
+func (g *Game) SetCurrentPlayerByID(playerID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for i, p := range g.players {
+		if p != nil && p.id == playerID {
+			// End turn for all other players, start turn for the target player
+			for j, cp := range g.players {
+				if cp == nil {
+					continue
+				}
+				if j == i {
+					cp.StartTurn()
+				} else {
+					cp.EndTurn()
+				}
+			}
+			g.currentPlayer = i
+			return
+		}
+	}
+}
+
 // GetWinners returns the winners of the game
 func (g *Game) GetWinners() []string {
 	g.mu.RLock()
@@ -709,13 +753,12 @@ func (g *Game) handlePlayerFold(playerID string) error {
 
 	// 1) mark folded (and any per-player state machine updates)
 	// Make the fold visible immediately to game logic.
-	// We own g.mu here; Player’s fast snapshot is atomic.
+	// We own g.mu here; Player's fast snapshot is atomic.
 	p.stateID.Store(int32(psFolded))
 	p.mu.Lock()
-	p.isTurn = false
 	p.lastAction = time.Now()
 	p.mu.Unlock()
-	// Keep the FSM in sync (it will move into stateFolded too).
+	// Keep the FSM in sync (it will move into stateFolded too, which will set isTurn = false).
 	p.sm.Send(evFold{})
 
 	// 2) count this action in the round
@@ -861,12 +904,47 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		return fmt.Errorf("cannot decrease bet")
 	}
 
+	// Determine the effective amount considering player stack (all-in cap)
 	delta := amount - player.currentBet
 	if delta > 0 && delta > player.balance {
-		// Player cannot afford the bet - contribute remaining balance only
+		// Player cannot afford the requested raise/bet — cap to all-in
 		g.log.Debugf("Player %s cannot afford to bet %d (has %d), contributing remainder all-in", player.id, delta, player.balance)
 		delta = player.balance
 		amount = player.currentBet + delta
+	}
+
+	// Compute table-wide current bet (fallback to max player bet if needed)
+	tableBet := g.currentBet
+	if tableBet == 0 {
+		for _, p := range g.players {
+			if p != nil && p.currentBet > tableBet {
+				tableBet = p.currentBet
+			}
+		}
+	}
+
+	// Server-side validation: disallow betting below the current bet when facing action,
+	// except when the player is going all-in for less (short stack call).
+	if tableBet > 0 && amount < tableBet {
+		// Allow only if this action is an all-in to an amount below the call
+		if !(delta > 0 && delta == player.balance) {
+			return fmt.Errorf("bet must be at least current bet (%d)", tableBet)
+		}
+	}
+
+	// When there is no live bet (opening the betting), enforce minimum opening bet
+	// of at least the big blind, unless the player is going all-in for less.
+	if tableBet == 0 {
+		minOpen := g.config.BigBlind
+		if minOpen < 0 {
+			minOpen = 0
+		}
+		if amount < minOpen {
+			// Allow short-stack all-in that is less than min open
+			if !(delta > 0 && delta == player.balance) {
+				return fmt.Errorf("minimum bet is the big blind (%d)", minOpen)
+			}
+		}
 	}
 
 	if delta > 0 {
@@ -923,12 +1001,10 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 		return
 	}
 
-	// Clear isTurn flag on the current player before advancing
+	// End turn for the current player before advancing
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
 		if p := g.players[g.currentPlayer]; p != nil {
-			p.mu.Lock()
-			p.isTurn = false
-			p.mu.Unlock()
+			p.EndTurn()
 		}
 	}
 
@@ -945,10 +1021,7 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 
 		// Skip folded players and all-in players (they can't act)
 		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" && g.players[g.currentPlayer].GetCurrentStateString() != "ALL_IN" {
-			g.players[g.currentPlayer].mu.Lock()
-			g.players[g.currentPlayer].isTurn = true
-			g.players[g.currentPlayer].lastAction = now
-			g.players[g.currentPlayer].mu.Unlock()
+			g.players[g.currentPlayer].StartTurn()
 			break
 		}
 	}
@@ -1361,20 +1434,11 @@ func (g *Game) maybeCompleteBettingRound() {
 	// table-wide currentBet is reset by FSM state handlers; avoid double-write here
 	g.actionsInRound = 0 // safe: we already hold g.mu via wrapper
 
-	// Reset current player for new betting round
+	// Reset current player for new betting round and update turn flags
 	g.initializeCurrentPlayer()
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-		g.log.Debug("maybeAdvancePhase: new round currentPlayer=%d id=%s",
+		g.log.Debugf("maybeAdvancePhase: new round currentPlayer=%d id=%s",
 			g.currentPlayer, g.players[g.currentPlayer].id)
-	}
-
-	// Set the new current player's LastAction to now for the new betting round
-	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" {
-			g.players[g.currentPlayer].mu.Lock()
-			g.players[g.currentPlayer].lastAction = time.Now()
-			g.players[g.currentPlayer].mu.Unlock()
-		}
 	}
 }
 
@@ -1420,14 +1484,12 @@ func (g *Game) initializeCurrentPlayer() {
 			g.currentPlayer = (g.dealer + 3) % numPlayers
 		}
 	} else {
-		// In post-flop streets, start with small blind position
-		if numPlayers == 2 {
-			// In heads-up, small blind is the dealer
-			g.currentPlayer = g.dealer
-		} else {
-			// In multi-way, small blind is player after dealer
-			g.currentPlayer = (g.dealer + 1) % numPlayers
-		}
+		// Post-flop action order:
+		// - Heads-up: Big blind acts first (dealer is SB, so dealer+1 = BB acts first)
+		// - Multi-way: Small blind acts first (dealer+1 = SB acts first)
+		//
+		// In both cases, the formula is the same: (dealer + 1) % numPlayers
+		g.currentPlayer = (g.dealer + 1) % numPlayers
 	}
 
 	// Ensure we start with an active player and handle edge cases
@@ -1454,6 +1516,13 @@ func (g *Game) initializeCurrentPlayer() {
 			// Default to first player
 			g.currentPlayer = 0
 			break
+		}
+	}
+
+	// Start turn for the new current player via event
+	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
+		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" {
+			g.players[g.currentPlayer].StartTurn()
 		}
 	}
 }
@@ -1604,77 +1673,105 @@ func (g *Game) scheduleAutoStart() {
 	// Cancel any existing auto-start timer
 	g.cancelAutoStart()
 
-	// Check if auto-start is configured
-	if g.config.AutoStartDelay <= 0 || g.autoStartCallbacks == nil {
-		g.log.Debugf("scheduleAutoStart: invalid config, delay=%v, callbacks=%v", g.config.AutoStartDelay, g.autoStartCallbacks != nil)
+	// Check if auto-start is configured (negative delay disables auto-start)
+	if g.config.AutoStartDelay < 0 || g.autoStartCallbacks == nil {
+		g.log.Debugf("scheduleAutoStart: auto-start disabled, delay=%v, callbacks=%v", g.config.AutoStartDelay, g.autoStartCallbacks != nil)
 		return
 	}
 
+	// Use a minimal delay if configured delay is 0 to allow notifications to propagate
+	effectiveDelay := g.config.AutoStartDelay
+	if effectiveDelay == 0 {
+		effectiveDelay = 100 * time.Millisecond
+	}
+
 	// Debug log
-	g.log.Debugf("scheduleAutoStart: setting up timer with delay %v", g.config.AutoStartDelay)
+	g.log.Debugf("scheduleAutoStart: setting up timer with delay %v (configured=%v)", effectiveDelay, g.config.AutoStartDelay)
 
 	// Mark that auto-start is pending
 	g.autoStartCanceled = false
 
-	// Schedule the auto-start with self-rescheduling if conditions aren't met
-	var scheduleCheck func()
-	scheduleCheck = func() {
-		g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
-			// Check if auto-start was canceled (without holding lock)
-			g.mu.Lock()
-			canceled := g.autoStartCanceled
-			callbacks := g.autoStartCallbacks
-			log := g.log
-			cfg := g.config
-			g.mu.Unlock()
+    // Schedule the auto-start with self-rescheduling if conditions aren't met
+    var scheduleCheckLocked func() // requires g.mu held
+    var scheduleCheck func()       // acquires g.mu internally
 
-			if canceled {
-				return
-			}
+    scheduleCheck = func() {
+        g.mu.Lock()
+        defer g.mu.Unlock()
+        scheduleCheckLocked()
+    }
 
-			if callbacks == nil {
-				return
-			}
+    scheduleCheckLocked = func() {
+        // Avoid scheduling if canceled or callbacks missing (g.mu held)
+        if g.autoStartCanceled || g.autoStartCallbacks == nil {
+            return
+        }
+        t := time.AfterFunc(effectiveDelay, func() {
+            // Snapshot required fields under lock to avoid races
+            g.mu.RLock()
+            canceled := g.autoStartCanceled
+            callbacks := g.autoStartCallbacks
+            log := g.log
+            cfg := g.config
+            players := make([]*Player, len(g.players))
+            copy(players, g.players)
+            g.mu.RUnlock()
 
-			readyCount := 0
-			for _, player := range g.players {
-				// Count players who have any chips left. Short stacks will auto-post
-				// blinds all-in when needed during hand setup.
-				if player.balance > 0 {
-					readyCount++
-					// Log explicitly that short stacks are still eligible for auto-start.
-					if player.balance < cfg.BigBlind {
-						log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", player.id, player.balance, cfg.BigBlind)
-					} else {
-						log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", player.id, player.balance, cfg.BigBlind)
-					}
-				} else {
-					log.Debugf("Player %s not ready for auto-start: balance=0", player.id)
-				}
-			}
+            if canceled || callbacks == nil {
+                return
+            }
 
-			minRequired := callbacks.MinPlayers()
-			log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
-			if readyCount >= minRequired {
-				err := callbacks.StartNewHand()
-				if err != nil {
-					log.Debugf("Auto-start new hand failed: %v", err)
-					// Reschedule on failure
-					scheduleCheck()
-				} else {
-					if callbacks.OnNewHandStarted != nil {
-						// Invoke the callback
-						go callbacks.OnNewHandStarted()
-					}
-				}
-			} else {
-				// Not enough players yet - reschedule to check again
-				log.Debugf("Not enough players for auto-start: %d < %d, will check again", readyCount, minRequired)
-				scheduleCheck()
-			}
-		})
-	}
-	scheduleCheck()
+            readyCount := 0
+            for _, player := range players {
+                if player == nil {
+                    continue
+                }
+                // Read player fields under the player's lock to avoid races
+                player.mu.RLock()
+                bal := player.balance
+                pid := player.id
+                player.mu.RUnlock()
+
+                // Count players who have any chips left. Short stacks will auto-post
+                // blinds all-in when needed during hand setup.
+                if bal > 0 {
+                    readyCount++
+                    // Log explicitly that short stacks are still eligible for auto-start.
+                    if bal < cfg.BigBlind {
+                        log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", pid, bal, cfg.BigBlind)
+                    } else {
+                        log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", pid, bal, cfg.BigBlind)
+                    }
+                } else {
+                    log.Debugf("Player %s not ready for auto-start: balance=0", pid)
+                }
+            }
+
+            minRequired := callbacks.MinPlayers()
+            log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
+            if readyCount >= minRequired {
+                err := callbacks.StartNewHand()
+                if err != nil {
+                    log.Debugf("Auto-start new hand failed: %v", err)
+                    // Reschedule on failure
+                    scheduleCheck()
+                } else {
+                    if callbacks.OnNewHandStarted != nil {
+                        // Invoke the callback
+                        go callbacks.OnNewHandStarted()
+                    }
+                }
+            } else {
+                // Not enough players yet - reschedule to check again
+                log.Debugf("Not enough players for auto-start: %d < %d, will check again", readyCount, minRequired)
+                scheduleCheck()
+            }
+        })
+        // Assign the timer while holding the lock to serialize writes (g.mu held)
+        g.autoStartTimer = t
+    }
+    // We are currently called with g.mu held by the public wrapper, so call the locked variant.
+    scheduleCheckLocked()
 }
 
 // CancelAutoStart cancels any pending auto-start timer
@@ -1703,6 +1800,7 @@ type GameStateSnapshot struct {
 	CommunityCards []Card
 	DeckState      interface{}
 	Players        []*Player
+	CurrentPlayer  string
 }
 
 // GetStateSnapshot returns an atomic snapshot of the game state for safe concurrent access
@@ -1728,6 +1826,10 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			startingBalance: player.startingBalance,
 			currentBet:      player.currentBet,
 			isDealer:        player.isDealer,
+			// Preserve blind flags in snapshot so downstream snapshots and UIs
+			// see correct SB/BB assignments (e.g., dealer==SB in heads-up).
+			isSmallBlind:    player.isSmallBlind,
+			isBigBlind:      player.isBigBlind,
 			isTurn:          player.isTurn,
 			isDisconnected:  player.isDisconnected,
 			hand:            make([]Card, len(player.hand)),

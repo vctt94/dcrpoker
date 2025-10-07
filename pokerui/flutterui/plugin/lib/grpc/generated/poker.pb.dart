@@ -2785,6 +2785,8 @@ class Player extends $pb.GeneratedMessage {
     $core.bool? isReady,
     $core.String? handDescription,
     PlayerState? playerState,
+    $core.bool? isSmallBlind,
+    $core.bool? isBigBlind,
   }) {
     final $result = create();
     if (id != null) {
@@ -2823,6 +2825,12 @@ class Player extends $pb.GeneratedMessage {
     if (playerState != null) {
       $result.playerState = playerState;
     }
+    if (isSmallBlind != null) {
+      $result.isSmallBlind = isSmallBlind;
+    }
+    if (isBigBlind != null) {
+      $result.isBigBlind = isBigBlind;
+    }
     return $result;
   }
   Player._() : super();
@@ -2842,6 +2850,8 @@ class Player extends $pb.GeneratedMessage {
     ..aOB(10, _omitFieldNames ? '' : 'isReady')
     ..aOS(11, _omitFieldNames ? '' : 'handDescription')
     ..e<PlayerState>(12, _omitFieldNames ? '' : 'playerState', $pb.PbFieldType.OE, defaultOrMaker: PlayerState.PLAYER_STATE_UNINITIALIZED, valueOf: PlayerState.valueOf, enumValues: PlayerState.values)
+    ..aOB(13, _omitFieldNames ? '' : 'isSmallBlind')
+    ..aOB(14, _omitFieldNames ? '' : 'isBigBlind')
     ..hasRequiredFields = false
   ;
 
@@ -2967,6 +2977,24 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasPlayerState() => $_has(11);
   @$pb.TagNumber(12)
   void clearPlayerState() => clearField(12);
+
+  @$pb.TagNumber(13)
+  $core.bool get isSmallBlind => $_getBF(12);
+  @$pb.TagNumber(13)
+  set isSmallBlind($core.bool v) { $_setBool(12, v); }
+  @$pb.TagNumber(13)
+  $core.bool hasIsSmallBlind() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearIsSmallBlind() => clearField(13);
+
+  @$pb.TagNumber(14)
+  $core.bool get isBigBlind => $_getBF(13);
+  @$pb.TagNumber(14)
+  set isBigBlind($core.bool v) { $_setBool(13, v); }
+  @$pb.TagNumber(14)
+  $core.bool hasIsBigBlind() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearIsBigBlind() => clearField(14);
 }
 
 class Card extends $pb.GeneratedMessage {

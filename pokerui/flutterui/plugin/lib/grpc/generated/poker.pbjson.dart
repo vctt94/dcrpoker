@@ -687,6 +687,8 @@ const Player$json = {
     {'1': 'is_ready', '3': 10, '4': 1, '5': 8, '10': 'isReady'},
     {'1': 'hand_description', '3': 11, '4': 1, '5': 9, '10': 'handDescription'},
     {'1': 'player_state', '3': 12, '4': 1, '5': 14, '6': '.poker.PlayerState', '10': 'playerState'},
+    {'1': 'is_small_blind', '3': 13, '4': 1, '5': 8, '10': 'isSmallBlind'},
+    {'1': 'is_big_blind', '3': 14, '4': 1, '5': 8, '10': 'isBigBlind'},
   ],
 };
 
@@ -698,7 +700,8 @@ final $typed_data.Uint8List playerDescriptor = $convert.base64Decode(
     '90dXJuGAcgASgIUgZpc1R1cm4SGgoJaXNfYWxsX2luGAggASgIUgdpc0FsbEluEhsKCWlzX2Rl'
     'YWxlchgJIAEoCFIIaXNEZWFsZXISGQoIaXNfcmVhZHkYCiABKAhSB2lzUmVhZHkSKQoQaGFuZF'
     '9kZXNjcmlwdGlvbhgLIAEoCVIPaGFuZERlc2NyaXB0aW9uEjUKDHBsYXllcl9zdGF0ZRgMIAEo'
-    'DjISLnBva2VyLlBsYXllclN0YXRlUgtwbGF5ZXJTdGF0ZQ==');
+    'DjISLnBva2VyLlBsYXllclN0YXRlUgtwbGF5ZXJTdGF0ZRIkCg5pc19zbWFsbF9ibGluZBgNIA'
+    'EoCFIMaXNTbWFsbEJsaW5kEiAKDGlzX2JpZ19ibGluZBgOIAEoCFIKaXNCaWdCbGluZA==');
 
 @$core.Deprecated('Use cardDescriptor instead')
 const Card$json = {

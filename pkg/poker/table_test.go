@@ -258,6 +258,11 @@ func TestAllInExactCall(t *testing.T) {
 	}
 	require.NotNil(t, sb, "could not find SB")
 
+	// Wait for SB to be in IN_GAME state (not AT_TABLE) so evReeval can work
+	require.Eventually(t, func() bool {
+		return sb.GetCurrentStateString() == "IN_GAME"
+	}, 300*time.Millisecond, 10*time.Millisecond, "SB did not reach IN_GAME state")
+
 	// SB calls exact remainder (5) -> should be all-in with currentBet=10.
 	require.NoError(t, tbl.HandleCall(sb.ID()))
 

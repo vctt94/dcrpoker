@@ -686,6 +686,275 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 	assert.Equal(t, player, tablesResp.Tables[0].HostId)
 }
 
+// Heads-up: post-flop the big blind (non-dealer) must act first.
+func TestHeadsUpPostflopActorIsBB(t *testing.T) {
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	server := &TestServer{Server: NewServer(db, logBackend)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	p1 := "p1"
+	p2 := "p2"
+
+	// Fund players
+	for _, pid := range []string{p1, p2} {
+		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
+			PlayerId: pid, Amount: 5000, Description: "init",
+		})
+		require.NoError(t, err)
+	}
+
+	// Create HU table (5/10)
+	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      p1,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    2,
+		MaxPlayers:    2,
+		BuyIn:         100,
+		StartingChips: 1000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	// p2 joins
+	joinResp, err := server.JoinTable(ctx, &pokerrpc.JoinTableRequest{PlayerId: p2, TableId: tableID})
+	require.NoError(t, err)
+	assert.True(t, joinResp.Success)
+
+	// Both ready
+	for _, pid := range []string{p1, p2} {
+		_, err := server.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{PlayerId: pid, TableId: tableID})
+		require.NoError(t, err)
+	}
+
+	// Identify blinds and ensure SB acts first preflop
+	var sbID, bbID string
+	require.Eventually(t, func() bool {
+		st, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		if st.GameState == nil || !st.GameState.GameStarted || st.GameState.Phase != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		sbID, bbID = "", ""
+		for _, pl := range st.GameState.Players {
+			switch pl.GetCurrentBet() {
+			case 5:
+				sbID = pl.GetId()
+			case 10:
+				bbID = pl.GetId()
+			}
+		}
+		if sbID == "" || bbID == "" {
+			return false
+		}
+		return st.GameState.GetCurrentPlayer() == sbID
+	}, 3*time.Second, 20*time.Millisecond, "failed to get SB as actor preflop")
+
+	// --- FIX 1: close preflop with a CALL by the BB (not Check) ---
+	// SB calls to 10
+	_, err = server.CallBet(ctx, &pokerrpc.CallBetRequest{PlayerId: sbID, TableId: tableID})
+	require.NoError(t, err)
+	// BB "checks to close" is commonly modeled as CallBet with zero diff
+	_, err = server.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: bbID, TableId: tableID})
+	require.NoError(t, err)
+
+	// --- FIX 2: don't require currentBet==0 on the flop ---
+	require.Eventually(t, func() bool {
+		st, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		if st.GameState == nil {
+			return false
+		}
+		if st.GameState.Phase != pokerrpc.GamePhase_FLOP {
+			return false
+		}
+		// CurrentPlayer should be set and equal to BB on flop (HU rule)
+		currentPlayer := st.GameState.GetCurrentPlayer()
+		if currentPlayer == "" {
+			return false
+		}
+		return currentPlayer == bbID
+	}, 3*time.Second, 20*time.Millisecond, "BB should act first on FLOP heads-up")
+}
+
+// New tests for server-side bet validation logic.
+func TestBetValidation_UnderBetRejected(t *testing.T) {
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	server := &TestServer{Server: NewServer(db, logBackend)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	p1 := "p1"
+	p2 := "p2"
+
+	// Fund players
+	for _, pid := range []string{p1, p2} {
+		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: 5000, Description: "init"})
+		require.NoError(t, err)
+	}
+
+	// Create heads-up table (SB=5, BB=10).
+	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      p1,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    2,
+		MaxPlayers:    2,
+		BuyIn:         100,
+		StartingChips: 1000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	// p2 joins
+	joinResp, err := server.JoinTable(ctx, &pokerrpc.JoinTableRequest{PlayerId: p2, TableId: tableID})
+	require.NoError(t, err)
+	assert.True(t, joinResp.Success)
+
+	// Both ready
+	for _, pid := range []string{p1, p2} {
+		_, err := server.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{PlayerId: pid, TableId: tableID})
+		require.NoError(t, err)
+	}
+
+	// Wait for game to start, identify SB (bet=5) and ensure it's their turn
+	var sbID string
+	require.Eventually(t, func() bool {
+		st, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		if st.GameState == nil || !st.GameState.GameStarted {
+			return false
+		}
+		// Find SB by blind amount
+		sbID = ""
+		for _, pl := range st.GameState.Players {
+			if pl.GetCurrentBet() == 5 {
+				sbID = pl.GetId()
+				break
+			}
+		}
+		if sbID == "" {
+			return false
+		}
+		// It must be SB's turn heads-up pre-flop
+		return st.GameState.GetCurrentPlayer() == sbID
+	}, 2*time.Second, 20*time.Millisecond, "failed to find SB as current actor")
+
+	// Attempt to bet to 8 (absolute), which is below table current bet (10): expect InvalidArgument
+	_, err = server.MakeBet(ctx, &pokerrpc.MakeBetRequest{PlayerId: sbID, TableId: tableID, Amount: 8})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.Contains(t, err.Error(), "current bet")
+}
+
+func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	server := &TestServer{Server: NewServer(db, logBackend)}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	p1 := "p1"
+	p2 := "p2"
+
+	// Fund players
+	for _, pid := range []string{p1, p2} {
+		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: 5000, Description: "init"})
+		require.NoError(t, err)
+	}
+
+	// Create table
+	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      p1,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    2,
+		MaxPlayers:    2,
+		BuyIn:         100,
+		StartingChips: 1000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	// p2 joins
+	joinResp, err := server.JoinTable(ctx, &pokerrpc.JoinTableRequest{PlayerId: p2, TableId: tableID})
+	require.NoError(t, err)
+	assert.True(t, joinResp.Success)
+
+	// Both ready
+	for _, pid := range []string{p1, p2} {
+		_, err := server.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{PlayerId: pid, TableId: tableID})
+		require.NoError(t, err)
+	}
+
+	// Identify small blind and big blind from initial state
+	var sbID, bbID string
+	require.Eventually(t, func() bool {
+		st, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		if st.GameState == nil || !st.GameState.GameStarted {
+			return false
+		}
+		for _, pl := range st.GameState.Players {
+			switch pl.GetCurrentBet() {
+			case 5:
+				sbID = pl.GetId()
+			case 10:
+				bbID = pl.GetId()
+			}
+		}
+		return sbID != "" && bbID != ""
+	}, 2*time.Second, 20*time.Millisecond, "failed to find blinds")
+
+	// SB calls to 10; BB checks to close the round (advance to flop)
+	_, err = server.CallBet(ctx, &pokerrpc.CallBetRequest{PlayerId: sbID, TableId: tableID})
+	require.NoError(t, err)
+	_, err = server.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: bbID, TableId: tableID})
+	require.NoError(t, err)
+
+	// Wait until we are on FLOP with current bet reset to 0 and have a current player
+	var actor string
+	require.Eventually(t, func() bool {
+		st, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		if st.GameState == nil {
+			return false
+		}
+		if st.GameState.Phase != pokerrpc.GamePhase_FLOP {
+			return false
+		}
+		if st.GameState.GetCurrentBet() != 0 {
+			return false
+		}
+		actor = st.GameState.GetCurrentPlayer()
+		return actor != ""
+	}, 3*time.Second, 20*time.Millisecond, "failed to reach flop with actor")
+
+	// Try to open bet with amount below BB (5 < 10) -> expect InvalidArgument
+	_, err = server.MakeBet(ctx, &pokerrpc.MakeBetRequest{PlayerId: actor, TableId: tableID, Amount: 5})
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+	assert.Contains(t, err.Error(), "big blind")
+}
+
 func TestLastPlayerLeavesTableClosure(t *testing.T) {
 	// Create isolated database and server for this test
 	db := NewInMemoryDB()
