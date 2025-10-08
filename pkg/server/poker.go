@@ -306,7 +306,7 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 		// ALL-IN badge without inferring from balance/current bet.
 		IsAllIn:      stateStr == "ALL_IN",
 		CurrentBet:   p.CurrentBet(),
-		PlayerState:  p.ProtoState(),
+		PlayerState:  p.GetTablePresenceState(),
 		IsDealer:     grpcPlayer.IsDealer,
 		IsSmallBlind: grpcPlayer.IsSmallBlind,
 		IsBigBlind:   grpcPlayer.IsBigBlind,

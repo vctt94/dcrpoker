@@ -14,9 +14,6 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/statemachine"
 )
 
-// marker (optional)
-type tableEvent interface{ isTableEvent() }
-
 // fired when users join/leave or toggle ready; state may move to/from PLAYERS_READY
 type evUsersChanged struct{}
 
@@ -263,6 +260,12 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		if err := t.handleShowdown(); err != nil {
 			t.log.Errorf("Failed to handle showdown: %v", err)
 		}
+	case GameEventShowdownComplete:
+		t.log.Debugf("Table received GameEventShowdownComplete")
+		// Store the showdown result
+		if err := t.handleShowdownComplete(event.ShowdownResult); err != nil {
+			t.log.Errorf("Failed to handle showdown complete: %v", err)
+		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
 	}
@@ -500,8 +503,7 @@ func (t *Table) handleShowdown() error {
 
 	currentRound := t.game.GetRound()
 
-	// Idempotency guard: already resolved for this hand
-	// Protect reads with table lock to avoid races with auto-start resetting fields.
+	// we save last showdown results so we can show the last old hand for users
 	t.mu.RLock()
 	alreadyResolved := t.lastShowdown != nil && t.resolvedRound == currentRound
 	resolvedRound := t.resolvedRound
@@ -511,139 +513,30 @@ func (t *Table) handleShowdown() error {
 		return nil
 	}
 
-	// Delegate showdown logic to the game and cache authoritative result
-	result, err := t.game.handleShowdown()
-	if err != nil {
-		t.log.Errorf("failed to handle showdown: %v", err)
-		return err
-	}
-	// Persist result for retrieval after phase advances (under lock)
-	t.mu.Lock()
-	t.lastShowdown = result
-	t.resolvedRound = currentRound
-	t.mu.Unlock()
-	t.log.Debugf("handleShowdown: cached result with %d winners, totalPot=%d", len(result.WinnerInfo), result.TotalPot)
-
-	tableID := t.config.ID
-	// Use local result (authoritative) to avoid racing on t.lastShowdown after unlock.
-	amount := result.TotalPot
-
-	t.PublishEvent(pokerrpc.NotificationType_SHOWDOWN_RESULT, tableID, &pokerrpc.Showdown{
-		Winners: result.WinnerInfo,
-		Pot:     amount,
-	})
-
-	// Remove busted players (0 chips) and count remaining players
-	playersToRemove := make([]string, 0)
-
-	t.mu.Lock()
-
-	// Check if the game should end BEFORE removing players
-	// This ensures all players (including losing ones) get notified
-	if t.shouldGameEnd() {
-		t.log.Infof("Game should end, calling endGame()")
-		t.endGame()
-		t.mu.Unlock()
-		return nil
-	}
-
-	// Remove busted players AFTER game ended notification
-	for _, userID := range playersToRemove {
-		t.log.Infof("Removing busted player %s (0 chips)", userID)
-		t.removeUserWithoutLock(userID)
-		t.log.Infof("removed busted player %s (0 chips)", userID)
-	}
-
-	// Reset round-local counters and update timestamp
-	t.game.ResetActionsInRound()
-	t.lastAction = time.Now()
-
-	// Schedule auto-start of the next hand strictly after showdown resolution
-	// Delay of 0 or positive = auto-start enabled; negative = manual start only
-	if t.config.AutoStartDelay >= 0 {
-		t.log.Debugf("Scheduling auto-start for new hand with delay %v", t.config.AutoStartDelay)
-		t.ensureAutoStartCallbacks()
-		t.game.ScheduleAutoStart()
-	} else {
-		t.log.Debugf("Auto-start disabled (delay < 0), waiting for manual start")
-	}
-	t.mu.Unlock()
-
-	// Trigger state machine update after removing players (outside the lock)
-	if len(playersToRemove) > 0 {
-		t.sm.Send(evUsersChanged{})
-	}
+	// The game FSM will process the showdown and send us the result via GameEventShowdownComplete
+	// This method just ensures the game is in the right state for showdown processing
+	t.log.Debugf("handleShowdown: game FSM will process showdown and send result")
 
 	return nil
 }
 
-// shouldGameEnd checks various conditions to determine if the game should end
-func (t *Table) shouldGameEnd() bool {
-	// Check if we have enough players to continue
-	remainingPlayers := len(t.users)
-	minRequired := t.config.MinPlayers
-	if remainingPlayers >= 2 && remainingPlayers < t.config.MinPlayers {
-		minRequired = 2 // Allow heads-up play
+// handleShowdownComplete stores the showdown result received from the game FSM
+func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
+	if result == nil {
+		return fmt.Errorf("showdown result is nil")
 	}
 
-	if remainingPlayers < minRequired {
-		t.log.Infof("shouldGameEnd: Not enough players remaining (%d < %d)", remainingPlayers, minRequired)
-		return true
-	}
+	currentRound := t.game.GetRound()
 
-	// Check if any remaining players have sufficient chips to play
-	playersWithChips := 0
-	for _, u := range t.users {
-		// Find player's current chip balance
-		var playerBalance int64 = 0
-		for _, player := range t.game.players {
-			if player.id == u.ID {
-				playerBalance = player.balance
-				break
-			}
-		}
+	// Store the result in the table for later retrieval
+	t.mu.Lock()
+	t.lastShowdown = result
+	t.resolvedRound = currentRound
+	t.mu.Unlock()
 
-		if playerBalance > 0 {
-			playersWithChips++
-		}
-	}
+	t.log.Debugf("handleShowdownComplete: stored showdown result for round %d with %d winners", currentRound, len(result.Winners))
 
-	if playersWithChips < 2 {
-		t.log.Infof("shouldGameEnd: Not enough players with sufficient chips (%d < 2)", playersWithChips)
-		return true
-	}
-
-	// Add more game ending conditions here as needed
-	// For example:
-	// - Tournament time limit reached
-	// - Maximum hands played
-	// - All players but one eliminated
-	// - etc.
-
-	return false
-}
-
-// endGame ends the current game and transitions to WAITING_FOR_PLAYERS state
-func (t *Table) endGame() {
-	t.log.Infof("Ending game - not enough players remaining")
-
-	// Clear the game
-	t.game = nil
-
-	// Reset all players to not ready
-	for _, u := range t.users {
-		u.IsReady = false
-	}
-
-	// Transition back to WAITING_FOR_PLAYERS state
-	t.sm.Send(evGameEnded{})
-
-	// Publish game ended event
-	t.PublishEvent(pokerrpc.NotificationType_GAME_ENDED, t.config.ID, map[string]interface{}{
-		"reason": "Not enough players remaining",
-	})
-
-	t.log.Infof("Game ended, table back to WAITING_FOR_PLAYERS state")
+	return nil
 }
 
 // startNewHand starts a fresh hand atomically (acquires the table lock internally)
@@ -934,13 +827,6 @@ func (t *Table) HandleTimeouts() {
 		_ = g.HandlePlayerFold(playerID)
 	}
 
-	// Safety net: if the fold/check above resulted in SHOWDOWN but the
-	// round-completion path did not (due to timing/races), ensure we resolve
-	// showdown and schedule auto-start here as well. handleShowdown is
-	// idempotent per-hand via resolvedRound, so duplicate calls are safe.
-	if g.GetPhase() == pokerrpc.GamePhase_SHOWDOWN {
-		_ = t.handleShowdown()
-	}
 }
 
 // GetGame returns the current game (can be nil)
@@ -993,22 +879,6 @@ func (t *Table) currentPlayerID() string {
 		return ""
 	}
 	return p.id
-}
-
-// advanceToNextPlayer delegates to Game layer
-func (t *Table) advanceToNextPlayer(now time.Time) {
-	if t.game == nil {
-		return
-	}
-	t.game.AdvanceToNextPlayer(now)
-}
-
-// initializeCurrentPlayer delegates to Game layer
-func (t *Table) initializeCurrentPlayer() {
-	if t.game == nil {
-		return
-	}
-	t.game.InitializeCurrentPlayer()
 }
 
 func (t *Table) HandleFold(userID string) error {
@@ -1245,18 +1115,6 @@ func (t *Table) RemoveUser(userID string) error {
 	// Trigger state machine update to check if we should transition back to WAITING_FOR_PLAYERS
 	t.sm.Send(evUsersChanged{})
 
-	return nil
-}
-
-// removeUserWithoutLock removes a user from the table without acquiring the lock
-// This is used internally when the caller already holds the table lock
-func (t *Table) removeUserWithoutLock(userID string) error {
-	if _, exists := t.users[userID]; !exists {
-		return fmt.Errorf("user not at table")
-	}
-
-	delete(t.users, userID)
-	t.lastAction = time.Now()
 	return nil
 }
 

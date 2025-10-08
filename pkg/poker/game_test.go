@@ -309,8 +309,13 @@ func TestTieBreakerShowdown(t *testing.T) {
 		{suit: Clubs, value: Jack},
 	}
 
+	// Initialize hand participation for all players first
+	require.NoError(t, player1.StartHandParticipation())
+	require.NoError(t, player2.StartHandParticipation())
+	require.NoError(t, player3.StartHandParticipation())
+
 	// Mark player 3 as folded
-	player3.sm.Send(evFold{})
+	player3.handParticipation.Send(evFold{})
 
 	// Set up pot
 	game.potManager = NewPotManager(3)
@@ -405,9 +410,9 @@ func TestSidePotShowdown(t *testing.T) {
 	game.potManager.addBet(2, 30, game.players)
 
 	// Hand strengths: p3 wins main, p1 wins side
-	game.players[0].sm.Send(evStartHand{})
-	game.players[1].sm.Send(evStartHand{})
-	game.players[2].sm.Send(evStartHand{})
+	game.players[0].tablePresence.Send(evStartHand{})
+	game.players[1].tablePresence.Send(evStartHand{})
+	game.players[2].tablePresence.Send(evStartHand{})
 
 	// Give explicit evaluated values via EvaluateHand semantics
 	hv3, err := EvaluateHand([]Card{{suit: Hearts, value: Five}, {suit: Clubs, value: Five}}, []Card{{suit: Diamonds, value: Five}, {suit: Spades, value: Two}, {suit: Hearts, value: Three}, {suit: Clubs, value: Nine}, {suit: Diamonds, value: Queen}}) // trips
@@ -557,9 +562,28 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 	game.potManager.addBet(0, 50, game.players)
 	game.potManager.addBet(1, 50, game.players)
 
+	// Initialize hand participation for both players first
+	require.NoError(t, game.players[0].StartHandParticipation())
+	require.NoError(t, game.players[1].StartHandParticipation())
+
 	// Mark both players as all-in and not folded
-	game.players[0].sm.Send(evAllIn{})
-	game.players[1].sm.Send(evAllIn{})
+	// Set up all-in state (balance=0, currentBet>0)
+	game.players[0].balance = 0
+	game.players[0].currentBet = 100
+	game.players[1].balance = 0
+	game.players[1].currentBet = 100
+
+	// Send events to trigger state machine to detect all-in condition
+	game.players[0].handParticipation.Send(evStartTurn{})
+	game.players[1].handParticipation.Send(evStartTurn{})
+
+	// Wait for all-in state transitions
+	require.Eventually(t, func() bool {
+		return game.players[0].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return game.players[1].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
 	game.players[0].lastAction = time.Now()
 	game.players[1].lastAction = time.Now()
 
@@ -653,6 +677,10 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	g.players[1].SetCurrentBet(20)
 	g.players[1].SetBalance(1000)
 	g.currentPlayer = 0 // SB to act
+
+	// Initialize hand participation for both players
+	require.NoError(t, g.players[0].StartHandParticipation())
+	require.NoError(t, g.players[1].StartHandParticipation())
 
 	// Debug: Check player state before call
 	t.Logf("Before call - SB state: %s, balance: %d, currentBet: %d",
@@ -771,6 +799,19 @@ func TestIsTurnFlagManagement(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return game.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
 	}, 2*time.Second, 10*time.Millisecond, "Game should reach PRE_FLOP")
+
+	// Wait for all players to have hand participation initialized
+	require.Eventually(t, func() bool {
+		for _, player := range game.players {
+			if player == nil {
+				continue
+			}
+			if player.handParticipation == nil {
+				return false
+			}
+		}
+		return true
+	}, 1*time.Second, 10*time.Millisecond, "All players should have hand participation initialized")
 
 	// In heads-up pre-flop, the small blind (dealer) acts first
 	// Wait for the current player's isTurn to be set by their state machine
@@ -1010,7 +1051,7 @@ func TestIsTurnFlagOnCheck(t *testing.T) {
 	currentPlayerIndex := game.GetCurrentPlayer()
 	t.Logf("Current player index: %d", currentPlayerIndex)
 	for i, p := range snap.Players {
-		t.Logf("Player %d (%s): isTurn=%v, state=%s", i, p.ID, p.IsTurn, GetPlayerStateString(p.StateID))
+		t.Logf("Player %d (%s): isTurn=%v, state=%s", i, p.ID, p.IsTurn, p.StateString)
 	}
 
 	assert.True(t, snap.Players[currentPlayerIndex].IsTurn, "Current player should have isTurn")
@@ -1077,4 +1118,263 @@ func TestGameStateSnapshotCopiesBlindFlags(t *testing.T) {
 		t.Fatalf("player 1 flags not copied: dealer=%v sb=%v bb=%v",
 			snap.Players[1].IsDealer, snap.Players[1].IsSmallBlind, snap.Players[1].IsBigBlind)
 	}
+}
+
+// TestShowdownBugReproduction reproduces the exact bug scenario from the logs
+// where players lose chips but no one wins the pot during showdown
+func TestShowdownBugReproduction(t *testing.T) {
+	// This test focuses on the core issue: pot distribution bug
+	// We'll create a simple scenario where we manually set up the pot
+	// and verify that the bug is fixed
+	// Create a game with the exact scenario from the logs
+	config := GameConfig{
+		NumPlayers:     2,
+		StartingChips:  1000, // Will be overridden per player
+		SmallBlind:     10,
+		BigBlind:       20,
+		AutoStartDelay: 0, // Start immediately, no delay
+		Log:            createTestLogger(),
+	}
+
+	// Create game first
+	game, err := NewGame(config)
+	require.NoError(t, err)
+
+	// Create users with explicit seat assignments for heads-up
+	// In HU: dealer/SB = seat 0, BB = seat 1
+	users := []*User{
+		NewUser("player1", "Player 1", 1060, 0), // Player 1 = dealer/SB
+		NewUser("player2", "Player 2", 940, 1),  // Player 2 = BB
+	}
+	game.SetPlayers(users)
+
+	// Start the game FSM
+	go game.Start(context.Background())
+
+	// Set custom balances BEFORE starting the hand (after FSM is started but before evStartHand)
+	game.mu.Lock()
+	game.players[0].mu.Lock()
+	game.players[0].balance = 1060
+	game.players[0].startingBalance = 1060
+	game.players[0].mu.Unlock()
+	game.players[1].mu.Lock()
+	game.players[1].balance = 940
+	game.players[1].startingBalance = 940
+	game.players[1].mu.Unlock()
+	game.mu.Unlock()
+
+	// Deal cards to players before starting the hand (simulating the normal flow)
+	// This is what would normally happen in ResetForNewHandFromUsers + dealCardsToPlayers
+	for i := 0; i < 2; i++ {
+		for _, player := range game.players {
+			if card, ok := game.deck.Draw(); ok {
+				player.mu.Lock()
+				player.hand = append(player.hand, card)
+				player.mu.Unlock()
+			}
+		}
+	}
+
+	// Start the hand deterministically
+	game.sm.Send(evStartHand{})
+
+	// Wait for PRE_FLOP phase and hand participation to be ready
+	require.Eventually(t, func() bool {
+		return game.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach PRE_FLOP")
+
+	// Wait for hand participation FSMs to be initialized
+	require.Eventually(t, func() bool {
+		return game.players[0].handParticipation != nil && game.players[1].handParticipation != nil
+	}, 1*time.Second, 10*time.Millisecond, "Hand participation FSMs should be initialized")
+
+	// Verify initial balances
+	player1Balance := game.players[0].Balance()
+	player2Balance := game.players[1].Balance()
+	t.Logf("Initial balances - Player 1: %d, Player 2: %d", player1Balance, player2Balance)
+
+	// Debug: Check if hand participation FSMs are initialized
+	t.Logf("Player 1 handParticipation FSM: %v", game.players[0].handParticipation != nil)
+	t.Logf("Player 2 handParticipation FSM: %v", game.players[1].handParticipation != nil)
+
+	// After blinds are posted: Player 1 (SB) posted 10, Player 2 (BB) posted 20
+	require.Equal(t, int64(1050), player1Balance, "Player 1 balance after posting small blind should be 1050")
+	require.Equal(t, int64(920), player2Balance, "Player 2 balance after posting big blind should be 920")
+
+	// Simulate the exact betting sequence for heads-up:
+	// 1. Player 1 (SB/dealer) calls to 20 (big blind)
+	// 2. Player 2 (BB) raises to 100
+	// 3. Player 1 (SB) calls to 100
+
+	// Player 1 (SB) calls to 20 (big blind) - first action in HU
+	currentPlayer := game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player1", currentPlayer.ID(), "Player 1 should be first to act")
+	err = game.HandlePlayerCall("player1")
+	require.NoError(t, err, "Player 1 call should succeed")
+
+	// Player 2 (BB) raises to 100
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player2", currentPlayer.ID(), "Player 2 should be next to act")
+	err = game.HandlePlayerBet("player2", 100)
+	require.NoError(t, err, "Player 2 bet should succeed")
+
+	// Player 1 (SB) calls to 100
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player1", currentPlayer.ID(), "Player 1 should be next to act")
+	err = game.HandlePlayerCall("player1")
+	require.NoError(t, err, "Player 1 call should succeed")
+
+	// Check pot amount - should be 200
+	// In HU 10/20: preflop blinds = 30; BB "bet to 100" adds 80; SB calls to 100 adds 80 (after first call to 20 added 10)
+	// Totals: SB −90 (10 call to 20 + 80 call to 100), BB −80 (raise to 100) ⇒ pot 200
+	totalPot := game.GetPot()
+	t.Logf("Total pot after betting: %d", totalPot)
+	require.Equal(t, int64(200), totalPot, "Expected pot to be 200")
+
+	// Check player balances after betting
+	player1BalanceAfterBetting := game.players[0].Balance()
+	player2BalanceAfterBetting := game.players[1].Balance()
+	t.Logf("Balances after betting - Player 1: %d, Player 2: %d", player1BalanceAfterBetting, player2BalanceAfterBetting)
+
+	// Expected balances based on HU betting sequence:
+	// Player 1 (SB): 1050 - 10 (call to 20) - 80 (call to 100) = 960
+	// Player 2 (BB): 920 - 80 (raise to 100) = 840
+	expectedPlayer1Balance := int64(1050 - 10 - 80) // 90 chips total
+	expectedPlayer2Balance := int64(920 - 80)       // 80 chips total
+
+	require.Equal(t, expectedPlayer1Balance, player1BalanceAfterBetting, "Player 1 balance after betting")
+	require.Equal(t, expectedPlayer2Balance, player2BalanceAfterBetting, "Player 2 balance after betting")
+
+	// Now simulate checking through all streets (FLOP, TURN, RIVER)
+	// This should trigger the bug where currentBets gets cleared
+
+	// Wait for FLOP phase
+	require.Eventually(t, func() bool {
+		return game.GetPhase() == pokerrpc.GamePhase_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach FLOP")
+
+	// Player 2 checks
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player2", currentPlayer.ID(), "Player 2 should be first to act on flop")
+	err = game.HandlePlayerCheck("player2")
+	require.NoError(t, err, "Player 2 check should succeed")
+
+	// Player 1 checks
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player1", currentPlayer.ID(), "Player 1 should be next to act on flop")
+	err = game.HandlePlayerCheck("player1")
+	require.NoError(t, err, "Player 1 check should succeed")
+
+	// Wait for TURN phase
+	require.Eventually(t, func() bool {
+		return game.GetPhase() == pokerrpc.GamePhase_TURN
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach TURN")
+
+	// Player 2 checks
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player2", currentPlayer.ID(), "Player 2 should be first to act on turn")
+	err = game.HandlePlayerCheck("player2")
+	require.NoError(t, err, "Player 2 check should succeed")
+
+	// Player 1 checks
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player1", currentPlayer.ID(), "Player 1 should be next to act on turn")
+	err = game.HandlePlayerCheck("player1")
+	require.NoError(t, err, "Player 1 check should succeed")
+
+	// Wait for RIVER phase
+	require.Eventually(t, func() bool {
+		return game.GetPhase() == pokerrpc.GamePhase_RIVER
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach RIVER")
+
+	// Player 2 checks
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player2", currentPlayer.ID(), "Player 2 should be first to act on river")
+	err = game.HandlePlayerCheck("player2")
+	require.NoError(t, err, "Player 2 check should succeed")
+
+	// Player 1 checks - this should trigger showdown
+	currentPlayer = game.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Current player should not be nil")
+	require.Equal(t, "player1", currentPlayer.ID(), "Player 1 should be next to act on river")
+	err = game.HandlePlayerCheck("player1")
+	require.NoError(t, err, "Player 1 check should succeed")
+
+	// Wait for showdown to be triggered by FSM
+	require.Eventually(t, func() bool {
+		return game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach SHOWDOWN")
+
+	// Check pot amount before showdown - should still be 200
+	potBeforeShowdown := game.GetPot()
+	t.Logf("Pot before showdown: %d", potBeforeShowdown)
+	// Note: Pot might be 0 if showdown has already processed it
+
+	// Check what phase we're in after the last check
+	phase := game.GetPhase()
+	t.Logf("Phase after river checks: %v", phase)
+
+	// If we're still in RIVER phase, we may need to manually trigger showdown
+	if phase == pokerrpc.GamePhase_RIVER {
+		t.Logf("Still in RIVER phase, attempting to trigger showdown manually")
+		// Try to trigger showdown manually
+		result, err := game.HandleShowdown()
+		if err != nil {
+			t.Logf("Manual showdown failed: %v", err)
+		} else {
+			t.Logf("Manual showdown succeeded: %+v", result)
+		}
+	} else {
+		t.Logf("Phase is %v, showdown should have been triggered automatically", phase)
+	}
+
+	// Wait for showdown to complete
+	require.Eventually(t, func() bool {
+		phase := game.GetPhase()
+		return phase == pokerrpc.GamePhase_SHOWDOWN || phase == pokerrpc.GamePhase_NEW_HAND_DEALING || phase == pokerrpc.GamePhase_WAITING
+	}, 3*time.Second, 10*time.Millisecond, "Showdown should complete")
+
+	// Check final phase
+	finalPhase := game.GetPhase()
+	t.Logf("Final phase: %v", finalPhase)
+
+	// The FSM should have handled showdown automatically
+	// We can verify the results by checking final balances and pot state
+
+	// Check final balances
+	player1FinalBalance := game.players[0].Balance()
+	player2FinalBalance := game.players[1].Balance()
+	t.Logf("Final balances - Player 1: %d, Player 2: %d", player1FinalBalance, player2FinalBalance)
+
+	// Check final pot amount
+	finalPot := game.GetPot()
+	t.Logf("Final pot amount: %d", finalPot)
+
+	// Check if there are any winners recorded
+	winners := game.GetWinners()
+	t.Logf("Winners: %v", winners)
+
+	// The sum of final balances should equal the sum of initial balances
+	// (no chips should be lost to the void)
+	totalInitialBalance := int64(1060 + 940)
+	totalFinalBalance := player1FinalBalance + player2FinalBalance
+
+	require.Equal(t, totalInitialBalance, totalFinalBalance,
+		"Chip conservation violated! Initial total: %d, Final total: %d", totalInitialBalance, totalFinalBalance)
+
+	// At least one player should have more chips than they started with
+	// (someone should have won the pot)
+	player1Won := player1FinalBalance > player1Balance
+	player2Won := player2FinalBalance > player2Balance
+
+	require.True(t, player1Won || player2Won,
+		"Neither player won chips - this indicates the pot distribution bug!")
 }

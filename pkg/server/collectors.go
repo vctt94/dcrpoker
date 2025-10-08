@@ -174,13 +174,13 @@ func (s *Server) collectPlayerSnapshotFromGameSnapshot(user *poker.User, gs *pok
 			continue
 		}
 		snapshot.Balance = player.Balance
-		snapshot.HasFolded = player.StateID == 3 // psFolded
-		snapshot.IsAllIn = player.StateID == 2   // psAllIn
+		snapshot.HasFolded = player.StateString == "FOLDED"
+		snapshot.IsAllIn = player.StateString == "ALL_IN"
 		snapshot.IsDealer = player.IsDealer
 		snapshot.IsSmallBlind = player.IsSmallBlind
 		snapshot.IsBigBlind = player.IsBigBlind
 		snapshot.IsTurn = player.IsTurn
-		snapshot.GameState = poker.GetPlayerStateString(player.StateID)
+		snapshot.GameState = player.StateString
 		snapshot.HandDescription = player.HandDescription
 		snapshot.HasBet = player.CurrentBet
 		snapshot.StartingBalance = player.StartingBalance

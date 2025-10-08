@@ -25,6 +25,14 @@ type TestServer struct {
 	*Server
 }
 
+// GetGameForTable is a helper method for tests to access the game directly
+func (ts *TestServer) GetGameForTable(tableID string) *poker.Game {
+	if table, ok := ts.getTable(tableID); ok {
+		return table.GetGame()
+	}
+	return nil
+}
+
 // InMemoryDB implements the Database interface for testing.
 type InMemoryDB struct {
 	mu sync.RWMutex
@@ -1370,24 +1378,38 @@ func TestBlindPostingAndBalances(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	/// Wait until blinds are posted: PRE_FLOP and CurrentBet == bigBlind
-	waitFor := func(cond func(*pokerrpc.GameUpdate) bool) *pokerrpc.GameUpdate {
-		deadline := time.Now().Add(3 * time.Second)
-		for time.Now().Before(deadline) {
-			st, err := srv.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-			require.NoError(t, err)
-			if cond(st.GameState) {
-				return st.GameState
-			}
-			time.Sleep(10 * time.Millisecond)
+	// Wait until blinds are posted: PRE_FLOP and both SB/BB have posted
+	var gameState *pokerrpc.GameUpdate
+	require.Eventually(t, func() bool {
+		g := srv.GetGameForTable(tableID)
+		if g == nil {
+			return false
 		}
-		t.Fatal("condition not satisfied in time")
-		return nil
-	}
-
-	gameState := waitFor(func(g *pokerrpc.GameUpdate) bool {
-		return g.GameStarted && g.Phase == pokerrpc.GamePhase_PRE_FLOP && g.CurrentBet == bigBlind
-	})
+		s := g.GetStateSnapshot()
+		if s.Phase != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		// Check that SB/BB have posted their blinds
+		var sbPosted, bbPosted bool
+		for _, pl := range s.Players {
+			if pl.IsSmallBlind && pl.CurrentBet == smallBlind {
+				sbPosted = true
+			}
+			if pl.IsBigBlind && pl.CurrentBet == bigBlind {
+				bbPosted = true
+			}
+		}
+		if sbPosted && bbPosted {
+			// Get the full game state for further assertions
+			st, err := srv.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+			if err != nil {
+				return false
+			}
+			gameState = st.GameState
+			return true
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "blinds not posted in time")
 
 	// Current player should be SB (needs chips to match BB)
 	current := gameState.CurrentPlayer
@@ -1409,18 +1431,33 @@ func TestBlindPostingAndBalances(t *testing.T) {
 	require.NoError(t, err)
 
 	// Wait until both players show BB committed
-	updated := waitFor(func(g *pokerrpc.GameUpdate) bool {
-		if g.CurrentBet != bigBlind {
+	var updated *pokerrpc.GameUpdate
+	require.Eventually(t, func() bool {
+		g := srv.GetGameForTable(tableID)
+		if g == nil {
+			return false
+		}
+		s := g.GetStateSnapshot()
+		if s.CurrentBet != bigBlind {
 			return false
 		}
 		have := 0
-		for _, pl := range g.Players {
+		for _, pl := range s.Players {
 			if pl.CurrentBet == bigBlind {
 				have++
 			}
 		}
-		return have == 2
-	})
+		if have == 2 {
+			// Get the full game state for further assertions
+			st, err := srv.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+			if err != nil {
+				return false
+			}
+			updated = st.GameState
+			return true
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "both players did not commit BB in time")
 
 	// Assert balances
 	find := func(pid string) *pokerrpc.Player {

@@ -43,11 +43,13 @@ type GameEventType int
 const (
 	GameEventBettingRoundComplete GameEventType = iota // Betting round complete, advance to next street
 	GameEventShowdownReady                             // All players all-in or only one active, go to showdown
+	GameEventShowdownComplete                          // Showdown processing complete, result available
 )
 
 // GameEvent represents an event sent from Game FSM to Table
 type GameEvent struct {
-	Type GameEventType
+	Type           GameEventType
+	ShowdownResult *ShowdownResult // Only set for GameEventShowdownComplete
 }
 
 // Game holds the context and data for our poker game
@@ -109,88 +111,15 @@ func (g *Game) SetTableEventChannel(ch chan<- GameEvent) {
 }
 
 // sendTableEvent sends an event to the Table (non-blocking)
-func (g *Game) sendTableEvent(eventType GameEventType) {
+func (g *Game) sendTableEvent(event GameEvent) {
 	if g.tableEventChan != nil {
 		select {
-		case g.tableEventChan <- GameEvent{Type: eventType}:
+		case g.tableEventChan <- event:
 		default:
 			// Channel full or closed, log and continue
-			g.log.Warnf("Failed to send game event %v to table (channel full)", eventType)
+			g.log.Warnf("Failed to send game event %v to table (channel full)", event.Type)
 		}
 	}
-}
-
-// checkBettingRoundComplete checks if the betting round is complete and sends
-// appropriate events to Table. Should be called after each player action.
-// Assumes g.mu is held by caller.
-func (g *Game) checkBettingRoundComplete() {
-	// Count alive (non-folded) and active (non-folded, non-all-in) players
-	alivePlayers := 0
-	activePlayers := 0
-	for _, p := range g.players {
-		if p == nil {
-			continue
-		}
-		// Check FSM state - if ALL_IN state function is running, player is all-in
-		state := p.GetCurrentStateString()
-		if state != "FOLDED" {
-			alivePlayers++
-			if state != "ALL_IN" {
-				activePlayers++
-			}
-		}
-	}
-
-	// If only one alive player remains (others folded), go to showdown
-	if alivePlayers <= 1 {
-		g.log.Debugf("checkBettingRoundComplete: only %d alive, sending showdown event", alivePlayers)
-		g.sendTableEvent(GameEventShowdownReady)
-		return
-	}
-
-	// If betting is effectively closed (all remaining players are all-in or only one can act)
-	if activePlayers <= 1 {
-		g.log.Debugf("checkBettingRoundComplete: only %d active players, sending showdown event", activePlayers)
-		g.sendTableEvent(GameEventShowdownReady)
-		return
-	}
-
-	// Check if all active players have had a chance to act and all bets are equal
-	if g.actionsInRound < activePlayers {
-		g.log.Debugf("checkBettingRoundComplete: waiting for actions: %d/%d", g.actionsInRound, activePlayers)
-		return // Not all players have acted yet
-	}
-
-	// Check if all active players have matching bets
-	unmatchedPlayers := 0
-	for _, p := range g.players {
-		if p == nil {
-			continue
-		}
-		state := p.GetCurrentStateString()
-		if state == "FOLDED" || state == "ALL_IN" {
-			continue // Folded and all-in players are considered "matched"
-		}
-		if p.CurrentBet() < g.currentBet {
-			unmatchedPlayers++
-		}
-	}
-
-	if unmatchedPlayers > 0 {
-		g.log.Debugf("checkBettingRoundComplete: %d players with unmatched bets", unmatchedPlayers)
-		return // Still waiting for some players to match
-	}
-
-	// Betting round is complete — advance phase inside the FSM and notify Table to publish.
-	g.log.Debugf("checkBettingRoundComplete: round complete; advancing phase via FSM and notifying table")
-	// Perform phase transition, reset counters, and reinitialize current player.
-	// This keeps game-state mutations inside the Game FSM instead of the Table.
-	g.maybeCompleteBettingRound()
-
-	// Notify the Table that the betting round completed. The Table will
-	// inspect current phase and decide whether to publish NEW_ROUND or
-	// trigger showdown publishing. No game mutations should occur there.
-	g.sendTableEvent(GameEventBettingRoundComplete)
 }
 
 // NewGame creates a new poker game with the given configuration
@@ -270,8 +199,6 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.currentBet = 0
 	g.betRound = 0
 	g.winners = nil
-	// Reset pot manager for the new hand
-	g.potManager = NewPotManager(len(g.players))
 	// Deck reseed is done prior to dealing hole cards
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
 
@@ -328,13 +255,8 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 				delta = balance
 			}
 
-			// Use FSM event to post blind (players are still in AT_TABLE state)
-			var applied int64
-			if p.sm != nil {
-				reply := make(chan int64, 1)
-				p.sm.Send(evPostBlind{Amt: delta, Reply: reply})
-				applied = <-reply // Wait for FSM to process and return actual amount
-			}
+			// Use player method to post blind (players are still seated at table)
+			applied := p.HandlePostBlind(delta)
 
 			// Reflect into pot manager and table-wide current bet
 			g.potManager.addBet(pos, applied, g.players) // contract: g.mu held
@@ -347,11 +269,13 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 		postBlind(sbPos, g.config.SmallBlind)
 		postBlind(bbPos, g.config.BigBlind)
 
-		// AFTER blinds are posted, notify all players to start the hand
-		// This transitions them from AT_TABLE to IN_GAME (or ALL_IN if they went all-in on blinds)
+		// AFTER blinds are posted, start hand participation for all players
+		// This starts their hand participation FSM in the appropriate state
 		for _, p := range g.players {
-			if p != nil && p.sm != nil {
-				p.sm.Send(evStartHand{})
+			if p != nil {
+				if err := p.HandleStartHand(); err != nil {
+					g.log.Errorf("Failed to start hand for player %s: %v", p.ID(), err)
+				}
 			}
 		}
 	}
@@ -445,7 +369,6 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	// Deal flop on entry; guard against double-deal
 	g.dealFlop()
 	g.currentBet = 0
-	g.potManager.currentBets = make(map[int]int64) // (contract: called with g.mu held)
 	g.phase = pokerrpc.GamePhase_FLOP
 	g.mu.Unlock()
 	// wait events ...
@@ -480,7 +403,6 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 	// Deal turn on entry; guard against double-deal
 	g.dealTurn()
 	g.currentBet = 0
-	g.potManager.currentBets = make(map[int]int64)
 	g.phase = pokerrpc.GamePhase_TURN
 	g.mu.Unlock()
 
@@ -515,7 +437,6 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	// Deal river on entry; guard against double-deal
 	g.dealRiver()
 	g.currentBet = 0
-	g.potManager.currentBets = make(map[int]int64)
 	g.phase = pokerrpc.GamePhase_RIVER
 	g.mu.Unlock()
 
@@ -551,6 +472,17 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 	}
 	g.currentPlayer = -1
 	g.mu.Unlock()
+
+	// Process showdown logic
+	g.log.Debugf("stateShowdown: processing showdown")
+	result, err := g.handleShowdown()
+	if err != nil {
+		g.log.Errorf("stateShowdown: showdown failed: %v", err)
+	} else {
+		g.log.Debugf("stateShowdown: showdown completed successfully with %d winners", len(result.Winners))
+		// Send the showdown result to the table
+		g.sendTableEvent(GameEvent{Type: GameEventShowdownComplete, ShowdownResult: result})
+	}
 
 	// Schedule auto-start if configured
 	if g.HasAutoStartCallbacks() {
@@ -783,6 +715,9 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 	}
 	g.players = newPlayers
 
+	// Reset pot manager for the new hand BEFORE blinds are posted
+	g.potManager = NewPotManager(len(g.players))
+
 	// Prepare a fresh deck for this hand BEFORE dealing hole cards so that
 	// community cards come from the same deck. FSM won't reseed again.
 	var nextRng *rand.Rand
@@ -855,7 +790,7 @@ func (g *Game) HandlePlayerFold(playerID string) error {
 func (g *Game) unfoldsPlayers() int {
 	n := 0
 	for _, p := range g.players {
-		if p != nil && p.StateID() != psFolded {
+		if p != nil && p.GetCurrentStateString() != "FOLDED" {
 			n++
 		}
 	}
@@ -875,9 +810,9 @@ func (g *Game) handlePlayerFold(playerID string) error {
 
 	// Send synchronous fold event to ensure player's state is updated before
 	// we evaluate betting-round completion (avoids races).
-	if p.sm != nil {
+	if p.handParticipation != nil {
 		reply := make(chan error, 1)
-		p.sm.Send(evFoldReq{Reply: reply})
+		p.handParticipation.Send(evFoldReq{Reply: reply})
 		if err := <-reply; err != nil {
 			return err
 		}
@@ -895,7 +830,7 @@ func (g *Game) handlePlayerFold(playerID string) error {
 			g.sm.Send(evGotoShowdown{})
 		}
 		// Notify table that showdown is ready
-		g.sendTableEvent(GameEventShowdownReady)
+		g.sendTableEvent(GameEvent{Type: GameEventShowdownReady})
 		return nil
 	}
 
@@ -906,7 +841,7 @@ func (g *Game) handlePlayerFold(playerID string) error {
 	g.advanceToNextPlayer(time.Now()) // must skip folded players
 
 	// Check if betting round is complete and notify table
-	g.checkBettingRoundComplete()
+	g.maybeCompleteBettingRound()
 
 	return nil
 }
@@ -973,8 +908,8 @@ func (g *Game) handlePlayerCall(playerID string) error {
 
 	// Send call action to player FSM and wait for it to process
 	reply := make(chan error, 1)
-	if player.sm != nil {
-		player.sm.Send(evCallDelta{Amt: delta, Reply: reply})
+	if player.handParticipation != nil {
+		player.handParticipation.Send(evCallDelta{Amt: delta, Reply: reply})
 		// Wait for FSM to process the call
 		if err := <-reply; err != nil {
 			return err
@@ -1012,7 +947,7 @@ func (g *Game) handlePlayerCall(playerID string) error {
 	}
 
 	// Check if betting round is complete and notify table
-	g.checkBettingRoundComplete()
+	g.maybeCompleteBettingRound()
 
 	return nil
 }
@@ -1058,7 +993,7 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 	g.advanceToNextPlayer(time.Now())
 
 	// Check if betting round is complete and notify table
-	g.checkBettingRoundComplete()
+	g.maybeCompleteBettingRound()
 
 	return nil
 }
@@ -1146,9 +1081,9 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 	}
 
 	// Send bet event to FSM - it will update balance/currentBet and transition to ALL_IN if needed.
-	if delta > 0 && player.sm != nil {
+	if delta > 0 && player.handParticipation != nil {
 		reply := make(chan error, 1)
-		player.sm.Send(evBet{Amt: delta, Reply: reply})
+		player.handParticipation.Send(evBet{Amt: delta, Reply: reply})
 		// Wait for FSM to process the bet
 		if err := <-reply; err != nil {
 			return err
@@ -1177,7 +1112,7 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 	g.advanceToNextPlayer(time.Now())
 
 	// Check if betting round is complete and notify table
-	g.checkBettingRoundComplete()
+	g.maybeCompleteBettingRound()
 
 	return nil
 }
@@ -1412,6 +1347,7 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	// Use the pre-refund snapshot for notification consistency
 	result.TotalPot = potForNotification
 
+	g.log.Debugf("handleShowdown: community cards=%v", g.communityCards)
 	g.log.Debugf("handleShowdown: total pots=%d", len(g.potManager.pots))
 	for i, pot := range g.potManager.pots {
 		g.log.Debugf("handleShowdown: pot %d amount=%d eligible_players=%v", i, pot.amount, pot.eligibility)
@@ -1491,12 +1427,13 @@ func (g *Game) maybeCompleteBettingRound() {
 		g.phase, g.actionsInRound, g.currentBet)
 
 	// Count alive (non-folded) and actionable (non-folded, non-all-in) players
-	// Use derived conditions instead of GetCurrentStateString() to avoid races with async FSM.
+	// Use FSM state for consistent all-in detection
 	alivePlayers := 0
 	activePlayers := 0
 	for _, p := range g.players {
-		isFolded := p.GetCurrentStateString() == "FOLDED"
-		isAllIn := p.Balance() == 0 && p.CurrentBet() > 0
+		state := p.GetCurrentStateString()
+		isFolded := state == "FOLDED"
+		isAllIn := state == "ALL_IN"
 
 		if !isFolded {
 			alivePlayers++
@@ -1526,29 +1463,29 @@ func (g *Game) maybeCompleteBettingRound() {
 		case pokerrpc.GamePhase_PRE_FLOP:
 			g.dealFlop()
 			g.currentBet = 0
-			g.potManager.currentBets = make(map[int]int64)
+			// DO NOT clear currentBets - this destroys bet tracking for pot building
 			g.phase = pokerrpc.GamePhase_FLOP
 			g.dealTurn()
 			g.currentBet = 0
-			g.potManager.currentBets = make(map[int]int64)
+			// DO NOT clear currentBets - this destroys bet tracking for pot building
 			g.phase = pokerrpc.GamePhase_TURN
 			g.dealRiver()
 			g.currentBet = 0
-			g.potManager.currentBets = make(map[int]int64)
+			// DO NOT clear currentBets - this destroys bet tracking for pot building
 			g.phase = pokerrpc.GamePhase_RIVER
 		case pokerrpc.GamePhase_FLOP:
 			g.dealTurn()
 			g.currentBet = 0
-			g.potManager.currentBets = make(map[int]int64)
+			// DO NOT clear currentBets - this destroys bet tracking for pot building
 			g.phase = pokerrpc.GamePhase_TURN
 			g.dealRiver()
 			g.currentBet = 0
-			g.potManager.currentBets = make(map[int]int64)
+			// DO NOT clear currentBets - this destroys bet tracking for pot building
 			g.phase = pokerrpc.GamePhase_RIVER
 		case pokerrpc.GamePhase_TURN:
 			g.dealRiver()
 			g.currentBet = 0
-			g.potManager.currentBets = make(map[int]int64)
+			// DO NOT clear currentBets - this destroys bet tracking for pot building
 			g.phase = pokerrpc.GamePhase_RIVER
 		}
 		g.phase = pokerrpc.GamePhase_SHOWDOWN
@@ -1610,19 +1547,19 @@ func (g *Game) maybeCompleteBettingRound() {
 		// Deal flop and transition phase immediately.
 		g.dealFlop()
 		g.currentBet = 0
-		g.potManager.currentBets = make(map[int]int64)
+		// DO NOT clear currentBets - this destroys bet tracking for pot building
 		g.phase = pokerrpc.GamePhase_FLOP
 		g.sm.Send(evAdvance{})
 	case pokerrpc.GamePhase_FLOP:
 		g.dealTurn()
 		g.currentBet = 0
-		g.potManager.currentBets = make(map[int]int64)
+		// DO NOT clear currentBets - this destroys bet tracking for pot building
 		g.phase = pokerrpc.GamePhase_TURN
 		g.sm.Send(evAdvance{})
 	case pokerrpc.GamePhase_TURN:
 		g.dealRiver()
 		g.currentBet = 0
-		g.potManager.currentBets = make(map[int]int64)
+		// DO NOT clear currentBets - this destroys bet tracking for pot building
 		g.phase = pokerrpc.GamePhase_RIVER
 		g.sm.Send(evAdvance{})
 	case pokerrpc.GamePhase_RIVER:
@@ -2008,7 +1945,7 @@ type PlayerSnapshot struct {
 	IsSmallBlind    bool
 	IsBigBlind      bool
 	IsTurn          bool
-	StateID         PlayerState
+	StateString     string
 	HandValue       *HandValue
 	HandDescription string
 }
@@ -2062,7 +1999,7 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			HandDescription: player.handDescription,
 			HandValue:       player.handValue,
 			LastAction:      player.lastAction,
-			StateID:         player.StateID(),
+			StateString:     player.GetCurrentStateString(),
 		}
 		copy(playerCopy.Hand, player.hand)
 		player.mu.RUnlock()
@@ -2111,7 +2048,6 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 						HandDescription: player.handDescription,
 						HandValue:       player.handValue,
 						LastAction:      player.lastAction,
-						StateID:         player.StateID(),
 					}
 					copy(winnerSnapshot.Hand, player.hand)
 					player.mu.RUnlock()

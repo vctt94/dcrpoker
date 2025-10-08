@@ -147,9 +147,28 @@ func TestSidepots(t *testing.T) {
 		NewPlayer("player3", "Player 3", 0),   // Player 2: All-in with 30
 	}
 
-	// Set all-in status manually for test
-	players[0].sm.Send(evAllIn{})
-	players[2].sm.Send(evAllIn{})
+	// Initialize hand participation for all players first
+	require.NoError(t, players[0].StartHandParticipation())
+	require.NoError(t, players[1].StartHandParticipation())
+	require.NoError(t, players[2].StartHandParticipation())
+
+	// Set up all-in state for players 0 and 2 (balance=0, currentBet>0)
+	players[0].balance = 0
+	players[0].currentBet = 50
+	players[2].balance = 0
+	players[2].currentBet = 30
+
+	// Send events to trigger state machine to detect all-in condition
+	players[0].handParticipation.Send(evStartTurn{})
+	players[2].handParticipation.Send(evStartTurn{})
+
+	// Wait for all-in state transitions
+	require.Eventually(t, func() bool {
+		return players[0].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return players[2].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	// Player 0 goes all-in for 50
 	pm.addBet(0, 50, players)
@@ -224,6 +243,7 @@ func TestSidepots(t *testing.T) {
 	}
 }
 
+// TestPotDistribution verifies that pot distribution works correctly with all-in players.
 func TestPotDistribution(t *testing.T) {
 	// Create a new pot manager
 	pm := NewPotManager(3)
@@ -235,17 +255,33 @@ func TestPotDistribution(t *testing.T) {
 		NewPlayer("player3", "Player 3", 0),   // Player 2
 	}
 
-	// Set up hand values and states manually for test
-	players[0].sm.Send(evAllIn{})
-	setHandValue(players[0], &HandValue{Rank: TwoPair, RankValue: 3500}) // Two Pair, Aces (lower rank value = better)
-	players[0].sm.Send(evStartHand{})
+	// Start hand participation for all players
+	for _, player := range players {
+		require.NoError(t, player.StartHandParticipation())
+	}
 
-	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 4000}) // Pair of 10s (higher rank value = worse)
-	players[1].sm.Send(evStartHand{})
+	// Set up all-in state for players 0 and 2 (balance=0, currentBet>0)
+	players[0].balance = 0
+	players[0].currentBet = 50
+	players[2].balance = 0
+	players[2].currentBet = 30
 
-	players[2].sm.Send(evAllIn{})
+	// Send events to trigger state machine to detect all-in condition
+	players[0].handParticipation.Send(evStartTurn{})
+	players[2].handParticipation.Send(evStartTurn{})
+
+	// Wait for all-in state transitions
+	require.Eventually(t, func() bool {
+		return players[0].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return players[2].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+
+	// Set up hand values for test
+	setHandValue(players[0], &HandValue{Rank: TwoPair, RankValue: 3500})     // Two Pair, Aces (lower rank value = better)
+	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 4000})        // Pair of 10s (higher rank value = worse)
 	setHandValue(players[2], &HandValue{Rank: ThreeOfAKind, RankValue: 500}) // Three of a kind, 5s (lowest rank value = best overall)
-	players[2].sm.Send(evStartHand{})
 
 	// Player 0 bets 50
 	pm.addBet(0, 50, players)
@@ -427,6 +463,7 @@ func TestOddChipDistribution(t *testing.T) {
 	}
 }
 
+// TestBuildpotsFromTotals verifies that pot building works correctly with mixed player states.
 func TestBuildpotsFromTotals(t *testing.T) {
 	// Create a new pot manager
 	pm := NewPotManager(3)
@@ -439,13 +476,34 @@ func TestBuildpotsFromTotals(t *testing.T) {
 		NewPlayer("player4", "Player 4", 0),   // Player 3: Folded
 	}
 
-	// Set up state manually for test
-	players[0].sm.Send(evAllIn{})
-	players[0].sm.Send(evStartHand{})
-	players[1].sm.Send(evAllIn{})
-	players[1].sm.Send(evStartHand{})
-	players[2].sm.Send(evStartHand{})
-	players[3].sm.Send(evFold{})
+	// Start hand participation for all players
+	for _, player := range players {
+		require.NoError(t, player.StartHandParticipation())
+	}
+
+	// Set up all-in state for players 0 and 1 (balance=0, currentBet>0)
+	players[0].balance = 0
+	players[0].currentBet = 30
+	players[1].balance = 0
+	players[1].currentBet = 50
+
+	// Send events to trigger state machine to detect all-in condition
+	players[0].handParticipation.Send(evStartTurn{})
+	players[1].handParticipation.Send(evStartTurn{})
+
+	// Wait for all-in state transitions
+	require.Eventually(t, func() bool {
+		return players[0].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return players[1].GetCurrentStateString() == "ALL_IN"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+
+	// Set up folded state for player 3
+	players[3].handParticipation.Send(evFold{})
+	require.Eventually(t, func() bool {
+		return players[3].GetCurrentStateString() == "FOLDED"
+	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	// Set up bets
 	pm.addBet(0, 30, players)  // Player 0: All-in with 30
@@ -554,9 +612,9 @@ func TestHeadsUppotDistributionAfterCall(t *testing.T) {
 	setBalance(players[1], 0) // Player 1 loses
 
 	// Set up hand values and states manually for test
-	players[0].sm.Send(evStartHand{})
+	players[0].tablePresence.Send(evStartHand{})
 	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 100})
-	players[1].sm.Send(evStartHand{})
+	players[1].tablePresence.Send(evStartHand{})
 	setHandValue(players[1], &HandValue{Rank: HighCard, RankValue: 1000})
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
@@ -684,7 +742,7 @@ func TestBetTrackingRegression(t *testing.T) {
 			players := make([]*Player, scenario.numPlayers)
 			for i := 0; i < scenario.numPlayers; i++ {
 				players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 0)
-				players[i].sm.Send(evStartHand{})
+				players[i].tablePresence.Send(evStartHand{})
 			}
 
 			// Set hand values (first winner wins, others lose)
@@ -705,7 +763,7 @@ func TestBetTrackingRegression(t *testing.T) {
 					setHandDesc(player, "High Card")
 				}
 				// Set players to in-game state
-				player.sm.Send(evStartHand{})
+				player.tablePresence.Send(evStartHand{})
 			}
 
 			// Execute all actions
@@ -767,7 +825,7 @@ func TestSidepotCornerCases(t *testing.T) {
 		players := make([]*Player, 4)
 		for i := 0; i < 4; i++ {
 			players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 0)
-			players[i].sm.Send(evAllIn{})
+			require.NoError(t, players[i].StartHandParticipation())
 		}
 
 		// All players go all-in with different amounts
@@ -811,12 +869,11 @@ func TestSidepotCornerCases(t *testing.T) {
 		players := make([]*Player, 3)
 		for i := 0; i < 3; i++ {
 			players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 1000)
+			require.NoError(t, players[i].StartHandParticipation())
 		}
 
 		// Player 0 folds early
-		players[0].sm.Send(evStartHand{}) // Move to IN_GAME state first
-		require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "IN_GAME" }, 200*time.Millisecond, 10*time.Millisecond)
-		players[0].sm.Send(evFold{})
+		players[0].handParticipation.Send(evFold{})
 		require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 		pm.addBet(0, 10, players)  // Player 0: 10 (but folded)
 		pm.addBet(1, 50, players)  // Player 1: 50 (all-in)
@@ -847,7 +904,7 @@ func TestSidepotCornerCases(t *testing.T) {
 		players := make([]*Player, 3)
 		for i := 0; i < 3; i++ {
 			players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 0)
-			players[i].sm.Send(evAllIn{})
+			require.NoError(t, players[i].StartHandParticipation())
 		}
 
 		// All players go all-in with the same amount
@@ -925,12 +982,11 @@ func TestSidepotCornerCases(t *testing.T) {
 		players := make([]*Player, 4)
 		for i := 0; i < 4; i++ {
 			players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 1000)
+			require.NoError(t, players[i].StartHandParticipation())
 		}
 
 		// Player 0 folds, others bet different amounts
-		players[0].sm.Send(evStartHand{}) // Move to IN_GAME state first
-		require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "IN_GAME" }, 200*time.Millisecond, 10*time.Millisecond)
-		players[0].sm.Send(evFold{})
+		players[0].handParticipation.Send(evFold{})
 		require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 		pm.addBet(0, 10, players)  // Player 0: 10 (folded)
 		pm.addBet(1, 30, players)  // Player 1: 30 (all-in)
@@ -962,7 +1018,7 @@ func TestSidepotCornerCases(t *testing.T) {
 		players := make([]*Player, 3)
 		for i := 0; i < 3; i++ {
 			players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 0)
-			players[i].sm.Send(evAllIn{})
+			require.NoError(t, players[i].StartHandParticipation())
 		}
 
 		// Test with very large numbers
@@ -988,6 +1044,7 @@ func TestSidepotCornerCases(t *testing.T) {
 		players := make([]*Player, 3)
 		for i := 0; i < 3; i++ {
 			players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 1000)
+			require.NoError(t, players[i].StartHandParticipation())
 		}
 
 		// Simulate betting round by round
@@ -1009,7 +1066,6 @@ func TestSidepotCornerCases(t *testing.T) {
 		}
 
 		// Round 3: Player 0 goes all-in
-		players[0].sm.Send(evAllIn{})
 		pm.addBet(0, 40, players) // All-in for 50 total
 
 		// Check after all-in - should have 2 pots: 50*3, 30*2
@@ -1252,14 +1308,15 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 	pm.addBet(1, 20, players) // BB
 	pm.addBet(2, 60, players) // Raiser
 
+	// Start hand participation for all players
+	for _, player := range players {
+		require.NoError(t, player.StartHandParticipation())
+	}
+
 	// Everyone except BTN folded -> only player 2 alive, but because there WAS voluntary action,
 	// the uncalled portion (40) must be refunded before building pots.
-	players[0].sm.Send(evStartHand{}) // Move to IN_GAME state first
-	players[1].sm.Send(evStartHand{}) // Move to IN_GAME state first
-	require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "IN_GAME" }, 200*time.Millisecond, 10*time.Millisecond)
-	require.Eventually(t, func() bool { return players[1].GetCurrentStateString() == "IN_GAME" }, 200*time.Millisecond, 10*time.Millisecond)
-	players[0].sm.Send(evFold{})
-	players[1].sm.Send(evFold{})
+	players[0].handParticipation.Send(evFold{})
+	players[1].handParticipation.Send(evFold{})
 	require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return players[1].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 
@@ -1331,8 +1388,8 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 		NewPlayer("P1", "P1", 0),
 	}
 	// Ensure both are considered alive (not folded)
-	players[0].sm.Send(evStartHand{})
-	players[1].sm.Send(evStartHand{})
+	players[0].tablePresence.Send(evStartHand{})
+	players[1].tablePresence.Send(evStartHand{})
 
 	pm := NewPotManager(2)
 

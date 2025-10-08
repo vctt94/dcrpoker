@@ -243,6 +243,20 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 	// Wait until the server flags the game as started.
 	env.waitForGameStart(ctx, tableID, 3*time.Second)
 
+	// Wait for the game to reach PRE_FLOP phase with a valid current player
+	// This ensures the game is fully initialized before making bets
+	require.Eventually(t, func() bool {
+		gameState := env.getGameState(ctx, tableID)
+		if !gameState.GameStarted {
+			return false
+		}
+		if gameState.Phase != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		// Ensure we have a current player set
+		return gameState.CurrentPlayer != ""
+	}, 3*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP with a current player")
+
 	// Quick sanity check of balances after table creation/join.
 	//  - Table creator (alice) also pays buy-in when creating the table
 	//  - Joiners (bob & carol) have bankroll - buyIn.
@@ -357,6 +371,16 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Wait for game to start
 	env.waitForGameStart(ctx, tableID, 3*time.Second)
+	// Ensure PRE_FLOP before acting
+	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
+	// Ensure PRE_FLOP reached before acting
+	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
+
+	// Note: explicit per-action waits are used instead of a helper to avoid unused warnings.
+	// Ensure PRE_FLOP reached before acting
+	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
+
+	// Note: we rely on explicit waits before actions in tests that need them.
 
 	// PRE-FLOP BETTING
 	// In 4-player game: player1=dealer, player2=SB, player3=BB, player4=UTG (acts first)
@@ -517,11 +541,17 @@ func TestCompleteHandFlow(t *testing.T) {
 	// Wait for showdown
 	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_SHOWDOWN, 3*time.Second)
 
+	// Wait for showdown processing to complete and winners to be available
+	var winners *pokerrpc.GetLastWinnersResponse
+	require.Eventually(t, func() bool {
+		var err error
+		winners, err = env.pokerClient.GetLastWinners(ctx, &pokerrpc.GetLastWinnersRequest{
+			TableId: tableID,
+		})
+		return err == nil && len(winners.Winners) > 0
+	}, 3*time.Second, 50*time.Millisecond, "showdown should complete with winners")
+
 	// Verify Player4 won the pot
-	winners, err := env.pokerClient.GetLastWinners(ctx, &pokerrpc.GetLastWinnersRequest{
-		TableId: tableID,
-	})
-	require.NoError(t, err)
 	assert.Equal(t, 1, len(winners.Winners), "expected 1 winner")
 	assert.Equal(t, "player4", winners.Winners[0].PlayerId, "expected player4 to win")
 
@@ -583,6 +613,19 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 	// Wait for game to start
 	env.waitForGameStart(ctx, tableID, 3*time.Second)
 
+	// Wait for the game to reach PRE_FLOP phase with a valid current player
+	require.Eventually(t, func() bool {
+		gameState := env.getGameState(ctx, tableID)
+		if !gameState.GameStarted {
+			return false
+		}
+		if gameState.Phase != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		// Ensure we have a current player set
+		return gameState.CurrentPlayer != ""
+	}, 3*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP with a current player")
+
 	// active1 and active2 make their moves
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "active1",
@@ -600,8 +643,12 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 
 	// But "timeout" player doesn't act - should auto-check-or-fold after timeout
 	// Since they need to call from 20 to 20 but already have 20 bet (big blind), they should auto-check
-	// Wait for enough time for auto-check-or-fold to occur (timebank + buffer)
-	time.Sleep(7 * time.Second)
+	// Wait for auto-check-or-fold to occur
+	require.Eventually(t, func() bool {
+		state := env.getGameState(ctx, tableID)
+		// Check if the timeout player has been auto-checked (turn should have advanced)
+		return state.CurrentPlayer != "timeout"
+	}, 8*time.Second, 100*time.Millisecond, "timeout player should be auto-checked")
 
 	// Check if player was auto-checked or auto-folded based on their position
 	state := env.getGameState(ctx, tableID)
@@ -669,7 +716,24 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	// Wait for game to start
 	env.waitForGameStart(ctx, tableID, 3*time.Second)
 
+	// Wait for the game to reach PRE_FLOP phase with a valid current player
+	require.Eventually(t, func() bool {
+		gameState := env.getGameState(ctx, tableID)
+		if !gameState.GameStarted {
+			return false
+		}
+		if gameState.Phase != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		// Ensure we have a current player set
+		return gameState.CurrentPlayer != ""
+	}, 3*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP with a current player")
+
 	// active1 calls the big blind (20)
+	require.Eventually(t, func() bool {
+		st := env.getGameState(ctx, tableID)
+		return st.CurrentPlayer == "active1"
+	}, 2*time.Second, 10*time.Millisecond, "active1 should be current player")
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "active1",
 		TableId:  tableID,
@@ -678,6 +742,10 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	require.NoError(t, err)
 
 	// active2 raises to 50
+	require.Eventually(t, func() bool {
+		st := env.getGameState(ctx, tableID)
+		return st.CurrentPlayer == "active2"
+	}, 2*time.Second, 10*time.Millisecond, "active2 should be current player")
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "active2",
 		TableId:  tableID,
@@ -686,8 +754,12 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now "timeout" player (big blind) would need to call from 20 to 50 - should auto-fold after timeout
-	// Wait for enough time for auto-fold to occur (timebank + buffer)
-	time.Sleep(7 * time.Second)
+	// Wait for auto-fold to occur
+	require.Eventually(t, func() bool {
+		state := env.getGameState(ctx, tableID)
+		// Check if the timeout player has been auto-folded (turn should have advanced)
+		return state.CurrentPlayer != "timeout"
+	}, 8*time.Second, 100*time.Millisecond, "timeout player should be auto-folded")
 
 	// Check if player was auto-folded (since they cannot check - they need to call the raise)
 	state := env.getGameState(ctx, tableID)
@@ -800,6 +872,27 @@ func TestBasicBetting(t *testing.T) {
 
 	// Wait for game to start
 	env.waitForGameStart(ctx, tableID, 3*time.Second)
+	// Ensure PRE_FLOP is fully reached before asserting state/acting
+	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
+
+	// Helper: wait until it's the specified player's turn (scoped to this test)
+	waitForTurnBasic := func(playerID string, timeout time.Duration) {
+		ctxTurn, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		for {
+			state := env.getGameState(ctx, tableID)
+			if state.CurrentPlayer == playerID {
+				return
+			}
+			select {
+			case <-ctxTurn.Done():
+				t.Fatalf("did not become %s's turn within %s (current=%s, phase=%v)", playerID, timeout, state.CurrentPlayer, state.Phase)
+			case <-time.After(25 * time.Millisecond):
+			}
+		}
+	}
+
+	// Note: second helper removed; using waitForTurnBasic below.
 
 	// Verify initial pot includes blinds (10 + 20 = 30)
 	state := env.getGameState(ctx, tableID)
@@ -830,6 +923,7 @@ func TestBasicBetting(t *testing.T) {
 	assert.Equal(t, int64(20), state.CurrentBet, "current bet should be big blind (20)")
 
 	// P1 calls the big blind (20)
+	waitForTurnBasic("p1", 2*time.Second)
 	_, err := env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "p1",
 		TableId:  tableID,
@@ -842,6 +936,7 @@ func TestBasicBetting(t *testing.T) {
 	assert.Equal(t, int64(50), state.Pot, "pot should be 50 after p1's call (30+20)")
 
 	// P2 (small blind) calls by betting 20 total (needs to add 10 more to their existing 10)
+	waitForTurnBasic("p2", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "p2",
 		TableId:  tableID,
@@ -854,6 +949,7 @@ func TestBasicBetting(t *testing.T) {
 	assert.Equal(t, int64(60), state.Pot, "pot should be 60 after p2's call (50+10)")
 
 	// P3 (big blind) can check (already has 20 bet)
+	waitForTurnBasic("p3", 2*time.Second)
 	_, err = env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
 		PlayerId: "p3",
 		TableId:  tableID,
@@ -1133,6 +1229,7 @@ func TestThreePlayersAutoplayOneHand(t *testing.T) {
 			}
 		}
 		if currPlayer == nil {
+			// Wait a bit for the game state to stabilize
 			time.Sleep(50 * time.Millisecond)
 			continue
 		}
@@ -1150,7 +1247,7 @@ func TestThreePlayersAutoplayOneHand(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// Avoid spamming
+		// Brief pause to avoid overwhelming the server
 		time.Sleep(50 * time.Millisecond)
 	}
 
