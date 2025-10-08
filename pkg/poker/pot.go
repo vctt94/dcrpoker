@@ -3,6 +3,7 @@ package poker
 import (
 	"fmt"
 	"sort"
+	"sync"
 )
 
 // pot represents a pot of chips in the game
@@ -31,6 +32,7 @@ func (p *pot) isEligible(playerIndex int) bool {
 
 // potManager manages multiple pots, including the main pot and side pots
 type potManager struct {
+	mu          sync.RWMutex  // Protects all potManager fields
 	pots        []*pot        // Main pot followed by side pots
 	currentBets map[int]int64 // Current bet for each player in this round
 	totalBets   map[int]int64 // Total bet for each player across all rounds
@@ -46,13 +48,25 @@ func NewPotManager(nPlayers int) *potManager {
 
 // AddBet adds a bet and immediately rebuilds pots to handle side pot creation
 func (pm *potManager) addBet(playerIndex int, amount int64, players []*Player) {
+	// Pre-compute fold status BEFORE acquiring pot manager lock to avoid deadlock
+	foldStatus := make([]bool, len(players))
+	for i, p := range players {
+		if p != nil {
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+		}
+	}
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 	pm.currentBets[playerIndex] += amount
 	pm.totalBets[playerIndex] += amount
-	pm.rebuildPotsIncremental(players)
+	pm.rebuildPotsIncremental(players, foldStatus)
 }
 
 // getTotalPot returns the total amount across all pots
 func (pm *potManager) getTotalPot() int64 {
+	pm.mu.RLock()
+	defer pm.mu.RUnlock()
 	var total int64
 	for _, pot := range pm.pots {
 		total += pot.amount
@@ -70,51 +84,95 @@ func (pm *potManager) getTotalBet(playerIndex int) int64 {
 	return pm.totalBets[playerIndex]
 }
 
-// rebuildPotsIncremental rebuilds pots based on current TotalBets and player status.
-// Called after each bet to maintain proper side-pot structure.
-func (pm *potManager) rebuildPotsIncremental(players []*Player) {
+// RebuildPotsIncremental rebuilds the pot structure from pm.totalBets and player states.
+// It first handles the uncontested case (exactly one non-folded player), then falls back
+// to layered side-pot construction by contribution thresholds.
+func (pm *potManager) RebuildPotsIncremental(players []*Player) {
+	// Pre-compute fold status BEFORE acquiring pot manager lock to avoid deadlock
+	foldStatus := make([]bool, len(players))
+	for i, p := range players {
+		if p != nil {
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+		}
+	}
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pm.rebuildPotsIncremental(players, foldStatus)
+}
+
+// rebuildPotsIncremental is the internal implementation that assumes the lock is already held
+func (pm *potManager) rebuildPotsIncremental(players []*Player, foldStatus []bool) {
 	n := len(players)
 	if n == 0 {
 		pm.pots = []*pot{newPot(0)}
 		return
 	}
 
-	// Collect unique positive bet thresholds.
-	seen := make(map[int64]struct{}, n)
+	// Count non-folded ("alive") players and remember the last alive seat.
+	alive := 0
+	lastAlive := -1
 	for i := 0; i < n; i++ {
-		if b := pm.totalBets[i]; b > 0 {
-			seen[b] = struct{}{}
+		if players[i] != nil && !foldStatus[i] {
+			alive++
+			lastAlive = i
 		}
 	}
 
-	// If everyone is at 0, a single empty pot is enough.
+	// Uncontested short-circuit: one alive player => a single pot equal to
+	// the sum of all contributions (including folded players' prior bets).
+	if alive == 1 {
+		total := int64(0)
+		for i := 0; i < n; i++ {
+			total += pm.totalBets[i]
+		}
+		p := newPot(n)
+		p.amount = total
+		if lastAlive >= 0 {
+			p.makeEligible(lastAlive)
+		}
+		pm.pots = []*pot{p}
+		return
+	}
+
+	// Collect unique positive contribution thresholds from totalBets.
+	seen := make(map[int64]struct{}, n)
+	for i := 0; i < n; i++ {
+		if tb := pm.totalBets[i]; tb > 0 {
+			seen[tb] = struct{}{}
+		}
+	}
+
+	// If nobody has put chips in, keep a single empty pot scaffold.
 	if len(seen) == 0 {
 		pm.pots = []*pot{newPot(n)}
 		return
 	}
 
-	// Sort thresholds ascending.
+	// Sort thresholds ascending to build layered (capped) pots.
 	levels := make([]int64, 0, len(seen))
-	for b := range seen {
-		levels = append(levels, b)
+	for v := range seen {
+		levels = append(levels, v)
 	}
 	sort.Slice(levels, func(i, j int) bool { return levels[i] < levels[j] })
 
 	pots := make([]*pot, 0, len(levels)+1)
 	prev := int64(0)
 
-	// Build capped pots for each threshold.
+	// Build one capped layer per threshold.
 	for _, lvl := range levels {
 		p := newPot(n)
 		amt := int64(0)
 
 		for i := 0; i < n; i++ {
 			tb := pm.totalBets[i]
-			// Eligible if not folded and contributed at least to this level.
-			if players[i] != nil && !(players[i].GetCurrentStateString() == "FOLDED") && tb >= lvl {
+
+			// Eligible if player is alive and has contributed at least up to this cap.
+			if players[i] != nil && !foldStatus[i] && tb >= lvl {
 				p.makeEligible(i)
 			}
-			// Contribution into this layer is clamp(tb, prev..lvl) - prev.
+
+			// Each player contributes the slice of their bet between (prev, lvl].
 			if tb > prev {
 				upTo := tb
 				if upTo > lvl {
@@ -131,16 +189,15 @@ func (pm *potManager) rebuildPotsIncremental(players []*Player) {
 		prev = lvl
 	}
 
-	// Final uncapped overage pot above the highest level (e.g., raises not all-in capped).
+	// Final uncapped overage (above the highest threshold), if any.
 	top := levels[len(levels)-1]
 	over := newPot(n)
 	hasOver := false
-
 	for i := 0; i < n; i++ {
 		tb := pm.totalBets[i]
 		if tb > top {
 			over.amount += tb - top
-			if players[i] != nil && !(players[i].GetCurrentStateString() == "FOLDED") {
+			if players[i] != nil && !foldStatus[i] {
 				over.makeEligible(i)
 			}
 			hasOver = true
@@ -149,6 +206,7 @@ func (pm *potManager) rebuildPotsIncremental(players []*Player) {
 	if hasOver {
 		pots = append(pots, over)
 	}
+
 	pm.pots = pots
 }
 
@@ -157,6 +215,16 @@ func (pm *potManager) rebuildPotsIncremental(players []*Player) {
 // pots are zeroed after payout so re-entry is a no-op.
 // distributePots pays out all pots. Safe to call multiple times (pots are zeroed after payout).
 func (pm *potManager) distributePots(players []*Player) error {
+	// Pre-compute fold status
+	foldStatus := make([]bool, len(players))
+	for i, p := range players {
+		if p != nil {
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+		}
+	}
+
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
 	for pi, pot := range pm.pots {
 		// Idempotent: skip empty/already-settled pots.
 		if pot.amount <= 0 {
@@ -173,7 +241,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 			if idx < 0 || idx >= len(players) {
 				return fmt.Errorf("[pot %d] eligibility idx %d out of range (players=%d)", pi, idx, len(players))
 			}
-			if elig && players[idx] != nil && !(players[idx].GetCurrentStateString() == "FOLDED") {
+			if elig && players[idx] != nil && !foldStatus[idx] {
 				alive = append(alive, idx)
 			}
 		}
@@ -250,33 +318,70 @@ func (pm *potManager) distributePots(players []*Player) error {
 	return nil
 }
 
-// ReturnUncalledBet returns any uncalled portion of a bet to the player who made it
-func (pm *potManager) returnUncalledBet(players []*Player) error {
+// ReturnUncalledBet returns any uncalled portion of the top bet to the bettor.
+// It handles the special "no-call" case by refunding down to the bettor's forced amount.
+//
+// forced[i] = player's forced contribution for THIS street.
+//
+//	Preflop heads-up: forced = [smallBlind, bigBlind] (e.g., [10, 20])
+//	Later streets or non-blind players: 0
+//
+// Returns (hiPlayer, refunded, error). Caller can decide when to rebuild pots.
+func (pm *potManager) returnUncalledBet(forced []int64) (int, int64, error) {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	n := len(pm.currentBets)
+	if n == 0 || len(forced) != n {
+		return -1, 0, fmt.Errorf("invalid input")
+	}
+
+	// Find highest and second-highest current bet.
 	var hi, second int64
 	hiPlayer := -1
-
-	for idx, bet := range pm.currentBets {
-		if bet > hi {
+	for i, b := range pm.currentBets {
+		if b > hi {
 			second = hi
-			hi = bet
-			hiPlayer = idx
-		} else if bet > second {
-			second = bet
+			hi = b
+			hiPlayer = i
+		} else if b > second {
+			second = b
+		}
+	}
+	if hiPlayer < 0 || hi <= second {
+		return -1, 0, nil // nothing to refund
+	}
+
+	// "No-call" if every non-aggressor put in no more than their forced amount.
+	noCall := true
+	for i, b := range pm.currentBets {
+		if i == hiPlayer {
+			continue
+		}
+		if b > forced[i] {
+			noCall = false
+			break
 		}
 	}
 
-	if hiPlayer >= 0 && hi > second {
-		uncalled := hi - second
-		if players[hiPlayer] != nil {
-			if err := players[hiPlayer].credit(uncalled); err != nil {
-				return fmt.Errorf("failed to return uncalled bet to player %d: %w", hiPlayer, err)
-			}
-		}
-		pm.currentBets[hiPlayer] -= uncalled
-		pm.totalBets[hiPlayer] -= uncalled
-
-		// Rebuild pots after refund to reflect the new totals
-		pm.rebuildPotsIncremental(players)
+	cap := second
+	if noCall {
+		cap = forced[hiPlayer] // refund down to bettor's forced amount (e.g., SB=10 preflop)
 	}
-	return nil
+
+	uncalled := hi - cap
+	if uncalled <= 0 {
+		return -1, 0, nil
+	}
+
+	// Refund and adjust contributions.
+	pm.currentBets[hiPlayer] -= uncalled
+	pm.totalBets[hiPlayer] -= uncalled
+	if pm.currentBets[hiPlayer] < 0 {
+		pm.currentBets[hiPlayer] = 0
+	}
+	if pm.totalBets[hiPlayer] < 0 {
+		pm.totalBets[hiPlayer] = 0
+	}
+
+	return hiPlayer, uncalled, nil
 }

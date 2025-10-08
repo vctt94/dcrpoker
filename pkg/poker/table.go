@@ -195,6 +195,44 @@ func (t *Table) StopTimeout() {
 	close(t.timeoutStop)
 }
 
+// Close stops all background goroutines and cleans up resources.
+// This must be called when a table is no longer needed to prevent goroutine leaks.
+func (t *Table) Close() {
+	// Grab references while holding lock
+	t.mu.Lock()
+	game := t.game
+	sm := t.sm
+	t.mu.Unlock()
+
+	// Clean up the game first (without holding lock to avoid deadlock)
+	if game != nil {
+		game.Close()
+	}
+
+	// Stop the table state machine without holding lock to avoid deadlock
+	// (state machine may need to acquire t.mu during shutdown)
+	if sm != nil {
+		sm.Stop()
+	}
+
+	// Clear references under lock
+	t.mu.Lock()
+	t.game = nil
+	t.sm = nil
+	t.mu.Unlock()
+
+	// Stop background goroutines (these use close on channels, so only call once)
+	// Note: These channels may already be closed, so we need to handle panics gracefully
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was already closed, ignore
+		}
+	}()
+
+	close(t.timeoutStop)
+	close(t.gameEventStop)
+}
+
 // gameEventLoop processes events from the Game FSM
 func (t *Table) gameEventLoop() {
 	for {
@@ -256,10 +294,7 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		}
 	case GameEventShowdownReady:
 		t.log.Debugf("Table received GameEventShowdownReady")
-		// Go to showdown
-		if err := t.handleShowdown(); err != nil {
-			t.log.Errorf("Failed to handle showdown: %v", err)
-		}
+		// Game FSM will process showdown and send us the complete result
 	case GameEventShowdownComplete:
 		t.log.Debugf("Table received GameEventShowdownComplete")
 		// Store the showdown result
@@ -396,8 +431,11 @@ func (t *Table) StartGame() error {
 	if len(t.users) < t.config.MinPlayers {
 		return fmt.Errorf("not enough players to start game")
 	}
-	// Drop any stale game explicitly.
-	t.game = nil
+	// Clean up any stale game explicitly to prevent goroutine leaks
+	if t.game != nil {
+		t.game.Close()
+		t.game = nil
+	}
 
 	// 2) Build the active player list in seat order (pure table concern).
 	active := make([]*User, 0, len(t.users))
@@ -441,11 +479,13 @@ func (t *Table) StartGame() error {
 	// 6a) Wire up game event channel so Game FSM can send events to Table
 	g.SetTableEventChannel(t.gameEventChan)
 
-	// 7) Perform full, deterministic hand setup while holding the table lock
-	//    to avoid races (deals, posts blinds, sets current player).
-	if err := t.setupNewHand(active); err != nil {
-		return fmt.Errorf("failed to setup new hand: %w", err)
+	// 7) Deal cards to players
+	// The FSM (statePreDeal → stateBlinds) will handle dealer advancement, blind posting, etc.
+	t.log.Debugf("StartGame: Dealing cards to %d players", len(active))
+	if err := t.dealCardsToPlayers(active); err != nil {
+		return fmt.Errorf("failed to deal cards: %w", err)
 	}
+	t.log.Debugf("StartGame: Cards dealt, FSM will handle rest of setup")
 
 	// 8) Start the game FSM so it's ready to process events
 	go g.Start(context.Background())
@@ -495,31 +535,6 @@ func (t *Table) isGameActive() bool {
 	return state == "GAME_ACTIVE"
 }
 
-// handleShowdown delegates showdown logic to the game and handles notifications
-func (t *Table) handleShowdown() error {
-	if t.game == nil {
-		return fmt.Errorf("game is nil")
-	}
-
-	currentRound := t.game.GetRound()
-
-	// we save last showdown results so we can show the last old hand for users
-	t.mu.RLock()
-	alreadyResolved := t.lastShowdown != nil && t.resolvedRound == currentRound
-	resolvedRound := t.resolvedRound
-	t.mu.RUnlock()
-	if alreadyResolved {
-		t.log.Debugf("handleShowdown: idempotency guard triggered, round=%d, resolvedRound=%d", currentRound, resolvedRound)
-		return nil
-	}
-
-	// The game FSM will process the showdown and send us the result via GameEventShowdownComplete
-	// This method just ensures the game is in the right state for showdown processing
-	t.log.Debugf("handleShowdown: game FSM will process showdown and send result")
-
-	return nil
-}
-
 // handleShowdownComplete stores the showdown result received from the game FSM
 func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
 	if result == nil {
@@ -528,6 +543,16 @@ func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
 
 	currentRound := t.game.GetRound()
 
+	// Idempotency guard: check if we already processed this round's showdown
+	t.mu.RLock()
+	alreadyResolved := t.lastShowdown != nil && t.resolvedRound == currentRound
+	resolvedRound := t.resolvedRound
+	t.mu.RUnlock()
+	if alreadyResolved {
+		t.log.Debugf("handleShowdownComplete: idempotency guard triggered, round=%d, resolvedRound=%d", currentRound, resolvedRound)
+		return nil
+	}
+
 	// Store the result in the table for later retrieval
 	t.mu.Lock()
 	t.lastShowdown = result
@@ -535,6 +560,13 @@ func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
 	t.mu.Unlock()
 
 	t.log.Debugf("handleShowdownComplete: stored showdown result for round %d with %d winners", currentRound, len(result.Winners))
+
+	// Now publish the SHOWDOWN_RESULT event with the complete payload
+	showdownPayload := &pokerrpc.Showdown{
+		Winners: result.WinnerInfo,
+		Pot:     result.TotalPot,
+	}
+	t.PublishEvent(pokerrpc.NotificationType_SHOWDOWN_RESULT, t.config.ID, showdownPayload)
 
 	return nil
 }
@@ -572,18 +604,6 @@ func (t *Table) startNewHand() error {
 	// For logs, snapshot balances safely via Game (outside t.mu)
 	g := t.game
 	t.mu.Unlock()
-
-	// (Optional) Log balances safely using a snapshot
-	byID := map[string]int64{}
-
-	for _, u := range activeUsers {
-		bal := byID[u.ID]
-		if bal >= t.config.BigBlind {
-			t.log.Debugf("User %s eligible for new hand: pokerBalance=%d >= bigBlind=%d", u.ID, bal, t.config.BigBlind)
-		} else {
-			t.log.Debugf("User %s will play all-in: pokerBalance=%d < bigBlind=%d", u.ID, bal, t.config.BigBlind)
-		}
-	}
 
 	// Set up notification to broadcast NEW_HAND_STARTED when PRE_FLOP is reached.
 	// Create the notification channel BEFORE triggering FSM transitions.
@@ -625,31 +645,6 @@ func (t *Table) startNewHand() error {
 		t.log.Warnf("startNewHand: Timeout waiting for PRE_FLOP FSM transition")
 	}
 
-	return nil
-}
-
-// setupNewHand handles card dealing for the initial hand.
-// All other setup (dealer advancement, blind posting, current player) is handled by the FSM.
-func (t *Table) setupNewHand(activePlayers []*User) error {
-	if t.game == nil {
-		return fmt.Errorf("game not initialized")
-	}
-	if t.log == nil {
-		t.log = slog.NewBackend(nil).Logger("TESTING")
-	}
-
-	t.log.Debugf("setupNewHand: Dealing cards to %d players", len(activePlayers))
-
-	// Only deal cards here - the FSM (statePreDeal → stateBlinds) will handle:
-	// - Dealer advancement
-	// - Blind posting
-	// - Current player initialization
-	err := t.dealCardsToPlayers(activePlayers)
-	if err != nil {
-		return fmt.Errorf("failed to deal cards: %v", err)
-	}
-
-	t.log.Debugf("setupNewHand: Cards dealt, FSM will handle rest of setup")
 	return nil
 }
 
@@ -1032,7 +1027,7 @@ func (t *Table) HandleCheck(userID string) error {
 
 // (removed) postBlindsFromGame: blinds are posted exclusively inside the Game FSM (stateBlinds).
 
-// dealCardsToPlayers deals cards to active players using the unified player state
+// dealCardsToPlayers deals cards to active players during initialization.
 func (t *Table) dealCardsToPlayers(activePlayers []*User) error {
 	if t.game == nil || t.game.deck == nil {
 		return fmt.Errorf("game or deck not initialized")
@@ -1046,20 +1041,12 @@ func (t *Table) dealCardsToPlayers(activePlayers []*User) error {
 				return fmt.Errorf("failed to deal card to user %s: deck is empty", u.ID)
 			}
 
-			// Also sync the card to the corresponding game player
-			found := false
+			// Sync the card to the corresponding game player
 			for _, player := range t.game.players {
 				if player.id == u.ID {
-					player.mu.Lock()
-					player.hand = append(player.hand, card)
-					player.mu.Unlock()
-					found = true
+					player.AddCardDuringDeal(card)
 					break
 				}
-			}
-
-			if !found {
-				t.log.Debugf("DEBUG: Could not find game player for user %s when dealing cards", u.ID)
 			}
 		}
 	}
@@ -1171,8 +1158,8 @@ type TableStateSnapshot struct {
 
 // GetStateSnapshot returns an atomic snapshot of the table state for safe concurrent access
 func (t *Table) GetStateSnapshot() TableStateSnapshot {
+	// Grab table data while holding lock
 	t.mu.RLock()
-	defer t.mu.RUnlock()
 
 	// Create a deep copy of users to avoid race conditions
 	usersCopy := make([]*User, 0, len(t.users))
@@ -1188,23 +1175,30 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 		usersCopy = append(usersCopy, userCopy)
 	}
 
+	// Grab references we need without holding lock during expensive operations
+	config := t.config
+	game := t.game
+	gamePhase := t.getGamePhase()
+	t.mu.RUnlock()
+
 	// Sort by TableSeat to ensure consistent ordering
 	sort.Slice(usersCopy, func(i, j int) bool {
 		return usersCopy[i].TableSeat < usersCopy[j].TableSeat
 	})
 
-	// Get game state snapshot if game is active
+	// Get game state snapshot WITHOUT holding table lock to avoid nested lock deadlock
+	// (game.GetStateSnapshot may need to acquire player locks)
 	var gameSnapshot *GameStateSnapshot
-	if t.game != nil {
-		snapshot := t.game.GetStateSnapshot()
+	if game != nil {
+		snapshot := game.GetStateSnapshot()
 		gameSnapshot = &snapshot
 	}
 
 	return TableStateSnapshot{
-		Config:      t.config,
+		Config:      config,
 		Users:       usersCopy,
-		GameStarted: t.game != nil,
-		GamePhase:   t.getGamePhase(),
+		GameStarted: game != nil,
+		GamePhase:   gamePhase,
 		Game:        gameSnapshot,
 	}
 }
@@ -1231,28 +1225,6 @@ func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error 
 
 	u.DCRAccountBalance = newBalance
 	return nil
-}
-
-// ensureAutoStartCallbacks sets up auto-start callbacks if not already configured.
-// Caller must NOT hold t.mu; the callbacks will acquire locks as needed.
-func (t *Table) ensureAutoStartCallbacks() {
-	if t.game == nil || t.game.HasAutoStartCallbacks() {
-		return
-	}
-
-	t.game.SetAutoStartCallbacks(&AutoStartCallbacks{
-		MinPlayers: func() int {
-			t.mu.RLock()
-			remaining := len(t.users)
-			t.mu.RUnlock()
-			if remaining >= 2 {
-				return 2 // Allow heads-up play
-			}
-			return t.config.MinPlayers
-		},
-		StartNewHand:     func() error { return t.startNewHand() },
-		OnNewHandStarted: nil,
-	})
 }
 
 // XX We need to properly fix this restore for clients. and properly restore game state from sm

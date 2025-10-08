@@ -1378,3 +1378,120 @@ func TestShowdownBugReproduction(t *testing.T) {
 	require.True(t, player1Won || player2Won,
 		"Neither player won chips - this indicates the pot distribution bug!")
 }
+
+// TestShowdownTotalPotBug reproduces the bug where TotalPot in showdown result
+// reflects the pre-refund amount instead of the actual pot after refunds.
+// Scenario: P1 raises to 60, P2 folds, P1 should win 30 (SB 10 + BB 20)
+// but TotalPot shows 80 (60 + 20) instead of 30.
+func TestShowdownTotalPotBug(t *testing.T) {
+	// Create a game with 2 players
+	cfg := GameConfig{
+		NumPlayers:    2,
+		StartingChips: 1000,
+		SmallBlind:    10,
+		BigBlind:      20,
+		Seed:          42,
+		Log:           createTestLogger(),
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	// Create test users and set them in the game
+	users := []*User{
+		NewUser("player1", "Player 1", 1000, 0), // SB/Dealer
+		NewUser("player2", "Player 2", 1000, 1), // BB
+	}
+	game.SetPlayers(users)
+
+	// Properly simulate the scenario: P1 (SB) raises to 60, P2 (BB) folds
+	// This must be in PRE_FLOP to trigger the "no-call preflop" refund rule
+
+	// Start hand participation for both players
+	err = game.players[0].StartHandParticipation()
+	require.NoError(t, err)
+	err = game.players[1].StartHandParticipation()
+	require.NoError(t, err)
+
+	// Set up blinds properly - this is crucial for the refund rule
+	game.players[0].mu.Lock()
+	game.players[0].isSmallBlind = true
+	game.players[0].isDealer = true
+	game.players[0].mu.Unlock()
+
+	game.players[1].mu.Lock()
+	game.players[1].isBigBlind = true
+	game.players[1].mu.Unlock()
+
+	// Set game phase to PRE_FLOP (required for the specific refund rule)
+	game.mu.Lock()
+	game.phase = pokerrpc.GamePhase_PRE_FLOP
+	game.mu.Unlock()
+
+	// Set up pot manager with the scenario:
+	// - P1 (SB) bets 60 total (SB 10 + raise 50)
+	// - P2 (BB) bets 20 total (BB)
+	// - Total pot before refund: 80
+	game.potManager = NewPotManager(2)
+	game.potManager.addBet(0, 60, game.players) // P1 bets 60
+	game.potManager.addBet(1, 20, game.players) // P2 bets 20 (BB)
+
+	// Set player states: P1 active, P2 folded
+	// P1 stays in active state (default)
+	// P2 folds
+	_, err = game.players[1].TryFold()
+	require.NoError(t, err)
+
+	// Wait for the fold to be processed
+	require.Eventually(t, func() bool {
+		return game.players[1].GetCurrentStateString() == "FOLDED"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+
+	// Set up hands for the players (required for showdown)
+	game.players[0].mu.Lock()
+	game.players[0].hand = []Card{
+		{suit: Hearts, value: Ace},
+		{suit: Spades, value: King},
+	}
+	game.players[0].mu.Unlock()
+
+	game.players[1].mu.Lock()
+	game.players[1].hand = []Card{
+		{suit: Clubs, value: Queen},
+		{suit: Diamonds, value: Jack},
+	}
+	game.players[1].mu.Unlock()
+
+	// Set up community cards (required for showdown)
+	game.mu.Lock()
+	game.communityCards = []Card{
+		{suit: Hearts, value: Ten},
+		{suit: Spades, value: Nine},
+		{suit: Clubs, value: Eight},
+		{suit: Diamonds, value: Seven},
+		{suit: Hearts, value: Six},
+	}
+	game.mu.Unlock()
+
+	// Verify initial pot is 80 (pre-refund)
+	require.Equal(t, int64(80), game.GetPot())
+
+	// Run showdown
+	result, err := game.HandleShowdown()
+	require.NoError(t, err)
+
+	// The bug: TotalPot should be 30 (actual pot after refunds)
+	// but it shows 80 (pre-refund amount)
+	require.Equal(t, int64(30), result.TotalPot,
+		"TotalPot should reflect actual pot after refunds, not pre-refund amount")
+
+	// Verify actual winnings match the pot
+	require.Len(t, result.Winners, 1)
+	require.Equal(t, "player1", result.Winners[0])
+	require.Len(t, result.WinnerInfo, 1)
+	require.Equal(t, int64(30), result.WinnerInfo[0].Winnings)
+
+	// Note: We're not checking final balances here because this is a unit test
+	// that focuses on the TotalPot bug. The actual balance accounting would
+	// be handled by the full game flow with proper bet/debit mechanisms.
+}

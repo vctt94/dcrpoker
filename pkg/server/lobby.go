@@ -274,7 +274,7 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 
 		// No other players: close table (runtime + DB)
 		if table != nil {
-			table.StopTimeout()
+			table.Close() // Properly clean up all goroutines to prevent leaks
 		}
 		s.tables.Delete(req.TableId)
 		s.saveMutexes.Delete(req.TableId)

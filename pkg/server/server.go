@@ -90,10 +90,10 @@ func (s *Server) Stop() {
 		s.eventProcessor.Stop()
 	}
 
-	// Stop all table timeout goroutines
+	// Close all tables properly to prevent goroutine leaks
 	tables := s.getAllTables()
 	for _, table := range tables {
-		table.StopTimeout()
+		table.Close()
 	}
 
 	// Wait for any in-flight asynchronous saves to complete before returning.

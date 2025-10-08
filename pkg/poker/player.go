@@ -62,15 +62,19 @@ func NewPlayer(id, name string, balance int64) *Player {
 }
 
 func (p *Player) Close() {
-	// Stop new state machines
+	// Grab references to state machines while holding lock
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	tablePresence := p.tablePresence
+	handParticipation := p.handParticipation
+	p.mu.Unlock()
 
-	if p.tablePresence != nil {
-		p.tablePresence.Stop()
+	// Stop state machines without holding player mutex to avoid deadlock
+	// (state machines may need to acquire p.mu during shutdown)
+	if tablePresence != nil {
+		tablePresence.Stop()
 	}
-	if p.handParticipation != nil {
-		p.handParticipation.Stop()
+	if handParticipation != nil {
+		handParticipation.Stop()
 	}
 }
 
@@ -92,19 +96,25 @@ func (p *Player) StartHandParticipation() error {
 
 // StopHandParticipation stops the hand participation FSM and clears hand state
 func (p *Player) StopHandParticipation() {
+	// Grab reference to state machine while holding lock
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	handParticipation := p.handParticipation
+	p.mu.Unlock()
 
-	if p.handParticipation != nil {
-		p.handParticipation.Stop()
-		p.handParticipation = nil
+	// Stop state machine without holding player mutex to avoid deadlock
+	// (state machine may need to acquire p.mu during shutdown)
+	if handParticipation != nil {
+		handParticipation.Stop()
 	}
 
-	// Clear hand-related state when stopping participation
+	// Clear hand-related state and nil out the FSM reference
+	p.mu.Lock()
+	p.handParticipation = nil
 	p.hand = nil
 	p.currentBet = 0
 	p.handDescription = ""
 	p.isTurn = false
+	p.mu.Unlock()
 }
 
 // HandleStartHand starts hand participation and determines initial state
@@ -922,7 +932,7 @@ func (p *Player) Marshal() *pokerrpc.Player {
 	}
 
 	// Use new state information for more accurate representation
-	handStateStr := p.GetCurrentStateString()
+	handStateStr := p.getCurrentStateString()
 
 	proto := &pokerrpc.Player{
 		Id:              p.id,
@@ -938,7 +948,7 @@ func (p *Player) Marshal() *pokerrpc.Player {
 		IsBigBlind:      p.isBigBlind,
 		IsReady:         p.isReady,
 		HandDescription: p.handDescription,
-		PlayerState:     p.GetTablePresenceState(), // Keep legacy for now
+		PlayerState:     p.getTablePresenceState(),
 	}
 
 	return proto
@@ -978,6 +988,13 @@ func (p *Player) Hand() []Card {
 	out := make([]Card, len(p.hand))
 	copy(out, p.hand)
 	return out
+}
+
+// AddCardDuringDeal appends a card to the player's hand.
+func (p *Player) AddCardDuringDeal(card Card) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.hand = append(p.hand, card)
 }
 
 func (p *Player) HandDescription() string {
@@ -1203,7 +1220,12 @@ const (
 func (p *Player) GetCurrentStateString() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+	return p.getCurrentStateString()
+}
 
+// getCurrentStateStringLocked returns the current state string without acquiring locks
+// (assumes caller already holds p.mu.RLock or p.mu.Lock)
+func (p *Player) getCurrentStateString() string {
 	// If hand participation is active, return hand participation state
 	if p.handParticipation != nil {
 		currentState := p.handParticipation.Current()
@@ -1249,7 +1271,12 @@ func (p *Player) GetCurrentStateString() string {
 func (p *Player) GetTablePresenceState() pokerrpc.PlayerState {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
+	return p.getTablePresenceState()
+}
 
+// getTablePresenceStateLocked returns the table presence state without acquiring locks
+// (assumes caller already holds p.mu.RLock or p.mu.Lock)
+func (p *Player) getTablePresenceState() pokerrpc.PlayerState {
 	if p.tablePresence == nil {
 		return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
 	}

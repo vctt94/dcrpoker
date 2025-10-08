@@ -1320,13 +1320,25 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 	require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return players[1].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 
-	if err := pm.returnUncalledBet(players); err != nil {
+	// Create forced bets array (blinds for this test scenario)
+	forced := []int64{0, 0, 0} // No forced bets in this test
+	refundedPlayer, refundedAmount, err := pm.returnUncalledBet(forced)
+	if err != nil {
 		t.Fatalf("returnUncalledBet failed: %v", err)
 	}
 	if pm.totalBets[2] != 20 {
 		t.Fatalf("TotalBets[BTN]=%d want 20 after refund", pm.totalBets[2])
 	}
 
+	// Credit the refunded amount to the player
+	if refundedPlayer >= 0 && refundedAmount > 0 {
+		if err := players[refundedPlayer].credit(refundedAmount); err != nil {
+			t.Fatalf("failed to credit refunded amount: %v", err)
+		}
+	}
+
+	// Rebuild pots after refund to reflect the updated bet amounts
+	pm.RebuildPotsIncremental(players)
 	// Debug: check what happens after pot building
 	t.Logf("Before pot building:")
 	t.Logf("TotalBets: %v", pm.totalBets)
@@ -1398,9 +1410,22 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 	pm.addBet(1, 20, players)
 
 	// Refund uncalled portion from P0 (1000 - 20 = 980)
-	if err := pm.returnUncalledBet(players); err != nil {
+	// Create forced bets array (blinds for this test scenario)
+	forced := []int64{0, 0} // No forced bets in this test
+	refundedPlayer, refundedAmount, err := pm.returnUncalledBet(forced)
+	if err != nil {
 		t.Fatalf("returnUncalledBet failed: %v", err)
 	}
+
+	// Credit the refunded amount to the player
+	if refundedPlayer >= 0 && refundedAmount > 0 {
+		if err := players[refundedPlayer].credit(refundedAmount); err != nil {
+			t.Fatalf("failed to credit refunded amount: %v", err)
+		}
+	}
+
+	// Rebuild pots after refund to reflect the updated bet amounts
+	pm.RebuildPotsIncremental(players)
 
 	// After refund, only 20 vs 20 should remain in totals and pot structure
 	if pm.totalBets[0] != 20 {

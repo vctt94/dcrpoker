@@ -198,6 +198,7 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.communityCards = nil
 	g.currentBet = 0
 	g.betRound = 0
+	g.actionsInRound = 0 // Reset action counter for new hand
 	g.winners = nil
 	// Deck reseed is done prior to dealing hole cards
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
@@ -232,6 +233,16 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 				p.mu.Unlock()
 				g.log.Debugf("DEBUG POSITIONS: Set Player[%d] %s dealer=%v sb=%v bb=%v",
 					i, p.id, i == g.dealer, i == sbPos, i == bbPos)
+			}
+		}
+
+		// Start hand participation FSM for all players for this hand
+		// This must happen BEFORE blinds and any betting actions
+		for _, p := range g.players {
+			if p != nil {
+				if err := p.StartHandParticipation(); err != nil {
+					g.log.Errorf("Failed to start hand participation for player %s: %v", p.ID(), err)
+				}
 			}
 		}
 
@@ -579,14 +590,35 @@ func (g *Game) AddToPotForPlayer(playerIndex int, amount int64) {
 // for the current betting round. This guards against scenarios where betting
 // closes with one actionable player (e.g., heads-up all-in versus a non-caller)
 // and prevents creating an invalid side pot that only the all-in can win.
-func (g *Game) RefundUncalledBets() error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+func (g *Game) refundUncalledBets() error {
 	if g.potManager == nil {
 		return fmt.Errorf("potManager is nil")
 	}
-	if err := g.potManager.returnUncalledBet(g.players); err != nil {
+	// Compute forced amounts for current street based on blind positions
+	forced := make([]int64, len(g.players))
+	for i, p := range g.players {
+		if p != nil {
+			if p.isSmallBlind {
+				forced[i] = g.config.SmallBlind
+			} else if p.isBigBlind {
+				forced[i] = g.config.BigBlind
+			}
+		}
+	}
+
+	hiPlayer, refunded, err := g.potManager.returnUncalledBet(forced)
+	if err != nil {
 		return fmt.Errorf("failed to refund uncalled bets: %w", err)
+	}
+
+	// Rebuild pots after adjusting bets to reflect the refunded amounts
+	g.potManager.RebuildPotsIncremental(g.players)
+
+	// Credit the refunded amount to the player
+	if hiPlayer >= 0 && refunded > 0 {
+		if err := g.players[hiPlayer].credit(refunded); err != nil {
+			return fmt.Errorf("failed to credit refunded amount: %w", err)
+		}
 	}
 	return nil
 }
@@ -655,6 +687,41 @@ func (g *Game) GetWinners() []string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.winners
+}
+
+// Close stops all player state machines and cleans up resources.
+// This must be called when a game is no longer needed to prevent goroutine leaks.
+func (g *Game) Close() {
+	// Grab references while holding lock
+	g.mu.Lock()
+	players := make([]*Player, len(g.players))
+	copy(players, g.players)
+	sm := g.sm
+	timer := g.autoStartTimer
+	g.mu.Unlock()
+
+	// Stop all player state machines without holding lock to avoid deadlock
+	for _, p := range players {
+		if p != nil {
+			p.Close()
+		}
+	}
+
+	// Stop the game state machine without holding lock to avoid deadlock
+	// (state machine may need to acquire g.mu during shutdown)
+	if sm != nil {
+		sm.Stop()
+	}
+
+	// Clear references under lock
+	g.mu.Lock()
+	g.sm = nil
+	g.mu.Unlock()
+
+	// Cancel auto-start timer if running (timer.Stop() is safe to call concurrently)
+	if timer != nil {
+		timer.Stop()
+	}
 }
 
 // SetPlayers sets the players for this game from table users
@@ -1173,69 +1240,65 @@ type ShowdownResult struct {
 
 // HandleShowdown processes the showdown logic and returns results (external API)
 func (g *Game) HandleShowdown() (*ShowdownResult, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	// Public API now delegates to the internal locked implementation.
 	return g.handleShowdown()
 }
 
 // handleShowdown is the core logic without locking (for internal use)
+// handleShowdown processes the end of a hand and returns the showdown result.
+// Invariants enforced:
+//  1. postRefundPot := potManager.getTotalPot()  (after refund+rebuild)
+//  2. sum(winner deltas) == postRefundPot (or we warn and self-heal)
+//  3. result.TotalPot == postRefundPot
 func (g *Game) handleShowdown() (*ShowdownResult, error) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.log.Debugf("handleShowdown: entered showdown processing")
+	g.log.Debugf("handleShowdown: entered")
 
-	// Gather active (non-folded) players
-	unfoldedPlayers := make([]*Player, 0, len(g.players))
-	for _, player := range g.players {
-		if player != nil && player.GetCurrentStateString() != "FOLDED" {
-			unfoldedPlayers = append(unfoldedPlayers, player)
+	// Collect non-folded players
+	unfolded := make([]*Player, 0, len(g.players))
+	for _, p := range g.players {
+		if p != nil && p.GetCurrentStateString() != "FOLDED" {
+			unfolded = append(unfolded, p)
 		}
 	}
 
-	// Prepare result
+	if len(unfolded) == 0 {
+		return nil, fmt.Errorf("invalid showdown: no active players")
+	}
+
 	result := &ShowdownResult{
-		Winners:    make([]string, 0),
-		WinnerInfo: make([]*pokerrpc.Winner, 0),
-		TotalPot:   0, // Will be set from snapshot BEFORE refunds/distribution for notifications
+		Winners:    make([]string, 0, len(g.players)),
+		WinnerInfo: make([]*pokerrpc.Winner, 0, len(g.players)),
+		TotalPot:   0,
 	}
 
-	// Snapshot pot for notification BEFORE any refunds/distribution so
-	// events can reflect the headline amount that was pushed forward,
-	// even if some portion is uncalled and will be refunded.
-	potForNotification := g.potManager.getTotalPot()
-	result.TotalPot = potForNotification
+	// --- Normalize pots for both branches (refund uncalled bets, rebuild pots)
+	// This guarantees post-refund pot accounting regardless of whether it's fold-win or multi-way.
+	g.refundUncalledBets()
+	g.potManager.RebuildPotsIncremental(g.players)
+	postRefundPot := g.potManager.getTotalPot()
 
-	// Now, ensure any uncalled portion from the last betting action is
-	// refunded before resolving pots to maintain correct side-pot structure
-	// and winner payouts.
-	if err := g.potManager.returnUncalledBet(g.players); err != nil {
-		return nil, fmt.Errorf("failed to return uncalled bet: %w", err)
+	// Helper: snapshot balances
+	prev := make(map[string]int64, len(g.players))
+	for _, p := range g.players {
+		if p != nil {
+			p.mu.RLock()
+			prev[p.id] = p.balance
+			p.mu.RUnlock()
+		}
 	}
 
-	// --- Uncontested (fold-win): build pots, award total, reset state
-	if len(unfoldedPlayers) == 1 {
-		winner := unfoldedPlayers[0]
-		g.log.Infof("HERE ON ONE ACTIVE PLAYER: %s", winner.id)
+	// --- Branch A: uncontested (exactly one non-folded player)
+	if len(unfolded) == 1 {
 
-		sum := int64(0)
-		for _, p := range g.potManager.pots {
-			sum += p.amount
+		// Distribute pots (no actual comparison needed)
+		if err := g.potManager.distributePots(g.players); err != nil {
+			g.log.Errorf("distributePots (uncontested) failed: %v", err)
+			return nil, err
 		}
 
-		// Total pot for the event already captured for notification
-
-		// --- Use delta accounting to populate result (avoids “empty winners”)
-		prev := make(map[string]int64, len(g.players))
-		for _, p := range g.players {
-			if p != nil {
-				p.mu.RLock()
-				prev[p.id] = p.balance
-				p.mu.RUnlock()
-			}
-		}
-
-		g.potManager.distributePots(g.players)
-
-		// Fill result from actual balance deltas (handles any future edge cases too)
+		// Compute deltas, populate winners
 		totalWinnings := int64(0)
 		for _, p := range g.players {
 			if p == nil {
@@ -1245,14 +1308,12 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			delta := p.balance - prev[p.id]
 			p.mu.RUnlock()
 			if delta > 0 {
-				result.Winners = append(result.Winners, p.id)
-
-				// Best hand (use hole cards if board < 5)
+				// Best hand: if board+hole < 5 just report hole cards
 				var best []Card
 				if len(p.hand)+len(g.communityCards) >= 5 {
 					hv, err := EvaluateHand(p.hand, g.communityCards)
 					if err != nil {
-						return nil, fmt.Errorf("failed to evaluate hand for player %s: %w", p.id, err)
+						return nil, fmt.Errorf("evaluate hand (uncontested) for %s: %w", p.id, err)
 					}
 					p.mu.Lock()
 					p.handValue = &hv
@@ -1263,6 +1324,7 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 					best = p.hand
 				}
 
+				result.Winners = append(result.Winners, p.id)
 				result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{
 					PlayerId: p.id,
 					BestHand: CreateHandFromCards(best),
@@ -1272,22 +1334,24 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			}
 		}
 
-		// Now reset for next hand (and clear unswept for clean logs)
-
-		g.phase = pokerrpc.GamePhase_SHOWDOWN
-		g.winners = result.Winners
-		g.log.Infof("result: %+v", result)
+		// Invariants & finalization
+		if totalWinnings != postRefundPot {
+			g.log.Warnf("showdown invariant (uncontested) violated: postRefundPot=%d, distributed=%d",
+				postRefundPot, totalWinnings)
+			// Self-heal to what we actually paid
+			postRefundPot = totalWinnings
+		}
+		result.TotalPot = postRefundPot
 		return result, nil
 	}
 
-	// --- True showdown: ensure board is fully dealt if multiple players remain
-	if len(unfoldedPlayers) >= 2 && len(g.communityCards) < 5 {
-		// Fast-forward dealing based on current phase/board size
-		// It's safe to call these as they lock internally.
+	// --- Branch B: multi-way showdown (>=2 non-folded players)
+
+	// Ensure board is fully dealt (fast-forward safely based on current phase)
+	if len(g.communityCards) < 5 {
 		dealOne := func() (Card, bool) { return g.deck.Draw() }
 		switch g.phase {
 		case pokerrpc.GamePhase_PRE_FLOP:
-			// flop (3)
 			for i := 0; i < 3; i++ {
 				if c, ok := dealOne(); ok {
 					g.communityCards = append(g.communityCards, c)
@@ -1298,7 +1362,6 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			g.phase = pokerrpc.GamePhase_FLOP
 			fallthrough
 		case pokerrpc.GamePhase_FLOP:
-			// turn (1)
 			if len(g.communityCards) < 4 {
 				if c, ok := dealOne(); ok {
 					g.communityCards = append(g.communityCards, c)
@@ -1309,7 +1372,6 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			g.phase = pokerrpc.GamePhase_TURN
 			fallthrough
 		case pokerrpc.GamePhase_TURN:
-			// river (1)
 			if len(g.communityCards) < 5 {
 				if c, ok := dealOne(); ok {
 					g.communityCards = append(g.communityCards, c)
@@ -1325,92 +1387,71 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 		}
 	}
 
-	// After auto-deal, validate again for safety
-	for _, p := range unfoldedPlayers {
+	// Validate players have enough cards for evaluation
+	for _, p := range unfolded {
 		if len(p.hand)+len(g.communityCards) < 5 {
 			return nil, fmt.Errorf("invalid showdown: player %s has insufficient cards (hole=%d, board=%d)",
 				p.id, len(p.hand), len(g.communityCards))
 		}
 	}
 
-	// Evaluate each active player's hand
-	for _, p := range unfoldedPlayers {
+	// Evaluate hands for all unfolded players
+	for _, p := range unfolded {
 		hv, err := EvaluateHand(p.hand, g.communityCards)
 		if err != nil {
-			return nil, fmt.Errorf("failed to evaluate hand for player %s: %w", p.id, err)
+			return nil, fmt.Errorf("evaluate hand (multi-way) for %s: %w", p.id, err)
 		}
+		p.mu.Lock()
 		p.handValue = &hv
 		p.handDescription = GetHandDescription(hv)
-		g.log.Debugf("handleShowdown: player %s hand=%v description=%s", p.id, p.hand, p.handDescription)
+		p.mu.Unlock()
 	}
 
-	// Use the pre-refund snapshot for notification consistency
-	result.TotalPot = potForNotification
-
-	g.log.Debugf("handleShowdown: community cards=%v", g.communityCards)
-	g.log.Debugf("handleShowdown: total pots=%d", len(g.potManager.pots))
-	for i, pot := range g.potManager.pots {
-		g.log.Debugf("handleShowdown: pot %d amount=%d eligible_players=%v", i, pot.amount, pot.eligibility)
-	}
-
-	// Snapshot balances to compute exact deltas
-	prev := make(map[string]int64, len(g.players))
-	for _, p := range g.players {
-		if p != nil {
-			p.mu.RLock()
-			prev[p.id] = p.balance
-			g.log.Debugf("handleShowdown: player %s balance before distribution=%d", p.id, p.balance)
-			p.mu.RUnlock()
-		}
-	}
-
-	// Distribute pots
+	// Distribute pots according to eligibility
 	if err := g.potManager.distributePots(g.players); err != nil {
-		g.log.Errorf("Failed to distribute pots: %v", err)
+		g.log.Errorf("distributePots (multi-way) failed: %v", err)
 		return nil, err
 	}
 
-	// Collect winners by positive delta
+	// Build result from positive deltas
+	totalWinnings := int64(0)
 	for _, p := range g.players {
 		if p == nil {
 			continue
 		}
 		p.mu.RLock()
 		delta := p.balance - prev[p.id]
-		g.log.Debugf("handleShowdown: player %s balance after distribution=%d delta=%d", p.id, p.balance, delta)
+		hv := p.handValue
 		p.mu.RUnlock()
+
 		if delta > 0 {
-			result.Winners = append(result.Winners, p.id)
 			var handRank pokerrpc.HandRank
 			var best []Card
-			p.mu.RLock()
-			hv := p.handValue
-			p.mu.RUnlock()
 			if hv != nil {
 				handRank = hv.HandRank
 				best = hv.BestHand
 			} else {
 				best = p.hand
 			}
+			result.Winners = append(result.Winners, p.id)
 			result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{
 				PlayerId: p.id,
 				HandRank: handRank,
 				BestHand: CreateHandFromCards(best),
 				Winnings: delta,
 			})
+			totalWinnings += delta
 		}
 	}
 
-	// Assertion helper: log pot sums to catch regressions
-	totalWinnings := int64(0)
-	for _, winner := range result.WinnerInfo {
-		totalWinnings += winner.Winnings
+	// Invariants & finalization
+	if totalWinnings != postRefundPot {
+		g.log.Warnf("showdown invariant (multi-way) violated: postRefundPot=%d, distributed=%d",
+			postRefundPot, totalWinnings)
+		// Self-heal to what we actually paid
+		postRefundPot = totalWinnings
 	}
-
-	// Mark phase and cache winners
-	g.phase = pokerrpc.GamePhase_SHOWDOWN
-	g.winners = result.Winners
-
+	result.TotalPot = postRefundPot
 	return result, nil
 }
 
@@ -1999,7 +2040,7 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			HandDescription: player.handDescription,
 			HandValue:       player.handValue,
 			LastAction:      player.lastAction,
-			StateString:     player.GetCurrentStateString(),
+			StateString:     player.getCurrentStateString(), // Use locked version to avoid reentrant lock
 		}
 		copy(playerCopy.Hand, player.hand)
 		player.mu.RUnlock()
@@ -2238,15 +2279,14 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		return nil, true
 	case evRefundUncalledBetsReq:
 		g.mu.Lock()
+		var err error
 		if g.potManager == nil {
-			if e.reply != nil {
-				e.reply <- fmt.Errorf("potManager is nil")
-			}
+			err = fmt.Errorf("potManager is nil")
 		} else {
-			err := g.potManager.returnUncalledBet(g.players)
-			if e.reply != nil {
-				e.reply <- err
-			}
+			g.refundUncalledBets()
+		}
+		if e.reply != nil {
+			e.reply <- err
 		}
 		g.mu.Unlock()
 		return nil, true
