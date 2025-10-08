@@ -741,3 +741,67 @@ func TestDisallowActionsDuringShowdown_Game(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "action not allowed during phase")
 }
+
+// TestHoleCardsAvailableOnGameStart verifies that players have hole cards
+// when the game starts and reaches PRE_FLOP phase. This reproduces the bug
+// where clients see "no hole cards available" error.
+//
+// Root cause: Cards are dealt to game.currentHand.hole, but Player.Hand() returns nil
+// and GetStateSnapshot() doesn't retrieve them from currentHand.
+func TestHoleCardsAvailableOnGameStart(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 10, 20, 1000)
+
+	// Add two players
+	_, err := tbl.AddNewUser("p1", "Player1", 0, 0)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p2", "Player2", 0, 1)
+	require.NoError(t, err)
+
+	// Mark both players ready
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
+
+	// Wait for PLAYERS_READY state
+	require.Eventually(t, func() bool {
+		return tbl.GetTableStateString() == "PLAYERS_READY"
+	}, 300*time.Millisecond, 10*time.Millisecond, "table should reach PLAYERS_READY")
+
+	// Start the game
+	require.NoError(t, tbl.StartGame())
+
+	// Wait for game to reach PRE_FLOP phase
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		return g != nil && g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP")
+
+	game := tbl.GetGame()
+	require.NotNil(t, game)
+
+	// Get a table snapshot (same as what server uses)
+	snapshot := tbl.GetStateSnapshot()
+	require.NotNil(t, snapshot.Game, "game snapshot should exist")
+	require.Equal(t, pokerrpc.GamePhase_PRE_FLOP, snapshot.Game.Phase)
+	require.Len(t, snapshot.Game.Players, 2, "should have 2 players")
+
+	// FIXED: GetStateSnapshot() now correctly retrieves cards from currentHand
+	for _, ps := range snapshot.Game.Players {
+		t.Logf("PlayerSnapshot %s: Hand has %d cards", ps.ID, len(ps.Hand))
+		// This should now PASS - GetStateSnapshot() retrieves from currentHand
+		assert.Len(t, ps.Hand, 2,
+			"PlayerSnapshot %s should have 2 cards from currentHand, but has %d",
+			ps.ID, len(ps.Hand))
+	}
+
+	// Verify cards ARE actually dealt to game.currentHand
+	// (this should pass - proving cards are stored, just not retrieved)
+	require.NotNil(t, game.currentHand, "game.currentHand should be initialized")
+
+	hand1 := game.currentHand.GetPlayerCards("p1", "p1") // player requesting own cards
+	t.Logf("currentHand.GetPlayerCards for p1: %d cards", len(hand1))
+	assert.Len(t, hand1, 2, "Cards should be stored in game.currentHand for p1")
+
+	hand2 := game.currentHand.GetPlayerCards("p2", "p2")
+	t.Logf("currentHand.GetPlayerCards for p2: %d cards", len(hand2))
+	assert.Len(t, hand2, 2, "Cards should be stored in game.currentHand for p2")
+}

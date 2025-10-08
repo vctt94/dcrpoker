@@ -500,10 +500,10 @@ func TestBuildpotsFromTotals(t *testing.T) {
 	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	// Set up folded state for player 3
-	players[3].handParticipation.Send(evFold{})
-	require.Eventually(t, func() bool {
-		return players[3].GetCurrentStateString() == "FOLDED"
-	}, 200*time.Millisecond, 10*time.Millisecond)
+	reply := make(chan error, 1)
+	players[3].handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+	require.Equal(t, "FOLDED", players[3].GetCurrentStateString())
 
 	// Set up bets
 	pm.addBet(0, 30, players)  // Player 0: All-in with 30
@@ -873,8 +873,9 @@ func TestSidepotCornerCases(t *testing.T) {
 		}
 
 		// Player 0 folds early
-		players[0].handParticipation.Send(evFold{})
-		require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
+		reply := make(chan error, 1)
+		players[0].handParticipation.Send(evFoldReq{Reply: reply})
+		require.NoError(t, <-reply)
 		pm.addBet(0, 10, players)  // Player 0: 10 (but folded)
 		pm.addBet(1, 50, players)  // Player 1: 50 (all-in)
 		pm.addBet(2, 100, players) // Player 2: 100
@@ -986,8 +987,9 @@ func TestSidepotCornerCases(t *testing.T) {
 		}
 
 		// Player 0 folds, others bet different amounts
-		players[0].handParticipation.Send(evFold{})
-		require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
+		reply := make(chan error, 1)
+		players[0].handParticipation.Send(evFoldReq{Reply: reply})
+		require.NoError(t, <-reply)
 		pm.addBet(0, 10, players)  // Player 0: 10 (folded)
 		pm.addBet(1, 30, players)  // Player 1: 30 (all-in)
 		pm.addBet(2, 60, players)  // Player 2: 60
@@ -1315,10 +1317,12 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 
 	// Everyone except BTN folded -> only player 2 alive, but because there WAS voluntary action,
 	// the uncalled portion (40) must be refunded before building pots.
-	players[0].handParticipation.Send(evFold{})
-	players[1].handParticipation.Send(evFold{})
-	require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
-	require.Eventually(t, func() bool { return players[1].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
+	reply0 := make(chan error, 1)
+	players[0].handParticipation.Send(evFoldReq{Reply: reply0})
+	require.NoError(t, <-reply0)
+	reply1 := make(chan error, 1)
+	players[1].handParticipation.Send(evFoldReq{Reply: reply1})
+	require.NoError(t, <-reply1)
 
 	// Create forced bets array (blinds for this test scenario)
 	forced := []int64{0, 0, 0} // No forced bets in this test

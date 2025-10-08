@@ -21,15 +21,21 @@ type Player struct {
 	isDisconnected bool
 	lastAction     time.Time
 
-	// hand-level (reset each hand)
+	// Durable attributes (persist across hands)
 	balance         int64
 	startingBalance int64
-	hand            []Card
-	currentBet      int64
-	isDealer        bool
-	isSmallBlind    bool
-	isBigBlind      bool
-	isTurn          bool
+
+	// Per-hand state flags (set by FSM, cleared after settlement)
+	// Hole cards are NOT stored here - they live in Game.currentHand.hole
+	hasFolded  bool  // Set when player folds
+	isAllIn    bool  // Set when player goes all-in
+	currentBet int64 // Current bet in this round, reset at hand start
+
+	// Per-hand role flags (reset each hand)
+	isDealer     bool
+	isSmallBlind bool
+	isBigBlind   bool
+	isTurn       bool
 
 	// NEW: Separated state machines
 	tablePresence     *statemachine.Machine[Player]
@@ -48,7 +54,6 @@ func NewPlayer(id, name string, balance int64) *Player {
 		balance:         balance,
 		startingBalance: balance,
 		tableSeat:       -1,
-		hand:            make([]Card, 0, 2),
 		lastAction:      time.Now(),
 	}
 
@@ -94,7 +99,9 @@ func (p *Player) StartHandParticipation() error {
 	return nil
 }
 
-// StopHandParticipation stops the hand participation FSM and clears hand state
+// StopHandParticipation stops the hand participation FSM
+// Per the design document: FSMs merely set player flags (hasFolded, isAllIn) and do NOT own persistence.
+// Do NOT clear hand data here; that's the job of cleanupHand() after settlement.
 func (p *Player) StopHandParticipation() {
 	// Grab reference to state machine while holding lock
 	p.mu.Lock()
@@ -107,12 +114,11 @@ func (p *Player) StopHandParticipation() {
 		handParticipation.Stop()
 	}
 
-	// Clear hand-related state and nil out the FSM reference
+	// Nil out the FSM reference
+	// Per-hand flags (hasFolded, isAllIn, currentBet) are NOT cleared here
+	// They persist through showdown and are cleared in ResetForNewHand()
 	p.mu.Lock()
 	p.handParticipation = nil
-	p.hand = nil
-	p.currentBet = 0
-	p.handDescription = ""
 	p.isTurn = false
 	p.mu.Unlock()
 }
@@ -355,15 +361,8 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 				return stateAllIn
 			}
 
-		case evFold:
-			p.mu.Lock()
-			p.lastAction = time.Now()
-			// Note: isTurn is cleared by evEndTurn, not here
-			p.mu.Unlock()
-			return stateFolded
-
 		case evFoldReq:
-			// Same as evFold, but acknowledge to caller.
+			// Fold and acknowledge to caller
 			p.mu.Lock()
 			p.lastAction = time.Now()
 			// Note: isTurn is cleared by evEndTurn, not here
@@ -474,8 +473,6 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 			if e.Reply != nil {
 				e.Reply <- err
 			}
-		case evFold:
-			// ignored by policy
 		case evFoldReq:
 			// Cannot fold while all-in; acknowledge with error if requested.
 			if e.Reply != nil {
@@ -671,6 +668,7 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 				// Note: isTurn is cleared by evEndTurn, not here
 				// Atomically update stateID if going all-in
 				if p.balance == 0 && p.currentBet > 0 {
+					p.isAllIn = true // Set flag
 					shouldTransition = true
 				}
 			} else {
@@ -693,22 +691,19 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 			p.lastAction = time.Now()
 			// Note: isTurn is cleared by evEndTurn, not here
 			zero := (p.balance == 0 && p.currentBet > 0)
+			if zero {
+				p.isAllIn = true // Set flag
+			}
 			p.mu.Unlock()
 			if zero {
 				return stateHandAllIn
 			}
 
-		case evFold:
-			p.mu.Lock()
-			p.lastAction = time.Now()
-			// Note: isTurn is cleared by evEndTurn, not here
-			p.mu.Unlock()
-			return stateHandFolded
-
 		case evFoldReq:
-			// Same as evFold, but acknowledge to caller.
+			// Fold and acknowledge to caller
 			p.mu.Lock()
 			p.lastAction = time.Now()
+			p.hasFolded = true // Set flag
 			// Note: isTurn is cleared by evEndTurn, not here
 			p.mu.Unlock()
 			if e.Reply != nil {
@@ -733,6 +728,7 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 				p.currentBet += e.Amt
 				p.lastAction = time.Now()
 				if p.balance == 0 && p.currentBet > 0 {
+					p.isAllIn = true // Set flag
 					nextState = hpAllIn
 				} else {
 					nextState = hpActive
@@ -780,8 +776,6 @@ func stateHandAllIn(p *Player, in <-chan any) HandParticipationStateFn {
 			if e.Reply != nil {
 				e.Reply <- nil
 			}
-		case evFold:
-			// ignored by policy
 		case evFoldReq:
 			// Cannot fold while all-in; acknowledge with error if requested.
 			if e.Reply != nil {
@@ -839,6 +833,7 @@ func stateHandFolded(p *Player, in <-chan any) HandParticipationStateFn {
 }
 
 // ResetForNewHand prepares the player for a new hand.
+// This clears per-hand flags that persisted through showdown.
 func (p *Player) ResetForNewHand(startingChips int64) error {
 	p.mu.RLock()
 	tp := p.tablePresence
@@ -852,10 +847,16 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 	p.StopHandParticipation()
 
 	// Set stack for the new hand (table-sourced).
+	// Clear per-hand flags (these persisted through showdown, now reset for new hand)
 	p.mu.Lock()
 	p.balance = startingChips
 	p.startingBalance = startingChips
 	p.lastAction = time.Now()
+	// Clear per-hand state flags that persisted through showdown
+	p.hasFolded = false
+	p.isAllIn = false
+	p.currentBet = 0
+	p.handDescription = ""
 	p.mu.Unlock()
 
 	// Player remains seated at table (table presence unchanged)
@@ -881,24 +882,6 @@ func GetPlayerStateString(state PlayerState) string {
 	}
 }
 
-// TryFold attempts to fold the player (no-op if all-in).
-// Returns true if a fold request was accepted, false if disallowed.
-func (p *Player) TryFold() (bool, error) {
-	// All-in players cannot fold; keep fast check (also enforced in state fn).
-	p.mu.RLock()
-	zeroAllIn := p.balance == 0 && p.currentBet > 0
-	hp := p.handParticipation
-	p.mu.RUnlock()
-	if zeroAllIn {
-		return false, fmt.Errorf("player is all-in")
-	}
-	if hp == nil {
-		return false, fmt.Errorf("player not in hand")
-	}
-	hp.Send(evFold{})
-	return true, nil
-}
-
 // credit adds chips to the player's balance atomically and notifies FSM to re-evaluate.
 // Centralizes balance mutations for pot settlement and refunds.
 func (p *Player) credit(amount int64) error {
@@ -920,16 +903,11 @@ func (p *Player) credit(amount int64) error {
 
 // Marshal converts the Player to gRPC Player for external access.
 // Uses the fast state snapshot to derive Folded/AllIn booleans.
+// Note: This does NOT include hole cards - cards must be fetched separately from
+// Game.currentHand.GetPlayerCards() with proper visibility rules applied by the caller.
 func (p *Player) Marshal() *pokerrpc.Player {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	grpcHand := make([]*pokerrpc.Card, len(p.hand))
-	for i, card := range p.hand {
-		grpcHand[i] = &pokerrpc.Card{
-			Suit:  string(card.suit),
-			Value: string(card.value),
-		}
-	}
 
 	// Use new state information for more accurate representation
 	handStateStr := p.getCurrentStateString()
@@ -938,7 +916,7 @@ func (p *Player) Marshal() *pokerrpc.Player {
 		Id:              p.id,
 		Name:            p.name,
 		Balance:         p.balance,
-		Hand:            grpcHand,
+		Hand:            nil, // Cards stored in Game.currentHand, not in Player
 		CurrentBet:      p.currentBet,
 		Folded:          handStateStr == "FOLDED",
 		IsTurn:          p.isTurn,
@@ -961,6 +939,8 @@ func (p *Player) Marshal() *pokerrpc.Player {
 // client-side mirrors (no local machine running). Keep it if you need that.
 func (p *Player) Unmarshal(grpcPlayer *pokerrpc.Player) {
 	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	p.id = grpcPlayer.Id
 	p.name = grpcPlayer.Name
 	p.balance = grpcPlayer.Balance
@@ -971,30 +951,7 @@ func (p *Player) Unmarshal(grpcPlayer *pokerrpc.Player) {
 	p.isBigBlind = grpcPlayer.IsBigBlind
 	p.isReady = grpcPlayer.IsReady
 	p.handDescription = grpcPlayer.HandDescription
-
-	p.hand = make([]Card, len(grpcPlayer.Hand))
-	for i, grpcCard := range grpcPlayer.Hand {
-		p.hand[i] = Card{
-			suit:  Suit(grpcCard.Suit),
-			value: Value(grpcCard.Value),
-		}
-	}
-	p.mu.Unlock()
-}
-
-func (p *Player) Hand() []Card {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	out := make([]Card, len(p.hand))
-	copy(out, p.hand)
-	return out
-}
-
-// AddCardDuringDeal appends a card to the player's hand.
-func (p *Player) AddCardDuringDeal(card Card) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.hand = append(p.hand, card)
+	// Cards are not stored in Player - they're in Game.currentHand.hole
 }
 
 func (p *Player) HandDescription() string {
@@ -1067,13 +1024,6 @@ func (p *Player) SetTableSeat(seat int) {
 func (p *Player) SetStartingBalance(balance int64) {
 	p.mu.Lock()
 	p.startingBalance = balance
-	p.mu.Unlock()
-}
-
-// SetHand sets the player's hand (for testing only)
-func (p *Player) SetHand(hand []Card) {
-	p.mu.Lock()
-	p.hand = hand
 	p.mu.Unlock()
 }
 
@@ -1169,11 +1119,9 @@ type evCredit struct {
 	Reply chan<- error // Optional reply channel for synchronous confirmation
 }
 
-type evFold struct{}
-
-// evFoldReq requests a synchronous fold with an acknowledgment once the
-// player's state has transitioned to FOLDED. This allows callers to avoid
-// racing against reads that depend on the folded state.
+// evFoldReq requests a fold with an acknowledgment once the player's state
+// has transitioned to FOLDED. This allows callers to avoid racing against
+// reads that depend on the folded state.
 type evFoldReq struct{ Reply chan<- error }
 
 type evEndHand struct{}
@@ -1226,6 +1174,15 @@ func (p *Player) GetCurrentStateString() string {
 // getCurrentStateStringLocked returns the current state string without acquiring locks
 // (assumes caller already holds p.mu.RLock or p.mu.Lock)
 func (p *Player) getCurrentStateString() string {
+	// Check per-hand flags FIRST - these persist through showdown even if FSM stops
+	// This is the single source of truth for fold/all-in status
+	if p.hasFolded {
+		return "FOLDED"
+	}
+	if p.isAllIn {
+		return "ALL_IN"
+	}
+
 	// If hand participation is active, return hand participation state
 	if p.handParticipation != nil {
 		currentState := p.handParticipation.Current()
@@ -1238,9 +1195,9 @@ func (p *Player) getCurrentStateString() string {
 		case fmt.Sprintf("%p", stateHandActive):
 			return "IN_GAME"
 		case fmt.Sprintf("%p", stateHandFolded):
-			return "FOLDED"
+			return "FOLDED" // redundant now, but kept for compatibility
 		case fmt.Sprintf("%p", stateHandAllIn):
-			return "ALL_IN"
+			return "ALL_IN" // redundant now, but kept for compatibility
 		default:
 			return "UNKNOWN"
 		}

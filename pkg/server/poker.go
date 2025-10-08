@@ -64,10 +64,6 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
 	}
 
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
-	}
-
 	// Snapshot previous balance to compute contributed amount on all-in
 	var prevBalance int64
 	if game := table.GetGame(); game != nil {
@@ -154,9 +150,6 @@ func (s *Server) FoldBet(ctx context.Context, req *pokerrpc.FoldBetRequest) (*po
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
 	}
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
-	}
 
 	if err := table.HandleFold(req.PlayerId); err != nil {
 		return nil, status.Error(codes.Internal, "failed to process fold: "+err.Error())
@@ -187,9 +180,6 @@ func (s *Server) CallBet(ctx context.Context, req *pokerrpc.CallBetRequest) (*po
 	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
-	}
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
 	}
 
 	// Snapshot player's previous bet to compute actual delta contributed.
@@ -271,9 +261,6 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
 	}
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
-	}
 
 	if err := table.HandleCheck(req.PlayerId); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
@@ -296,14 +283,13 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 // buildPlayerForUpdate creates a Player proto message with appropriate card visibility
 func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string, game *poker.Game) *pokerrpc.Player {
 	stateStr := p.GetCurrentStateString()
-	grpcPlayer := p.Marshal() // Get full marshaled player with all fields
+	grpcPlayer := p.Marshal() // snapshot with turn/dealer/blinds flags
 	player := &pokerrpc.Player{
 		Id:      p.ID(),
 		Balance: p.Balance(),
 		IsReady: p.IsReady(),
 		Folded:  stateStr == "FOLDED",
-		// Surface all-in status to clients so UIs can render an explicit
-		// ALL-IN badge without inferring from balance/current bet.
+		// Surface all-in so UIs can render an explicit badge without inference.
 		IsAllIn:      stateStr == "ALL_IN",
 		CurrentBet:   p.CurrentBet(),
 		PlayerState:  p.GetTablePresenceState(),
@@ -313,43 +299,49 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 		IsTurn:       grpcPlayer.IsTurn,
 	}
 
-	// Log warning for inconsistent heads-up state (dealer should also be SB in heads-up)
+	// Heads-up sanity: dealer must also be SB.
 	if game != nil && len(game.GetPlayers()) == 2 && grpcPlayer.IsDealer && !grpcPlayer.IsSmallBlind {
 		s.log.Warnf("INCONSISTENT STATE: Player %s is dealer but not SB in heads-up! phase=%v", p.ID(), game.GetPhase())
 	}
 
-	// Early return if game doesn't exist or player has no cards
+	// No game -> nothing else to surface.
 	if game == nil {
 		return player
 	}
 
-	// Show cards if it's the requesting player's own data, regardless of phase
-	// (UI already hides during waiting; we proactively surface once dealt).
-	if p.ID() == requestingPlayerID {
-		// Show own cards as soon as they exist
-		if len(p.Hand()) > 0 {
-			player.Hand = make([]*pokerrpc.Card, len(p.Hand()))
-			for i, card := range p.Hand() {
-				player.Hand[i] = &pokerrpc.Card{
-					Suit:  card.GetSuit(),
-					Value: card.GetValue(),
-				}
-			}
-			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v, state=%s)", len(p.Hand()), p.ID(), game.GetPhase(), p.GetCurrentStateString())
+	hand := game.GetCurrentHand()
+	if hand == nil {
+		// Still return base player info; cards come only from an active hand.
+		return player
+	}
+
+	// Decide visibility once, then fill if any cards are visible.
+	var cards []poker.Card
+	isShowdown := game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN
+	isSelf := p.ID() == requestingPlayerID
+
+	switch {
+	case isSelf:
+		// Always show own cards as soon as they exist.
+		cards = hand.GetPlayerCards(p.ID(), requestingPlayerID)
+		if len(cards) > 0 {
+			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v, state=%s)",
+				len(cards), p.ID(), game.GetPhase(), stateStr)
 		}
-	} else if game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && len(p.Hand()) > 0 {
-		// Show other players' cards only during showdown
-		player.Hand = make([]*pokerrpc.Card, len(p.Hand()))
-		for i, card := range p.Hand() {
-			player.Hand[i] = &pokerrpc.Card{
-				Suit:  card.GetSuit(),
-				Value: card.GetValue(),
-			}
+	case isShowdown:
+		// Show others' cards only at showdown (visibility enforced by GetPlayerCards).
+		cards = hand.GetPlayerCards(p.ID(), requestingPlayerID)
+	}
+
+	if n := len(cards); n > 0 {
+		player.Hand = make([]*pokerrpc.Card, n)
+		for i, c := range cards {
+			player.Hand[i] = &pokerrpc.Card{Suit: c.GetSuit(), Value: c.GetValue()}
 		}
 	}
 
-	// Include hand description during showdown
-	if game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && p.HandDescription() != "" {
+	// Hand description is surfaced only at showdown.
+	if isShowdown && p.HandDescription() != "" {
 		player.HandDescription = p.HandDescription()
 	}
 

@@ -479,14 +479,6 @@ func (t *Table) StartGame() error {
 	// 6a) Wire up game event channel so Game FSM can send events to Table
 	g.SetTableEventChannel(t.gameEventChan)
 
-	// 7) Deal cards to players
-	// The FSM (statePreDeal → stateBlinds) will handle dealer advancement, blind posting, etc.
-	t.log.Debugf("StartGame: Dealing cards to %d players", len(active))
-	if err := t.dealCardsToPlayers(active); err != nil {
-		return fmt.Errorf("failed to deal cards: %w", err)
-	}
-	t.log.Debugf("StartGame: Cards dealt, FSM will handle rest of setup")
-
 	// 8) Start the game FSM so it's ready to process events
 	go g.Start(context.Background())
 
@@ -613,11 +605,6 @@ func (t *Table) startNewHand() error {
 	// Rebuild/reuse players (no hand-state mutation here; FSM will do that).
 	if err := g.ResetForNewHandFromUsers(activeUsers); err != nil {
 		return fmt.Errorf("failed to setup new hand: %w", err)
-	}
-
-	// Deal hole cards for the new hand immediately so the next broadcast contains hands.
-	if err := t.dealCardsToPlayers(activeUsers); err != nil {
-		return fmt.Errorf("failed to deal initial cards for new hand: %w", err)
 	}
 
 	// Update table state / bookkeeping
@@ -1026,32 +1013,6 @@ func (t *Table) HandleCheck(userID string) error {
 }
 
 // (removed) postBlindsFromGame: blinds are posted exclusively inside the Game FSM (stateBlinds).
-
-// dealCardsToPlayers deals cards to active players during initialization.
-func (t *Table) dealCardsToPlayers(activePlayers []*User) error {
-	if t.game == nil || t.game.deck == nil {
-		return fmt.Errorf("game or deck not initialized")
-	}
-
-	// Deal 2 cards to each active player
-	for i := 0; i < 2; i++ {
-		for _, u := range activePlayers {
-			card, ok := t.game.deck.Draw()
-			if !ok {
-				return fmt.Errorf("failed to deal card to user %s: deck is empty", u.ID)
-			}
-
-			// Sync the card to the corresponding game player
-			for _, player := range t.game.players {
-				if player.id == u.ID {
-					player.AddCardDuringDeal(card)
-					break
-				}
-			}
-		}
-	}
-	return nil
-}
 
 // AddUser adds a user to the table
 func (t *Table) AddUser(user *User) error {

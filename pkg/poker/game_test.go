@@ -109,6 +109,13 @@ func TestDealCards(t *testing.T) {
 	}
 	game.SetPlayers(users)
 
+	// Initialize Hand for this test
+	playerIDs := make([]string, len(game.players))
+	for i, p := range game.players {
+		playerIDs[i] = p.ID()
+	}
+	game.currentHand = NewHand(playerIDs)
+
 	// Deal cards manually for testing (since DealCards was removed)
 	for _, player := range game.players {
 		for i := 0; i < 2; i++ {
@@ -116,14 +123,17 @@ func TestDealCards(t *testing.T) {
 			if !ok {
 				t.Fatalf("Failed to draw card from deck")
 			}
-			player.hand = append(player.hand, card)
+			if err := game.currentHand.DealCardToPlayer(player.ID(), card); err != nil {
+				t.Fatalf("Failed to deal card to player: %v", err)
+			}
 		}
 	}
 
 	// Check each player has 2 cards
 	for i, player := range game.players {
-		if len(player.hand) != 2 {
-			t.Errorf("Player %d: Expected 2 cards, got %d", i, len(player.hand))
+		cards := game.currentHand.GetPlayerCards(player.ID(), player.ID())
+		if len(cards) != 2 {
+			t.Errorf("Player %d: Expected 2 cards, got %d", i, len(cards))
 		}
 	}
 
@@ -151,6 +161,13 @@ func TestCommunityCards(t *testing.T) {
 	}
 	game.SetPlayers(users)
 
+	// Initialize Hand for this test
+	playerIDs := make([]string, len(game.players))
+	for i, p := range game.players {
+		playerIDs[i] = p.ID()
+	}
+	game.currentHand = NewHand(playerIDs)
+
 	// Deal cards manually for testing (since DealCards was removed)
 	for _, player := range game.players {
 		for i := 0; i < 2; i++ {
@@ -158,7 +175,9 @@ func TestCommunityCards(t *testing.T) {
 			if !ok {
 				t.Fatalf("Failed to draw card from deck")
 			}
-			player.hand = append(player.hand, card)
+			if err := game.currentHand.DealCardToPlayer(player.ID(), card); err != nil {
+				t.Fatalf("Failed to deal card to player: %v", err)
+			}
 		}
 	}
 
@@ -208,17 +227,16 @@ func TestShowdown(t *testing.T) {
 	player1 := game.players[0]
 	player2 := game.players[1]
 
+	// Initialize Hand for this test
+	game.currentHand = NewHand([]string{player1.ID(), player2.ID()})
+
 	// Player 1 has a pair of Aces
-	player1.SetHand([]Card{
-		{suit: Hearts, value: Ace},
-		{suit: Spades, value: Ace},
-	})
+	game.currentHand.DealCardToPlayer(player1.ID(), Card{suit: Hearts, value: Ace})
+	game.currentHand.DealCardToPlayer(player1.ID(), Card{suit: Spades, value: Ace})
 
 	// Player 2 has King-Queen
-	player2.SetHand([]Card{
-		{suit: Hearts, value: King},
-		{suit: Spades, value: Queen},
-	})
+	game.currentHand.DealCardToPlayer(player2.ID(), Card{suit: Hearts, value: King})
+	game.currentHand.DealCardToPlayer(player2.ID(), Card{suit: Spades, value: Queen})
 
 	// Set community cards: 2-5-7-9-Jack (no help for either player)
 	game.communityCards = []Card{
@@ -284,21 +302,18 @@ func TestTieBreakerShowdown(t *testing.T) {
 	player2 := game.players[1]
 	player3 := game.players[2]
 
+	// Initialize Hand for this test
+	game.currentHand = NewHand([]string{player1.ID(), player2.ID(), player3.ID()})
+
 	// All players have a pair of Aces but with different kickers
-	player1.SetHand([]Card{
-		{suit: Hearts, value: Ace},
-		{suit: Spades, value: Ace},
-	})
+	game.currentHand.DealCardToPlayer(player1.ID(), Card{suit: Hearts, value: Ace})
+	game.currentHand.DealCardToPlayer(player1.ID(), Card{suit: Spades, value: Ace})
 
-	player2.SetHand([]Card{
-		{suit: Clubs, value: Ace},
-		{suit: Diamonds, value: Ace},
-	})
+	game.currentHand.DealCardToPlayer(player2.ID(), Card{suit: Clubs, value: Ace})
+	game.currentHand.DealCardToPlayer(player2.ID(), Card{suit: Diamonds, value: Ace})
 
-	player3.SetHand([]Card{
-		{suit: Hearts, value: King},
-		{suit: Spades, value: King}, // Lower pair
-	})
+	game.currentHand.DealCardToPlayer(player3.ID(), Card{suit: Hearts, value: King})
+	game.currentHand.DealCardToPlayer(player3.ID(), Card{suit: Spades, value: King})
 
 	// Set community cards: 2-5-7-9-Jack
 	game.communityCards = []Card{
@@ -315,7 +330,9 @@ func TestTieBreakerShowdown(t *testing.T) {
 	require.NoError(t, player3.StartHandParticipation())
 
 	// Mark player 3 as folded
-	player3.handParticipation.Send(evFold{})
+	reply := make(chan error, 1)
+	player3.handParticipation.Send(evFoldReq{Reply: reply})
+	<-reply
 
 	// Set up pot
 	game.potManager = NewPotManager(3)
@@ -356,9 +373,14 @@ func TestSplitPotShowdown(t *testing.T) {
 	}
 	game.SetPlayers(users)
 
+	// Initialize Hand for this test
+	game.currentHand = NewHand([]string{game.players[0].ID(), game.players[1].ID()})
+
 	// Force hands that don't improve beyond board
-	game.players[0].SetHand([]Card{{suit: Hearts, value: Two}, {suit: Clubs, value: Three}})
-	game.players[1].SetHand([]Card{{suit: Diamonds, value: Four}, {suit: Spades, value: Five}})
+	game.currentHand.DealCardToPlayer(game.players[0].ID(), Card{suit: Hearts, value: Two})
+	game.currentHand.DealCardToPlayer(game.players[0].ID(), Card{suit: Clubs, value: Three})
+	game.currentHand.DealCardToPlayer(game.players[1].ID(), Card{suit: Diamonds, value: Four})
+	game.currentHand.DealCardToPlayer(game.players[1].ID(), Card{suit: Spades, value: Five})
 
 	// Board: Straight 10-J-Q-K-A (broadway) split; use 10,J,Q,K,A in mixed suits
 	game.communityCards = []Card{
@@ -552,6 +574,16 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 		NewUser("p2", "p2", 0, 1),
 	}
 	game.SetPlayers(users)
+
+	// Initialize Hand for this test
+	game.currentHand = NewHand([]string{"p1", "p2"})
+	// Deal cards to both players
+	for i := 0; i < 2; i++ {
+		card, _ := game.deck.Draw()
+		game.currentHand.DealCardToPlayer("p1", card)
+		card, _ = game.deck.Draw()
+		game.currentHand.DealCardToPlayer("p2", card)
+	}
 
 	// Simulate pre-flop all-in by both players with some bets recorded
 	game.phase = pokerrpc.GamePhase_PRE_FLOP
@@ -1164,13 +1196,20 @@ func TestShowdownBugReproduction(t *testing.T) {
 	game.mu.Unlock()
 
 	// Deal cards to players before starting the hand (simulating the normal flow)
-	// This is what would normally happen in ResetForNewHandFromUsers + dealCardsToPlayers
+	// This is what would normally happen in FSM: statePreDeal (creates Hand) → stateDeal (deals cards)
+	// Initialize Hand for this test
+	playerIDs := make([]string, len(game.players))
+	for i, p := range game.players {
+		playerIDs[i] = p.ID()
+	}
+	game.currentHand = NewHand(playerIDs)
+
 	for i := 0; i < 2; i++ {
 		for _, player := range game.players {
 			if card, ok := game.deck.Draw(); ok {
-				player.mu.Lock()
-				player.hand = append(player.hand, card)
-				player.mu.Unlock()
+				if err := game.currentHand.DealCardToPlayer(player.ID(), card); err != nil {
+					t.Fatalf("Failed to deal card to player: %v", err)
+				}
 			}
 		}
 	}
@@ -1438,29 +1477,31 @@ func TestShowdownTotalPotBug(t *testing.T) {
 
 	// Set player states: P1 active, P2 folded
 	// P1 stays in active state (default)
-	// P2 folds
-	_, err = game.players[1].TryFold()
-	require.NoError(t, err)
-
-	// Wait for the fold to be processed
-	require.Eventually(t, func() bool {
-		return game.players[1].GetCurrentStateString() == "FOLDED"
-	}, 200*time.Millisecond, 10*time.Millisecond)
+	// P2 folds - use synchronous fold to ensure state is updated
+	if game.players[1].handParticipation != nil {
+		reply := make(chan error, 1)
+		game.players[1].handParticipation.Send(evFoldReq{Reply: reply})
+		err = <-reply
+		require.NoError(t, err)
+	}
 
 	// Set up hands for the players (required for showdown)
-	game.players[0].mu.Lock()
-	game.players[0].hand = []Card{
-		{suit: Hearts, value: Ace},
-		{suit: Spades, value: King},
+	// Initialize Hand if not already present
+	if game.currentHand == nil {
+		playerIDs := make([]string, len(game.players))
+		for i, p := range game.players {
+			playerIDs[i] = p.ID()
+		}
+		game.currentHand = NewHand(playerIDs)
 	}
-	game.players[0].mu.Unlock()
 
-	game.players[1].mu.Lock()
-	game.players[1].hand = []Card{
-		{suit: Clubs, value: Queen},
-		{suit: Diamonds, value: Jack},
-	}
-	game.players[1].mu.Unlock()
+	// Deal cards to player 0
+	game.currentHand.DealCardToPlayer(game.players[0].ID(), Card{suit: Hearts, value: Ace})
+	game.currentHand.DealCardToPlayer(game.players[0].ID(), Card{suit: Spades, value: King})
+
+	// Deal cards to player 1
+	game.currentHand.DealCardToPlayer(game.players[1].ID(), Card{suit: Clubs, value: Queen})
+	game.currentHand.DealCardToPlayer(game.players[1].ID(), Card{suit: Diamonds, value: Jack})
 
 	// Set up community cards (required for showdown)
 	game.mu.Lock()

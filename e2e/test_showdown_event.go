@@ -162,8 +162,8 @@ func main() {
 		fmt.Printf("Final game phase: %v\n", game.GetPhase())
 		fmt.Printf("Actions in round: %d\n", game.GetActionsInRound())
 		fmt.Printf("Community cards: %d\n", len(game.GetCommunityCards()))
-		fmt.Printf("Player1 hand: %d cards\n", len(game.GetPlayers()[0].Hand()))
-		fmt.Printf("Player2 hand: %d cards\n", len(game.GetPlayers()[1].Hand()))
+		fmt.Printf("Player1 hand: %d cards\n", len(game.GetCurrentHand().GetPlayerCards("player1", "player1")))
+		fmt.Printf("Player2 hand: %d cards\n", len(game.GetCurrentHand().GetPlayerCards("player2", "player2")))
 	}
 
 	// Check if event was published

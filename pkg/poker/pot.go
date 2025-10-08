@@ -52,7 +52,7 @@ func (pm *potManager) addBet(playerIndex int, amount int64, players []*Player) {
 	foldStatus := make([]bool, len(players))
 	for i, p := range players {
 		if p != nil {
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == "FOLDED")
 		}
 	}
 
@@ -92,7 +92,7 @@ func (pm *potManager) RebuildPotsIncremental(players []*Player) {
 	foldStatus := make([]bool, len(players))
 	for i, p := range players {
 		if p != nil {
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == "FOLDED")
 		}
 	}
 
@@ -219,7 +219,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 	foldStatus := make([]bool, len(players))
 	for i, p := range players {
 		if p != nil {
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == "FOLDED")
 		}
 	}
 

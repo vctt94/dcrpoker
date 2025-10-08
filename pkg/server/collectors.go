@@ -124,14 +124,13 @@ func (s *Server) collectPlayerSnapshot(user *poker.User, game *poker.Game) *Play
 				snapshot.HasBet = grpcPlayer.CurrentBet
 				snapshot.StartingBalance = player.StartingBalance()
 
-				// Deep copy hand cards to ensure immutability
-				if len(grpcPlayer.Hand) > 0 {
-					snapshot.Hand = make([]poker.Card, len(grpcPlayer.Hand))
-					for i, grpcCard := range grpcPlayer.Hand {
-						snapshot.Hand[i] = poker.NewCardFromSuitValue(
-							poker.Suit(grpcCard.Suit),
-							poker.Value(grpcCard.Value),
-						)
+				// Get hand cards from Game.currentHand
+				// Player can always see their own cards
+				if currentHand := game.GetCurrentHand(); currentHand != nil {
+					cards := currentHand.GetPlayerCards(user.ID, user.ID)
+					if len(cards) > 0 {
+						snapshot.Hand = make([]poker.Card, len(cards))
+						copy(snapshot.Hand, cards)
 					}
 				}
 				break
