@@ -181,11 +181,10 @@ func (pm *potManager) distributePots(players []*Player) error {
 		// Uncontested pot path.
 		if len(alive) == 1 {
 			w := alive[0]
-			// credit winner under lock
 			if players[w] != nil {
-				players[w].mu.Lock()
-				players[w].balance += pot.amount
-				players[w].mu.Unlock()
+				if err := players[w].credit(pot.amount); err != nil {
+					return fmt.Errorf("[pot %d] failed to credit winner: %w", pi, err)
+				}
 			}
 			pm.pots[pi].amount = 0
 			for j := range pm.pots[pi].eligibility {
@@ -236,9 +235,9 @@ func (pm *potManager) distributePots(players []*Player) error {
 				add += rem
 			}
 			if players[idx] != nil {
-				players[idx].mu.Lock()
-				players[idx].balance += add
-				players[idx].mu.Unlock()
+				if err := players[idx].credit(add); err != nil {
+					return fmt.Errorf("[pot %d] failed to credit winner %d: %w", pi, idx, err)
+				}
 			}
 		}
 
@@ -252,7 +251,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 }
 
 // ReturnUncalledBet returns any uncalled portion of a bet to the player who made it
-func (pm *potManager) returnUncalledBet(players []*Player) {
+func (pm *potManager) returnUncalledBet(players []*Player) error {
 	var hi, second int64
 	hiPlayer := -1
 
@@ -269,9 +268,9 @@ func (pm *potManager) returnUncalledBet(players []*Player) {
 	if hiPlayer >= 0 && hi > second {
 		uncalled := hi - second
 		if players[hiPlayer] != nil {
-			players[hiPlayer].mu.Lock()
-			players[hiPlayer].balance += uncalled
-			players[hiPlayer].mu.Unlock()
+			if err := players[hiPlayer].credit(uncalled); err != nil {
+				return fmt.Errorf("failed to return uncalled bet to player %d: %w", hiPlayer, err)
+			}
 		}
 		pm.currentBets[hiPlayer] -= uncalled
 		pm.totalBets[hiPlayer] -= uncalled
@@ -279,4 +278,5 @@ func (pm *potManager) returnUncalledBet(players []*Player) {
 		// Rebuild pots after refund to reflect the new totals
 		pm.rebuildPotsIncremental(players)
 	}
+	return nil
 }

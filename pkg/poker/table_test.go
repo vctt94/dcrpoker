@@ -25,8 +25,8 @@ func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChip
 		BigBlind:       bb,
 		MinBalance:     0,
 		StartingChips:  startingChips,
-		TimeBank:       50 * time.Millisecond,
-		AutoStartDelay: 0,
+		TimeBank:       5 * time.Second,
+		AutoStartDelay: 100 * time.Millisecond,
 	})
 	return tbl
 }
@@ -214,8 +214,11 @@ func TestTableInvalidInputs(t *testing.T) {
 	assert.Contains(t, err.Error(), "not your turn")
 }
 
-func TestAllInExactCall(t *testing.T) {
-	tbl := newTestTable(t, 2, 2, 5, 10, 10)
+func TestAllInFlag_HeadsUpWaitsForResponse(t *testing.T) {
+	// In heads-up, when SB goes all-in, BB must still make a decision (fold or call)
+	// The game should NOT jump to showdown immediately
+	// stacks 100, blinds 5/10
+	tbl := newTestTable(t, 2, 2, 5, 10, 100)
 	_, _ = tbl.AddNewUser("sb", "SB", 0, 0)
 	_, _ = tbl.AddNewUser("bb", "BB", 0, 1)
 	_ = tbl.SetPlayerReady("sb", true)
@@ -223,57 +226,290 @@ func TestAllInExactCall(t *testing.T) {
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
-	// Wait until blinds are posted: expect one player at 5 (SB) and one at 10 (BB).
+	// Wait for blinds to be posted in a way that doesn't depend on seat indexing.
+	var sbID string
 	require.Eventually(t, func() bool {
 		g := tbl.GetGame()
 		if g == nil {
 			return false
 		}
-		ps := g.GetPlayers()
-		if len(ps) != 2 {
+		s := g.GetStateSnapshot()
+		if len(s.Players) != 2 {
 			return false
 		}
-		// find SB by currentBet==5 and balance==5 (since stacks are 10)
-		sbOK, bbOK := false, false
-		for _, p := range ps {
-			if p.CurrentBet() == 5 && p.Balance() == 5 {
-				sbOK = true
+
+		// Look for exactly one 5-chip poster and one 10-chip poster.
+		fiveCnt, tenCnt := 0, 0
+		var fiveID string
+		for _, p := range s.Players {
+			if p.CurrentBet == 5 {
+				fiveCnt++
+				fiveID = p.ID
 			}
-			if p.CurrentBet() == 10 {
-				bbOK = true
+			if p.CurrentBet == 10 {
+				tenCnt++
 			}
 		}
-		return sbOK && bbOK
-	}, 300*time.Millisecond, 10*time.Millisecond, "blinds not posted")
+		if fiveCnt == 1 && tenCnt == 1 {
+			sbID = fiveID // remember SB by the blind amount
+			return true
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "blinds not posted")
 
-	// Identify SB explicitly (currentBet==5).
+	// SB shoves: already posted 5, has 95 left, wants to bet total of 100 (all-in)
+	// MakeBet expects the new total bet amount, not a delta
+	require.NoError(t, tbl.MakeBet(sbID, 100))
+
+	// Assert ALL-IN state synchronously immediately after the bet
 	g := tbl.GetGame()
-	require.NotNil(t, g)
-	var sb *Player
-	for _, p := range g.GetPlayers() {
-		if p.CurrentBet() == 5 && p.Balance() == 5 {
-			sb = p
+	s := g.GetStateSnapshot()
+	var sbPlayer PlayerSnapshot
+	found := false
+	for _, p := range s.Players {
+		if p.ID == sbID {
+			sbPlayer = p
+			found = true
 			break
 		}
 	}
-	require.NotNil(t, sb, "could not find SB")
+	require.True(t, found, "SB player not found")
 
-	// Wait for SB to be in IN_GAME state (not AT_TABLE) so evReeval can work
+	// Verify ALL_IN condition (balance==0 means player is all-in)
+	assert.Equal(t, int64(0), sbPlayer.Balance, "SB should have 0 balance after going all-in")
+	assert.Equal(t, int64(100), sbPlayer.CurrentBet, "SB should have currentBet of 100")
+	assert.Equal(t, "ALL_IN", GetPlayerStateString(sbPlayer.StateID), "SB should be in ALL_IN state")
+
+	// Game should remain in PRE_FLOP waiting for BB to act (NOT jump to showdown)
+	assert.Equal(t, pokerrpc.GamePhase_PRE_FLOP, g.GetPhase(),
+		"Game should remain in PRE_FLOP after SB goes all-in, waiting for BB's decision")
+
+	// Find BB and verify BB is now the current player with an unmatched bet
+	var bbPlayer PlayerSnapshot
+	var bbID string
+	foundBB := false
+	for _, p := range s.Players {
+		if p.ID != sbID {
+			bbPlayer = p
+			bbID = p.ID
+			foundBB = true
+			break
+		}
+	}
+	require.True(t, foundBB, "BB player not found")
+
+	// BB should be the current player
+	currentPlayer := g.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Should have a current player")
+	assert.Equal(t, bbID, currentPlayer.ID(), "BB should be the current player after SB goes all-in")
+
+	// BB has unmatched bet (10 vs 100)
+	assert.Equal(t, int64(10), bbPlayer.CurrentBet, "BB should have currentBet of 10 (big blind)")
+	assert.Greater(t, bbPlayer.Balance, int64(0), "BB should still have chips")
+	assert.Equal(t, "IN_GAME", GetPlayerStateString(bbPlayer.StateID), "BB should be IN_GAME waiting to act")
+
+	// Now test both possible BB responses:
+	// Option 1: BB folds -> hand ends, SB wins
+	// Option 2: BB calls -> both all-in, go to showdown
+
+	// Let's test the fold scenario
+	require.NoError(t, tbl.HandleFold(bbID))
+
+	// After BB folds, game should go to showdown (only 1 alive player)
 	require.Eventually(t, func() bool {
-		return sb.GetCurrentStateString() == "IN_GAME"
-	}, 300*time.Millisecond, 10*time.Millisecond, "SB did not reach IN_GAME state")
+		g := tbl.GetGame()
+		if g == nil {
+			return false
+		}
+		return g.GetPhase() == pokerrpc.GamePhase_SHOWDOWN
+	}, time.Second, 10*time.Millisecond, "Game should advance to SHOWDOWN after BB folds")
+}
 
-	// SB calls exact remainder (5) -> should be all-in with currentBet=10.
-	require.NoError(t, tbl.HandleCall(sb.ID()))
+func TestAllInFlag_HeadsUpCallTriggersShowdown(t *testing.T) {
+	// In heads-up, when SB goes all-in and BB calls (also going all-in),
+	// there are 0 active players left, so showdown is triggered
+	// stacks 100, blinds 5/10
+	tbl := newTestTable(t, 2, 2, 5, 10, 100)
+	_, _ = tbl.AddNewUser("sb", "SB", 0, 0)
+	_, _ = tbl.AddNewUser("bb", "BB", 0, 1)
+	_ = tbl.SetPlayerReady("sb", true)
+	_ = tbl.SetPlayerReady("bb", true)
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
 
-	// Wait for ALL_IN on SB.
+	// Wait for blinds to be posted
+	var sbID string
 	require.Eventually(t, func() bool {
-		return sb.Balance() == 0 && sb.CurrentBet() == 10 && sb.GetCurrentStateString() == "ALL_IN"
-	}, 300*time.Millisecond, 10*time.Millisecond, "SB did not go ALL_IN after exact call")
+		g := tbl.GetGame()
+		if g == nil {
+			return false
+		}
+		s := g.GetStateSnapshot()
+		if len(s.Players) != 2 {
+			return false
+		}
 
-	assert.Equal(t, int64(0), sb.Balance())
-	assert.Equal(t, int64(10), sb.CurrentBet())
-	assert.Equal(t, "ALL_IN", sb.GetCurrentStateString())
+		// Find SB (posted 5 chips)
+		fiveCnt, tenCnt := 0, 0
+		var fiveID string
+		for _, p := range s.Players {
+			if p.CurrentBet == 5 {
+				fiveCnt++
+				fiveID = p.ID
+			}
+			if p.CurrentBet == 10 {
+				tenCnt++
+			}
+		}
+		if fiveCnt == 1 && tenCnt == 1 {
+			sbID = fiveID
+			return true
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "blinds not posted")
+
+	// SB goes all-in
+	require.NoError(t, tbl.MakeBet(sbID, 100))
+
+	// Verify SB is all-in
+	g := tbl.GetGame()
+	s := g.GetStateSnapshot()
+	var sbPlayer PlayerSnapshot
+	var bbID string
+	foundSB, foundBB := false, false
+	for _, p := range s.Players {
+		if p.ID == sbID {
+			sbPlayer = p
+			foundSB = true
+		} else {
+			bbID = p.ID
+			foundBB = true
+		}
+	}
+	require.True(t, foundSB, "SB not found")
+	require.True(t, foundBB, "BB not found")
+	assert.Equal(t, "ALL_IN", GetPlayerStateString(sbPlayer.StateID))
+	assert.Equal(t, pokerrpc.GamePhase_PRE_FLOP, g.GetPhase(), "Should still be in PRE_FLOP")
+
+	// BB calls (also going all-in since BB has 90 chips left and needs to call 90 more)
+	require.NoError(t, tbl.HandleCall(bbID))
+
+	// After BB calls and goes all-in, both players are all-in (0 active players)
+	// Showdown should happen quickly and complete
+	// Since AutoStartDelay=-1, game becomes nil after hand completes
+	// We verify by checking that either:
+	// 1. Game reaches SHOWDOWN phase, OR
+	// 2. Game becomes nil (hand already completed)
+	foundShowdown := false
+	for i := 0; i < 100; i++ {
+		g := tbl.GetGame()
+		if g == nil {
+			// Hand completed and no auto-start
+			foundShowdown = true
+			break
+		}
+		if g.GetPhase() == pokerrpc.GamePhase_SHOWDOWN {
+			foundShowdown = true
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	assert.True(t, foundShowdown, "Expected game to reach SHOWDOWN after both players all-in")
+}
+
+func TestAllInFlag_ThreePlayerContinuesBetting(t *testing.T) {
+	// With 3+ players, when one goes all-in, the other active players can continue betting
+	// Showdown should NOT be triggered immediately
+	// stacks 100, blinds 5/10
+	tbl := newTestTable(t, 3, 3, 5, 10, 100)
+	_, _ = tbl.AddNewUser("p1", "P1", 0, 0) // SB
+	_, _ = tbl.AddNewUser("p2", "P2", 0, 1) // BB
+	_, _ = tbl.AddNewUser("p3", "P3", 0, 2) // Button (first to act preflop in 3-way)
+	_ = tbl.SetPlayerReady("p1", true)
+	_ = tbl.SetPlayerReady("p2", true)
+	_ = tbl.SetPlayerReady("p3", true)
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait for blinds to be posted
+	var p3ID string
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		if g == nil {
+			return false
+		}
+		s := g.GetStateSnapshot()
+		if len(s.Players) != 3 {
+			return false
+		}
+
+		// Find the player who posted neither blind (that's P3, first to act)
+		for _, p := range s.Players {
+			// In 3-player, the player with currentBet=0 is first to act (after blinds)
+			if p.CurrentBet == 0 {
+				p3ID = p.ID
+			}
+		}
+
+		// Verify all 3 players have correct blind positions
+		sbCount := 0
+		bbCount := 0
+		zeroCount := 0
+		for _, p := range s.Players {
+			switch p.CurrentBet {
+			case 5:
+				sbCount++
+			case 10:
+				bbCount++
+			case 0:
+				zeroCount++
+			}
+		}
+		return sbCount == 1 && bbCount == 1 && zeroCount == 1 && p3ID != ""
+	}, time.Second, 10*time.Millisecond, "blinds not posted correctly")
+
+	// P3 goes all-in with 100 chips
+	require.NoError(t, tbl.MakeBet(p3ID, 100))
+
+	// Immediately check P3's state (before other players act)
+	g := tbl.GetGame()
+	s := g.GetStateSnapshot()
+
+	var p3Player PlayerSnapshot
+	var otherActivePlayers int
+	foundP3 := false
+	for _, p := range s.Players {
+		if p.ID == p3ID {
+			p3Player = p
+			foundP3 = true
+		} else {
+			// Count other players who are not all-in
+			stateStr := GetPlayerStateString(p.StateID)
+			if stateStr != "ALL_IN" && stateStr != "FOLDED" {
+				otherActivePlayers++
+			}
+		}
+	}
+
+	require.True(t, foundP3, "P3 player not found")
+
+	// Verify P3 is all-in
+	assert.Equal(t, int64(0), p3Player.Balance, "P3 should have 0 balance after going all-in")
+	assert.Equal(t, int64(100), p3Player.CurrentBet, "P3 should have currentBet of 100")
+	assert.Equal(t, "ALL_IN", GetPlayerStateString(p3Player.StateID), "P3 should be in ALL_IN state")
+
+	// Verify there are still 2 active players who can bet
+	assert.Equal(t, 2, otherActivePlayers, "Should have 2 other active players (SB and BB)")
+
+	// Verify game is still in PRE_FLOP, NOT showdown
+	assert.Equal(t, pokerrpc.GamePhase_PRE_FLOP, g.GetPhase(),
+		"Game should remain in PRE_FLOP when 2+ active players remain after an all-in")
+
+	// Verify there's still a current player to act (one of the other two)
+	currentPlayerID := g.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayerID, "Should have a current player to act")
+	assert.NotEqual(t, p3ID, currentPlayerID.ID(), "Current player should not be the all-in player")
 }
 
 func TestHandleTimeoutsAutoFold(t *testing.T) {
@@ -370,4 +606,98 @@ func TestConcurrency_SafeSnapshotsAndBalanceUpdates(t *testing.T) {
 		time.Sleep(1 * time.Millisecond)
 	}
 	<-done
+}
+
+// Ensures Table action handlers reject actions during SHOWDOWN (or non-betting phases).
+func TestDisallowActionsDuringShowdown_Table(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	_, _ = tbl.AddNewUser("p1", "P1", 0, 0)
+	_, _ = tbl.AddNewUser("p2", "P2", 0, 1)
+	_ = tbl.SetPlayerReady("p1", true)
+	_ = tbl.SetPlayerReady("p2", true)
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait until PRE_FLOP is reached
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		return g != nil && g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 1*time.Second, 10*time.Millisecond)
+
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+
+	// Set current player explicitly to p1 for deterministic checks
+	players := g.GetPlayers()
+	require.GreaterOrEqual(t, len(players), 2)
+	cur := players[0]
+	require.NotNil(t, cur)
+	g.SetCurrentPlayerByID(cur.ID())
+
+	// Force phase to SHOWDOWN (simulating after-hand state)
+	g.mu.Lock()
+	g.phase = pokerrpc.GamePhase_SHOWDOWN
+	g.mu.Unlock()
+
+	// All action handlers should be rejected due to phase guard
+	err := tbl.HandleCall(cur.ID())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+
+	err = tbl.HandleCheck(cur.ID())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+
+	err = tbl.MakeBet(cur.ID(), 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+
+	err = tbl.HandleFold(cur.ID())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+}
+
+// Ensures Game action wrappers also reject actions during SHOWDOWN.
+func TestDisallowActionsDuringShowdown_Game(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	_, _ = tbl.AddNewUser("p1", "P1", 0, 0)
+	_, _ = tbl.AddNewUser("p2", "P2", 0, 1)
+	_ = tbl.SetPlayerReady("p1", true)
+	_ = tbl.SetPlayerReady("p2", true)
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait for PRE_FLOP
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		return g != nil && g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 1*time.Second, 10*time.Millisecond)
+
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+	ps := g.GetPlayers()
+	require.GreaterOrEqual(t, len(ps), 2)
+	cur := ps[0]
+	g.SetCurrentPlayerByID(cur.ID())
+
+	// Force phase to SHOWDOWN and attempt direct Game-level actions
+	g.mu.Lock()
+	g.phase = pokerrpc.GamePhase_SHOWDOWN
+	g.mu.Unlock()
+
+	err := g.HandlePlayerCall(cur.ID())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+
+	err = g.HandlePlayerCheck(cur.ID())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+
+	err = g.HandlePlayerBet(cur.ID(), 10)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
+
+	err = g.HandlePlayerFold(cur.ID())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "action not allowed during phase")
 }

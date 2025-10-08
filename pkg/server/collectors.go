@@ -19,40 +19,52 @@ func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 	config := table.GetConfig()
 	users := table.GetUsers()
 	game := table.GetGame()
-	// Take a stable game snapshot early to avoid racing with live player mutations
-	var gameStateSnap *poker.GameStateSnapshot
-	if game != nil {
-		snap := game.GetStateSnapshot()
-		gameStateSnap = &snap
+
+	// Early return if no game exists
+	if game == nil {
+		// Collect player snapshots without game data
+		playerSnapshots := make([]*PlayerSnapshot, 0, len(users))
+		for _, user := range users {
+			snapshot := s.collectPlayerSnapshot(user, nil)
+			playerSnapshots = append(playerSnapshots, snapshot)
+		}
+
+		// Collect table state
+		tableState := TableState{
+			GameStarted:     table.IsGameStarted(),
+			AllPlayersReady: table.AreAllPlayersReady(),
+			PlayerCount:     len(users),
+		}
+
+		return &TableSnapshot{
+			ID:           tableID,
+			Players:      playerSnapshots,
+			GameSnapshot: nil,
+			Config:       config,
+			State:        tableState,
+			Timestamp:    time.Now(),
+		}, nil
 	}
+
+	// Take a stable game snapshot early to avoid racing with live player mutations
+	snap := game.GetStateSnapshot()
 
 	// Collect player snapshots
 	playerSnapshots := make([]*PlayerSnapshot, 0, len(users))
 	for _, user := range users {
-		var snapshot *PlayerSnapshot
-		if gameStateSnap != nil {
-			snapshot = s.collectPlayerSnapshotFromGameSnapshot(user, gameStateSnap)
-		} else {
-			snapshot = s.collectPlayerSnapshot(user, nil)
-		}
+		snapshot := s.collectPlayerSnapshotFromGameSnapshot(user, &snap)
 		playerSnapshots = append(playerSnapshots, snapshot)
 	}
 
-	// Collect game snapshot if game exists
-	var gameSnapshot *GameSnapshot
-	if game != nil {
-		// If we captured a stable game snapshot above, prefer to build the
-		// server GameSnapshot from the live game object, which uses getters
-		// under internal locks. This is safe and keeps behavior unchanged.
-		gameSnapshot = s.collectGameSnapshot(game)
-		// Mirror authoritative winners from table's cached lastShowdown, if any
-		if ls := table.GetLastShowdown(); ls != nil && gameSnapshot != nil {
-			if len(ls.Winners) > 0 {
-				gameSnapshot.Winners = make([]string, len(ls.Winners))
-				copy(gameSnapshot.Winners, ls.Winners)
-			} else {
-				gameSnapshot.Winners = nil
-			}
+	// Collect game snapshot
+	gameSnapshot := s.collectGameSnapshot(&snap)
+	// Mirror authoritative winners from table's cached lastShowdown, if any
+	if ls := table.GetLastShowdown(); ls != nil && gameSnapshot != nil {
+		if len(ls.Winners) > 0 {
+			gameSnapshot.Winners = make([]string, len(ls.Winners))
+			copy(gameSnapshot.Winners, ls.Winners)
+		} else {
+			gameSnapshot.Winners = nil
 		}
 	}
 
@@ -158,33 +170,24 @@ func (s *Server) collectPlayerSnapshotFromGameSnapshot(user *poker.User, gs *pok
 	}
 
 	for _, player := range gs.Players {
-		if player == nil {
+		if player.ID != user.ID {
 			continue
 		}
-		grpcPlayer := player.Marshal()
-		if grpcPlayer.Id != user.ID {
-			continue
-		}
-		snapshot.Balance = grpcPlayer.Balance
-		snapshot.HasFolded = grpcPlayer.Folded
-		snapshot.IsAllIn = grpcPlayer.IsAllIn
-		snapshot.IsDealer = grpcPlayer.IsDealer
-		snapshot.IsSmallBlind = grpcPlayer.IsSmallBlind
-		snapshot.IsBigBlind = grpcPlayer.IsBigBlind
-		snapshot.IsTurn = grpcPlayer.IsTurn
-		snapshot.GameState = player.GetCurrentStateString()
-		snapshot.HandDescription = grpcPlayer.HandDescription
-		snapshot.HasBet = grpcPlayer.CurrentBet
-		snapshot.StartingBalance = player.StartingBalance()
+		snapshot.Balance = player.Balance
+		snapshot.HasFolded = player.StateID == 3 // psFolded
+		snapshot.IsAllIn = player.StateID == 2   // psAllIn
+		snapshot.IsDealer = player.IsDealer
+		snapshot.IsSmallBlind = player.IsSmallBlind
+		snapshot.IsBigBlind = player.IsBigBlind
+		snapshot.IsTurn = player.IsTurn
+		snapshot.GameState = poker.GetPlayerStateString(player.StateID)
+		snapshot.HandDescription = player.HandDescription
+		snapshot.HasBet = player.CurrentBet
+		snapshot.StartingBalance = player.StartingBalance
 
-		if len(grpcPlayer.Hand) > 0 {
-			snapshot.Hand = make([]poker.Card, len(grpcPlayer.Hand))
-			for i, grpcCard := range grpcPlayer.Hand {
-				snapshot.Hand[i] = poker.NewCardFromSuitValue(
-					poker.Suit(grpcCard.Suit),
-					poker.Value(grpcCard.Value),
-				)
-			}
+		if len(player.Hand) > 0 {
+			snapshot.Hand = make([]poker.Card, len(player.Hand))
+			copy(snapshot.Hand, player.Hand)
 		}
 		break
 	}
@@ -192,35 +195,35 @@ func (s *Server) collectPlayerSnapshotFromGameSnapshot(user *poker.User, gs *pok
 	return snapshot
 }
 
-// collectGameSnapshot collects an immutable snapshot of game state
-func (s *Server) collectGameSnapshot(game *poker.Game) *GameSnapshot {
+// collectGameSnapshotStable builds a GameSnapshot from a stable GameStateSnapshot,
+// without falling back to live getters. All required fields must be present.
+func (s *Server) collectGameSnapshot(gs *poker.GameStateSnapshot) *GameSnapshot {
+	if gs == nil {
+		return nil
+	}
 	snapshot := &GameSnapshot{
-		Phase:      game.GetPhase(),
-		Pot:        game.GetPot(),
-		CurrentBet: game.GetCurrentBet(),
-		Dealer:     game.GetDealer(),
-		Round:      game.GetRound(),
-		BetRound:   game.GetBetRound(),
+		Phase:      gs.Phase,
+		Pot:        gs.Pot,
+		CurrentBet: gs.CurrentBet,
+		Dealer:     gs.Dealer,
+		Round:      gs.Round,
+		BetRound:   gs.BetRound,
 		Winners:    make([]string, 0),
 	}
-
-	// Derive current player directly from the live game index for accuracy
-	if cur := game.GetCurrentPlayerObject(); cur != nil {
-		snapshot.CurrentPlayer = cur.ID()
-	}
-
-	// Deep copy community cards to ensure immutability
-	communityCards := game.GetCommunityCards()
-	if len(communityCards) > 0 {
-		snapshot.CommunityCards = make([]poker.Card, len(communityCards))
-		copy(snapshot.CommunityCards, communityCards)
+	// Current player from snapshot if available
+	snapshot.CurrentPlayer = gs.CurrentPlayer
+	// Deep copy community cards from snapshot
+	if len(gs.CommunityCards) > 0 {
+		snapshot.CommunityCards = make([]poker.Card, len(gs.CommunityCards))
+		copy(snapshot.CommunityCards, gs.CommunityCards)
 	}
 
 	// Get winners if available
-	winners := game.GetWinners()
-	if len(winners) > 0 {
-		snapshot.Winners = make([]string, len(winners))
-		copy(snapshot.Winners, winners)
+	if len(gs.Winners) > 0 {
+		snapshot.Winners = make([]string, len(gs.Winners))
+		for i, winner := range gs.Winners {
+			snapshot.Winners[i] = winner.ID
+		}
 	}
 
 	return snapshot

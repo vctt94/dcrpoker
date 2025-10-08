@@ -1263,7 +1263,9 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 	require.Eventually(t, func() bool { return players[0].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool { return players[1].GetCurrentStateString() == "FOLDED" }, 200*time.Millisecond, 10*time.Millisecond)
 
-	pm.returnUncalledBet(players) // should refund 40 to player 2 and reduce totals
+	if err := pm.returnUncalledBet(players); err != nil {
+		t.Fatalf("returnUncalledBet failed: %v", err)
+	}
 	if pm.totalBets[2] != 20 {
 		t.Fatalf("TotalBets[BTN]=%d want 20 after refund", pm.totalBets[2])
 	}
@@ -1339,7 +1341,9 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 	pm.addBet(1, 20, players)
 
 	// Refund uncalled portion from P0 (1000 - 20 = 980)
-	pm.returnUncalledBet(players)
+	if err := pm.returnUncalledBet(players); err != nil {
+		t.Fatalf("returnUncalledBet failed: %v", err)
+	}
 
 	// After refund, only 20 vs 20 should remain in totals and pot structure
 	if pm.totalBets[0] != 20 {

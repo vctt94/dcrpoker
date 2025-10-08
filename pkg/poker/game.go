@@ -37,6 +37,19 @@ type AutoStartCallbacks struct {
 	OnNewHandStarted func()
 }
 
+// GameEventType represents different types of game events sent to Table
+type GameEventType int
+
+const (
+	GameEventBettingRoundComplete GameEventType = iota // Betting round complete, advance to next street
+	GameEventShowdownReady                             // All players all-in or only one active, go to showdown
+)
+
+// GameEvent represents an event sent from Game FSM to Table
+type GameEvent struct {
+	Type GameEventType
+}
+
 // Game holds the context and data for our poker game
 type Game struct {
 	// Player management - references to table users converted to players
@@ -83,6 +96,101 @@ type Game struct {
 
 	// Lifecycle notifications - states signal when they're reached
 	preFlopReached chan struct{}
+
+	// Event channel for sending events to Table (betting round complete, showdown, etc.)
+	tableEventChan chan<- GameEvent
+}
+
+// SetTableEventChannel sets the channel for sending events to the Table
+func (g *Game) SetTableEventChannel(ch chan<- GameEvent) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.tableEventChan = ch
+}
+
+// sendTableEvent sends an event to the Table (non-blocking)
+func (g *Game) sendTableEvent(eventType GameEventType) {
+	if g.tableEventChan != nil {
+		select {
+		case g.tableEventChan <- GameEvent{Type: eventType}:
+		default:
+			// Channel full or closed, log and continue
+			g.log.Warnf("Failed to send game event %v to table (channel full)", eventType)
+		}
+	}
+}
+
+// checkBettingRoundComplete checks if the betting round is complete and sends
+// appropriate events to Table. Should be called after each player action.
+// Assumes g.mu is held by caller.
+func (g *Game) checkBettingRoundComplete() {
+	// Count alive (non-folded) and active (non-folded, non-all-in) players
+	alivePlayers := 0
+	activePlayers := 0
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		// Check FSM state - if ALL_IN state function is running, player is all-in
+		state := p.GetCurrentStateString()
+		if state != "FOLDED" {
+			alivePlayers++
+			if state != "ALL_IN" {
+				activePlayers++
+			}
+		}
+	}
+
+	// If only one alive player remains (others folded), go to showdown
+	if alivePlayers <= 1 {
+		g.log.Debugf("checkBettingRoundComplete: only %d alive, sending showdown event", alivePlayers)
+		g.sendTableEvent(GameEventShowdownReady)
+		return
+	}
+
+	// If betting is effectively closed (all remaining players are all-in or only one can act)
+	if activePlayers <= 1 {
+		g.log.Debugf("checkBettingRoundComplete: only %d active players, sending showdown event", activePlayers)
+		g.sendTableEvent(GameEventShowdownReady)
+		return
+	}
+
+	// Check if all active players have had a chance to act and all bets are equal
+	if g.actionsInRound < activePlayers {
+		g.log.Debugf("checkBettingRoundComplete: waiting for actions: %d/%d", g.actionsInRound, activePlayers)
+		return // Not all players have acted yet
+	}
+
+	// Check if all active players have matching bets
+	unmatchedPlayers := 0
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		if state == "FOLDED" || state == "ALL_IN" {
+			continue // Folded and all-in players are considered "matched"
+		}
+		if p.CurrentBet() < g.currentBet {
+			unmatchedPlayers++
+		}
+	}
+
+	if unmatchedPlayers > 0 {
+		g.log.Debugf("checkBettingRoundComplete: %d players with unmatched bets", unmatchedPlayers)
+		return // Still waiting for some players to match
+	}
+
+	// Betting round is complete — advance phase inside the FSM and notify Table to publish.
+	g.log.Debugf("checkBettingRoundComplete: round complete; advancing phase via FSM and notifying table")
+	// Perform phase transition, reset counters, and reinitialize current player.
+	// This keeps game-state mutations inside the Game FSM instead of the Table.
+	g.maybeCompleteBettingRound()
+
+	// Notify the Table that the betting round completed. The Table will
+	// inspect current phase and decide whether to publish NEW_ROUND or
+	// trigger showdown publishing. No game mutations should occur there.
+	g.sendTableEvent(GameEventBettingRoundComplete)
 }
 
 // NewGame creates a new poker game with the given configuration
@@ -126,9 +234,7 @@ func NewGame(cfg GameConfig) (*Game, error) {
 	return g, nil
 }
 
-func (g *Game) Start(ctx context.Context) {
-	g.sm.Start(ctx)
-}
+func (g *Game) Start(ctx context.Context) { g.sm.Start(ctx) }
 
 // NEW_HAND_DEALING: wait for evStartHand to begin setup
 func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
@@ -136,12 +242,20 @@ func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
 	g.phase = pokerrpc.GamePhase_NEW_HAND_DEALING
 	g.mu.Unlock()
 	for ev := range in {
+		// First, allow cross-state requests (handle/ack via FSM)
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
 		switch ev.(type) {
 		case evStartHand:
 			return statePreDeal
 		case evGotoShowdown:
 			return stateShowdown
 		default:
+			// no-op for unhandled events in this state
 		}
 	}
 	return nil
@@ -150,9 +264,15 @@ func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
 func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.round++
+	// Reset hand-specific state inside FSM (except deck reseed which happens
+	// before dealing in ResetForNewHandFromUsers to keep a single deck per hand)
 	g.communityCards = nil
 	g.currentBet = 0
 	g.betRound = 0
+	g.winners = nil
+	// Reset pot manager for the new hand
+	g.potManager = NewPotManager(len(g.players))
+	// Deck reseed is done prior to dealing hole cards
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
 
 	// Advance dealer position for the new hand
@@ -188,7 +308,47 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 			}
 		}
 
-		// AFTER position flags are set, notify all players to start the hand
+		// POST BLINDS while players are still in AT_TABLE state
+		postBlind := func(pos int, amount int64) {
+			p := g.players[pos]
+			if p == nil {
+				return
+			}
+			// If already has at least this bet, nothing to do
+			p.mu.RLock()
+			already := p.currentBet
+			balance := p.balance
+			p.mu.RUnlock()
+			if already >= amount {
+				return
+			}
+			// Calculate delta (capped by stack)
+			delta := amount - already
+			if delta > balance {
+				delta = balance
+			}
+
+			// Use FSM event to post blind (players are still in AT_TABLE state)
+			var applied int64
+			if p.sm != nil {
+				reply := make(chan int64, 1)
+				p.sm.Send(evPostBlind{Amt: delta, Reply: reply})
+				applied = <-reply // Wait for FSM to process and return actual amount
+			}
+
+			// Reflect into pot manager and table-wide current bet
+			g.potManager.addBet(pos, applied, g.players) // contract: g.mu held
+			finalBet := already + applied
+			if finalBet > g.currentBet {
+				g.currentBet = finalBet
+			}
+		}
+
+		postBlind(sbPos, g.config.SmallBlind)
+		postBlind(bbPos, g.config.BigBlind)
+
+		// AFTER blinds are posted, notify all players to start the hand
+		// This transitions them from AT_TABLE to IN_GAME (or ALL_IN if they went all-in on blinds)
 		for _, p := range g.players {
 			if p != nil && p.sm != nil {
 				p.sm.Send(evStartHand{})
@@ -202,11 +362,13 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 }
 
 func stateDeal(g *Game, in <-chan any) GameStateFn {
-	// Table does actual dealing; proceed to blinds calculation
+	// Table does actual dealing; proceed to preflop
 	return stateBlinds
 }
 
 func stateBlinds(g *Game, in <-chan any) GameStateFn {
+	// Blinds are now posted in statePreDeal before evStartHand is sent
+	// This state just sets up the first player to act
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
@@ -214,40 +376,14 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 	if numPlayers < 2 {
 		return stateEnd
 	}
-	// Calculate blind positions (flags were already set in statePreDeal)
+
+	// Calculate blind positions to determine first player
 	sbPos := (g.dealer + 1) % numPlayers
 	bbPos := (g.dealer + 2) % numPlayers
 	if numPlayers == 2 {
 		sbPos = g.dealer
 		bbPos = (g.dealer + 1) % numPlayers
 	}
-
-	postBlind := func(pos int, amount int64) {
-		p := g.players[pos]
-		if p == nil {
-			return
-		}
-		p.mu.Lock()
-		if p.currentBet >= amount {
-			p.mu.Unlock()
-			return
-		}
-		if amount > p.balance {
-			amount = p.balance
-		}
-		p.balance -= amount
-		p.currentBet += amount
-		// read-after-write under lock
-		newBet := p.currentBet
-		p.mu.Unlock()
-		g.potManager.addBet(pos, amount, g.players) // contract: g.mu held
-		if newBet > g.currentBet {
-			g.currentBet = newBet
-		}
-	}
-
-	postBlind(sbPos, g.config.SmallBlind)
-	postBlind(bbPos, g.config.BigBlind)
 
 	if numPlayers == 2 {
 		g.currentPlayer = sbPos
@@ -278,6 +414,13 @@ func statePreFlop(g *Game, in <-chan any) GameStateFn {
 	}
 
 	for ev := range in {
+		// Let generic requests run inside any state
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
 		switch ev.(type) {
 		case evGotoShowdown:
 			return stateShowdown
@@ -299,12 +442,20 @@ func statePreFlop(g *Game, in <-chan any) GameStateFn {
 
 func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
+	// Deal flop on entry; guard against double-deal
+	g.dealFlop()
 	g.currentBet = 0
 	g.potManager.currentBets = make(map[int]int64) // (contract: called with g.mu held)
 	g.phase = pokerrpc.GamePhase_FLOP
 	g.mu.Unlock()
 	// wait events ...
 	for ev := range in {
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
 		switch ev.(type) {
 		case evGotoShowdown:
 			return stateShowdown
@@ -318,6 +469,7 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 			if can {
 				return stateTurn
 			}
+		default:
 		}
 	}
 	return nil
@@ -325,12 +477,20 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 
 func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
+	// Deal turn on entry; guard against double-deal
+	g.dealTurn()
 	g.currentBet = 0
 	g.potManager.currentBets = make(map[int]int64)
 	g.phase = pokerrpc.GamePhase_TURN
 	g.mu.Unlock()
 
 	for ev := range in {
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
 		switch ev.(type) {
 		case evGotoShowdown:
 			return stateShowdown
@@ -352,12 +512,20 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 
 func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
+	// Deal river on entry; guard against double-deal
+	g.dealRiver()
 	g.currentBet = 0
 	g.potManager.currentBets = make(map[int]int64)
 	g.phase = pokerrpc.GamePhase_RIVER
 	g.mu.Unlock()
 
 	for ev := range in {
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
 		switch ev.(type) {
 		case evGotoShowdown:
 			return stateShowdown
@@ -375,6 +543,13 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 	g.log.Debugf("stateShowdown: entered showdown state")
 	g.mu.Lock()
 	g.phase = pokerrpc.GamePhase_SHOWDOWN
+	// Clear current player's turn flags to avoid accepting further actions
+	for _, p := range g.players {
+		if p != nil {
+			p.EndTurn()
+		}
+	}
+	g.currentPlayer = -1
 	g.mu.Unlock()
 
 	// Schedule auto-start if configured
@@ -385,6 +560,13 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 
 	// Stay here until a new hand is started
 	for ev := range in {
+		// Even in SHOWDOWN, handle request events so callers receive replies
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
 		switch ev.(type) {
 		case evStartHand:
 			g.log.Debugf("stateShowdown: received evStartHand, transitioning to statePreDeal")
@@ -409,50 +591,32 @@ func (g *Game) GetPot() int64 {
 // StateFlop deals the flop (3 community cards)
 func (g *Game) StateFlop() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	// Guard: only deal flop if we haven't already dealt it
-	if len(g.communityCards) >= 3 {
-		g.phase = pokerrpc.GamePhase_FLOP
-		return
+	if len(g.communityCards) < 3 {
+		g.dealFlop()
 	}
-
-	g.dealFlop()
-
-	// Update phase
 	g.phase = pokerrpc.GamePhase_FLOP
+	g.mu.Unlock()
 }
 
 // StateTurn deals the turn (1 community card)
 func (g *Game) StateTurn() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	// Guard: only deal turn if we haven't already dealt it
-	if len(g.communityCards) >= 4 {
-		g.phase = pokerrpc.GamePhase_TURN
-		return
+	if len(g.communityCards) < 4 {
+		g.dealTurn()
 	}
-
-	g.dealTurn()
-
 	g.phase = pokerrpc.GamePhase_TURN
+	g.mu.Unlock()
 }
 
 // StateRiver deals the river (1 community card)
 func (g *Game) StateRiver() {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	// Guard: only deal river if we haven't already dealt it
-	if len(g.communityCards) >= 5 {
-		g.phase = pokerrpc.GamePhase_RIVER
-		return
+	if len(g.communityCards) < 5 {
+		g.dealRiver()
 	}
-
-	g.dealRiver()
-
 	g.phase = pokerrpc.GamePhase_RIVER
+	g.mu.Unlock()
 }
 
 // GetPhase returns the current phase of the game.
@@ -489,7 +653,9 @@ func (g *Game) RefundUncalledBets() error {
 	if g.potManager == nil {
 		return fmt.Errorf("potManager is nil")
 	}
-	g.potManager.returnUncalledBet(g.players)
+	if err := g.potManager.returnUncalledBet(g.players); err != nil {
+		return fmt.Errorf("failed to refund uncalled bets: %w", err)
+	}
 	return nil
 }
 
@@ -539,7 +705,9 @@ func (g *Game) SetCurrentPlayerByID(playerID string) {
 					continue
 				}
 				if j == i {
-					cp.StartTurn()
+					if cp.GetCurrentStateString() == "IN_GAME" {
+						cp.StartTurn()
+					}
 				} else {
 					cp.EndTurn()
 				}
@@ -591,7 +759,6 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 	// Map existing players by id for reuse
 	byID := make(map[string]*Player, len(g.players))
 	for _, p := range g.players {
-		p.sm.Send(evStartHand{})
 		if p != nil {
 			byID[p.id] = p
 		}
@@ -602,7 +769,7 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 	for _, u := range users {
 		if p := byID[u.ID]; p != nil {
 			// Reset existing player for new hand while preserving balance
-			p.ResetForNewHand(p.balance)
+			_ = p.ResetForNewHand(p.balance)
 			p.tableSeat = u.TableSeat
 			p.isReady = u.IsReady
 			newPlayers = append(newPlayers, p)
@@ -616,19 +783,11 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 	}
 	g.players = newPlayers
 
-	// Hand-level reset (this mirrors your ResetForNewHand internals)
-	g.communityCards = nil
-	g.potManager = NewPotManager(len(g.players))
-	g.currentBet = 0
-	g.betRound = 0
-	g.winners = nil
-
-	// Dealer position will be advanced in statePreDeal
-
-	// Fresh deck / seed mixing (keep your exact logic if you prefer)
+	// Prepare a fresh deck for this hand BEFORE dealing hole cards so that
+	// community cards come from the same deck. FSM won't reseed again.
 	var nextRng *rand.Rand
 	if g.config.Seed != 0 {
-		derived := g.config.Seed + int64(g.round)
+		derived := g.config.Seed + int64(g.round+1) // lookahead to next hand
 		nextRng = rand.New(rand.NewSource(derived))
 	} else {
 		base := time.Now().UnixNano()
@@ -636,17 +795,12 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 		if g.deck != nil && g.deck.rng != nil {
 			mix = g.deck.rng.Int63()
 		}
-		nextRng = rand.New(rand.NewSource(base ^ mix ^ int64(g.round)))
+		nextRng = rand.New(rand.NewSource(base ^ mix ^ int64(g.round+1)))
 	}
 	g.deck = NewDeck(nextRng)
 
-	// Phase & current player init
-	g.phase = pokerrpc.GamePhase_NEW_HAND_DEALING
-	g.currentPlayer = -1
-
-	// Kick the game FSM to progress out of NEW_HAND_DEALING
-	g.sm.Send(evStartHand{})
-
+	// Do NOT reset remaining hand-level state here; FSM will do it in statePreDeal.
+	// The Table will send evStartHand after dealing hole cards.
 	return nil
 }
 
@@ -673,60 +827,28 @@ func (g *Game) ResetActionsInRound() {
 
 // ResetForNewHand resets the game state for a new hand while preserving the game instance
 func (g *Game) ResetForNewHand(activePlayers []*Player) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	// Update player references for this hand - use the same objects to maintain unified state
-	g.players = activePlayers
-	potManager := NewPotManager(len(activePlayers))
-
-	// Reset hand-specific state
-	g.communityCards = nil
-	g.potManager = potManager // Reset pot manager for new hand
-	g.currentBet = 0
-	g.betRound = 0
-	g.winners = nil
-
-	// Advance dealer position for new hand
-	g.dealer = (g.dealer + 1) % len(activePlayers)
-
-	// Create a shuffled deck for the new hand.
-	// If a deterministic seed is configured, advance the sequence by incorporating
-	// the round to avoid identical decks each hand.
-	var nextRng *rand.Rand
-	if g.config.Seed != 0 {
-		// Derive a unique seed per hand deterministically
-		derived := g.config.Seed + int64(g.round)
-		nextRng = rand.New(rand.NewSource(derived))
-	} else {
-		// For non-deterministic games, ensure each hand gets a fresh RNG seed so
-		// rapid successive hands don't accidentally reuse identical shuffles.
-		base := time.Now().UnixNano()
-		var mix int64 = 0
-		if g.deck != nil && g.deck.rng != nil {
-			mix = g.deck.rng.Int63()
+	// Convert players → users shape minimally (ID/Name/Seat/Ready), preserving chip balances via ResetForNewHandFromUsers implementation.
+	users := make([]*User, 0, len(activePlayers))
+	for _, p := range activePlayers {
+		if p == nil {
+			continue
 		}
-		seed := base ^ mix ^ int64(g.round)
-		nextRng = rand.New(rand.NewSource(seed))
+		users = append(users, &User{ID: p.id, Name: p.name, TableSeat: p.tableSeat, IsReady: p.isReady})
 	}
-	g.deck = NewDeck(nextRng)
-
-	// Set phase to NEW_HAND_DEALING to signal setup in progress
-	g.phase = pokerrpc.GamePhase_NEW_HAND_DEALING
-
-	// Reset current player to -1 to force initialization
-	g.currentPlayer = -1
-
-	// Reset state machine to NEW_HAND_DEALING
-	g.sm.Send(evStartHand{})
-
-	return nil
+	return g.ResetForNewHandFromUsers(users)
 }
 
 // HandlePlayerFold handles a player folding in the game (external API)
 func (g *Game) HandlePlayerFold(playerID string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Disallow actions outside betting streets
+	switch g.phase {
+	case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
+		// allowed
+	default:
+		return fmt.Errorf("action not allowed during phase: %s", g.phase)
+	}
 	return g.handlePlayerFold(playerID)
 }
 
@@ -751,34 +873,40 @@ func (g *Game) handlePlayerFold(playerID string) error {
 		return fmt.Errorf("not your turn to act")
 	}
 
-	// 1) mark folded (and any per-player state machine updates)
-	// Make the fold visible immediately to game logic.
-	// We own g.mu here; Player's fast snapshot is atomic.
-	p.stateID.Store(int32(psFolded))
-	p.mu.Lock()
-	p.lastAction = time.Now()
-	p.mu.Unlock()
-	// Keep the FSM in sync (it will move into stateFolded too, which will set isTurn = false).
-	p.sm.Send(evFold{})
+	// Send synchronous fold event to ensure player's state is updated before
+	// we evaluate betting-round completion (avoids races).
+	if p.sm != nil {
+		reply := make(chan error, 1)
+		p.sm.Send(evFoldReq{Reply: reply})
+		if err := <-reply; err != nil {
+			return err
+		}
+	}
 
-	// 2) count this action in the round
+	// Count this action in the round
 	g.actionsInRound++
 
-	// 3) optional pot manager hook so unmatched accounting ignores this player
-
-	// 4) if only one player remains, let the table handle showdown
-	// (don't call handleShowdown here to avoid bypassing table's caching)
+	// If only one player remains, send showdown event to table
 	if g.unfoldsPlayers() == 1 {
-		// Set phase to SHOWDOWN so MaybeCompleteBettingRound will handle it
-		g.phase = pokerrpc.GamePhase_SHOWDOWN
+		// End the player's turn before showdown
+		p.EndTurn()
+		// Notify the game FSM to enter stateShowdown - it will update phase
+		if g.sm != nil {
+			g.sm.Send(evGotoShowdown{})
+		}
+		// Notify table that showdown is ready
+		g.sendTableEvent(GameEventShowdownReady)
 		return nil
 	}
 
-	// 5) move turn to next alive player
+	// End the player's turn before advancing
+	p.EndTurn()
+
+	// Move turn to next alive player
 	g.advanceToNextPlayer(time.Now()) // must skip folded players
 
-	// 6) let table wrapper trigger round evaluation outside our lock to
-	// avoid nested locking and FSM re-entrancy; Table.HandleFold calls it.
+	// Check if betting round is complete and notify table
+	g.checkBettingRoundComplete()
 
 	return nil
 }
@@ -787,10 +915,16 @@ func (g *Game) handlePlayerFold(playerID string) error {
 func (g *Game) HandlePlayerCall(playerID string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Disallow actions outside betting streets
+	switch g.phase {
+	case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
+		// allowed
+	default:
+		return fmt.Errorf("action not allowed during phase: %s", g.phase)
+	}
 	return g.handlePlayerCall(playerID)
 }
 
-// handlePlayerCall is the core logic without locking (for internal use)
 // handlePlayerCall is the core logic without locking (for internal use)
 func (g *Game) handlePlayerCall(playerID string) error {
 	player := g.getPlayerByID(playerID)
@@ -805,48 +939,81 @@ func (g *Game) handlePlayerCall(playerID string) error {
 	maxBet := g.currentBet
 	if maxBet == 0 {
 		for _, p := range g.players {
-			if p != nil && p.currentBet > maxBet {
-				maxBet = p.currentBet
+			if p != nil {
+				p.mu.RLock()
+				bet := p.currentBet
+				p.mu.RUnlock()
+				if bet > maxBet {
+					maxBet = bet
+				}
 			}
 		}
 	}
-	if maxBet <= player.currentBet {
+
+	player.mu.RLock()
+	currentBet := player.currentBet
+	balance := player.balance
+	player.mu.RUnlock()
+
+	if maxBet <= currentBet {
 		return fmt.Errorf("nothing to call - use check instead")
 	}
 
 	// Chips to put in: min(toCall, stack)
-	toCall := maxBet - player.currentBet
+	toCall := maxBet - currentBet
 	delta := toCall
-	if delta > player.balance {
+	if delta > balance {
 		g.log.Debugf("Player %s cannot afford to call %d (has %d), contributing remainder all-in",
-			player.id, delta, player.balance)
-		delta = player.balance
+			player.ID(), delta, balance)
+		delta = balance
 	}
 	if delta <= 0 {
 		return fmt.Errorf("invalid call amount")
 	}
 
-	// Apply chip movements directly under player lock to avoid async races.
-	player.mu.Lock()
-	player.balance -= delta
-	player.currentBet += delta
-	player.lastAction = time.Now()
-	player.mu.Unlock()
-	// Nudge FSM to re-evaluate derived ALL_IN state if needed.
+	// Send call action to player FSM and wait for it to process
+	reply := make(chan error, 1)
 	if player.sm != nil {
-		player.sm.Send(evReeval{})
+		player.sm.Send(evCallDelta{Amt: delta, Reply: reply})
+		// Wait for FSM to process the call
+		if err := <-reply; err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("player FSM not initialized")
 	}
 
-	// Pot bookkeeping is table-owned; we can book immediately with the same delta.
+	// Pot bookkeeping uses the calculated delta (not dependent on player state).
 	for i, p := range g.players {
-		if p != nil && p.id == playerID {
+		if p != nil && p.ID() == playerID {
 			g.potManager.addBet(i, delta, g.players)
 			break
 		}
 	}
 
+	// End the player's turn before advancing
+	player.EndTurn()
+
 	g.actionsInRound++
-	g.advanceToNextPlayer(time.Now())
+
+	// Check if we should advance to next player or go to showdown
+	// Count active (non-folded, non-all-in) players
+	activePlayers := 0
+	for _, p := range g.players {
+		state := p.GetCurrentStateString()
+		if state != "FOLDED" && state != "ALL_IN" {
+			activePlayers++
+		}
+	}
+
+	// Only advance if there are players who can act
+	if activePlayers > 1 {
+		g.advanceToNextPlayer(time.Now())
+	}
+
+	// Check if betting round is complete and notify table
+	g.checkBettingRoundComplete()
+
 	return nil
 }
 
@@ -854,6 +1021,13 @@ func (g *Game) handlePlayerCall(playerID string) error {
 func (g *Game) HandlePlayerCheck(playerID string) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Disallow actions outside betting streets
+	switch g.phase {
+	case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
+		// allowed
+	default:
+		return fmt.Errorf("action not allowed during phase: %s", g.phase)
+	}
 	return g.handlePlayerCheck(playerID)
 }
 
@@ -876,8 +1050,15 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 	player.mu.Lock()
 	player.lastAction = time.Now()
 	player.mu.Unlock()
+
+	// End the player's turn before advancing
+	player.EndTurn()
+
 	g.actionsInRound++
 	g.advanceToNextPlayer(time.Now())
+
+	// Check if betting round is complete and notify table
+	g.checkBettingRoundComplete()
 
 	return nil
 }
@@ -886,6 +1067,13 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 func (g *Game) HandlePlayerBet(playerID string, amount int64) error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	// Disallow actions outside betting streets
+	switch g.phase {
+	case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
+		// allowed
+	default:
+		return fmt.Errorf("action not allowed during phase: %s", g.phase)
+	}
 	return g.handlePlayerBet(playerID, amount)
 }
 
@@ -900,25 +1088,35 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		return fmt.Errorf("not your turn to act")
 	}
 
-	if amount < player.currentBet {
+	player.mu.RLock()
+	currentBet := player.currentBet
+	balance := player.balance
+	player.mu.RUnlock()
+
+	if amount < currentBet {
 		return fmt.Errorf("cannot decrease bet")
 	}
 
 	// Determine the effective amount considering player stack (all-in cap)
-	delta := amount - player.currentBet
-	if delta > 0 && delta > player.balance {
+	delta := amount - currentBet
+	if delta > 0 && delta > balance {
 		// Player cannot afford the requested raise/bet — cap to all-in
-		g.log.Debugf("Player %s cannot afford to bet %d (has %d), contributing remainder all-in", player.id, delta, player.balance)
-		delta = player.balance
-		amount = player.currentBet + delta
+		g.log.Debugf("Player %s cannot afford to bet %d (has %d), contributing remainder all-in", player.ID(), delta, balance)
+		delta = balance
+		amount = currentBet + delta
 	}
 
 	// Compute table-wide current bet (fallback to max player bet if needed)
 	tableBet := g.currentBet
 	if tableBet == 0 {
 		for _, p := range g.players {
-			if p != nil && p.currentBet > tableBet {
-				tableBet = p.currentBet
+			if p != nil {
+				p.mu.RLock()
+				pBet := p.currentBet
+				p.mu.RUnlock()
+				if pBet > tableBet {
+					tableBet = pBet
+				}
 			}
 		}
 	}
@@ -927,7 +1125,7 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 	// except when the player is going all-in for less (short stack call).
 	if tableBet > 0 && amount < tableBet {
 		// Allow only if this action is an all-in to an amount below the call
-		if !(delta > 0 && delta == player.balance) {
+		if !(delta > 0 && delta == balance) {
 			return fmt.Errorf("bet must be at least current bet (%d)", tableBet)
 		}
 	}
@@ -941,38 +1139,45 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		}
 		if amount < minOpen {
 			// Allow short-stack all-in that is less than min open
-			if !(delta > 0 && delta == player.balance) {
+			if !(delta > 0 && delta == balance) {
 				return fmt.Errorf("minimum bet is the big blind (%d)", minOpen)
 			}
 		}
 	}
 
-	if delta > 0 {
-		player.mu.Lock()
-		player.balance -= delta
-		player.mu.Unlock()
+	// Send bet event to FSM - it will update balance/currentBet and transition to ALL_IN if needed.
+	if delta > 0 && player.sm != nil {
+		reply := make(chan error, 1)
+		player.sm.Send(evBet{Amt: delta, Reply: reply})
+		// Wait for FSM to process the bet
+		if err := <-reply; err != nil {
+			return err
+		}
 	}
-	player.mu.Lock()
-	player.currentBet = amount
-	player.lastAction = time.Now()
-	player.mu.Unlock()
 
+	// Update game-wide current bet
 	if amount > g.currentBet {
 		g.currentBet = amount
 	}
 
-	// Find player index and add to pot
+	// Pot bookkeeping uses the calculated delta.
 	if delta > 0 {
 		for i, p := range g.players {
-			if p.id == playerID {
+			if p != nil && p.ID() == playerID {
 				g.potManager.addBet(i, delta, g.players)
 				break
 			}
 		}
 	}
 
+	// End the player's turn before advancing
+	player.EndTurn()
+
 	g.actionsInRound++
 	g.advanceToNextPlayer(time.Now())
+
+	// Check if betting round is complete and notify table
+	g.checkBettingRoundComplete()
 
 	return nil
 }
@@ -980,7 +1185,7 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 // getPlayerByID finds a player by ID
 func (g *Game) getPlayerByID(playerID string) *Player {
 	for _, p := range g.players {
-		if p.id == playerID {
+		if p.ID() == playerID {
 			return p
 		}
 	}
@@ -992,20 +1197,15 @@ func (g *Game) currentPlayerID() string {
 	if g.currentPlayer < 0 || g.currentPlayer >= len(g.players) {
 		return ""
 	}
-	return g.players[g.currentPlayer].id
+	return g.players[g.currentPlayer].ID()
 }
 
 // advanceToNextPlayer moves to the next active player
+// Note: The caller (action handlers like bet, call, check, fold) is responsible
+// for ending the current player's turn before calling this function.
 func (g *Game) advanceToNextPlayer(now time.Time) {
 	if len(g.players) == 0 {
 		return
-	}
-
-	// End turn for the current player before advancing
-	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-		if p := g.players[g.currentPlayer]; p != nil {
-			p.EndTurn()
-		}
 	}
 
 	playersChecked := 0
@@ -1019,11 +1219,13 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 			break
 		}
 
-		// Skip folded players and all-in players (they can't act)
-		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" && g.players[g.currentPlayer].GetCurrentStateString() != "ALL_IN" {
+		// Only start turn for players that are actively in the hand.
+		// This avoids blocking StartTurn on players whose FSM is in AT_TABLE.
+		if g.players[g.currentPlayer].GetCurrentStateString() == "IN_GAME" {
 			g.players[g.currentPlayer].StartTurn()
 			break
 		}
+		// Skip FOLDED, ALL_IN, AT_TABLE, LEFT, etc.
 	}
 }
 
@@ -1070,7 +1272,9 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	// Now, ensure any uncalled portion from the last betting action is
 	// refunded before resolving pots to maintain correct side-pot structure
 	// and winner payouts.
-	g.potManager.returnUncalledBet(g.players)
+	if err := g.potManager.returnUncalledBet(g.players); err != nil {
+		return nil, fmt.Errorf("failed to return uncalled bet: %w", err)
+	}
 
 	// --- Uncontested (fold-win): build pots, award total, reset state
 	if len(unfoldedPlayers) == 1 {
@@ -1287,12 +1491,16 @@ func (g *Game) maybeCompleteBettingRound() {
 		g.phase, g.actionsInRound, g.currentBet)
 
 	// Count alive (non-folded) and actionable (non-folded, non-all-in) players
+	// Use derived conditions instead of GetCurrentStateString() to avoid races with async FSM.
 	alivePlayers := 0
 	activePlayers := 0
 	for _, p := range g.players {
-		if p.GetCurrentStateString() != "FOLDED" {
+		isFolded := p.GetCurrentStateString() == "FOLDED"
+		isAllIn := p.Balance() == 0 && p.CurrentBet() > 0
+
+		if !isFolded {
 			alivePlayers++
-			if p.GetCurrentStateString() != "ALL_IN" {
+			if !isAllIn {
 				activePlayers++
 			}
 		}
@@ -1311,8 +1519,8 @@ func (g *Game) maybeCompleteBettingRound() {
 	// - activePlayers == 1: only one player could act, but with no opponent able to respond,
 	//   further betting isn't possible (e.g., heads-up where one is all-in, or multi-way with only one non-all-in).
 	if activePlayers == 0 || activePlayers == 1 {
-		// Refund any uncalled portion before closing the round.
-		g.potManager.returnUncalledBet(g.players)
+		// Do not refund uncalled here; handle it inside handleShowdown after
+		// capturing the pre-refund snapshot for notifications.
 		// Fast‑forward missing streets and set phase before signaling showdown.
 		switch g.phase {
 		case pokerrpc.GamePhase_PRE_FLOP:
@@ -1429,6 +1637,8 @@ func (g *Game) maybeCompleteBettingRound() {
 			p.mu.Lock()
 			p.currentBet = 0
 			p.mu.Unlock()
+			// Clear all turn flags before initializing new current player
+			p.EndTurn()
 		}
 	}
 	// table-wide currentBet is reset by FSM state handlers; avoid double-write here
@@ -1440,14 +1650,6 @@ func (g *Game) maybeCompleteBettingRound() {
 		g.log.Debugf("maybeAdvancePhase: new round currentPlayer=%d id=%s",
 			g.currentPlayer, g.players[g.currentPlayer].id)
 	}
-}
-
-// MaybeCompleteBettingRound is the concurrency-safe wrapper that acquires the
-// game lock before executing the phase advancement logic.
-func (g *Game) MaybeCompleteBettingRound() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.maybeCompleteBettingRound()
 }
 
 // AdvanceToNextPlayer moves to the next active player (external API)
@@ -1519,9 +1721,9 @@ func (g *Game) initializeCurrentPlayer() {
 		}
 	}
 
-	// Start turn for the new current player via event
+	// Start turn for the new current player only if actively in the hand
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" {
+		if g.players[g.currentPlayer].GetCurrentStateString() == "IN_GAME" {
 			g.players[g.currentPlayer].StartTurn()
 		}
 	}
@@ -1691,87 +1893,87 @@ func (g *Game) scheduleAutoStart() {
 	// Mark that auto-start is pending
 	g.autoStartCanceled = false
 
-    // Schedule the auto-start with self-rescheduling if conditions aren't met
-    var scheduleCheckLocked func() // requires g.mu held
-    var scheduleCheck func()       // acquires g.mu internally
+	// Schedule the auto-start with self-rescheduling if conditions aren't met
+	var scheduleCheckLocked func() // requires g.mu held
+	var scheduleCheck func()       // acquires g.mu internally
 
-    scheduleCheck = func() {
-        g.mu.Lock()
-        defer g.mu.Unlock()
-        scheduleCheckLocked()
-    }
+	scheduleCheck = func() {
+		g.mu.Lock()
+		defer g.mu.Unlock()
+		scheduleCheckLocked()
+	}
 
-    scheduleCheckLocked = func() {
-        // Avoid scheduling if canceled or callbacks missing (g.mu held)
-        if g.autoStartCanceled || g.autoStartCallbacks == nil {
-            return
-        }
-        t := time.AfterFunc(effectiveDelay, func() {
-            // Snapshot required fields under lock to avoid races
-            g.mu.RLock()
-            canceled := g.autoStartCanceled
-            callbacks := g.autoStartCallbacks
-            log := g.log
-            cfg := g.config
-            players := make([]*Player, len(g.players))
-            copy(players, g.players)
-            g.mu.RUnlock()
+	scheduleCheckLocked = func() {
+		// Avoid scheduling if canceled or callbacks missing (g.mu held)
+		if g.autoStartCanceled || g.autoStartCallbacks == nil {
+			return
+		}
+		t := time.AfterFunc(effectiveDelay, func() {
+			// Snapshot required fields under lock to avoid races
+			g.mu.RLock()
+			canceled := g.autoStartCanceled
+			callbacks := g.autoStartCallbacks
+			log := g.log
+			cfg := g.config
+			players := make([]*Player, len(g.players))
+			copy(players, g.players)
+			g.mu.RUnlock()
 
-            if canceled || callbacks == nil {
-                return
-            }
+			if canceled || callbacks == nil {
+				return
+			}
 
-            readyCount := 0
-            for _, player := range players {
-                if player == nil {
-                    continue
-                }
-                // Read player fields under the player's lock to avoid races
-                player.mu.RLock()
-                bal := player.balance
-                pid := player.id
-                player.mu.RUnlock()
+			readyCount := 0
+			for _, player := range players {
+				if player == nil {
+					continue
+				}
+				// Read player fields under the player's lock to avoid races
+				player.mu.RLock()
+				bal := player.balance
+				pid := player.id
+				player.mu.RUnlock()
 
-                // Count players who have any chips left. Short stacks will auto-post
-                // blinds all-in when needed during hand setup.
-                if bal > 0 {
-                    readyCount++
-                    // Log explicitly that short stacks are still eligible for auto-start.
-                    if bal < cfg.BigBlind {
-                        log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", pid, bal, cfg.BigBlind)
-                    } else {
-                        log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", pid, bal, cfg.BigBlind)
-                    }
-                } else {
-                    log.Debugf("Player %s not ready for auto-start: balance=0", pid)
-                }
-            }
+				// Count players who have any chips left. Short stacks will auto-post
+				// blinds all-in when needed during hand setup.
+				if bal > 0 {
+					readyCount++
+					// Log explicitly that short stacks are still eligible for auto-start.
+					if bal < cfg.BigBlind {
+						log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", pid, bal, cfg.BigBlind)
+					} else {
+						log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", pid, bal, cfg.BigBlind)
+					}
+				} else {
+					log.Debugf("Player %s not ready for auto-start: balance=0", pid)
+				}
+			}
 
-            minRequired := callbacks.MinPlayers()
-            log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
-            if readyCount >= minRequired {
-                err := callbacks.StartNewHand()
-                if err != nil {
-                    log.Debugf("Auto-start new hand failed: %v", err)
-                    // Reschedule on failure
-                    scheduleCheck()
-                } else {
-                    if callbacks.OnNewHandStarted != nil {
-                        // Invoke the callback
-                        go callbacks.OnNewHandStarted()
-                    }
-                }
-            } else {
-                // Not enough players yet - reschedule to check again
-                log.Debugf("Not enough players for auto-start: %d < %d, will check again", readyCount, minRequired)
-                scheduleCheck()
-            }
-        })
-        // Assign the timer while holding the lock to serialize writes (g.mu held)
-        g.autoStartTimer = t
-    }
-    // We are currently called with g.mu held by the public wrapper, so call the locked variant.
-    scheduleCheckLocked()
+			minRequired := callbacks.MinPlayers()
+			log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
+			if readyCount >= minRequired {
+				err := callbacks.StartNewHand()
+				if err != nil {
+					log.Debugf("Auto-start new hand failed: %v", err)
+					// Reschedule on failure
+					scheduleCheck()
+				} else {
+					if callbacks.OnNewHandStarted != nil {
+						// Invoke the callback
+						go callbacks.OnNewHandStarted()
+					}
+				}
+			} else {
+				// Not enough players yet - reschedule to check again
+				log.Debugf("Not enough players for auto-start: %d < %d, will check again", readyCount, minRequired)
+				scheduleCheck()
+			}
+		})
+		// Assign the timer while holding the lock to serialize writes (g.mu held)
+		g.autoStartTimer = t
+	}
+	// We are currently called with g.mu held by the public wrapper, so call the locked variant.
+	scheduleCheckLocked()
 }
 
 // CancelAutoStart cancels any pending auto-start timer
@@ -1790,6 +1992,27 @@ func (g *Game) cancelAutoStart() {
 	g.autoStartCanceled = true
 }
 
+// PlayerSnapshot represents a snapshot of player state without mutex for safe concurrent access
+type PlayerSnapshot struct {
+	ID              string
+	Name            string
+	TableSeat       int
+	IsReady         bool
+	IsDisconnected  bool
+	LastAction      time.Time
+	Balance         int64
+	StartingBalance int64
+	Hand            []Card
+	CurrentBet      int64
+	IsDealer        bool
+	IsSmallBlind    bool
+	IsBigBlind      bool
+	IsTurn          bool
+	StateID         PlayerState
+	HandValue       *HandValue
+	HandDescription string
+}
+
 // GameStateSnapshot represents a point-in-time snapshot of game state for safe concurrent access
 type GameStateSnapshot struct {
 	Dealer         int
@@ -1797,10 +2020,12 @@ type GameStateSnapshot struct {
 	Pot            int64
 	Round          int
 	BetRound       int
+	Phase          pokerrpc.GamePhase
 	CommunityCards []Card
 	DeckState      interface{}
-	Players        []*Player
+	Players        []PlayerSnapshot
 	CurrentPlayer  string
+	Winners        []PlayerSnapshot
 }
 
 // GetStateSnapshot returns an atomic snapshot of the game state for safe concurrent access
@@ -1809,35 +2034,37 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	defer g.mu.RUnlock()
 
 	// Create a deep copy of players to avoid race conditions
-	playersCopy := make([]*Player, len(g.players))
+	playersCopy := make([]PlayerSnapshot, len(g.players))
 	for i, player := range g.players {
 		if player == nil {
-			playersCopy[i] = nil
+			// Create a zero-value PlayerSnapshot for nil entries
+			playersCopy[i] = PlayerSnapshot{}
 			continue
 		}
 		// Lock the player's own mutex while copying fields that are mutated by the FSM
 		player.mu.RLock()
-		playerCopy := &Player{
-			id:              player.id,
-			name:            player.name,
-			tableSeat:       player.tableSeat,
-			isReady:         player.isReady,
-			balance:         player.balance,
-			startingBalance: player.startingBalance,
-			currentBet:      player.currentBet,
-			isDealer:        player.isDealer,
+		playerCopy := PlayerSnapshot{
+			ID:              player.id,
+			Name:            player.name,
+			TableSeat:       player.tableSeat,
+			IsReady:         player.isReady,
+			Balance:         player.balance,
+			StartingBalance: player.startingBalance,
+			CurrentBet:      player.currentBet,
+			IsDealer:        player.isDealer,
 			// Preserve blind flags in snapshot so downstream snapshots and UIs
 			// see correct SB/BB assignments (e.g., dealer==SB in heads-up).
-			isSmallBlind:    player.isSmallBlind,
-			isBigBlind:      player.isBigBlind,
-			isTurn:          player.isTurn,
-			isDisconnected:  player.isDisconnected,
-			hand:            make([]Card, len(player.hand)),
-			handDescription: player.handDescription,
-			handValue:       player.handValue,
-			lastAction:      player.lastAction,
+			IsSmallBlind:    player.isSmallBlind,
+			IsBigBlind:      player.isBigBlind,
+			IsTurn:          player.isTurn,
+			IsDisconnected:  player.isDisconnected,
+			Hand:            make([]Card, len(player.hand)),
+			HandDescription: player.handDescription,
+			HandValue:       player.handValue,
+			LastAction:      player.lastAction,
+			StateID:         player.StateID(),
 		}
-		copy(playerCopy.hand, player.hand)
+		copy(playerCopy.Hand, player.hand)
 		player.mu.RUnlock()
 
 		playersCopy[i] = playerCopy
@@ -1847,10 +2074,53 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	communityCardsCopy := make([]Card, len(g.communityCards))
 	copy(communityCardsCopy, g.communityCards)
 
+	// Resolve current player ID from live index if valid
+	curID := ""
+	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) && g.players[g.currentPlayer] != nil {
+		curID = g.players[g.currentPlayer].ID()
+	}
+
 	// Calculate pot amount based on game phase
 	var potAmount int64
 	// During showdown, use getTotalPot() after pots have been built
 	potAmount = g.potManager.getTotalPot()
+
+	winners := make([]PlayerSnapshot, 0)
+	// Get winners if available
+	if len(g.winners) > 0 {
+		for _, winnerID := range g.winners {
+			// Find player by ID
+			for _, player := range g.players {
+				if player != nil && player.id == winnerID {
+					// Create a PlayerSnapshot for the winner
+					player.mu.RLock()
+					winnerSnapshot := PlayerSnapshot{
+						ID:              player.id,
+						Name:            player.name,
+						TableSeat:       player.tableSeat,
+						IsReady:         player.isReady,
+						Balance:         player.balance,
+						StartingBalance: player.startingBalance,
+						CurrentBet:      player.currentBet,
+						IsDealer:        player.isDealer,
+						IsSmallBlind:    player.isSmallBlind,
+						IsBigBlind:      player.isBigBlind,
+						IsTurn:          player.isTurn,
+						IsDisconnected:  player.isDisconnected,
+						Hand:            make([]Card, len(player.hand)),
+						HandDescription: player.handDescription,
+						HandValue:       player.handValue,
+						LastAction:      player.lastAction,
+						StateID:         player.StateID(),
+					}
+					copy(winnerSnapshot.Hand, player.hand)
+					player.mu.RUnlock()
+					winners = append(winners, winnerSnapshot)
+					break
+				}
+			}
+		}
+	}
 
 	return GameStateSnapshot{
 		Dealer:         g.dealer,
@@ -1858,9 +2128,12 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 		Pot:            potAmount,
 		Round:          g.round,
 		BetRound:       g.betRound,
+		Phase:          g.phase,
 		CommunityCards: communityCardsCopy,
 		DeckState:      g.deck.GetState(),
 		Players:        playersCopy,
+		CurrentPlayer:  curID,
+		Winners:        winners,
 	}
 }
 
@@ -1940,3 +2213,169 @@ func (g *Game) dealRiver() {
 type evAdvance struct{} // advance current betting/phase when conditions met
 
 type evGotoShowdown struct{} // force immediate showdown (e.g., only one alive)
+
+// Request/command events processed by the Game FSM
+type evResetForNewHandReq struct {
+	users []*User
+	reply chan error
+}
+
+type evMaybeCompleteReq struct{}
+
+type evAdvanceToNextPlayerReq struct{ now time.Time }
+
+type evInitializeCurrentPlayerReq struct{}
+
+type evSetCurrentPlayerByIDReq struct{ id string }
+
+type evStateFlopReq struct{ reply chan struct{} }
+type evStateTurnReq struct{ reply chan struct{} }
+type evStateRiverReq struct{ reply chan struct{} }
+
+type evAddToPotForPlayerReq struct {
+	idx    int
+	amount int64
+}
+
+type evRefundUncalledBetsReq struct{ reply chan error }
+
+type evHandleFoldReq struct {
+	id    string
+	reply chan error
+}
+type evHandleCallReq struct {
+	id    string
+	reply chan error
+}
+type evHandleCheckReq struct {
+	id    string
+	reply chan error
+}
+type evHandleBetReq struct {
+	id     string
+	amount int64
+	reply  chan error
+}
+
+// handleGameEvent centralizes cross-state request handling. It returns (nextState, handled).
+func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
+	switch e := ev.(type) {
+	case evMaybeCompleteReq:
+		g.mu.Lock()
+		g.maybeCompleteBettingRound()
+		g.mu.Unlock()
+		return nil, true
+	case evAdvanceToNextPlayerReq:
+		g.mu.Lock()
+		g.advanceToNextPlayer(e.now)
+		g.mu.Unlock()
+		return nil, true
+	case evInitializeCurrentPlayerReq:
+		g.mu.Lock()
+		g.initializeCurrentPlayer()
+		g.mu.Unlock()
+		return nil, true
+	case evSetCurrentPlayerByIDReq:
+		g.mu.Lock()
+		for i, p := range g.players {
+			if p != nil && p.id == e.id {
+				for j, cp := range g.players {
+					if cp == nil {
+						continue
+					}
+					if j == i {
+						cp.StartTurn()
+					} else {
+						cp.EndTurn()
+					}
+				}
+				g.currentPlayer = i
+				break
+			}
+		}
+		g.mu.Unlock()
+		return nil, true
+	case evAddToPotForPlayerReq:
+		g.mu.Lock()
+		g.potManager.addBet(e.idx, e.amount, g.players)
+		g.mu.Unlock()
+		return nil, true
+	case evRefundUncalledBetsReq:
+		g.mu.Lock()
+		if g.potManager == nil {
+			if e.reply != nil {
+				e.reply <- fmt.Errorf("potManager is nil")
+			}
+		} else {
+			err := g.potManager.returnUncalledBet(g.players)
+			if e.reply != nil {
+				e.reply <- err
+			}
+		}
+		g.mu.Unlock()
+		return nil, true
+	case evStateFlopReq:
+		g.mu.Lock()
+		if len(g.communityCards) < 3 {
+			g.dealFlop()
+		}
+		g.phase = pokerrpc.GamePhase_FLOP
+		g.mu.Unlock()
+		if e.reply != nil {
+			e.reply <- struct{}{}
+		}
+		return nil, true
+	case evStateTurnReq:
+		g.mu.Lock()
+		if len(g.communityCards) < 4 {
+			g.dealTurn()
+		}
+		g.phase = pokerrpc.GamePhase_TURN
+		g.mu.Unlock()
+		if e.reply != nil {
+			e.reply <- struct{}{}
+		}
+		return nil, true
+	case evStateRiverReq:
+		g.mu.Lock()
+		if len(g.communityCards) < 5 {
+			g.dealRiver()
+		}
+		g.phase = pokerrpc.GamePhase_RIVER
+		g.mu.Unlock()
+		if e.reply != nil {
+			e.reply <- struct{}{}
+		}
+		return nil, true
+	case evHandleFoldReq:
+		// Use public API to ensure proper locking while mutating game state
+		err := g.HandlePlayerFold(e.id)
+		if e.reply != nil {
+			e.reply <- err
+		}
+		return nil, true
+	case evHandleCallReq:
+		// Use public API to ensure proper locking while mutating game state
+		err := g.HandlePlayerCall(e.id)
+		if e.reply != nil {
+			e.reply <- err
+		}
+		return nil, true
+	case evHandleCheckReq:
+		// Use public API to ensure proper locking while mutating game state
+		err := g.HandlePlayerCheck(e.id)
+		if e.reply != nil {
+			e.reply <- err
+		}
+		return nil, true
+	case evHandleBetReq:
+		// Use public API to ensure proper locking while mutating game state
+		err := g.HandlePlayerBet(e.id, e.amount)
+		if e.reply != nil {
+			e.reply <- err
+		}
+		return nil, true
+	default:
+		return nil, false
+	}
+}

@@ -127,8 +127,7 @@ func TestPlayerStateMachine_FoldFromDifferentStates(t *testing.T) {
 				p.balance = 0
 				p.currentBet = 100
 				p.sm.Send(evStartHand{})
-				// Nudge the loop to re-check derived condition now.
-				p.sm.Send(evReeval{})
+				// FSM will check derived condition (balance==0) on next event
 			},
 			expectPreFoldState:   "ALL_IN",
 			expectStateAfterFold: "ALL_IN",
@@ -225,13 +224,11 @@ func TestTryFold_PreventsFoldWhenAllIn(t *testing.T) {
 		return s == "IN_GAME" || s == "ALL_IN"
 	}, 300*time.Millisecond, 10*time.Millisecond)
 
-	// If not yet ALL_IN, nudge the Pike loop to re-check derived condition.
-	if player.GetCurrentStateString() != "ALL_IN" {
-		player.sm.Send(evReeval{})
-		require.Eventually(t, func() bool {
-			return player.GetCurrentStateString() == "ALL_IN"
-		}, 300*time.Millisecond, 10*time.Millisecond)
-	}
+	// FSM checks derived condition (balance==0 && currentBet>0 → ALL_IN) on each loop iteration
+	// Wait for FSM to detect the all-in state
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == "ALL_IN"
+	}, 300*time.Millisecond, 10*time.Millisecond, "Player should transition to ALL_IN")
 
 	// Now TryFold should be rejected for all-in players
 	success, err := player.TryFold()

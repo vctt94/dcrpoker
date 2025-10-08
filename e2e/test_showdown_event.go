@@ -152,12 +152,10 @@ func main() {
 		fmt.Printf("Player2 check failed: %v\n", err)
 	}
 
-	// Trigger phase advancement to reach showdown
-	fmt.Println("Advancing phase to trigger showdown...")
-	table.MaybeCompleteBettingRound()
-
+	// Phase advancement now happens automatically via Game FSM events to Table
 	// Give the event processing goroutine time to process
-	time.Sleep(100 * time.Millisecond)
+	fmt.Println("Waiting for betting round completion and showdown...")
+	time.Sleep(200 * time.Millisecond)
 
 	// Debug: Check final state
 	if game != nil {

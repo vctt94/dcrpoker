@@ -64,7 +64,7 @@ func (p *Player) Close() { p.sm.Stop() }
 
 // ------------ Player public API (thread-safe; only sends events) ------------
 
-func (p *Player) StateID() playerState { return playerState(p.stateID.Load()) }
+func (p *Player) StateID() PlayerState { return PlayerState(p.stateID.Load()) }
 func (p *Player) ProtoState() pokerrpc.PlayerState {
 	switch p.StateID() {
 	case psAtTable:
@@ -108,40 +108,98 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 				p.isReady = true
 				p.mu.Unlock()
 
+			case evPostBlind:
+				// Post blind while still AT_TABLE (before hand starts)
+				p.mu.Lock()
+				amount := e.Amt
+				if amount > p.balance {
+					amount = p.balance
+				}
+				if amount > 0 {
+					p.balance -= amount
+					p.currentBet += amount
+					p.lastAction = time.Now()
+				}
+				p.mu.Unlock()
+				// Reply with actual amount posted
+				if e.Reply != nil {
+					e.Reply <- amount
+				}
+				// Stay in AT_TABLE; evStartHand will handle transition to IN_GAME or ALL_IN
+
 			case evStartHand:
 				p.mu.Lock()
 				p.startingBalance = p.balance
+				isAllIn := (p.balance == 0 && p.currentBet > 0)
 				p.mu.Unlock()
+				// If player is already all-in from posting blinds, go directly to ALL_IN state
+				if isAllIn {
+					return stateAllIn
+				}
 				return stateInGame
+
+			case evStartTurn:
+				// Ack start-turn requests while AT_TABLE to avoid blocking callers
+				if e.Reply != nil {
+					e.Reply <- nil
+				}
+				// Stay in AT_TABLE; players are not in-hand yet
+
+			case evEndTurn:
+				// Ack end-turn requests while AT_TABLE to avoid blocking callers
+				if e.Reply != nil {
+					e.Reply <- nil
+				}
+				// Stay in AT_TABLE
 
 			case evCallDelta: // allow call while FSM is still AT_TABLE
 				p.mu.Lock()
 				can := e.Amt > 0 && e.Amt <= p.balance
+				var nextState PlayerState
+				var err error
 				if can {
 					p.balance -= e.Amt
 					p.currentBet += e.Amt
 					p.lastAction = time.Now()
+					// Atomically update stateID alongside balance/currentBet
+					if p.balance == 0 && p.currentBet > 0 {
+						nextState = psAllIn
+						p.stateID.Store(int32(psAllIn))
+					} else {
+						nextState = psInGame
+						p.stateID.Store(int32(psInGame))
+					}
+				} else {
+					err = fmt.Errorf("invalid call amount or insufficient balance")
 				}
 				p.mu.Unlock()
+
+				// Send reply if channel provided
+				if e.Reply != nil {
+					e.Reply <- err
+				}
+
 				if can {
-					// Move into the hand; if stack is now zero, go straight to ALL_IN.
-					p.mu.RLock()
-					zero := p.balance == 0 && p.currentBet > 0
-					p.mu.RUnlock()
-					if zero {
+					// Return appropriate state function (which will also set stateID on entry)
+					if nextState == psAllIn {
 						return stateAllIn
 					}
 					return stateInGame
 				}
-				// invalid or ignored, stay at table
+			// invalid or ignored, stay at table
 
-			case evReeval:
-				// re-check derived all-in from external mutation
-				p.mu.RLock()
-				zero := p.balance == 0 && p.currentBet > 0
-				p.mu.RUnlock()
-				if zero {
-					return stateAllIn
+			case evCredit:
+				var err error
+				if e.Amt > 0 {
+					p.mu.Lock()
+					p.balance += e.Amt
+					p.mu.Unlock()
+				} else if e.Amt < 0 {
+					err = fmt.Errorf("credit amount must be positive")
+				}
+				// Send reply if channel provided
+				if e.Reply != nil {
+					e.Reply <- err
 				}
 
 			case evDisconnect:
@@ -175,24 +233,46 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			p.isTurn = true
 			p.lastAction = time.Now()
 			p.mu.Unlock()
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
 
 		case evEndTurn:
 			p.mu.Lock()
 			p.isTurn = false
 			p.mu.Unlock()
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
 
 		case evBet:
 			p.mu.Lock()
 			can := p.isTurn && e.Amt > 0 && e.Amt <= p.balance
+			shouldTransition := false
+			var err error
 			if can {
 				p.balance -= e.Amt
 				p.currentBet += e.Amt
 				p.lastAction = time.Now()
-				p.isTurn = false
+				// Note: isTurn is cleared by evEndTurn, not here
+				// Atomically update stateID if going all-in
+				if p.balance == 0 && p.currentBet > 0 {
+					p.stateID.Store(int32(psAllIn))
+					shouldTransition = true
+				}
+			} else {
+				err = fmt.Errorf("invalid bet: not your turn, invalid amount, or insufficient balance")
 			}
-			zero := (p.balance == 0)
 			p.mu.Unlock()
-			if can && zero {
+
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- err
+			}
+
+			if shouldTransition {
 				return stateAllIn
 			}
 
@@ -200,7 +280,7 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			// Amount computed by table; state only observes results.
 			p.mu.Lock()
 			p.lastAction = time.Now()
-			p.isTurn = false
+			// Note: isTurn is cleared by evEndTurn, not here
 			zero := (p.balance == 0 && p.currentBet > 0)
 			p.mu.Unlock()
 			if zero {
@@ -208,7 +288,36 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			}
 
 		case evFold:
+			p.mu.Lock()
+			p.lastAction = time.Now()
+			// Note: isTurn is cleared by evEndTurn, not here
+			p.mu.Unlock()
 			return stateFolded
+
+		case evFoldReq:
+			// Same as evFold, but acknowledge to caller.
+			p.mu.Lock()
+			p.lastAction = time.Now()
+			// Note: isTurn is cleared by evEndTurn, not here
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+			return stateFolded
+
+		case evCredit:
+			var err error
+			if e.Amt > 0 {
+				p.mu.Lock()
+				p.balance += e.Amt
+				p.mu.Unlock()
+			} else if e.Amt < 0 {
+				err = fmt.Errorf("credit amount must be positive")
+			}
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- err
+			}
 
 		case evEndHand:
 			p.mu.Lock()
@@ -228,27 +337,35 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 		case evCallDelta:
 			p.mu.Lock()
 			can := e.Amt > 0 && e.Amt <= p.balance
+			var nextState PlayerState
+			var err error
 			if can {
 				p.balance -= e.Amt
 				p.currentBet += e.Amt
 				p.lastAction = time.Now()
-			}
-			zero := p.balance == 0 && p.currentBet > 0
-			p.mu.Unlock()
-			if can {
-				if zero {
-					return stateAllIn
+				if p.balance == 0 && p.currentBet > 0 {
+					nextState = psAllIn
+					p.stateID.Store(int32(psAllIn))
+				} else {
+					nextState = psInGame
+					// stateID already IN_GAME, no update needed
 				}
-				return stateInGame
+			} else {
+				err = fmt.Errorf("invalid call amount or insufficient balance")
+			}
+			p.mu.Unlock()
+
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- err
 			}
 
-		case evReeval:
-			// ← NEW: re-check derived condition after external chip mutation
-			p.mu.RLock()
-			zero := p.balance == 0 && p.currentBet > 0
-			p.mu.RUnlock()
-			if zero {
-				return stateAllIn
+			if can {
+				if nextState == psAllIn {
+					return stateAllIn
+				}
+				// State remains IN_GAME
+				return stateInGame
 			}
 		}
 	}
@@ -262,9 +379,42 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 	p.mu.Unlock()
 
 	for ev := range in {
-		switch ev.(type) {
+		switch e := ev.(type) {
+		case evStartTurn:
+			// All-in players cannot act; acknowledge to avoid blocking senders
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+		case evEndTurn:
+			// All-in players can still receive EndTurn events (e.g., during phase transitions)
+			p.mu.Lock()
+			p.isTurn = false
+			p.mu.Unlock()
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+		case evCredit:
+			// All-in players can still receive winnings
+			var err error
+			if e.Amt > 0 {
+				p.mu.Lock()
+				p.balance += e.Amt
+				p.mu.Unlock()
+			} else if e.Amt < 0 {
+				err = fmt.Errorf("credit amount must be positive")
+			}
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- err
+			}
 		case evFold:
 			// ignored by policy
+		case evFoldReq:
+			// Cannot fold while all-in; acknowledge with error if requested.
+			if e.Reply != nil {
+				e.Reply <- fmt.Errorf("cannot fold while all-in")
+			}
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
@@ -284,7 +434,35 @@ func stateFolded(p *Player, in <-chan any) PlayerStateFn {
 	p.mu.Unlock()
 
 	for ev := range in {
-		switch ev.(type) {
+		switch e := ev.(type) {
+		case evStartTurn:
+			// Folded players cannot act; acknowledge to avoid blocking senders
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+		case evEndTurn:
+			// Folded players can still receive EndTurn events (e.g., during phase transitions)
+			p.mu.Lock()
+			p.isTurn = false
+			p.mu.Unlock()
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+		case evCredit:
+			// Folded players can still receive refunds (e.g., uncalled bets)
+			var err error
+			if e.Amt > 0 {
+				p.mu.Lock()
+				p.balance += e.Amt
+				p.mu.Unlock()
+			} else if e.Amt < 0 {
+				err = fmt.Errorf("credit amount must be positive")
+			}
+			// Send reply if channel provided
+			if e.Reply != nil {
+				e.Reply <- err
+			}
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
@@ -321,15 +499,21 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 	p.isTurn = false
 	p.mu.Unlock()
 
-	// Ensure we return to AT_TABLE first, then start the new hand.
-	p.sm.Send(evEndHand{})   // FOLDED/ALL_IN/etc. -> AT_TABLE
-	p.sm.Send(evStartHand{}) // AT_TABLE -> IN_GAME
+	// Reset player back to AT_TABLE state for the new hand.
+	// The Game FSM's statePreDeal will post blinds (which requires AT_TABLE state)
+	// and then send evStartHand to transition players to IN_GAME.
+	p.sm.Send(evEndHand{}) // FOLDED/ALL_IN/IN_GAME/etc. -> AT_TABLE
 	return nil
 }
 
 // GetCurrentStateString returns a stable string based on the fast state snapshot.
 func (p *Player) GetCurrentStateString() string {
-	switch playerState(p.stateID.Load()) {
+	return GetPlayerStateString(PlayerState(p.stateID.Load()))
+}
+
+// GetPlayerStateString converts a playerState to its string representation
+func GetPlayerStateString(state PlayerState) string {
+	switch state {
 	case psAtTable:
 		return "AT_TABLE"
 	case psInGame:
@@ -362,6 +546,21 @@ func (p *Player) TryFold() (bool, error) {
 	return true, nil
 }
 
+// credit adds chips to the player's balance atomically and notifies FSM to re-evaluate.
+// Centralizes balance mutations for pot settlement and refunds.
+func (p *Player) credit(amount int64) error {
+	if amount <= 0 {
+		return nil
+	}
+	// Send credit event to FSM and wait for it to process
+	if p.sm != nil {
+		reply := make(chan error, 1)
+		p.sm.Send(evCredit{Amt: amount, Reply: reply})
+		return <-reply
+	}
+	return fmt.Errorf("player state machine not initialized")
+}
+
 // Marshal converts the Player to gRPC Player for external access.
 // Uses the fast state snapshot to derive Folded/AllIn booleans.
 func (p *Player) Marshal() *pokerrpc.Player {
@@ -392,12 +591,6 @@ func (p *Player) Marshal() *pokerrpc.Player {
 		IsReady:         p.isReady,
 		HandDescription: p.handDescription,
 		PlayerState:     p.ProtoState(), // renamed to ProtoState below
-	}
-
-	// Debug log when marshaling
-	if p.isDealer || p.isSmallBlind || p.isBigBlind {
-		// Using basic print since we don't have logger here
-		println("DEBUG MARSHAL:", p.id, "isDealer=", p.isDealer, "isSB=", p.isSmallBlind, "isBB=", p.isBigBlind)
 	}
 
 	return proto
@@ -547,30 +740,94 @@ func (p *Player) SetStartingBalance(balance int64) {
 	p.mu.Unlock()
 }
 
-func (p *Player) StartTurn() { p.sm.Send(evStartTurn{}) }
-func (p *Player) EndTurn()   { p.sm.Send(evEndTurn{}) }
+// SetHand sets the player's hand (for testing only)
+func (p *Player) SetHand(hand []Card) {
+	p.mu.Lock()
+	p.hand = hand
+	p.mu.Unlock()
+}
+
+// SetBalance sets the player's balance (for testing only)
+func (p *Player) SetBalance(balance int64) {
+	p.mu.Lock()
+	p.balance = balance
+	p.mu.Unlock()
+}
+
+// SetCurrentBet sets the player's current bet (for testing only)
+func (p *Player) SetCurrentBet(bet int64) {
+	p.mu.Lock()
+	p.currentBet = bet
+	p.mu.Unlock()
+}
+
+func (p *Player) StartTurn() {
+	if p.sm != nil {
+		reply := make(chan error, 1)
+		p.sm.Send(evStartTurn{Reply: reply})
+		<-reply // Wait for FSM to process
+	}
+}
+
+// For debugging
+func (p *Player) IsTurn() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.isTurn
+}
+
+func (p *Player) EndTurn() {
+	if p.sm != nil {
+		reply := make(chan error, 1)
+		p.sm.Send(evEndTurn{Reply: reply})
+		<-reply // Wait for FSM to process
+	}
+}
 
 // Marker interface for player events (optional, for readability).
 
-type evCallDelta struct{ Amt int64 }
+type evCallDelta struct {
+	Amt   int64
+	Reply chan<- error // Optional reply channel for synchronous confirmation
+}
+
+type evPostBlind struct {
+	Amt   int64
+	Reply chan<- int64 // Reply with the amount actually posted (for synchronous confirmation)
+}
 
 type evReady struct{}
 
 type evStartHand struct{}
 
-type evStartTurn struct{}
+type evStartTurn struct {
+	Reply chan<- error // Optional reply channel for synchronous confirmation
+}
 
-type evEndTurn struct{}
+type evEndTurn struct {
+	Reply chan<- error // Optional reply channel for synchronous confirmation
+}
 
-type evBet struct{ Amt int64 }
+type evBet struct {
+	Amt   int64
+	Reply chan<- error // Optional reply channel for synchronous confirmation
+}
 
 type evCall struct{}
+type evCredit struct {
+	Amt   int64
+	Reply chan<- error // Optional reply channel for synchronous confirmation
+}
 
 type evFold struct{}
 
+// evFoldReq requests a synchronous fold with an acknowledgment once the
+// player's state has transitioned to FOLDED. This allows callers to avoid
+// racing against reads that depend on the folded state.
+type evFoldReq struct{ Reply chan<- error }
+
 type evAllIn struct{} // not strictly needed; all-in is derived from stack, but provided if you want it
 
-type evReeval struct{}
 type evEndHand struct{}
 
 type evDisconnect struct{}
@@ -579,10 +836,10 @@ type evLeave struct{}
 
 type PlayerStateFn = statemachine.StateFn[Player]
 
-type playerState int32
+type PlayerState int32
 
 const (
-	psUninitialized playerState = iota
+	psUninitialized PlayerState = iota
 	psAtTable
 	psInGame
 	psAllIn

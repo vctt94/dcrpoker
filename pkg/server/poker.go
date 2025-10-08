@@ -313,12 +313,6 @@ func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string
 		IsTurn:       grpcPlayer.IsTurn,
 	}
 
-	// Debug log position flags - especially log inconsistent states
-	if grpcPlayer.IsDealer || grpcPlayer.IsSmallBlind || grpcPlayer.IsBigBlind {
-		s.log.Debugf("DEBUG SERVER buildPlayerForUpdate: %s isDealer=%v isSB=%v isBB=%v phase=%v",
-			p.ID(), grpcPlayer.IsDealer, grpcPlayer.IsSmallBlind, grpcPlayer.IsBigBlind,
-			game.GetPhase())
-	}
 	// Log warning for inconsistent heads-up state (dealer should also be SB in heads-up)
 	if game != nil && len(game.GetPlayers()) == 2 && grpcPlayer.IsDealer && !grpcPlayer.IsSmallBlind {
 		s.log.Warnf("INCONSISTENT STATE: Player %s is dealer but not SB in heads-up! phase=%v", p.ID(), game.GetPhase())
