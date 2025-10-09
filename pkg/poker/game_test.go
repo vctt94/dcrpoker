@@ -396,7 +396,9 @@ func TestSplitPotShowdown(t *testing.T) {
 	game.potManager.addBet(1, 50, game.players)
 
 	// Resolve showdown
+	game.mu.Lock()
 	res, err := game.handleShowdown()
+	game.mu.Unlock()
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -620,7 +622,9 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 	game.players[1].lastAction = time.Now()
 
 	// Call showdown; should auto-deal to 5 community cards and not error
+	game.mu.Lock()
 	res, err := game.handleShowdown()
+	game.mu.Unlock()
 	require.NoError(t, err)
 	require.NotNil(t, res)
 
@@ -683,15 +687,13 @@ func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:    2,
-		StartingChips: 0,
+		StartingChips: 15, // SB starts with 15, will post 10 as SB, leaving 5
 		SmallBlind:    10,
 		BigBlind:      20,
 		Log:           createTestLogger(),
 	}
 	g, err := NewGame(cfg)
-	if err != nil {
-		t.Fatalf("NewGame error: %v", err)
-	}
+	require.NoError(t, err)
 
 	users := []*User{
 		NewUser("sb", "sb", 0, 0),
@@ -699,53 +701,59 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	}
 	g.SetPlayers(users)
 
-	// Simulate pre-flop state:
-	// - currentBet is the big blind (20)
-	// - SB has already posted 10 and only has 5 left
-	// - BB has posted 20
-	g.currentBet = 20
-	g.players[0].SetCurrentBet(10)
-	g.players[0].SetBalance(5)
-	g.players[1].SetCurrentBet(20)
+	// Override SB balance to simulate the short stack scenario
+	// After SetPlayers, manually adjust balance to create test scenario
+	g.players[0].SetBalance(15) // Will post 10 as SB, leaving 5
 	g.players[1].SetBalance(1000)
-	g.currentPlayer = 0 // SB to act
 
-	// Initialize hand participation for both players
-	require.NoError(t, g.players[0].StartHandParticipation())
-	require.NoError(t, g.players[1].StartHandParticipation())
-
-	// Debug: Check player state before call
-	t.Logf("Before call - SB state: %s, balance: %d, currentBet: %d",
-		g.players[0].GetCurrentStateString(), g.players[0].Balance(), g.players[0].CurrentBet())
-
-	// SB tries to call but cannot fully match; should go all-in for +5 only.
-	if err := g.handlePlayerCall("sb"); err != nil {
-		t.Fatalf("handlePlayerCall error: %v", err)
-	}
-
-	// Debug: Check player state after call
-	t.Logf("After call - SB state: %s, balance: %d, currentBet: %d",
-		g.players[0].GetCurrentStateString(), g.players[0].Balance(), g.players[0].CurrentBet())
-
-	// Give the state machine more time to process the evCall event
+	// Start the game FSM
+	go g.Start(context.Background())
+	g.sm.Send(evStartHand{})
 	time.Sleep(50 * time.Millisecond)
-	t.Logf("After sleep - SB state: %s, balance: %d, currentBet: %d",
-		g.players[0].GetCurrentStateString(), g.players[0].Balance(), g.players[0].CurrentBet())
 
-	if g.players[0].Balance() != 0 {
-		t.Fatalf("SB expected balance 0 after all-in call, got %d", g.players[0].Balance())
-	}
-	if g.players[0].CurrentBet() != 15 {
-		t.Fatalf("SB expected currentBet 15 after all-in call, got %d", g.players[0].CurrentBet())
-	}
-	if got := g.players[0].GetCurrentStateString(); got != "ALL_IN" {
-		t.Fatalf("SB expected state ALL_IN, got %s", got)
-	}
+	// Wait for PRE_FLOP phase
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach PRE_FLOP")
 
-	// The table-wide currentBet remains the big blind (20)
-	if g.currentBet != 20 {
-		t.Fatalf("expected table currentBet to remain 20, got %d", g.currentBet)
-	}
+	// Wait for SB to have their turn (in heads-up, SB acts first pre-flop)
+	var snap GameStateSnapshot
+	var sbIndex int
+	require.Eventually(t, func() bool {
+		snap = g.GetStateSnapshot()
+		sbIndex = g.GetCurrentPlayer()
+		if sbIndex < 0 || sbIndex >= len(snap.Players) {
+			return false
+		}
+		return snap.Players[sbIndex].IsTurn
+	}, 1*time.Second, 10*time.Millisecond, "SB should have isTurn")
+
+	// Verify SB posted blind and has only 5 left
+	sbPlayer := snap.Players[sbIndex]
+	t.Logf("Before call - SB: balance=%d, currentBet=%d, state=%s",
+		sbPlayer.Balance, sbPlayer.CurrentBet, sbPlayer.StateString)
+
+	// SB tries to call to match BB (20) but can only contribute 5 more (total 15)
+	err = g.HandlePlayerCall(sbPlayer.ID)
+	require.NoError(t, err)
+
+	// Wait a moment for FSM to process
+	time.Sleep(50 * time.Millisecond)
+
+	// Get updated snapshot
+	snap = g.GetStateSnapshot()
+	sbPlayerAfter := snap.Players[sbIndex]
+
+	t.Logf("After call - SB: balance=%d, currentBet=%d, state=%s",
+		sbPlayerAfter.Balance, sbPlayerAfter.CurrentBet, sbPlayerAfter.StateString)
+
+	// Verify SB went all-in
+	assert.Equal(t, int64(0), sbPlayerAfter.Balance, "SB should have 0 balance after going all-in")
+	assert.Equal(t, int64(15), sbPlayerAfter.CurrentBet, "SB should have currentBet of 15 (10 SB + 5 call)")
+	assert.Contains(t, sbPlayerAfter.StateString, "ALL_IN", "SB should be in ALL_IN state")
+
+	// The table-wide currentBet should remain 20 (the BB)
+	assert.Equal(t, int64(20), g.GetCurrentBet(), "Table currentBet should remain 20")
 }
 
 // Verifies that a timeout-triggered fold completes the round to SHOWDOWN and auto-starts a new hand,
@@ -1195,26 +1203,8 @@ func TestShowdownBugReproduction(t *testing.T) {
 	game.players[1].mu.Unlock()
 	game.mu.Unlock()
 
-	// Deal cards to players before starting the hand (simulating the normal flow)
-	// This is what would normally happen in FSM: statePreDeal (creates Hand) → stateDeal (deals cards)
-	// Initialize Hand for this test
-	playerIDs := make([]string, len(game.players))
-	for i, p := range game.players {
-		playerIDs[i] = p.ID()
-	}
-	game.currentHand = NewHand(playerIDs)
-
-	for i := 0; i < 2; i++ {
-		for _, player := range game.players {
-			if card, ok := game.deck.Draw(); ok {
-				if err := game.currentHand.DealCardToPlayer(player.ID(), card); err != nil {
-					t.Fatalf("Failed to deal card to player: %v", err)
-				}
-			}
-		}
-	}
-
-	// Start the hand deterministically
+	// Start the hand - the FSM will handle creating currentHand and dealing cards
+	// Flow: evStartHand → statePreDeal (creates Hand, posts blinds) → stateDeal (deals cards) → stateBlinds → statePreFlop
 	game.sm.Send(evStartHand{})
 
 	// Wait for PRE_FLOP phase and hand participation to be ready
@@ -1290,7 +1280,7 @@ func TestShowdownBugReproduction(t *testing.T) {
 	// Now simulate checking through all streets (FLOP, TURN, RIVER)
 	// This should trigger the bug where currentBets gets cleared
 
-	// Wait for FLOP phase
+	// Wait for FLOP phase - this should happen automatically after the last call
 	require.Eventually(t, func() bool {
 		return game.GetPhase() == pokerrpc.GamePhase_FLOP
 	}, 2*time.Second, 10*time.Millisecond, "Game should reach FLOP")

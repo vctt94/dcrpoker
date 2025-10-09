@@ -116,7 +116,7 @@ type Table struct {
 	config     TableConfig
 	users      map[string]*User // Users seated at the table
 	game       *Game            // Game logic that handles all player management
-	mu         sync.RWMutex
+	mu         RWLock
 	createdAt  time.Time
 	lastAction time.Time
 	// Event manager for notifications
@@ -138,6 +138,11 @@ type Table struct {
 	// Channel for receiving events from Game FSM
 	gameEventChan chan GameEvent
 	gameEventStop chan struct{}
+
+	// Shutdown management
+	closeOnce sync.Once
+	closed    bool
+	wg        sync.WaitGroup
 }
 
 // NewTable creates a new poker table
@@ -159,10 +164,12 @@ func NewTable(cfg TableConfig) *Table {
 	t.sm = statemachine.New(t, tableStateWaitingForPlayers, 32)
 	t.sm.Start(context.Background())
 
-	// Start timeout goroutine
+	// Start timeout goroutine (track with WaitGroup)
+	t.wg.Add(1)
 	go t.timeoutLoop()
 
-	// Start game event processing goroutine
+	// Start game event processing goroutine (track with WaitGroup)
+	t.wg.Add(1)
 	go t.gameEventLoop()
 
 	return t
@@ -170,6 +177,8 @@ func NewTable(cfg TableConfig) *Table {
 
 // timeoutLoop runs a periodic timeout check every 200ms
 func (t *Table) timeoutLoop() {
+	defer t.wg.Done()
+
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -184,51 +193,43 @@ func (t *Table) timeoutLoop() {
 	}
 }
 
-// StopTimeout stops the timeout goroutine
-func (t *Table) StopTimeout() {
-	close(t.timeoutStop)
-}
-
 // Close stops all background goroutines and cleans up resources.
 // This must be called when a table is no longer needed to prevent goroutine leaks.
+// It is safe to call Close() multiple times (idempotent).
 func (t *Table) Close() {
-	// Grab references while holding lock
-	t.mu.Lock()
-	game := t.game
-	sm := t.sm
-	t.mu.Unlock()
+	t.closeOnce.Do(func() {
+		// Signal stop to all background goroutines
+		close(t.timeoutStop)
+		close(t.gameEventStop)
 
-	// Clean up the game first (without holding lock to avoid deadlock)
-	if game != nil {
-		game.Close()
-	}
+		// Wait for all background goroutines to finish
+		t.wg.Wait()
 
-	// Stop the table state machine without holding lock to avoid deadlock
-	// (state machine may need to acquire t.mu during shutdown)
-	if sm != nil {
-		sm.Stop()
-	}
+		// Grab references while holding lock
+		t.mu.Lock()
+		game := t.game
+		sm := t.sm
+		t.game = nil
+		t.sm = nil
+		t.closed = true
+		t.mu.Unlock()
 
-	// Clear references under lock
-	t.mu.Lock()
-	t.game = nil
-	t.sm = nil
-	t.mu.Unlock()
-
-	// Stop background goroutines (these use close on channels, so only call once)
-	// Note: These channels may already be closed, so we need to handle panics gracefully
-	defer func() {
-		if r := recover(); r != nil {
-			// Channel was already closed, ignore
+		// Clean up the game (without holding lock to avoid deadlock)
+		if game != nil {
+			game.Close()
 		}
-	}()
 
-	close(t.timeoutStop)
-	close(t.gameEventStop)
+		// Stop the table state machine (without holding lock to avoid deadlock)
+		if sm != nil {
+			sm.Stop()
+		}
+	})
 }
 
 // gameEventLoop processes events from the Game FSM
 func (t *Table) gameEventLoop() {
+	defer t.wg.Done()
+
 	for {
 		select {
 		case event := <-t.gameEventChan:
@@ -237,11 +238,6 @@ func (t *Table) gameEventLoop() {
 			return
 		}
 	}
-}
-
-// StopGameEventLoop stops the game event processing goroutine
-func (t *Table) StopGameEventLoop() {
-	close(t.gameEventStop)
 }
 
 // advanceToNextStreet advances the game to the next betting street
@@ -400,8 +396,8 @@ func (t *Table) CheckAllPlayersReady() bool {
 	return t.allPlayersReadyLocked()
 }
 
-// caller MUST hold t.mu
 func (t *Table) allPlayersReadyLocked() bool {
+	mustHeld(&t.mu)
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
@@ -845,8 +841,9 @@ func (t *Table) GetCurrentPlayerID() string {
 	return p.id
 }
 
-// currentPlayerID returns the current player ID without acquiring locks (private helper)
+// currentPlayerID returns the current player ID
 func (t *Table) currentPlayerID() string {
+	mustHeld(&t.mu)
 	if t.game == nil {
 		return ""
 	}
@@ -1158,8 +1155,9 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	}
 }
 
-// getGamePhase returns the current phase without acquiring locks (private helper)
+// getGamePhase returns the current phase
 func (t *Table) getGamePhase() pokerrpc.GamePhase {
+	mustHeld(&t.mu)
 	if t.game == nil {
 		return pokerrpc.GamePhase_WAITING
 	}

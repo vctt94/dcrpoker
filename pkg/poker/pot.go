@@ -3,13 +3,20 @@ package poker
 import (
 	"fmt"
 	"sort"
-	"sync"
 )
 
 // pot represents a pot of chips in the game
 type pot struct {
 	amount      int64  // Total amount in the pot
 	eligibility []bool // len == len(players); seat-aligned mask
+}
+
+// potManager manages multiple pots, including the main pot and side pots
+type potManager struct {
+	mu          RWLock        // Protects all potManager fields
+	pots        []*pot        // Main pot followed by side pots
+	currentBets map[int]int64 // Current bet for each player in this round
+	totalBets   map[int]int64 // Total bet for each player across all rounds
 }
 
 // newPot creates a new pot with the given amount
@@ -28,14 +35,6 @@ func (p *pot) makeEligible(playerIndex int) {
 // isEligible checks if a player is eligible to win this pot
 func (p *pot) isEligible(playerIndex int) bool {
 	return p.eligibility[playerIndex]
-}
-
-// potManager manages multiple pots, including the main pot and side pots
-type potManager struct {
-	mu          sync.RWMutex  // Protects all potManager fields
-	pots        []*pot        // Main pot followed by side pots
-	currentBets map[int]int64 // Current bet for each player in this round
-	totalBets   map[int]int64 // Total bet for each player across all rounds
 }
 
 func NewPotManager(nPlayers int) *potManager {
@@ -101,8 +100,10 @@ func (pm *potManager) RebuildPotsIncremental(players []*Player) {
 	pm.rebuildPotsIncremental(players, foldStatus)
 }
 
-// rebuildPotsIncremental is the internal implementation that assumes the lock is already held
+// rebuildPotsIncremental rebuilds the pot structure from pm.totalBets.
+// CRITICAL: foldStatus must be pre-computed BEFORE calling (no Player access under pm.mu)
 func (pm *potManager) rebuildPotsIncremental(players []*Player, foldStatus []bool) {
+	mustHeld(&pm.mu)
 	n := len(players)
 	if n == 0 {
 		pm.pots = []*pot{newPot(0)}

@@ -3,7 +3,6 @@ package poker
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
@@ -11,7 +10,7 @@ import (
 )
 
 type Player struct {
-	mu sync.RWMutex
+	mu RWLock
 	// identity
 	id, name string
 
@@ -48,7 +47,7 @@ type Player struct {
 
 func NewPlayer(id, name string, balance int64) *Player {
 	p := &Player{
-		mu:              sync.RWMutex{},
+		mu:              RWLock{},
 		id:              id,
 		name:            name,
 		balance:         balance,
@@ -97,30 +96,6 @@ func (p *Player) StartHandParticipation() error {
 	p.handParticipation = statemachine.New(p, stateHandActive, 32)
 	p.handParticipation.Start(context.Background())
 	return nil
-}
-
-// StopHandParticipation stops the hand participation FSM
-// Per the design document: FSMs merely set player flags (hasFolded, isAllIn) and do NOT own persistence.
-// Do NOT clear hand data here; that's the job of cleanupHand() after settlement.
-func (p *Player) StopHandParticipation() {
-	// Grab reference to state machine while holding lock
-	p.mu.Lock()
-	handParticipation := p.handParticipation
-	p.mu.Unlock()
-
-	// Stop state machine without holding player mutex to avoid deadlock
-	// (state machine may need to acquire p.mu during shutdown)
-	if handParticipation != nil {
-		handParticipation.Stop()
-	}
-
-	// Nil out the FSM reference
-	// Per-hand flags (hasFolded, isAllIn, currentBet) are NOT cleared here
-	// They persist through showdown and are cleared in ResetForNewHand()
-	p.mu.Lock()
-	p.handParticipation = nil
-	p.isTurn = false
-	p.mu.Unlock()
 }
 
 // HandleStartHand starts hand participation and determines initial state
@@ -843,9 +818,6 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 		return fmt.Errorf("player state machine not initialized")
 	}
 
-	// Stop hand participation for the new hand
-	p.StopHandParticipation()
-
 	// Set stack for the new hand (table-sourced).
 	// Clear per-hand flags (these persisted through showdown, now reset for new hand)
 	p.mu.Lock()
@@ -857,6 +829,11 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 	p.isAllIn = false
 	p.currentBet = 0
 	p.handDescription = ""
+	// Stop and clear the hand participation state machine if active
+	if p.handParticipation != nil {
+		p.handParticipation.Stop()
+		p.handParticipation = nil
+	}
 	p.mu.Unlock()
 
 	// Player remains seated at table (table presence unchanged)
@@ -1174,6 +1151,7 @@ func (p *Player) GetCurrentStateString() string {
 // getCurrentStateStringLocked returns the current state string without acquiring locks
 // (assumes caller already holds p.mu.RLock or p.mu.Lock)
 func (p *Player) getCurrentStateString() string {
+	mustHeld(&p.mu)
 	// Check per-hand flags FIRST - these persist through showdown even if FSM stops
 	// This is the single source of truth for fold/all-in status
 	if p.hasFolded {
@@ -1231,9 +1209,9 @@ func (p *Player) GetTablePresenceState() pokerrpc.PlayerState {
 	return p.getTablePresenceState()
 }
 
-// getTablePresenceStateLocked returns the table presence state without acquiring locks
-// (assumes caller already holds p.mu.RLock or p.mu.Lock)
+// getTablePresenceStateLocked returns the table presence state
 func (p *Player) getTablePresenceState() pokerrpc.PlayerState {
+	mustHeld(&p.mu)
 	if p.tablePresence == nil {
 		return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
 	}

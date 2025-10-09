@@ -2,6 +2,8 @@ package poker
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -804,4 +806,264 @@ func TestHoleCardsAvailableOnGameStart(t *testing.T) {
 	hand2 := game.currentHand.GetPlayerCards("p2", "p2")
 	t.Logf("currentHand.GetPlayerCards for p2: %d cards", len(hand2))
 	assert.Len(t, hand2, 2, "Cards should be stored in game.currentHand for p2")
+}
+
+// TestTableClose_Idempotent tests that calling Close() multiple times doesn't panic
+func TestTableClose_Idempotent(t *testing.T) {
+	cfg := TableConfig{
+		ID:             "test-table",
+		Log:            createTestLogger(),
+		GameLog:        createTestLogger(),
+		HostID:         "host1",
+		BuyIn:          1000,
+		MinPlayers:     2,
+		MaxPlayers:     6,
+		SmallBlind:     10,
+		BigBlind:       20,
+		MinBalance:     1000,
+		StartingChips:  1000,
+		TimeBank:       30 * time.Second,
+		AutoStartDelay: 3 * time.Second,
+	}
+
+	table := NewTable(cfg)
+
+	// Call Close() multiple times - should not panic
+	table.Close()
+	table.Close()
+	table.Close()
+
+	// Verify table is marked as closed
+	table.mu.RLock()
+	closed := table.closed
+	table.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected table.closed to be true after Close()")
+	}
+}
+
+// TestTableClose_Concurrent tests that concurrent calls to Close() don't cause issues
+func TestTableClose_Concurrent(t *testing.T) {
+	// Track goroutines before test
+	beforeGoroutines := runtime.NumGoroutine()
+
+	cfg := TableConfig{
+		ID:             "test-table",
+		Log:            createTestLogger(),
+		GameLog:        createTestLogger(),
+		HostID:         "host1",
+		BuyIn:          1000,
+		MinPlayers:     2,
+		MaxPlayers:     6,
+		SmallBlind:     10,
+		BigBlind:       20,
+		MinBalance:     1000,
+		StartingChips:  1000,
+		TimeBank:       30 * time.Second,
+		AutoStartDelay: 3 * time.Second,
+	}
+
+	table := NewTable(cfg)
+
+	// Give table time to fully start
+	time.Sleep(50 * time.Millisecond)
+
+	// Launch multiple goroutines calling Close() concurrently
+	var wg sync.WaitGroup
+	numCallers := 10
+
+	for i := 0; i < numCallers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			table.Close()
+		}()
+	}
+
+	wg.Wait()
+
+	// Verify table is closed
+	table.mu.RLock()
+	closed := table.closed
+	table.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected table.closed to be true after concurrent Close() calls")
+	}
+
+	// Wait a bit for goroutines to clean up
+	time.Sleep(100 * time.Millisecond)
+
+	// Check for goroutine leaks
+	afterGoroutines := runtime.NumGoroutine()
+
+	// Allow some variance (background GC, test framework goroutines)
+	// Table creates 2 goroutines (timeout + gameEvent) plus the FSM
+	// All should be cleaned up, so we should be close to starting count
+	maxExpectedIncrease := 3
+
+	if afterGoroutines > beforeGoroutines+maxExpectedIncrease {
+		t.Errorf("Possible goroutine leak: before=%d, after=%d, diff=%d (expected diff <= %d)",
+			beforeGoroutines, afterGoroutines, afterGoroutines-beforeGoroutines, maxExpectedIncrease)
+	}
+}
+
+// TestTableClose_WithGame tests that Close() properly cleans up when a game is active
+func TestTableClose_WithGame(t *testing.T) {
+	cfg := TableConfig{
+		ID:             "test-table",
+		Log:            createTestLogger(),
+		GameLog:        createTestLogger(),
+		HostID:         "host1",
+		BuyIn:          1000,
+		MinPlayers:     2,
+		MaxPlayers:     6,
+		SmallBlind:     10,
+		BigBlind:       20,
+		MinBalance:     1000,
+		StartingChips:  1000,
+		TimeBank:       30 * time.Second,
+		AutoStartDelay: 3 * time.Second,
+	}
+
+	table := NewTable(cfg)
+
+	// Add users to the table
+	user1 := NewUser("user1", "Alice", 2000, 0)
+	user1.IsReady = true
+	user2 := NewUser("user2", "Bob", 2000, 1)
+	user2.IsReady = true
+
+	err := table.AddUser(user1)
+	if err != nil {
+		t.Fatalf("Failed to add user1: %v", err)
+	}
+
+	err = table.AddUser(user2)
+	if err != nil {
+		t.Fatalf("Failed to add user2: %v", err)
+	}
+
+	// Start a game
+	err = table.StartGame()
+	if err != nil {
+		t.Fatalf("Failed to start game: %v", err)
+	}
+
+	// Verify game was created
+	table.mu.RLock()
+	hasGame := table.game != nil
+	table.mu.RUnlock()
+
+	if !hasGame {
+		t.Fatal("Expected game to be created")
+	}
+
+	// Now close the table
+	table.Close()
+
+	// Verify everything is cleaned up
+	table.mu.RLock()
+	closed := table.closed
+	game := table.game
+	sm := table.sm
+	table.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected table.closed to be true")
+	}
+	if game != nil {
+		t.Error("Expected table.game to be nil after Close()")
+	}
+	if sm != nil {
+		t.Error("Expected table.sm to be nil after Close()")
+	}
+}
+
+// TestTableClose_BackgroundGoroutinesStop tests that background goroutines actually stop
+func TestTableClose_BackgroundGoroutinesStop(t *testing.T) {
+	cfg := TableConfig{
+		ID:             "test-table",
+		Log:            createTestLogger(),
+		GameLog:        createTestLogger(),
+		HostID:         "host1",
+		BuyIn:          1000,
+		MinPlayers:     2,
+		MaxPlayers:     6,
+		SmallBlind:     10,
+		BigBlind:       20,
+		MinBalance:     1000,
+		StartingChips:  1000,
+		TimeBank:       30 * time.Second,
+		AutoStartDelay: 3 * time.Second,
+	}
+
+	table := NewTable(cfg)
+
+	// Give goroutines time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Track that goroutines are running by checking they respond to signals
+	// (This is indirect - we're testing that Close() returns without hanging)
+	done := make(chan struct{})
+	go func() {
+		table.Close()
+		close(done)
+	}()
+
+	// Close should complete within a reasonable time
+	select {
+	case <-done:
+		// Success - Close() completed
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close() did not complete within 5 seconds - goroutines may be stuck")
+	}
+
+	// Verify closed
+	table.mu.RLock()
+	closed := table.closed
+	table.mu.RUnlock()
+
+	if !closed {
+		t.Error("Expected table.closed to be true")
+	}
+}
+
+// TestTableClose_WaitGroupProperlyTracked tests that WaitGroup is correctly managed
+func TestTableClose_WaitGroupProperlyTracked(t *testing.T) {
+	cfg := TableConfig{
+		ID:             "test-table",
+		Log:            createTestLogger(),
+		GameLog:        createTestLogger(),
+		HostID:         "host1",
+		BuyIn:          1000,
+		MinPlayers:     2,
+		MaxPlayers:     6,
+		SmallBlind:     10,
+		BigBlind:       20,
+		MinBalance:     1000,
+		StartingChips:  1000,
+		TimeBank:       30 * time.Second,
+		AutoStartDelay: 3 * time.Second,
+	}
+
+	table := NewTable(cfg)
+
+	// Let goroutines start
+	time.Sleep(50 * time.Millisecond)
+
+	// Close should wait for all goroutines
+	startTime := time.Now()
+	table.Close()
+	duration := time.Since(startTime)
+
+	// Close should be quick (< 1s) since goroutines should exit promptly
+	if duration > 1*time.Second {
+		t.Errorf("Close() took too long: %v (expected < 1s)", duration)
+	}
+
+	// Verify we can't accidentally double-close channels (closeOnce protection)
+	// This should not panic
+	table.Close()
 }
