@@ -83,9 +83,9 @@ func (p *Player) Close() {
 	}
 }
 
-// ------------ Player public API (thread-safe; only sends events) ------------
-
 // StartHandParticipation starts the hand participation FSM
+// We use it for testing purposes.
+// This should not be called by the game, because it will make FSM fail when going to deal state
 func (p *Player) StartHandParticipation() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -157,7 +157,7 @@ func (p *Player) HandlePostBlind(amount int64) int64 {
 	}
 
 	reply := make(chan int64, 1)
-	tp.Send(evPostBlind{Amt: amount, Reply: reply})
+	tp.Send(evDeductBlind{Amt: amount, Reply: reply})
 	return <-reply
 }
 
@@ -186,8 +186,8 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 				p.isReady = true
 				p.mu.Unlock()
 
-			case evPostBlind:
-				// Post blind while still AT_TABLE (before hand starts)
+			case evDeductBlind:
+				// Deduct blind while still AT_TABLE (before hand starts)
 				p.mu.Lock()
 				amount := e.Amt
 				if amount > p.balance {
@@ -199,11 +199,11 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 					p.lastAction = time.Now()
 				}
 				p.mu.Unlock()
-				// Reply with actual amount posted
+				// Reply with actual amount deducted
 				if e.Reply != nil {
 					e.Reply <- amount
 				}
-				// Stay in AT_TABLE; evStartHand will handle transition to IN_GAME or ALL_IN
+			// Stay in AT_TABLE; evStartHand will handle transition to IN_GAME or ALL_IN
 
 			case evStartHand:
 				p.mu.Lock()
@@ -264,14 +264,14 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 				}
 			// invalid or ignored, stay at table
 
-			case evCredit:
+			case evAddChips:
 				var err error
 				if e.Amt > 0 {
 					p.mu.Lock()
 					p.balance += e.Amt
 					p.mu.Unlock()
 				} else if e.Amt < 0 {
-					err = fmt.Errorf("credit amount must be positive")
+					err = fmt.Errorf("chip amount must be positive")
 				}
 				// Send reply if channel provided
 				if e.Reply != nil {
@@ -372,14 +372,14 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			}
 			return stateFolded
 
-		case evCredit:
+		case evAddChips:
 			var err error
 			if e.Amt > 0 {
 				p.mu.Lock()
 				p.balance += e.Amt
 				p.mu.Unlock()
 			} else if e.Amt < 0 {
-				err = fmt.Errorf("credit amount must be positive")
+				err = fmt.Errorf("chip amount must be positive")
 			}
 			// Send reply if channel provided
 			if e.Reply != nil {
@@ -459,7 +459,7 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 			if e.Reply != nil {
 				e.Reply <- nil
 			}
-		case evCredit:
+		case evAddChips:
 			// All-in players can still receive winnings
 			var err error
 			if e.Amt > 0 {
@@ -467,7 +467,7 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 				p.balance += e.Amt
 				p.mu.Unlock()
 			} else if e.Amt < 0 {
-				err = fmt.Errorf("credit amount must be positive")
+				err = fmt.Errorf("chip amount must be positive")
 			}
 			// Send reply if channel provided
 			if e.Reply != nil {
@@ -511,7 +511,7 @@ func stateFolded(p *Player, in <-chan any) PlayerStateFn {
 			if e.Reply != nil {
 				e.Reply <- nil
 			}
-		case evCredit:
+		case evAddChips:
 			// Folded players can still receive refunds (e.g., uncalled bets)
 			var err error
 			if e.Amt > 0 {
@@ -519,7 +519,7 @@ func stateFolded(p *Player, in <-chan any) PlayerStateFn {
 				p.balance += e.Amt
 				p.mu.Unlock()
 			} else if e.Amt < 0 {
-				err = fmt.Errorf("credit amount must be positive")
+				err = fmt.Errorf("chip amount must be positive")
 			}
 			// Send reply if channel provided
 			if e.Reply != nil {
@@ -566,8 +566,8 @@ func stateTableSeated(p *Player, in <-chan any) TablePresenceStateFn {
 				p.isReady = true
 				p.mu.Unlock()
 
-			case evPostBlind:
-				// Post blind while still at table (before hand participation starts)
+			case evDeductBlind:
+				// Deduct blind while still at table (before hand participation starts)
 				p.mu.Lock()
 				amount := e.Amt
 				if amount > p.balance {
@@ -579,20 +579,20 @@ func stateTableSeated(p *Player, in <-chan any) TablePresenceStateFn {
 					p.lastAction = time.Now()
 				}
 				p.mu.Unlock()
-				// Reply with actual amount posted
+				// Reply with actual amount deducted
 				if e.Reply != nil {
 					e.Reply <- amount
 				}
 				// Stay in table seated state; hand participation will start separately
 
-			case evCredit:
+			case evAddChips:
 				var err error
 				if e.Amt > 0 {
 					p.mu.Lock()
 					p.balance += e.Amt
 					p.mu.Unlock()
 				} else if e.Amt < 0 {
-					err = fmt.Errorf("credit amount must be positive")
+					err = fmt.Errorf("chip amount must be positive")
 				}
 				// Send reply if channel provided
 				if e.Reply != nil {
@@ -888,14 +888,14 @@ func (p *Player) credit(amount int64) error {
 	if amount <= 0 {
 		return nil
 	}
-	// Send credit event to table presence FSM (can happen in any table state)
+	// Send add chips event to table presence FSM (can happen in any table state)
 	p.mu.RLock()
 	tp := p.tablePresence
 	p.mu.RUnlock()
 
 	if tp != nil {
 		reply := make(chan error, 1)
-		tp.Send(evCredit{Amt: amount, Reply: reply})
+		tp.Send(evAddChips{Amt: amount, Reply: reply})
 		return <-reply
 	}
 	return fmt.Errorf("player state machine not initialized")
@@ -1091,9 +1091,9 @@ type evCallDelta struct {
 	Reply chan<- error // Optional reply channel for synchronous confirmation
 }
 
-type evPostBlind struct {
+type evDeductBlind struct {
 	Amt   int64
-	Reply chan<- int64 // Reply with the amount actually posted (for synchronous confirmation)
+	Reply chan<- int64 // Reply with the amount actually deducted (for synchronous confirmation)
 }
 
 type evReady struct{}
@@ -1114,7 +1114,7 @@ type evBet struct {
 }
 
 type evCall struct{}
-type evCredit struct {
+type evAddChips struct {
 	Amt   int64
 	Reply chan<- error // Optional reply channel for synchronous confirmation
 }
