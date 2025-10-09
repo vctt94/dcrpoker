@@ -1637,3 +1637,117 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 		})
 	}
 }
+
+func TestShortStackBlindAllIn(t *testing.T) {
+	t.Parallel()
+	env := newTestEnv(t)
+	defer env.Close()
+
+	ctx := context.Background()
+
+	// Setup: Create a table with small starting chips (15) relative to blinds (SB=10, BB=20)
+	// This forces one player to go all-in when posting BB
+	players := []string{"player1", "player2"}
+	for _, p := range players {
+		env.setBalance(ctx, p, 10_000)
+	}
+
+	// Create table with starting chips (15) less than big blind (20)
+	createResp, err := env.lobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      "player1",
+		SmallBlind:    10,
+		BigBlind:      20,
+		MinPlayers:    2,
+		MaxPlayers:    2,
+		BuyIn:         1_000,
+		MinBalance:    1_000,
+		StartingChips: 15,  // Less than BB - forces all-in on BB post
+		AutoStartMs:   200, // Short delay for faster testing
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	// player2 joins
+	_, err = env.lobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
+		PlayerId: "player2",
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+
+	// Both players mark ready
+	for _, p := range players {
+		_, err := env.lobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+			PlayerId: p,
+			TableId:  tableID,
+		})
+		require.NoError(t, err)
+	}
+
+	// Wait for game to start
+	env.waitForGameStart(ctx, tableID, 3*time.Second)
+	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
+
+	// CRITICAL VERIFICATION: Check that the all-in blind player is correctly marked
+	state := env.getGameState(ctx, tableID)
+
+	// In heads-up: player1 is dealer/SB (10), player2 is BB (20)
+	// With 15 chips, player2 should be all-in after posting BB
+	var allInPlayer *pokerrpc.Player
+	var activePlayer *pokerrpc.Player
+	for _, p := range state.Players {
+		if p.Balance == 0 && p.CurrentBet > 0 {
+			allInPlayer = p
+			t.Logf("All-in player: %s (bet=%d, balance=%d)", p.Id, p.CurrentBet, p.Balance)
+		} else {
+			activePlayer = p
+			t.Logf("Active player: %s (bet=%d, balance=%d)", p.Id, p.CurrentBet, p.Balance)
+		}
+	}
+
+	// THE BUG: If StartHandParticipation() was called before HandleStartHand(),
+	// the all-in player would not be properly marked as ALL_IN
+	require.NotNil(t, allInPlayer, "Should have one all-in player (posted blind with short stack)")
+	assert.True(t, allInPlayer.IsAllIn,
+		"Player %s went all-in posting blind but IsAllIn=false - FSM initialization bug!",
+		allInPlayer.Id)
+
+	// Verify pot includes both blinds
+	// SB=10 + BB=15 (all-in) = 25
+	assert.Equal(t, int64(25), state.Pot, "pot should include SB(10) + BB all-in (15)")
+
+	// Verify the active player can make an action (game is not hung)
+	require.NotNil(t, activePlayer, "Should have one active player")
+	assert.Equal(t, activePlayer.Id, state.CurrentPlayer, "Active player should be current player")
+
+	// Active player should be able to fold (verifies FSM is working)
+	_, err = env.pokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
+		PlayerId: activePlayer.Id,
+		TableId:  tableID,
+	})
+	require.NoError(t, err, "Active player should be able to act (FSM working, not hung)")
+
+	// Wait for showdown to complete
+	env.waitForGamePhase(ctx, tableID, pokerrpc.GamePhase_SHOWDOWN, 3*time.Second)
+
+	// Final state verification
+	finalState := env.getGameState(ctx, tableID)
+
+	// All-in player should win (active player folded)
+	var winnerFound bool
+	for _, p := range finalState.Players {
+		if p.Id == allInPlayer.Id {
+			// Winner gets the pot (25) back plus keeps their starting balance (now in chips won)
+			// They started with 15, posted 15 all-in, should now have 25 (won the pot)
+			assert.Equal(t, int64(25), p.Balance,
+				"All-in winner should have pot (25) after opponent folds")
+			winnerFound = true
+		} else {
+			// Folder loses their SB (10)
+			assert.Equal(t, int64(5), p.Balance,
+				"Folder should have 15-10(SB)=5 remaining")
+		}
+	}
+	require.True(t, winnerFound, "All-in player should be in final state")
+
+	t.Log("✓ Short-stack blind all-in handled correctly with proper FSM states")
+}
