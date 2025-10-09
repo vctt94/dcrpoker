@@ -420,17 +420,8 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 			}
 		}
 
-		// Start hand participation FSM for all players for this hand
-		// This must happen BEFORE blinds and any betting actions
-		for _, p := range g.players {
-			if p != nil {
-				if err := p.StartHandParticipation(); err != nil {
-					g.log.Errorf("Failed to start hand participation for player %s: %v", p.ID(), err)
-				}
-			}
-		}
-
-		// POST BLINDS while players are still in AT_TABLE state
+		// POST BLINDS before starting hand participation
+		// This allows HandleStartHand to detect all-in from blinds and start in the correct state
 		postBlind := func(pos int, amount int64) {
 			p := g.players[pos]
 			if p == nil {

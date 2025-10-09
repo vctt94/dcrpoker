@@ -17,17 +17,11 @@ import (
 // fired when users join/leave or toggle ready; state may move to/from PLAYERS_READY
 type evUsersChanged struct{}
 
-func (evUsersChanged) isTableEvent() {}
-
 // request to enter GAME_ACTIVE (StartGame / startNewHand)
 type evStartGameReq struct{}
 
-func (evStartGameReq) isTableEvent() {}
-
 // force game ended → WAITING_FOR_PLAYERS (endGame / game nil)
 type evGameEnded struct{}
-
-func (evGameEnded) isTableEvent() {}
 
 // TableEvent represents a table event with type and payload
 type TableEvent struct {
