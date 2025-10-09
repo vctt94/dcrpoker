@@ -194,6 +194,7 @@ func (e *testEnv) createStandardTable(ctx context.Context, creatorID string, min
 		BuyIn:         1_000,
 		MinBalance:    1_000,
 		StartingChips: 1_000,
+		AutoStartMs:   100,
 	})
 	require.NoError(e.t, err)
 	assert.NotEmpty(e.t, createResp.TableId)

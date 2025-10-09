@@ -478,11 +478,6 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 			} else {
 				s.log.Errorf("Failed to build GAME_STARTED event: %v", errGS)
 			}
-
-			// No delayed callbacks here: NEW_HAND_STARTED is emitted by the
-			// table runtime immediately after blinds are posted and the first
-			// current player is initialized, which avoids races and keeps the
-			// flow strictly event-driven.
 		}()
 	}
 

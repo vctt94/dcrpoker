@@ -197,22 +197,13 @@ type GameConfig struct {
 	Log            slog.Logger   // Logger for game events
 }
 
-// AutoStartCallbacks defines the callback functions needed for auto-start functionality
-type AutoStartCallbacks struct {
-	MinPlayers func() int
-	// StartNewHand should start a new hand
-	StartNewHand func() error
-	// OnNewHandStarted is called after a new hand has been successfully started
-	OnNewHandStarted func()
-}
-
 // GameEventType represents different types of game events sent to Table
 type GameEventType int
 
 const (
 	GameEventBettingRoundComplete GameEventType = iota // Betting round complete, advance to next street
-	GameEventShowdownReady                             // All players all-in or only one active, go to showdown
 	GameEventShowdownComplete                          // Showdown processing complete, result available
+	GameEventAutoStartTriggered                        // Auto-start timer fired, Table should check conditions and start if ready
 )
 
 // GameEvent represents an event sent from Game FSM to Table
@@ -247,9 +238,8 @@ type Game struct {
 	config GameConfig
 
 	// Auto-start management
-	autoStartTimer     *time.Timer
-	autoStartCanceled  bool
-	autoStartCallbacks *AutoStartCallbacks
+	autoStartTimer    *time.Timer
+	autoStartCanceled bool
 
 	// Logger
 	log slog.Logger
@@ -677,7 +667,7 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 	g.mu.Unlock()
 
 	// Schedule auto-start if configured
-	if g.HasAutoStartCallbacks() {
+	if g.config.AutoStartDelay > 0 {
 		g.log.Debugf("stateShowdown: scheduling auto-start")
 		g.ScheduleAutoStart()
 	}
@@ -1143,8 +1133,6 @@ func (g *Game) handlePlayerFold(playerID string) error {
 		if g.sm != nil {
 			g.sm.Send(evGotoShowdown{})
 		}
-		// Notify table that showdown is ready
-		g.sendTableEvent(GameEvent{Type: GameEventShowdownReady})
 		return nil
 	}
 
@@ -2074,20 +2062,6 @@ func (g *Game) SetCommunityCards(cards []Card) {
 	copy(g.communityCards, cards)
 }
 
-// SetAutoStartCallbacks sets the callback functions for auto-start functionality
-func (g *Game) SetAutoStartCallbacks(callbacks *AutoStartCallbacks) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.autoStartCallbacks = callbacks
-}
-
-// HasAutoStartCallbacks reports whether auto-start callbacks are configured.
-func (g *Game) HasAutoStartCallbacks() bool {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.autoStartCallbacks != nil
-}
-
 // SetupPreFlopNotification creates a notification channel that will be signaled
 // when the PRE_FLOP state is reached. Returns the channel. The channel has a
 // buffer of 1 to prevent blocking if no one is listening.
@@ -2121,112 +2095,33 @@ func (g *Game) scheduleAutoStart() {
 	// Cancel any existing auto-start timer
 	g.cancelAutoStart()
 
-	// Check if auto-start is configured (negative delay disables auto-start)
-	if g.config.AutoStartDelay < 0 || g.autoStartCallbacks == nil {
-		g.log.Debugf("scheduleAutoStart: auto-start disabled, delay=%v, callbacks=%v", g.config.AutoStartDelay, g.autoStartCallbacks != nil)
+	// Check if auto-start is configured (zero or negative delay disables auto-start)
+	if g.config.AutoStartDelay <= 0 {
+		g.log.Debugf("scheduleAutoStart: auto-start disabled, delay=%v", g.config.AutoStartDelay)
 		return
 	}
 
-	// Use a minimal delay if configured delay is 0 to allow notifications to propagate
-	effectiveDelay := g.config.AutoStartDelay
-	if effectiveDelay == 0 {
-		effectiveDelay = 100 * time.Millisecond
-	}
-
 	// Debug log
-	g.log.Debugf("scheduleAutoStart: setting up timer with delay %v (configured=%v)", effectiveDelay, g.config.AutoStartDelay)
+	g.log.Debugf("scheduleAutoStart: setting up timer with delay %v", g.config.AutoStartDelay)
 
 	// Mark that auto-start is pending
 	g.autoStartCanceled = false
 
-	// Schedule the auto-start with self-rescheduling if conditions aren't met
-	var scheduleCheckLocked func() // requires g.mu held
-	var scheduleCheck func()       // acquires g.mu internally
+	// Schedule the auto-start timer
+	g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
+		// Check if auto-start was canceled
+		g.mu.RLock()
+		canceled := g.autoStartCanceled
+		g.mu.RUnlock()
 
-	scheduleCheck = func() {
-		g.mu.Lock()
-		defer g.mu.Unlock()
-		scheduleCheckLocked()
-	}
-
-	scheduleCheckLocked = func() {
-		// Avoid scheduling if canceled or callbacks missing (g.mu held)
-		if g.autoStartCanceled || g.autoStartCallbacks == nil {
+		if canceled {
 			return
 		}
-		t := time.AfterFunc(effectiveDelay, func() {
-			// Snapshot required fields under lock to avoid races
-			g.mu.RLock()
-			canceled := g.autoStartCanceled
-			callbacks := g.autoStartCallbacks
-			log := g.log
-			cfg := g.config
-			players := make([]*Player, len(g.players))
-			copy(players, g.players)
-			g.mu.RUnlock()
 
-			if canceled || callbacks == nil {
-				return
-			}
-
-			readyCount := 0
-			for _, player := range players {
-				if player == nil {
-					continue
-				}
-				// Read player fields under the player's lock to avoid races
-				player.mu.RLock()
-				bal := player.balance
-				pid := player.id
-				player.mu.RUnlock()
-
-				// Count players who have any chips left. Short stacks will auto-post
-				// blinds all-in when needed during hand setup.
-				if bal > 0 {
-					readyCount++
-					// Log explicitly that short stacks are still eligible for auto-start.
-					if bal < cfg.BigBlind {
-						log.Debugf("Player %s ready for auto-start (short stack all-in): balance=%d < bigBlind=%d", pid, bal, cfg.BigBlind)
-					} else {
-						log.Debugf("Player %s ready for auto-start: balance=%d >= bigBlind=%d", pid, bal, cfg.BigBlind)
-					}
-				} else {
-					log.Debugf("Player %s not ready for auto-start: balance=0", pid)
-				}
-			}
-
-			minRequired := callbacks.MinPlayers()
-			log.Debugf("Auto-start check: readyCount=%d, minRequired=%d", readyCount, minRequired)
-			if readyCount >= minRequired {
-				err := callbacks.StartNewHand()
-				if err != nil {
-					log.Debugf("Auto-start new hand failed: %v", err)
-					// Reschedule on failure
-					scheduleCheck()
-				} else {
-					if callbacks.OnNewHandStarted != nil {
-						// Invoke the callback
-						go callbacks.OnNewHandStarted()
-					}
-				}
-			} else {
-				// Not enough players yet - reschedule to check again
-				log.Debugf("Not enough players for auto-start: %d < %d, will check again", readyCount, minRequired)
-				scheduleCheck()
-			}
-		})
-		// Assign the timer while holding the lock to serialize writes (g.mu held)
-		g.autoStartTimer = t
-	}
-	// We are currently called with g.mu held by the public wrapper, so call the locked variant.
-	scheduleCheckLocked()
-}
-
-// CancelAutoStart cancels any pending auto-start timer
-func (g *Game) CancelAutoStart() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.cancelAutoStart()
+		g.log.Debugf("Auto-start timer fired, sending event to Table")
+		// Send event to Table - Table will check conditions and start new hand if ready
+		g.sendTableEvent(GameEvent{Type: GameEventAutoStartTriggered})
+	})
 }
 
 // cancelAutoStart is the internal implementation (assumes lock is held)
@@ -2406,51 +2301,6 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	}
 }
 
-// ModifyPlayers executes the provided function while holding the game's write
-// lock, giving callers safe, exclusive access to the underlying slice of
-// players. This is useful for code that needs to mutate player state outside
-// of the poker package (for example, when restoring snapshots) while still
-// guaranteeing there are no data races with concurrent reads performed via
-// GetStateSnapshot.
-func (g *Game) ModifyPlayers(fn func(players []*Player)) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	fn(g.players)
-}
-
-// ForceSetPot sets the amount of the main pot directly. This is intended to
-// be used only during server-side restoration when rebuilding a game from a
-// persisted snapshot where the individual betting history is not available.
-func (g *Game) ForceSetPot(amount int64) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	if g.potManager == nil {
-		g.potManager = NewPotManager(len(g.players))
-	}
-
-	// Ensure there is at least a main pot.
-	if len(g.potManager.pots) == 0 {
-		g.potManager.pots = []*pot{newPot(0)}
-	}
-
-	// Set the amount on the main pot directly.
-	g.potManager.pots[0].amount = amount
-}
-
-// SetOnNewHandStartedCallback registers a callback to be executed each time a
-// new hand is successfully auto-started. The callback will be invoked from the
-// auto-start timer goroutine, so it MUST be thread-safe and return quickly.
-func (g *Game) SetOnNewHandStartedCallback(cb func()) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	if g.autoStartCallbacks == nil {
-		g.autoStartCallbacks = &AutoStartCallbacks{}
-	}
-	g.autoStartCallbacks.OnNewHandStarted = cb
-}
-
 // dealFlop adds three community cards. Caller MUST hold g.mu.
 func (g *Game) dealFlop() {
 	mustHeld(&g.mu)
@@ -2512,12 +2362,6 @@ func (g *Game) dealRiver() {
 type evAdvance struct{} // advance current betting/phase when conditions met
 
 type evGotoShowdown struct{} // force immediate showdown (e.g., only one alive)
-
-// Request/command events processed by the Game FSM
-type evResetForNewHandReq struct {
-	users []*User
-	reply chan error
-}
 
 type evMaybeCompleteReq struct{}
 

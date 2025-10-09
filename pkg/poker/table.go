@@ -282,18 +282,50 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		if err := t.advanceToNextStreet(); err != nil {
 			t.log.Errorf("Failed to advance to next street: %v", err)
 		}
-	case GameEventShowdownReady:
-		t.log.Debugf("Table received GameEventShowdownReady")
-		// Game FSM will process showdown and send us the complete result
 	case GameEventShowdownComplete:
-		t.log.Debugf("Table received GameEventShowdownComplete")
-		// Store the showdown result
 		if err := t.handleShowdownComplete(event.ShowdownResult); err != nil {
 			t.log.Errorf("Failed to handle showdown complete: %v", err)
+		}
+	case GameEventAutoStartTriggered:
+		if err := t.handleAutoStart(); err != nil {
+			t.log.Debugf("Auto-start check failed: %v, will retry on next trigger", err)
 		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
 	}
+}
+
+// handleAutoStart checks conditions and starts a new hand if ready
+func (t *Table) handleAutoStart() error {
+	t.mu.RLock()
+	game := t.game
+	minPlayers := t.config.MinPlayers
+	t.mu.RUnlock()
+
+	if game == nil {
+		return fmt.Errorf("no game active")
+	}
+
+	// Count players with chips remaining
+	readyCount := 0
+	players := game.GetPlayers()
+	for _, p := range players {
+		if p == nil {
+			continue
+		}
+		// Count players who have any chips left
+		if p.Balance() > 0 {
+			readyCount++
+		}
+	}
+
+	if readyCount < minPlayers {
+		return fmt.Errorf("not enough players ready: %d < %d", readyCount, minPlayers)
+	}
+
+	// Conditions met - start new hand
+	t.log.Debugf("Auto-start conditions met: starting new hand")
+	return t.startNewHand()
 }
 
 // Thread-safe readiness check for state fns.
@@ -451,28 +483,19 @@ func (t *Table) StartGame() error {
 		return fmt.Errorf("failed to create game: %w", err)
 	}
 
-	// 4) Wire auto-start callbacks (pure callbacks, no direct field writes).
-	g.SetAutoStartCallbacks(&AutoStartCallbacks{
-		MinPlayers: func() int { return t.config.MinPlayers },
-		StartNewHand: func() error {
-			return t.startNewHand() // should only call g.ResetForNewHand via API; see below
-		},
-		OnNewHandStarted: nil,
-	})
-
-	// 5) Inject players via API (Game owns its Player objects and SMs).
+	// 4) Inject players via API (Game owns its Player objects and SMs).
 	g.SetPlayers(active)
 
-	// 6) Publish the game on the table so helpers can reference t.game safely.
+	// 5) Publish the game on the table so helpers can reference t.game safely.
 	t.game = g
 
-	// 6a) Wire up game event channel so Game FSM can send events to Table
+	// 6) Wire up game event channel so Game FSM can send events to Table
 	g.SetTableEventChannel(t.gameEventChan)
 
-	// 8) Start the game FSM so it's ready to process events
+	// 7) Start the game FSM so it's ready to process events
 	go g.Start(context.Background())
 
-	// 9) Set up notification to broadcast NEW_HAND_STARTED when FSM reaches PRE_FLOP.
+	// 8) Set up notification to broadcast NEW_HAND_STARTED when FSM reaches PRE_FLOP.
 	//    This ensures clients see complete state (blinds posted, current player set).
 	preFlopCh := g.SetupPreFlopNotification()
 	defer g.ClearPreFlopNotification()

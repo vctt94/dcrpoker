@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -494,64 +493,30 @@ func TestAutoStartOnNewHandStarted(t *testing.T) {
 	game, err := NewGame(cfg)
 	require.NoError(t, err)
 
-	// Set players so readyCount >= MinPlayers in timer callback
+	// Set players so there are enough to start
 	users := []*User{
 		NewUser("p1", "p1", 0, 0),
 		NewUser("p2", "p2", 0, 1),
 	}
 	game.SetPlayers(users)
 
-	var mu sync.Mutex
-	started := false
-	callbackCalled := false
-
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-
-	// Provide auto-start callbacks _without_ the OnNewHandStarted field.
-	game.SetAutoStartCallbacks(&AutoStartCallbacks{
-		MinPlayers: func() int { return 2 },
-		StartNewHand: func() error {
-			mu.Lock()
-			started = true
-			mu.Unlock()
-			return nil
-		},
-	})
-
-	// Attach the callback via the helper being tested.
-	game.SetOnNewHandStartedCallback(func() {
-		mu.Lock()
-		callbackCalled = true
-		mu.Unlock()
-		wg.Done()
-	})
+	// Set up event channel to receive auto-start events
+	eventCh := make(chan GameEvent, 10)
+	game.SetTableEventChannel(eventCh)
 
 	// Trigger the timer
 	game.ScheduleAutoStart()
 
-	// Wait with timeout
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
+	// Wait for auto-start event with timeout
 	select {
-	case <-done:
+	case event := <-eventCh:
+		if event.Type != GameEventAutoStartTriggered {
+			t.Fatalf("expected GameEventAutoStartTriggered, got %v", event.Type)
+		}
 		// ok
 	case <-time.After(200 * time.Millisecond):
-		t.Fatal("timeout waiting for OnNewHandStarted callback")
+		t.Fatal("timeout waiting for GameEventAutoStartTriggered")
 	}
-
-	mu.Lock()
-	if !started {
-		t.Fatal("expected StartNewHand to be called")
-	}
-	if !callbackCalled {
-		t.Fatal("expected OnNewHandStarted to be called")
-	}
-	mu.Unlock()
 }
 
 // Ensure that when multiple players are all-in pre-flop, the game
@@ -636,7 +601,7 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 	require.EqualValues(t, int64(100), res.TotalPot)
 }
 
-// Ensure auto-start counts short-stacked players (>0 chips) as eligible and starts a new hand.
+// Ensure auto-start sends event even when players have short stacks (>0 chips).
 func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:     2,
@@ -659,24 +624,18 @@ func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 	game.players[0].balance = 10   // short stack
 	game.players[1].balance = 1990 // deep stack
 
-	startedCh := make(chan struct{}, 1)
-
-	game.SetAutoStartCallbacks(&AutoStartCallbacks{
-		MinPlayers: func() int { return 2 },
-		StartNewHand: func() error {
-			select {
-			case startedCh <- struct{}{}:
-			default:
-			}
-			return nil
-		},
-	})
+	// Set up event channel to receive auto-start events
+	eventCh := make(chan GameEvent, 10)
+	game.SetTableEventChannel(eventCh)
 
 	game.ScheduleAutoStart()
 
 	select {
-	case <-startedCh:
-		// ok
+	case event := <-eventCh:
+		if event.Type != GameEventAutoStartTriggered {
+			t.Fatalf("expected GameEventAutoStartTriggered, got %v", event.Type)
+		}
+		// ok - auto-start triggered even with short-stacked player
 	case <-time.After(200 * time.Millisecond):
 		t.Fatal("expected auto-start to trigger with short-stacked player")
 	}
