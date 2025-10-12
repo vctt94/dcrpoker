@@ -104,11 +104,19 @@ func (m *InMemoryDB) UpsertTable(_ context.Context, t *poker.TableConfig) error 
 	cp := *t // store by value to avoid external mutation
 	// set CreatedAt if zero-ish
 	m.tables[cp.ID] = &db.Table{
-		ID:         cp.ID,
-		HostID:     cp.HostID,
-		BuyIn:      cp.BuyIn,
-		MinPlayers: cp.MinPlayers,
-		MaxPlayers: cp.MaxPlayers,
+		ID:            cp.ID,
+		HostID:        cp.HostID,
+		BuyIn:         cp.BuyIn,
+		MinPlayers:    cp.MinPlayers,
+		MaxPlayers:    cp.MaxPlayers,
+		SmallBlind:    cp.SmallBlind,
+		BigBlind:      cp.BigBlind,
+		MinBalance:    cp.MinBalance,
+		StartingChips: cp.StartingChips,
+		TimebankMS:    cp.TimeBank.Milliseconds(),
+		AutoStartMS:   cp.AutoStartDelay.Milliseconds(),
+		AutoAdvanceMS: cp.AutoAdvanceDelay.Milliseconds(),
+		CreatedAt:     time.Now(),
 	}
 	return nil
 }
@@ -398,6 +406,8 @@ func TestPokerService(t *testing.T) {
 			MaxPlayers:    6,
 			BuyIn:         1000,
 			StartingChips: 1000,
+			AutoStartMs:   1000,
+			AutoAdvanceMs: 1000,
 		})
 		require.NoError(t, err)
 		assert.NotEmpty(t, resp.TableId)
@@ -473,6 +483,7 @@ func TestPokerService(t *testing.T) {
 			MaxPlayers:    6,
 			BuyIn:         1000,
 			StartingChips: 1000,
+			AutoAdvanceMs: 1000,
 		})
 		require.NoError(t, err)
 		tableID := createResp.TableId
@@ -570,6 +581,7 @@ func TestPokerGameFlow(t *testing.T) {
 		MaxPlayers:    6,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -666,6 +678,7 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 		MaxPlayers:    6,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -727,6 +740,7 @@ func TestHeadsUpPostflopActorIsBB(t *testing.T) {
 		MaxPlayers:    2,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -823,6 +837,7 @@ func TestBetValidation_UnderBetRejected(t *testing.T) {
 		MaxPlayers:    2,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -898,6 +913,7 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 		MaxPlayers:    2,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -997,6 +1013,7 @@ func TestLastPlayerLeavesTableClosure(t *testing.T) {
 		MaxPlayers:    6,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -1058,6 +1075,7 @@ func TestNonHostLeavesTable(t *testing.T) {
 		MaxPlayers:    6,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -1152,6 +1170,7 @@ func TestJoinTable(t *testing.T) {
 		MaxPlayers:    6,
 		BuyIn:         1000,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -1240,6 +1259,7 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 		MaxPlayers:    6,
 		BuyIn:         100,
 		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId
@@ -1363,6 +1383,7 @@ func TestBlindPostingAndBalances(t *testing.T) {
 		MaxPlayers:    2,
 		BuyIn:         100,
 		StartingChips: startingChips,
+		AutoAdvanceMs: 1000,
 	})
 	require.NoError(t, err)
 	tableID := createResp.TableId

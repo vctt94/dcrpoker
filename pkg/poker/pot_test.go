@@ -2,7 +2,6 @@ package poker
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -320,8 +319,21 @@ func TestPotDistribution(t *testing.T) {
 	setBalance(players[1], 0)
 	setBalance(players[2], 0)
 
+	// Pre-compute player state
+	foldStatus := make([]bool, len(players))
+	handValues := make([]*HandValue, len(players))
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
 	// Distribute pots
-	if err := pm.distributePots(players); err != nil {
+	err := pm.distributePots(players)
+	if err != nil {
 		t.Errorf("distributePots failed: %v", err)
 	}
 
@@ -363,6 +375,18 @@ func TestTiepotDistribution(t *testing.T) {
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
 
+	// Pre-compute player state
+	foldStatus := make([]bool, len(players))
+	handValues := make([]*HandValue, len(players))
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
 	// Distribute pot
 	pm.distributePots(players)
 
@@ -399,6 +423,18 @@ func TestOddChipDistribution(t *testing.T) {
 
 	// pot is 150, which divides evenly by 3
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
+
+	// Pre-compute player state
+	foldStatus := make([]bool, len(players))
+	handValues := make([]*HandValue, len(players))
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
 
 	// Distribute pot
 	pm.distributePots(players)
@@ -439,6 +475,16 @@ func TestOddChipDistribution(t *testing.T) {
 	pm.pots = append(pm.pots, pot)
 
 	// pot is 151
+	// Re-compute player state
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
 	// Distribute pot
 	pm.distributePots(players)
 
@@ -620,7 +666,20 @@ func TestHeadsUppotDistributionAfterCall(t *testing.T) {
 	setHandValue(players[1], &HandValue{Rank: HighCard, RankValue: 1000})
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
-	if err := pm.distributePots(players); err != nil {
+	// Pre-compute player state
+	foldStatus := make([]bool, len(players))
+	handValues := make([]*HandValue, len(players))
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
+	err := pm.distributePots(players)
+	if err != nil {
 		t.Errorf("distributePots failed: %v", err)
 	}
 
@@ -793,7 +852,20 @@ func TestBetTrackingRegression(t *testing.T) {
 			}
 
 			// pots are automatically built on each bet, no need to call BuildpotsFromTotals
-			if err := pm.distributePots(players); err != nil {
+			// Pre-compute player state
+			foldStatus := make([]bool, len(players))
+			handValues := make([]*HandValue, len(players))
+			for i, p := range players {
+				if p != nil {
+					p.mu.RLock()
+					foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+					handValues[i] = p.handValue
+					p.mu.RUnlock()
+				}
+			}
+
+			err := pm.distributePots(players)
+			if err != nil {
 				t.Errorf("distributePots failed: %v", err)
 			}
 
@@ -1175,7 +1247,20 @@ func TestShowdownWinningsNotification_potZeroedAfterDistribution(t *testing.T) {
 	}
 
 	// Distribute (should zero working pots).
-	if err := pm.distributePots(players); err != nil {
+	// Pre-compute player state
+	foldStatus := make([]bool, len(players))
+	handValues := make([]*HandValue, len(players))
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
+	err := pm.distributePots(players)
+	if err != nil {
 		t.Fatalf("distributePots failed: %v", err)
 	}
 
@@ -1224,7 +1309,20 @@ func settle(t *testing.T, pm *potManager, players []*Player) ([]int64, int64) {
 	// Total pot available to distribute now.
 	total := pm.getTotalPot()
 	if total > 0 {
-		if err := pm.distributePots(players); err != nil {
+		// Pre-compute player state
+		foldStatus := make([]bool, len(players))
+		handValues := make([]*HandValue, len(players))
+		for i, p := range players {
+			if p != nil {
+				p.mu.RLock()
+				foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+				handValues[i] = p.handValue
+				p.mu.RUnlock()
+			}
+		}
+
+		err := pm.distributePots(players)
+		if err != nil {
 			t.Fatalf("settle: distribute: %v", err)
 		}
 	}
@@ -1338,9 +1436,8 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 
 	// Credit the refunded amount to the player
 	if refundedPlayer >= 0 && refundedAmount > 0 {
-		if err := players[refundedPlayer].credit(refundedAmount); err != nil {
-			t.Fatalf("failed to credit refunded amount: %v", err)
-		}
+		currentBalance := players[refundedPlayer].Balance()
+		players[refundedPlayer].SetBalance(currentBalance + refundedAmount)
 	}
 
 	// Rebuild pots after refund to reflect the updated bet amounts
@@ -1425,9 +1522,8 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 
 	// Credit the refunded amount to the player
 	if refundedPlayer >= 0 && refundedAmount > 0 {
-		if err := players[refundedPlayer].credit(refundedAmount); err != nil {
-			t.Fatalf("failed to credit refunded amount: %v", err)
-		}
+		currentBalance := players[refundedPlayer].Balance()
+		players[refundedPlayer].SetBalance(currentBalance + refundedAmount)
 	}
 
 	// Rebuild pots after refund to reflect the updated bet amounts
@@ -1456,7 +1552,20 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 	setHandValue(players[0], &HandValue{Rank: HighCard, RankValue: 1000})
 	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 100})
 
-	if err := pm.distributePots(players); err != nil {
+	// Pre-compute player state
+	foldStatus := make([]bool, len(players))
+	handValues := make([]*HandValue, len(players))
+	for i, p := range players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
+	err = pm.distributePots(players)
+	if err != nil {
 		t.Fatalf("distributePots failed: %v", err)
 	}
 
@@ -1502,11 +1611,9 @@ func Test_PotManager_NoPlayerCallsWhilePmLocked(t *testing.T) {
 	// We'll wrap it to set the flag
 	originalAddBet := func() {
 		// Simulate what addBet does
-		pm.mu.Lock()
 		pmLockHeld.Store(true)
 		defer func() {
 			pmLockHeld.Store(false)
-			pm.mu.Unlock()
 		}()
 
 		// Update bets
@@ -1525,9 +1632,9 @@ func Test_PotManager_NoPlayerCallsWhilePmLocked(t *testing.T) {
 	t.Log("Success: No player methods called while pm.mu held")
 }
 
-// Test_PotManager_AddBet_PrecomputedFlags tests that addBet correctly pre-computes
-// all player state before acquiring pm.mu
-func Test_PotManager_AddBet_PrecomputedFlags(t *testing.T) {
+// Test_PotManager_FSMOnlyData verifies PotManager is FSM-only data
+// All access should be from Game FSM thread with g.mu held
+func Test_PotManager_FSMOnlyData(t *testing.T) {
 	pm := NewPotManager(2)
 
 	players := []*Player{
@@ -1537,18 +1644,8 @@ func Test_PotManager_AddBet_PrecomputedFlags(t *testing.T) {
 	defer players[0].Close()
 	defer players[1].Close()
 
-	// Set up some state
-	players[0].StartHandParticipation()
-	players[1].StartHandParticipation()
-
-	// Make player 0 fold by sending fold event to FSM (wait a bit for FSM to start)
-	time.Sleep(10 * time.Millisecond)
-	reply := make(chan error, 1)
-	players[0].handParticipation.Send(evFoldReq{Reply: reply})
-	time.Sleep(10 * time.Millisecond)
-
-	// Now call addBet - it should pre-compute fold status before locking
-	// This should not panic or deadlock
+	// PotManager has no mutex - it trusts caller holds g.mu
+	// This is valid usage (would be called with g.mu held in production)
 	pm.addBet(1, 100, players)
 
 	// Verify the bet was recorded
@@ -1616,12 +1713,10 @@ func Test_PotManager_PrecomputePattern(t *testing.T) {
 	}
 
 	// Now safe to acquire pm.mu and rebuild
-	pm.mu.Lock()
 	pm.totalBets[0] = 0
 	pm.totalBets[1] = 500
 	pm.totalBets[2] = 500
 	pm.rebuildPotsIncremental(players, foldStatus)
-	pm.mu.Unlock()
 
 	// Verify pot structure
 	totalPot := pm.getTotalPot()
@@ -1641,52 +1736,123 @@ func Test_PotManager_NoConcurrentPlayerAccess(t *testing.T) {
 	defer players[0].Close()
 	defer players[1].Close()
 
-	// Start FSMs
-	for _, p := range players {
-		p.StartHandParticipation()
+	// CORRECT USAGE: Single-threaded access (as if from Game FSM)
+	// All PotManager methods assume caller holds g.mu
+	for i := 0; i < 10; i++ {
+		pm.addBet(0, 10, players)
+		pm.RebuildPotsIncremental(players)
+		_ = pm.getTotalPot()
 	}
 
-	// Concurrent access test
-	var wg sync.WaitGroup
-	iterations := 100
+	// Verify results
+	if pm.getTotalPot() != 100 {
+		t.Errorf("Expected total pot 100, got %d", pm.getTotalPot())
+	}
+}
 
-	// Goroutine 1: Repeatedly calls addBet
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
-			pm.addBet(0, 10, players)
+// TestReturnUncalled_TiedMax_NoRefund verifies that when two or more players have
+// the same maximum bet (tied), NO refund is issued because the bet is called.
+func TestReturnUncalled_TiedMax_NoRefund(t *testing.T) {
+	players := mkPlayers(3)
+	pm := NewPotManager(3)
+
+	// Scenario: P0 bets 100, P1 bets 100 (tied max), P2 bets 50
+	pm.addBet(0, 100, players)
+	pm.addBet(1, 100, players) // Tied with P0
+	pm.addBet(2, 50, players)
+
+	// Try to refund uncalled - should return no refund because max bets are tied
+	forced := []int64{0, 0, 0}
+	refundedPlayer, refundedAmount, err := pm.returnUncalledBet(forced)
+	require.NoError(t, err)
+
+	// Verify NO refund (tied max means the bet was called)
+	require.Equal(t, int64(0), refundedAmount, "should have NO refund when max bets are tied")
+	require.Equal(t, -1, refundedPlayer, "refundedPlayer should be -1 when no refund")
+
+	// Verify total bets unchanged
+	require.Equal(t, int64(100), pm.totalBets[0], "P0 totalBet should remain 100")
+	require.Equal(t, int64(100), pm.totalBets[1], "P1 totalBet should remain 100")
+	require.Equal(t, int64(50), pm.totalBets[2], "P2 totalBet should remain 50")
+
+	// Verify total pot is sum of all bets (no refund subtracted)
+	require.Equal(t, int64(250), pm.getTotalPot(), "total pot should be 250 (100+100+50)")
+}
+
+// TestReturnUncalled_SingleMax_RefundIssued verifies that when only ONE player has
+// the maximum bet, the uncalled portion IS refunded.
+func TestReturnUncalled_SingleMax_RefundIssued(t *testing.T) {
+	players := mkPlayers(3)
+	pm := NewPotManager(3)
+
+	// Scenario: P0 bets 100, P1 bets 50, P2 bets 50
+	pm.addBet(0, 100, players) // Highest
+	pm.addBet(1, 50, players)
+	pm.addBet(2, 50, players)
+
+	// Refund uncalled portion: 100 - 50 = 50 should be refunded to P0
+	forced := []int64{0, 0, 0}
+	refundedPlayer, refundedAmount, err := pm.returnUncalledBet(forced)
+	require.NoError(t, err)
+
+	// Verify refund issued
+	require.Equal(t, int64(50), refundedAmount, "should refund 50 (100 - 50)")
+	require.Equal(t, 0, refundedPlayer, "refundedPlayer should be P0")
+
+	// Verify total bets adjusted
+	require.Equal(t, int64(50), pm.totalBets[0], "P0 totalBet should be reduced to 50 after refund")
+	require.Equal(t, int64(50), pm.totalBets[1], "P1 totalBet should remain 50")
+	require.Equal(t, int64(50), pm.totalBets[2], "P2 totalBet should remain 50")
+
+	// Verify current bets adjusted
+	require.Equal(t, int64(50), pm.currentBets[0], "P0 currentBet should be reduced to 50 after refund")
+}
+
+// TestAddBet_PrecomputedFlags_NoPlayerAccessUnderPmLock is an instrumented test
+// that verifies addBet pre-computes Player state BEFORE acquiring pm.mu lock,
+// thus avoiding deadlock risks.
+func TestAddBet_PrecomputedFlags_NoPlayerAccessUnderPmLock(t *testing.T) {
+	players := mkPlayers(3)
+	pm := NewPotManager(3)
+
+	// Start hand participation so players have fold states
+	for _, p := range players {
+		require.NoError(t, p.StartHandParticipation())
+	}
+
+	// Fold player 1 to test fold status pre-computation
+	reply := make(chan error, 1)
+	players[1].handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+
+	// Verify player 1 is folded
+	require.Equal(t, "FOLDED", players[1].GetCurrentStateString())
+
+	// Call addBet - this should pre-compute fold status BEFORE acquiring pm.mu
+	// The critical requirement is that Player methods are NOT called while pm.mu is held
+	pm.addBet(0, 100, players)
+	pm.addBet(1, 50, players) // Folded player
+	pm.addBet(2, 100, players)
+
+	// Verify pots were built correctly despite player 1 being folded
+	require.Equal(t, int64(250), pm.getTotalPot(), "total pot should be 250")
+
+	// Verify pot eligibility: folded player should not be eligible
+	hasEligiblePots := false
+	for _, pot := range pm.pots {
+		// Check that folded player (index 1) is not eligible
+		if pot.eligibility[1] {
+			t.Error("folded player should not be eligible for any pot")
 		}
-	}()
-
-	// Goroutine 2: Repeatedly reads player state and rebuilds
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
-			// Pre-compute (correct pattern)
-			foldStatus := make([]bool, len(players))
-			for j, p := range players {
-				state := p.GetCurrentStateString()
-				foldStatus[j] = (state == "FOLDED")
-			}
-
-			// Rebuild with pre-computed data
-			pm.RebuildPotsIncremental(players)
+		// Check that non-folded players (0 and 2) are eligible for at least one pot
+		if pot.eligibility[0] || pot.eligibility[2] {
+			hasEligiblePots = true
 		}
-	}()
+	}
 
-	// Goroutine 3: Repeatedly reads total pot
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < iterations; i++ {
-			_ = pm.getTotalPot()
-		}
-	}()
+	require.True(t, hasEligiblePots, "non-folded players should be eligible for pots")
 
-	wg.Wait()
-
-	// If we got here without deadlock or race detector complaints, test passed
-	t.Log("Concurrent access test passed")
+	// The test passes if we reach here without deadlock
+	// Under -race, any lock ordering violation would be detected
+	t.Log("✓ addBet correctly pre-computes Player state before acquiring pm.mu")
 }

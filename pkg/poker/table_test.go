@@ -16,19 +16,20 @@ import (
 func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChips int64) *Table {
 	t.Helper()
 	tbl := NewTable(TableConfig{
-		ID:             "tbl-test",
-		Log:            createTestLogger(),
-		GameLog:        createTestLogger(),
-		HostID:         "host",
-		BuyIn:          startingChips,
-		MinPlayers:     minPlayers,
-		MaxPlayers:     maxPlayers,
-		SmallBlind:     sb,
-		BigBlind:       bb,
-		MinBalance:     0,
-		StartingChips:  startingChips,
-		TimeBank:       5 * time.Second,
-		AutoStartDelay: 100 * time.Millisecond,
+		ID:               "tbl-test",
+		Log:              createTestLogger(),
+		GameLog:          createTestLogger(),
+		HostID:           "host",
+		BuyIn:            startingChips,
+		MinPlayers:       minPlayers,
+		MaxPlayers:       maxPlayers,
+		SmallBlind:       sb,
+		BigBlind:         bb,
+		MinBalance:       0,
+		StartingChips:    startingChips,
+		TimeBank:         5 * time.Second,
+		AutoStartDelay:   100 * time.Millisecond,
+		AutoAdvanceDelay: 1 * time.Second,
 	})
 	return tbl
 }
@@ -283,59 +284,40 @@ func TestAllInFlag_HeadsUpWaitsForResponse(t *testing.T) {
 	assert.Equal(t, "ALL_IN", sbPlayer.StateString, "SB should be in ALL_IN state")
 
 	// Game should remain in PRE_FLOP waiting for BB to act (NOT jump to showdown)
-	// However, due to race conditions, the game might transition to SHOWDOWN if it determines
-	// BB cannot make a meaningful decision (e.g., insufficient chips to call)
 	phase := g.GetPhase()
-	if phase != pokerrpc.GamePhase_PRE_FLOP && phase != pokerrpc.GamePhase_SHOWDOWN {
-		t.Errorf("Unexpected game phase after SB goes all-in: %v (expected PRE_FLOP or SHOWDOWN)", phase)
-	}
+	assert.Equal(t, pokerrpc.GamePhase_PRE_FLOP, phase, "Game should remain in PRE_FLOP waiting for BB to act")
 
-	// Only proceed with BB action testing if game is still in PRE_FLOP
-	if phase == pokerrpc.GamePhase_PRE_FLOP {
-		// Find BB and verify BB is now the current player with an unmatched bet
-		var bbPlayer PlayerSnapshot
-		var bbID string
-		foundBB := false
-		for _, p := range s.Players {
-			if p.ID != sbID {
-				bbPlayer = p
-				bbID = p.ID
-				foundBB = true
-				break
-			}
+	// Find BB and verify BB is now the current player with an unmatched bet
+	var bbPlayer PlayerSnapshot
+	var bbID string
+	foundBB := false
+	for _, p := range s.Players {
+		if p.ID != sbID {
+			bbPlayer = p
+			bbID = p.ID
+			foundBB = true
+			break
 		}
-		require.True(t, foundBB, "BB player not found")
-
-		// BB should be the current player
-		currentPlayer := g.GetCurrentPlayerObject()
-		require.NotNil(t, currentPlayer, "Should have a current player")
-		assert.Equal(t, bbID, currentPlayer.ID(), "BB should be the current player after SB goes all-in")
-
-		// BB has unmatched bet (10 vs 100)
-		assert.Equal(t, int64(10), bbPlayer.CurrentBet, "BB should have currentBet of 10 (big blind)")
-		assert.Greater(t, bbPlayer.Balance, int64(0), "BB should still have chips")
-		assert.Equal(t, "IN_GAME", bbPlayer.StateString, "BB should be IN_GAME waiting to act")
-
-		// Now test both possible BB responses:
-		// Option 1: BB folds -> hand ends, SB wins
-		// Option 2: BB calls -> both all-in, go to showdown
-
-		// Let's test the fold scenario
-		// The fold might fail if the game has already transitioned to SHOWDOWN due to race conditions
-		// This can happen when the game determines BB cannot make a meaningful decision
-		err := tbl.HandleFold(bbID)
-		if err != nil && err.Error() == "action not allowed during phase: SHOWDOWN" {
-			// This is expected - the game transitioned to showdown before we could make the fold
-			// This happens when the game determines BB cannot act meaningfully
-			t.Logf("Fold failed as expected due to showdown transition: %v", err)
-		} else {
-			// If the fold succeeded, that's also fine
-			require.NoError(t, err, "Unexpected error during fold")
-		}
-	} else {
-		// Game has already transitioned to SHOWDOWN, which is also valid behavior
-		t.Logf("Game already in SHOWDOWN phase after SB goes all-in - this is valid behavior")
 	}
+	require.True(t, foundBB, "BB player not found")
+
+	// BB should be the current player
+	currentPlayer := g.GetCurrentPlayerObject()
+	require.NotNil(t, currentPlayer, "Should have a current player")
+	assert.Equal(t, bbID, currentPlayer.ID(), "BB should be the current player after SB goes all-in")
+
+	// BB has unmatched bet (10 vs 100)
+	assert.Equal(t, int64(10), bbPlayer.CurrentBet, "BB should have currentBet of 10 (big blind)")
+	assert.Greater(t, bbPlayer.Balance, int64(0), "BB should still have chips")
+	assert.Equal(t, "IN_GAME", bbPlayer.StateString, "BB should be IN_GAME waiting to act")
+
+	// Now test both possible BB responses:
+	// Option 1: BB folds -> hand ends, SB wins
+	// Option 2: BB calls -> both all-in, go to showdown
+
+	// Let's test the fold scenario
+	err := tbl.HandleFold(bbID)
+	require.NoError(t, err, "BB should be able to fold")
 
 	// After BB folds, game should go to showdown (only 1 alive player)
 	require.Eventually(t, func() bool {
@@ -413,51 +395,26 @@ func TestAllInFlag_HeadsUpCallTriggersShowdown(t *testing.T) {
 	assert.Equal(t, "ALL_IN", sbPlayer.StateString)
 
 	// BB calls (also going all-in since BB has 90 chips left and needs to call 90 more)
-	// The call might fail if the game has already transitioned to SHOWDOWN due to race conditions
-	// This is expected behavior when both players are all-in
 	err := tbl.HandleCall(bbID)
-	if err != nil && err.Error() == "action not allowed during phase: SHOWDOWN" {
-		// This is expected - the game transitioned to showdown before we could make the call
-		// This happens when both players are effectively all-in
-		t.Logf("Call failed as expected due to showdown transition: %v", err)
-	} else {
-		// If the call succeeded, that's also fine
-		require.NoError(t, err, "Unexpected error during call")
-	}
+	require.NoError(t, err)
 
 	// After BB calls and goes all-in, both players are all-in (0 active players)
-	// Showdown should happen quickly and complete
-	// Since AutoStartDelay=-1, game becomes nil after hand completes
-	// We verify by checking that either:
-	// 1. Game reaches SHOWDOWN phase, OR
-	// 2. Game becomes nil (hand already completed)
-	foundShowdown := false
-	for i := 0; i < 100; i++ {
+	// With auto-advance enabled, the game will progress through FLOP -> TURN -> RIVER -> SHOWDOWN
+	// Each transition takes AutoAdvanceDelay (1 second), so we need at least 4 seconds total
+	require.Eventually(t, func() bool {
 		g := tbl.GetGame()
 		if g == nil {
 			// Hand completed and no auto-start
 			t.Logf("Game became nil (hand completed)")
-			foundShowdown = true
-			break
+			return true
 		}
 		phase := g.GetPhase()
-		t.Logf("Iteration %d: Game phase = %v", i, phase)
 		if phase == pokerrpc.GamePhase_SHOWDOWN {
-			t.Logf("Found SHOWDOWN phase")
-			foundShowdown = true
-			break
+			t.Logf("Game reached SHOWDOWN phase")
+			return true
 		}
-
-		// Debug: Check player states
-		s := g.GetStateSnapshot()
-		for _, p := range s.Players {
-			t.Logf("Player %s: State=%s, Balance=%d, CurrentBet=%d", p.ID, p.StateString, p.Balance, p.CurrentBet)
-		}
-
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	assert.True(t, foundShowdown, "Expected game to reach SHOWDOWN after both players all-in")
+		return false
+	}, 5*time.Second, 50*time.Millisecond, "Game should reach SHOWDOWN or complete after both players all-in")
 }
 
 func TestAllInFlag_ThreePlayerContinuesBetting(t *testing.T) {
@@ -912,19 +869,20 @@ func TestTableClose_Concurrent(t *testing.T) {
 // TestTableClose_WithGame tests that Close() properly cleans up when a game is active
 func TestTableClose_WithGame(t *testing.T) {
 	cfg := TableConfig{
-		ID:             "test-table",
-		Log:            createTestLogger(),
-		GameLog:        createTestLogger(),
-		HostID:         "host1",
-		BuyIn:          1000,
-		MinPlayers:     2,
-		MaxPlayers:     6,
-		SmallBlind:     10,
-		BigBlind:       20,
-		MinBalance:     1000,
-		StartingChips:  1000,
-		TimeBank:       30 * time.Second,
-		AutoStartDelay: 3 * time.Second,
+		ID:               "test-table",
+		Log:              createTestLogger(),
+		GameLog:          createTestLogger(),
+		HostID:           "host1",
+		BuyIn:            1000,
+		MinPlayers:       2,
+		MaxPlayers:       6,
+		SmallBlind:       10,
+		BigBlind:         20,
+		MinBalance:       1000,
+		StartingChips:    1000,
+		TimeBank:         30 * time.Second,
+		AutoStartDelay:   3 * time.Second,
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	table := NewTable(cfg)

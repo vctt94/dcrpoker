@@ -37,20 +37,27 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	tblLog := s.logBackend.Logger("TABLE")
 	gameLog := s.logBackend.Logger("GAME")
 
+	// Validate AutoAdvanceMs - must be set and > 0
+	autoAdvanceDelay := time.Duration(req.AutoAdvanceMs) * time.Millisecond
+	if autoAdvanceDelay == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "auto_advance_ms must be set to a positive value (e.g., 1000 for 1 second)")
+	}
+
 	cfg := poker.TableConfig{
-		ID:             fmt.Sprintf("table_%d", time.Now().UnixNano()),
-		Log:            tblLog,
-		GameLog:        gameLog,
-		HostID:         req.PlayerId,
-		BuyIn:          req.BuyIn,
-		MinPlayers:     int(req.MinPlayers),
-		MaxPlayers:     int(req.MaxPlayers),
-		SmallBlind:     req.SmallBlind,
-		BigBlind:       req.BigBlind,
-		MinBalance:     req.MinBalance,
-		StartingChips:  startingChips,
-		TimeBank:       timeBank,
-		AutoStartDelay: time.Duration(req.AutoStartMs) * time.Millisecond,
+		ID:               fmt.Sprintf("table_%d", time.Now().UnixNano()),
+		Log:              tblLog,
+		GameLog:          gameLog,
+		HostID:           req.PlayerId,
+		BuyIn:            req.BuyIn,
+		MinPlayers:       int(req.MinPlayers),
+		MaxPlayers:       int(req.MaxPlayers),
+		SmallBlind:       req.SmallBlind,
+		BigBlind:         req.BigBlind,
+		MinBalance:       req.MinBalance,
+		StartingChips:    startingChips,
+		TimeBank:         timeBank,
+		AutoStartDelay:   time.Duration(req.AutoStartMs) * time.Millisecond,
+		AutoAdvanceDelay: autoAdvanceDelay,
 	}
 
 	// Create table

@@ -239,19 +239,10 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 				}
 			// invalid or ignored, stay at table
 
-			case evAddChips:
-				var err error
-				if e.Amt > 0 {
-					p.mu.Lock()
-					p.balance += e.Amt
-					p.mu.Unlock()
-				} else if e.Amt < 0 {
-					err = fmt.Errorf("chip amount must be positive")
-				}
-				// Send reply if channel provided
-				if e.Reply != nil {
-					e.Reply <- err
-				}
+			case evBalanceNotification:
+				// Async notification from Game FSM - balance already changed
+				// Can be used for UI updates, logging, etc.
+				// No action needed here
 
 			case evDisconnect:
 				p.mu.Lock()
@@ -347,19 +338,10 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			}
 			return stateFolded
 
-		case evAddChips:
-			var err error
-			if e.Amt > 0 {
-				p.mu.Lock()
-				p.balance += e.Amt
-				p.mu.Unlock()
-			} else if e.Amt < 0 {
-				err = fmt.Errorf("chip amount must be positive")
-			}
-			// Send reply if channel provided
-			if e.Reply != nil {
-				e.Reply <- err
-			}
+		case evBalanceNotification:
+			// Async notification from Game FSM - balance already changed
+			// Can be used for UI updates, logging, etc.
+			// No action needed here
 
 		case evEndHand:
 			p.mu.Lock()
@@ -434,20 +416,11 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 			if e.Reply != nil {
 				e.Reply <- nil
 			}
-		case evAddChips:
-			// All-in players can still receive winnings
-			var err error
-			if e.Amt > 0 {
-				p.mu.Lock()
-				p.balance += e.Amt
-				p.mu.Unlock()
-			} else if e.Amt < 0 {
-				err = fmt.Errorf("chip amount must be positive")
-			}
-			// Send reply if channel provided
-			if e.Reply != nil {
-				e.Reply <- err
-			}
+
+		case evBalanceNotification:
+			// Async notification from Game FSM - balance already changed
+			// Can be used for UI updates, logging, etc.
+			// No action needed here
 		case evFoldReq:
 			// Cannot fold while all-in; acknowledge with error if requested.
 			if e.Reply != nil {
@@ -486,20 +459,11 @@ func stateFolded(p *Player, in <-chan any) PlayerStateFn {
 			if e.Reply != nil {
 				e.Reply <- nil
 			}
-		case evAddChips:
-			// Folded players can still receive refunds (e.g., uncalled bets)
-			var err error
-			if e.Amt > 0 {
-				p.mu.Lock()
-				p.balance += e.Amt
-				p.mu.Unlock()
-			} else if e.Amt < 0 {
-				err = fmt.Errorf("chip amount must be positive")
-			}
-			// Send reply if channel provided
-			if e.Reply != nil {
-				e.Reply <- err
-			}
+
+		case evBalanceNotification:
+			// Async notification from Game FSM - balance already changed
+			// Can be used for UI updates, logging, etc.
+			// No action needed here
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
@@ -560,19 +524,10 @@ func stateTableSeated(p *Player, in <-chan any) TablePresenceStateFn {
 				}
 				// Stay in table seated state; hand participation will start separately
 
-			case evAddChips:
-				var err error
-				if e.Amt > 0 {
-					p.mu.Lock()
-					p.balance += e.Amt
-					p.mu.Unlock()
-				} else if e.Amt < 0 {
-					err = fmt.Errorf("chip amount must be positive")
-				}
-				// Send reply if channel provided
-				if e.Reply != nil {
-					e.Reply <- err
-				}
+			case evBalanceNotification:
+				// Async notification from Game FSM - balance already changed
+				// Can be used for UI updates, logging, etc.
+				// No action needed here
 
 			case evDisconnect:
 				p.mu.Lock()
@@ -859,25 +814,6 @@ func GetPlayerStateString(state PlayerState) string {
 	}
 }
 
-// credit adds chips to the player's balance atomically and notifies FSM to re-evaluate.
-// Centralizes balance mutations for pot settlement and refunds.
-func (p *Player) credit(amount int64) error {
-	if amount <= 0 {
-		return nil
-	}
-	// Send add chips event to table presence FSM (can happen in any table state)
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-
-	if tp != nil {
-		reply := make(chan error, 1)
-		tp.Send(evAddChips{Amt: amount, Reply: reply})
-		return <-reply
-	}
-	return fmt.Errorf("player state machine not initialized")
-}
-
 // Marshal converts the Player to gRPC Player for external access.
 // Uses the fast state snapshot to derive Folded/AllIn booleans.
 // Note: This does NOT include hole cards - cards must be fetched separately from
@@ -1018,6 +954,24 @@ func (p *Player) SetCurrentBet(bet int64) {
 	p.mu.Unlock()
 }
 
+// NotifyBalanceChange sends an async notification to the Player FSM about a balance change.
+// This is called by the Game FSM after directly modifying player.balance.
+// The notification is non-blocking - it's for UI/logging purposes only.
+func (p *Player) NotifyBalanceChange(newBalance, delta int64, reason string) {
+	p.mu.RLock()
+	tp := p.tablePresence
+	p.mu.RUnlock()
+
+	if tp != nil {
+		// Non-blocking send using the statemachine's Send method
+		tp.Send(evBalanceNotification{
+			NewBalance: newBalance,
+			Delta:      delta,
+			Reason:     reason,
+		})
+	}
+}
+
 func (p *Player) StartTurn() {
 	// Send to hand participation FSM if active, otherwise to table presence FSM
 	p.mu.RLock()
@@ -1091,9 +1045,14 @@ type evBet struct {
 }
 
 type evCall struct{}
-type evAddChips struct {
-	Amt   int64
-	Reply chan<- error // Optional reply channel for synchronous confirmation
+
+// evBalanceNotification is an async notification sent to Player FSM when
+// the Game FSM directly modifies player.balance (e.g., during pot distribution).
+// This is for UI/logging purposes only - the balance change has already occurred.
+type evBalanceNotification struct {
+	NewBalance int64
+	Delta      int64
+	Reason     string // "pot_win", "refund", etc.
 }
 
 // evFoldReq requests a fold with an acknowledgment once the player's state

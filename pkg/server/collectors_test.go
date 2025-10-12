@@ -59,16 +59,17 @@ func newBareServer() *Server {
 // helper to build a 2-player table already in GAME_ACTIVE phase.
 func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 	cfg := poker.TableConfig{
-		ID:            id,
-		Log:           slog.Disabled,
-		HostID:        "p1",
-		BuyIn:         0,
-		MinPlayers:    2,
-		MaxPlayers:    2,
-		SmallBlind:    10,
-		BigBlind:      20,
-		StartingChips: 1000,
-		TimeBank:      30 * time.Second,
+		ID:               id,
+		Log:              slog.Disabled,
+		HostID:           "p1",
+		BuyIn:            0,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		StartingChips:    1000,
+		TimeBank:         30 * time.Second,
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	table := poker.NewTable(cfg)

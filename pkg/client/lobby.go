@@ -60,6 +60,7 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 		StartingChips:   config.StartingChips,
 		TimeBankSeconds: timeBankSeconds,
 		AutoStartMs:     int32(config.AutoStartDelay.Milliseconds()),
+		AutoAdvanceMs:   int32(config.AutoAdvanceDelay.Milliseconds()),
 	})
 	if err != nil {
 		return "", err

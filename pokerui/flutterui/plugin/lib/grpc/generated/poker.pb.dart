@@ -1240,6 +1240,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     $fixnum.Int64? startingChips,
     $core.int? timeBankSeconds,
     $core.int? autoStartMs,
+    $core.int? autoAdvanceMs,
   }) {
     final $result = create();
     if (playerId != null) {
@@ -1272,6 +1273,9 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     if (autoStartMs != null) {
       $result.autoStartMs = autoStartMs;
     }
+    if (autoAdvanceMs != null) {
+      $result.autoAdvanceMs = autoAdvanceMs;
+    }
     return $result;
   }
   CreateTableRequest._() : super();
@@ -1289,6 +1293,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     ..aInt64(8, _omitFieldNames ? '' : 'startingChips')
     ..a<$core.int>(9, _omitFieldNames ? '' : 'timeBankSeconds', $pb.PbFieldType.O3)
     ..a<$core.int>(10, _omitFieldNames ? '' : 'autoStartMs', $pb.PbFieldType.O3)
+    ..a<$core.int>(11, _omitFieldNames ? '' : 'autoAdvanceMs', $pb.PbFieldType.O3)
     ..hasRequiredFields = false
   ;
 
@@ -1402,6 +1407,15 @@ class CreateTableRequest extends $pb.GeneratedMessage {
   $core.bool hasAutoStartMs() => $_has(9);
   @$pb.TagNumber(10)
   void clearAutoStartMs() => clearField(10);
+
+  @$pb.TagNumber(11)
+  $core.int get autoAdvanceMs => $_getIZ(10);
+  @$pb.TagNumber(11)
+  set autoAdvanceMs($core.int v) { $_setSignedInt32(10, v); }
+  @$pb.TagNumber(11)
+  $core.bool hasAutoAdvanceMs() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearAutoAdvanceMs() => clearField(11);
 }
 
 class CreateTableResponse extends $pb.GeneratedMessage {

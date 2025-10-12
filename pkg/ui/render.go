@@ -119,6 +119,7 @@ func (r *Renderer) RenderCreateTable() string {
 		{"Buy In", r.ui.buyIn},
 		{"Min Balance", r.ui.minBalance},
 		{"Starting Chips", r.ui.startingChips},
+		{"Auto Advance (ms)", r.ui.autoAdvanceMs},
 	}
 
 	for i, field := range fields {

@@ -442,7 +442,7 @@ class PokerGame {
           await pokerModel.check();
           break;
         case 'B':
-          // Smart default: bet at least current bet, target 3x BB when available.
+          // Smart default: bet/raise to 3x current bet when available.
           final g = pokerModel.game;
           int currentBet = g?.currentBet ?? 0;
           // Find current table to get blinds
@@ -454,9 +454,10 @@ class PokerGame {
                     orElse: () => null,
                   );
           final bb = table?.bigBlind ?? 0;
-          final target = math.max(currentBet, bb * 3);
-          if (target > 0) {
-            await pokerModel.makeBet(target);
+          final targetTotal = math.max(currentBet, bb * 3);
+          // Send total bet amount to server
+          if (targetTotal > 0) {
+            await pokerModel.makeBet(targetTotal);
           }
           break;
         default:
@@ -774,6 +775,10 @@ class PokerPainter extends CustomPainter {
     }
     if (player.isBigBlind) {
       badges.add(const _SeatBadge('BB', Colors.pinkAccent));
+    }
+    // Add ALL-IN badge when player is all-in
+    if (player.isAllIn) {
+      badges.add(const _SeatBadge('ALL-IN', Colors.redAccent));
     }
     _drawRoleBadges(canvas, x, y, radius, badges, isHero, angle);
 

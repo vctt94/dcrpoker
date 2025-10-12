@@ -41,6 +41,7 @@ type PokerUI struct {
 	buyIn             string
 	minBalance        string
 	startingChips     string
+	autoAdvanceMs     string
 	selectedFormField int // Track which form field is selected
 
 	// For join table
@@ -92,6 +93,7 @@ func NewPokerUI(ctx context.Context, client *client.PokerClient) *PokerUI {
 		buyIn:               "100",
 		minBalance:          "100",
 		startingChips:       "1000",
+		autoAdvanceMs:       "1000", // Default 1 second delay between streets when all-in
 		currentView:         "mainMenu",
 		showMyCards:         false, // Default to not showing cards
 		playersShowingCards: make(map[string]bool),
@@ -250,7 +252,7 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 				m.selectedFormField--
 			}
 		case "down", "j":
-			if m.selectedFormField < 5 { // 6 fields total (0-5)
+			if m.selectedFormField < 6 { // 7 fields total (0-6)
 				m.selectedFormField++
 			}
 		case "enter", " ":
@@ -261,16 +263,18 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 			buyIn, _ := strconv.ParseInt(m.buyIn, 10, 64)
 			minBalance, _ := strconv.ParseInt(m.minBalance, 10, 64)
 			startingChips, _ := strconv.ParseInt(m.startingChips, 10, 64)
+			autoAdvanceMs, _ := strconv.ParseInt(m.autoAdvanceMs, 10, 64)
 
 			config := poker.TableConfig{
-				SmallBlind:     smallBlind,
-				BigBlind:       bigBlind,
-				MinPlayers:     int(requiredPlayers),
-				MaxPlayers:     int(requiredPlayers), // Using same value for min and max for now
-				BuyIn:          buyIn,
-				MinBalance:     minBalance,
-				StartingChips:  startingChips,
-				AutoStartDelay: 3 * time.Second, // Auto-start new hands after 3 seconds
+				SmallBlind:       smallBlind,
+				BigBlind:         bigBlind,
+				MinPlayers:       int(requiredPlayers),
+				MaxPlayers:       int(requiredPlayers), // Using same value for min and max for now
+				BuyIn:            buyIn,
+				MinBalance:       minBalance,
+				StartingChips:    startingChips,
+				AutoStartDelay:   3 * time.Second,                                 // Auto-start new hands after 3 seconds
+				AutoAdvanceDelay: time.Duration(autoAdvanceMs) * time.Millisecond, // Auto-advance delay when all-in
 			}
 			return m.stateCreateTable, m.dispatcher.createTableCmd(config)
 		case "q":
@@ -562,6 +566,8 @@ func (m *PokerUI) updateFormField(input string) {
 			m.minBalance += input
 		case 5:
 			m.startingChips += input
+		case 6:
+			m.autoAdvanceMs += input
 		}
 	} else if input == "backspace" {
 		switch m.selectedFormField {
@@ -588,6 +594,10 @@ func (m *PokerUI) updateFormField(input string) {
 		case 5:
 			if len(m.startingChips) > 0 {
 				m.startingChips = m.startingChips[:len(m.startingChips)-1]
+			}
+		case 6:
+			if len(m.autoAdvanceMs) > 0 {
+				m.autoAdvanceMs = m.autoAdvanceMs[:len(m.autoAdvanceMs)-1]
 			}
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/decred/slog"
@@ -187,14 +188,15 @@ func (h *Hand) CleanupHoleCards() {
 
 // GameConfig holds configuration for a new game
 type GameConfig struct {
-	NumPlayers     int
-	StartingChips  int64         // Fixed number of chips each player starts with
-	SmallBlind     int64         // Small blind amount
-	BigBlind       int64         // Big blind amount
-	Seed           int64         // Optional seed for deterministic games
-	AutoStartDelay time.Duration // Delay before automatically starting next hand after showdown
-	TimeBank       time.Duration // Time bank for each player
-	Log            slog.Logger   // Logger for game events
+	NumPlayers       int
+	StartingChips    int64         // Fixed number of chips each player starts with
+	SmallBlind       int64         // Small blind amount
+	BigBlind         int64         // Big blind amount
+	Seed             int64         // Optional seed for deterministic games
+	AutoStartDelay   time.Duration // Delay before automatically starting next hand after showdown
+	AutoAdvanceDelay time.Duration // Delay between streets when all players are all-in (0 = immediate, no sleep)
+	TimeBank         time.Duration // Time bank for each player
+	Log              slog.Logger   // Logger for game events
 }
 
 // GameEventType represents different types of game events sent to Table
@@ -204,12 +206,14 @@ const (
 	GameEventBettingRoundComplete GameEventType = iota // Betting round complete, advance to next street
 	GameEventShowdownComplete                          // Showdown processing complete, result available
 	GameEventAutoStartTriggered                        // Auto-start timer fired, Table should check conditions and start if ready
+	GameEventGameOver                                  // Game has ended, only one player has chips remaining
 )
 
 // GameEvent represents an event sent from Game FSM to Table
 type GameEvent struct {
 	Type           GameEventType
 	ShowdownResult *ShowdownResult // Only set for GameEventShowdownComplete
+	WinnerID       string          // Only set for GameEventGameOver - ID of the player who won
 }
 
 // Game holds the context and data for our poker game
@@ -239,7 +243,12 @@ type Game struct {
 
 	// Auto-start management
 	autoStartTimer    *time.Timer
-	autoStartCanceled bool
+	autoStartCanceled atomic.Bool
+
+	// Auto-advance management (for all-in scenarios)
+	autoAdvanceEnabled  bool
+	autoAdvanceTimer    *time.Timer
+	autoAdvanceCanceled atomic.Bool
 
 	// Logger
 	log slog.Logger
@@ -292,6 +301,10 @@ func NewGame(cfg GameConfig) (*Game, error) {
 
 	if cfg.Log == nil {
 		return nil, fmt.Errorf("poker: log is required")
+	}
+
+	if cfg.AutoAdvanceDelay == 0 {
+		return nil, fmt.Errorf("poker: AutoAdvanceDelay must be set to a positive duration (e.g., 1s)")
 	}
 
 	// Create a new deck with the given seed (or random if not specified)
@@ -361,6 +374,11 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.betRound = 0
 	g.actionsInRound = 0 // Reset action counter for new hand
 	g.winners = nil
+
+	// Reset auto-advance state for new hand
+	g.autoAdvanceEnabled = false
+	g.cancelAutoAdvance()
+
 	// Deck reseed is done prior to dealing hole cards
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
 
@@ -550,7 +568,24 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.dealFlop()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_FLOP
+
+	// Check if auto-advance is enabled (all players all-in)
+	autoAdvance := g.autoAdvanceEnabled
+	g.log.Debugf("stateFlop: entered, autoAdvanceEnabled=%v", autoAdvance)
 	g.mu.Unlock()
+
+	// Emit betting round complete event AFTER dealing and state mutation
+	// This allows clients to see the flop cards with the correct phase
+	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
+
+	// If auto-advance is enabled, schedule the next advance
+	if autoAdvance {
+		g.log.Debugf("stateFlop: auto-advance enabled, scheduling advance to TURN")
+		g.scheduleAutoAdvance()
+	} else {
+		g.log.Debugf("stateFlop: auto-advance NOT enabled, waiting for player actions")
+	}
+
 	// wait events ...
 	for ev := range in {
 		if next, handled := handleGameEvent(g, ev); handled {
@@ -584,7 +619,23 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.dealTurn()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_TURN
+
+	// Check if auto-advance is enabled (all players all-in)
+	autoAdvance := g.autoAdvanceEnabled
+	g.log.Debugf("stateTurn: entered, autoAdvanceEnabled=%v", autoAdvance)
 	g.mu.Unlock()
+
+	// Emit betting round complete event AFTER dealing and state mutation
+	// This allows clients to see the turn card with the correct phase
+	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
+
+	// If auto-advance is enabled, schedule the next advance
+	if autoAdvance {
+		g.log.Debugf("stateTurn: auto-advance enabled, scheduling advance to RIVER")
+		g.scheduleAutoAdvance()
+	} else {
+		g.log.Debugf("stateTurn: auto-advance NOT enabled, waiting for player actions")
+	}
 
 	for ev := range in {
 		if next, handled := handleGameEvent(g, ev); handled {
@@ -618,7 +669,29 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.dealRiver()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_RIVER
+
+	// Check if auto-advance is enabled (all players all-in)
+	autoAdvance := g.autoAdvanceEnabled
+	g.log.Debugf("stateRiver: entered, autoAdvanceEnabled=%v", autoAdvance)
 	g.mu.Unlock()
+
+	// Emit betting round complete event AFTER dealing and state mutation
+	// This allows clients to see the river card with the correct phase
+	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
+
+	// If auto-advance is enabled, schedule advance to showdown
+	if autoAdvance {
+		g.log.Debugf("stateRiver: auto-advance enabled, scheduling advance to SHOWDOWN")
+		// Disable auto-advance for showdown (it's the final state)
+		g.mu.Lock()
+		g.autoAdvanceEnabled = false
+		g.mu.Unlock()
+
+		// Schedule the advance to showdown
+		g.scheduleAutoAdvance()
+	} else {
+		g.log.Debugf("stateRiver: auto-advance NOT enabled, waiting for player actions")
+	}
 
 	for ev := range in {
 		if next, handled := handleGameEvent(g, ev); handled {
@@ -664,12 +737,44 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		// Send the showdown result to the table
 		g.sendTableEvent(GameEvent{Type: GameEventShowdownComplete, ShowdownResult: result})
 	}
+
+	// Check if only one player has chips remaining (game over condition)
+	playersWithChips := 0
+	var lastPlayerID string
+	for _, p := range g.players {
+		if p != nil {
+			p.mu.RLock()
+			balance := p.balance
+			id := p.id
+			p.mu.RUnlock()
+			if balance > 0 {
+				playersWithChips++
+				lastPlayerID = id
+			}
+		}
+	}
+
+	gameOver := playersWithChips <= 1
+	if gameOver && playersWithChips == 1 {
+		g.log.Infof("stateShowdown: game over! Player %s wins with all chips", lastPlayerID)
+	} else if gameOver {
+		g.log.Infof("stateShowdown: game over! No players have chips remaining")
+	}
+
 	g.mu.Unlock()
 
-	// Schedule auto-start if configured
-	if g.config.AutoStartDelay > 0 {
+	// Send game over event if game has ended
+	if gameOver {
+		g.log.Debugf("stateShowdown: sending GameEventGameOver")
+		g.sendTableEvent(GameEvent{Type: GameEventGameOver, WinnerID: lastPlayerID})
+	}
+
+	// Only schedule auto-start if game is not over and configured
+	if !gameOver && g.config.AutoStartDelay > 0 {
 		g.log.Debugf("stateShowdown: scheduling auto-start")
 		g.ScheduleAutoStart()
+	} else if gameOver {
+		g.log.Debugf("stateShowdown: game over, not scheduling auto-start")
 	}
 
 	// Stay here until a new hand is started
@@ -786,11 +891,11 @@ func (g *Game) refundUncalledBets() error {
 	// Rebuild pots after adjusting bets to reflect the refunded amounts
 	g.potManager.RebuildPotsIncremental(g.players)
 
-	// Credit the refunded amount to the player
+	// Credit the refunded amount directly to player balance (Game FSM owns balance)
 	if hiPlayer >= 0 && refunded > 0 {
-		if err := g.players[hiPlayer].credit(refunded); err != nil {
-			return fmt.Errorf("failed to credit refunded amount: %w", err)
-		}
+		g.players[hiPlayer].balance += refunded
+		// Notify player FSM about balance change (async, non-blocking)
+		g.players[hiPlayer].NotifyBalanceChange(g.players[hiPlayer].balance, refunded, "uncalled_bet_refund")
 	}
 	return nil
 }
@@ -929,7 +1034,8 @@ func (g *Game) Close() {
 	players := make([]*Player, len(g.players))
 	copy(players, g.players)
 	sm := g.sm
-	timer := g.autoStartTimer
+	autoStartTimer := g.autoStartTimer
+	autoAdvanceTimer := g.autoAdvanceTimer
 	g.mu.Unlock()
 
 	// Stop all player state machines without holding lock to avoid deadlock
@@ -950,9 +1056,12 @@ func (g *Game) Close() {
 	g.sm = nil
 	g.mu.Unlock()
 
-	// Cancel auto-start timer if running (timer.Stop() is safe to call concurrently)
-	if timer != nil {
-		timer.Stop()
+	// Cancel timers if running (timer.Stop() is safe to call concurrently)
+	if autoStartTimer != nil {
+		autoStartTimer.Stop()
+	}
+	if autoAdvanceTimer != nil {
+		autoAdvanceTimer.Stop()
 	}
 }
 
@@ -1561,9 +1670,9 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 
 	// --- Branch A: uncontested (exactly one non-folded player)
 	if len(unfolded) == 1 {
-
-		// Distribute pots (no actual comparison needed)
-		if err := g.potManager.distributePots(g.players); err != nil {
+		// Distribute pots (no actual comparison needed) - directly modifies player.balance under g.mu
+		err := g.potManager.distributePots(g.players)
+		if err != nil {
 			g.log.Errorf("distributePots (uncontested) failed: %v", err)
 			return nil, err
 		}
@@ -1690,8 +1799,9 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			p.id, hv.Rank, hv.RankValue, bestStrs, hv.HandDescription)
 	}
 
-	// Distribute pots according to eligibility
-	if err := g.potManager.distributePots(g.players); err != nil {
+	// Distribute pots according to eligibility - directly modifies player.balance under g.mu
+	err := g.potManager.distributePots(g.players)
+	if err != nil {
 		g.log.Errorf("distributePots (multi-way) failed: %v", err)
 		return nil, err
 	}
@@ -1801,40 +1911,29 @@ func (g *Game) maybeCompleteBettingRound() {
 		return
 	}
 
-	// 3) All alive are ALL_IN -> deal out remaining streets then showdown.
-	if active == 0 {
-		// Fast-forward community cards without zeroing player bets.
-		switch g.phase {
-		case pokerrpc.GamePhase_PRE_FLOP:
-			g.dealFlop()
-			g.currentBet = 0
-			g.phase = pokerrpc.GamePhase_FLOP
-			g.dealTurn()
-			g.currentBet = 0
-			g.phase = pokerrpc.GamePhase_TURN
-			g.dealRiver()
-			g.currentBet = 0
-			g.phase = pokerrpc.GamePhase_RIVER
-		case pokerrpc.GamePhase_FLOP:
-			g.dealTurn()
-			g.currentBet = 0
-			g.phase = pokerrpc.GamePhase_TURN
-			g.dealRiver()
-			g.currentBet = 0
-			g.phase = pokerrpc.GamePhase_RIVER
-		case pokerrpc.GamePhase_TURN:
-			g.dealRiver()
-			g.currentBet = 0
-			g.phase = pokerrpc.GamePhase_RIVER
+	// 3) All alive are ALL_IN -> enable auto-advance and let FSM progress streets.
+	// Also enable if only one player is active but all others are all-in (no one left to bet against)
+	// AND all bets are matched (no unmatched bets).
+	allInCount := alive - active
+	g.log.Debugf("maybeCompleteBettingRound: alive=%d, active=%d, allInCount=%d, unmatched=%d", alive, active, allInCount, unmatched)
+	if active == 0 || (active == 1 && allInCount > 0 && unmatched == 0) {
+		// Enable auto-advance mode so state handlers know to schedule timers
+		g.autoAdvanceEnabled = true
+		if active == 0 {
+			g.log.Debugf("maybeCompleteBettingRound: all %d players all-in, enabling auto-advance mode", alive)
+		} else {
+			g.log.Debugf("maybeCompleteBettingRound: %d player(s) active but %d all-in (no one to bet against), enabling auto-advance mode", active, allInCount)
 		}
-		g.phase = pokerrpc.GamePhase_SHOWDOWN
-		g.sm.Send(evGotoShowdown{})
+
+		// Send evAdvance to progress to the next street
+		// The FSM state handlers will deal cards, emit events, and schedule the next advance
+		g.sm.Send(evAdvance{})
 		return
 	}
 
-	// 4) Heads-up special case: if exactly one actionable remains, the other player must still act.
-	// Do NOT auto-advance or showdown just because active==1 in HU.
-	if len(g.players) == 2 && active == 1 {
+	// 4) Heads-up special case: if exactly one actionable remains with unmatched bets, they must act.
+	// Do NOT auto-advance when active==1 if they still have a bet to respond to AND someone can respond.
+	if len(g.players) == 2 && active == 1 && unmatched > 0 && allInCount == 0 {
 		return
 	}
 
@@ -2105,21 +2204,18 @@ func (g *Game) scheduleAutoStart() {
 	g.log.Debugf("scheduleAutoStart: setting up timer with delay %v", g.config.AutoStartDelay)
 
 	// Mark that auto-start is pending
-	g.autoStartCanceled = false
-
-	// Schedule the auto-start timer
+	g.autoStartCanceled.Store(false)
 	g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
-		// Check if auto-start was canceled
-		g.mu.RLock()
-		canceled := g.autoStartCanceled
-		g.mu.RUnlock()
-
-		if canceled {
+		if g.autoStartCanceled.Load() {
 			return
 		}
-
-		g.log.Debugf("Auto-start timer fired, sending event to Table")
-		// Send event to Table - Table will check conditions and start new hand if ready
+		g.mu.Lock()
+		if g.autoStartCanceled.Load() {
+			g.mu.Unlock()
+			return
+		}
+		g.autoStartTimer = nil
+		g.mu.Unlock()
 		g.sendTableEvent(GameEvent{Type: GameEventAutoStartTriggered})
 	})
 }
@@ -2127,11 +2223,77 @@ func (g *Game) scheduleAutoStart() {
 // cancelAutoStart is the internal implementation (assumes lock is held)
 func (g *Game) cancelAutoStart() {
 	mustHeld(&g.mu)
+	g.autoStartCanceled.Store(true)
 	if g.autoStartTimer != nil {
 		g.autoStartTimer.Stop()
 		g.autoStartTimer = nil
 	}
-	g.autoStartCanceled = true
+}
+
+// scheduleAutoAdvance schedules automatic advance to next street when all players are all-in
+// This function should be called WITHOUT holding g.mu (it will acquire the lock)
+func (g *Game) scheduleAutoAdvance() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Cancel any existing auto-advance timer
+	g.cancelAutoAdvance()
+
+	// If auto-advance is disabled (negative delay), don't schedule
+	if g.config.AutoAdvanceDelay < 0 {
+		g.log.Debugf("scheduleAutoAdvance: auto-advance disabled, delay=%v", g.config.AutoAdvanceDelay)
+		return
+	}
+
+	// Debug log
+	g.log.Debugf("scheduleAutoAdvance: setting up timer with delay %v", g.config.AutoAdvanceDelay)
+
+	// Mark that auto-advance is pending
+	g.autoAdvanceCanceled.Store(false)
+
+	// Schedule the auto-advance timer
+	// Even if delay is 0, we still use AfterFunc to avoid blocking and maintain event ordering
+	g.autoAdvanceTimer = time.AfterFunc(g.config.AutoAdvanceDelay, func() {
+		// Fast path: bail without locking if canceled.
+		if g.autoAdvanceCanceled.Load() {
+			g.log.Debugf("Auto-advance timer was canceled, not sending evAdvance")
+			return
+		}
+
+		// Optional double-check under lock, and clear pointer.
+		g.mu.Lock()
+		if g.autoAdvanceCanceled.Load() {
+			g.mu.Unlock()
+			g.log.Debugf("Auto-advance canceled (post-lock), not sending evAdvance")
+			return
+		}
+		// Snapshot sm again in case it changed.
+		localSM := g.sm
+		// One-shot timer: clear pointer to avoid stale refs.
+		g.autoAdvanceTimer = nil
+		g.mu.Unlock()
+
+		if localSM == nil {
+			g.log.Debugf("Auto-advance fired but FSM is nil, skipping")
+			return
+		}
+
+		g.log.Debugf("Auto-advance timer fired, sending evAdvance to FSM")
+		// Send without holding g.mu to keep lock order clean.
+		localSM.Send(evAdvance{})
+	})
+}
+
+// cancelAutoAdvance cancels the auto-advance timer
+func (g *Game) cancelAutoAdvance() {
+	mustHeld(&g.mu)
+
+	g.autoAdvanceCanceled.Store(true)
+	// Then stop & clear the one-shot timer.
+	if t := g.autoAdvanceTimer; t != nil {
+		_ = t.Stop() // AfterFunc: no channel to drain
+		g.autoAdvanceTimer = nil
+	}
 }
 
 // PlayerSnapshot represents a snapshot of player state without mutex for safe concurrent access

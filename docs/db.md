@@ -144,15 +144,15 @@ stateDiagram-v2
 
   PRE_FLOP: Pre-flop betting round
   PRE_FLOP --> FLOP: evAdvance (betting complete)
-  PRE_FLOP --> SHOWDOWN: evGotoShowdown (fold-win/all-in)
+  PRE_FLOP --> SHOWDOWN: evGotoShowdown (fold/win)
 
   FLOP: Deal flop (3 cards), betting round
   FLOP --> TURN: evAdvance (betting complete)
-  FLOP --> SHOWDOWN: evGotoShowdown (fold-win/all-in)
+  FLOP --> SHOWDOWN: evGotoShowdown (fold/win)
 
   TURN: Deal turn (4th card), betting round
   TURN --> RIVER: evAdvance (betting complete)
-  TURN --> SHOWDOWN: evGotoShowdown (fold-win/all-in)
+  TURN --> SHOWDOWN: evGotoShowdown (fold/win)
 
   RIVER: Deal river (5th card), betting round
   RIVER --> SHOWDOWN: evAdvance / evGotoShowdown

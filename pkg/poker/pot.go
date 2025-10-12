@@ -13,7 +13,6 @@ type pot struct {
 
 // potManager manages multiple pots, including the main pot and side pots
 type potManager struct {
-	mu          RWLock        // Protects all potManager fields
 	pots        []*pot        // Main pot followed by side pots
 	currentBets map[int]int64 // Current bet for each player in this round
 	totalBets   map[int]int64 // Total bet for each player across all rounds
@@ -46,26 +45,26 @@ func NewPotManager(nPlayers int) *potManager {
 }
 
 // AddBet adds a bet and immediately rebuilds pots to handle side pot creation
+// REQUIRES: g.mu held (Game FSM thread)
 func (pm *potManager) addBet(playerIndex int, amount int64, players []*Player) {
-	// Pre-compute fold status BEFORE acquiring pot manager lock to avoid deadlock
+	// Read fold status with proper locking (Player FSM may modify these flags)
 	foldStatus := make([]bool, len(players))
 	for i, p := range players {
 		if p != nil {
-			foldStatus[i] = (p.GetCurrentStateString() == "FOLDED")
+			p.mu.RLock()
+			foldStatus[i] = p.hasFolded
+			p.mu.RUnlock()
 		}
 	}
 
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	pm.currentBets[playerIndex] += amount
 	pm.totalBets[playerIndex] += amount
 	pm.rebuildPotsIncremental(players, foldStatus)
 }
 
 // getTotalPot returns the total amount across all pots
+// REQUIRES: g.mu held (at least RLock)
 func (pm *potManager) getTotalPot() int64 {
-	pm.mu.RLock()
-	defer pm.mu.RUnlock()
 	var total int64
 	for _, pot := range pm.pots {
 		total += pot.amount
@@ -86,24 +85,25 @@ func (pm *potManager) getTotalBet(playerIndex int) int64 {
 // RebuildPotsIncremental rebuilds the pot structure from pm.totalBets and player states.
 // It first handles the uncontested case (exactly one non-folded player), then falls back
 // to layered side-pot construction by contribution thresholds.
+// REQUIRES: g.mu held (Game FSM thread)
 func (pm *potManager) RebuildPotsIncremental(players []*Player) {
-	// Pre-compute fold status BEFORE acquiring pot manager lock to avoid deadlock
+	// Read fold status with proper locking (Player FSM may modify these flags)
 	foldStatus := make([]bool, len(players))
 	for i, p := range players {
 		if p != nil {
-			foldStatus[i] = (p.GetCurrentStateString() == "FOLDED")
+			p.mu.RLock()
+			foldStatus[i] = p.hasFolded
+			p.mu.RUnlock()
 		}
 	}
 
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	pm.rebuildPotsIncremental(players, foldStatus)
 }
 
 // rebuildPotsIncremental rebuilds the pot structure from pm.totalBets.
-// CRITICAL: foldStatus must be pre-computed BEFORE calling (no Player access under pm.mu)
+// foldStatus is pre-computed by the caller (who holds g.mu and can safely access Player state)
+// REQUIRES: g.mu held (Game FSM thread)
 func (pm *potManager) rebuildPotsIncremental(players []*Player, foldStatus []bool) {
-	mustHeld(&pm.mu)
 	n := len(players)
 	if n == 0 {
 		pm.pots = []*pot{newPot(0)}
@@ -211,28 +211,18 @@ func (pm *potManager) rebuildPotsIncremental(players []*Player, foldStatus []boo
 	pm.pots = pots
 }
 
-// distributePots distributes all pots to showdown winners.
+// distributePots distributes all pots to showdown winners by directly modifying player.balance.
 // Robust to accidental calls on uncontested pots and idempotent:
 // pots are zeroed after payout so re-entry is a no-op.
-// distributePots pays out all pots. Safe to call multiple times (pots are zeroed after payout).
+// REQUIRES: g.mu held (Game FSM thread)
 func (pm *potManager) distributePots(players []*Player) error {
-	// Pre-compute fold status
-	foldStatus := make([]bool, len(players))
-	for i, p := range players {
-		if p != nil {
-			foldStatus[i] = (p.GetCurrentStateString() == "FOLDED")
-		}
-	}
-
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	for pi, pot := range pm.pots {
 		// Idempotent: skip empty/already-settled pots.
 		if pot.amount <= 0 {
 			continue
 		}
 
-		// Collect eligible & not-folded players.
+		// Collect eligible & not-folded players (read directly since we hold g.mu)
 		if len(pot.eligibility) != len(players) {
 			return fmt.Errorf("[pot %d] eligibility len %d != players len %d",
 				pi, len(pot.eligibility), len(players))
@@ -242,18 +232,25 @@ func (pm *potManager) distributePots(players []*Player) error {
 			if idx < 0 || idx >= len(players) {
 				return fmt.Errorf("[pot %d] eligibility idx %d out of range (players=%d)", pi, idx, len(players))
 			}
-			if elig && players[idx] != nil && !foldStatus[idx] {
-				alive = append(alive, idx)
+			if elig && players[idx] != nil {
+				// Read hasFolded with proper locking (Player FSM may modify it)
+				players[idx].mu.RLock()
+				folded := players[idx].hasFolded
+				players[idx].mu.RUnlock()
+				if !folded {
+					alive = append(alive, idx)
+				}
 			}
 		}
 
-		// Uncontested pot path.
+		// Uncontested pot path - directly modify balance under g.mu
 		if len(alive) == 1 {
 			w := alive[0]
 			if players[w] != nil {
-				if err := players[w].credit(pot.amount); err != nil {
-					return fmt.Errorf("[pot %d] failed to credit winner: %w", pi, err)
-				}
+				// Game FSM owns balance - modify directly (no synchronous FSM call)
+				players[w].balance += pot.amount
+				// Notify player FSM about balance change (async, non-blocking)
+				players[w].NotifyBalanceChange(players[w].balance, pot.amount, "pot_win")
 			}
 			pm.pots[pi].amount = 0
 			for j := range pm.pots[pi].eligibility {
@@ -265,16 +262,13 @@ func (pm *potManager) distributePots(players []*Player) error {
 			return fmt.Errorf("[pot %d] no eligible alive players; pot=%d", pi, pot.amount)
 		}
 
-		// Showdown: find best hand(s) safely.
+		// Showdown: find best hand(s) by reading handValue directly from players
 		var winners []int
 		var best *HandValue
 		for _, idx := range alive {
-			var hv *HandValue
-			if players[idx] != nil {
-				players[idx].mu.RLock()
-				hv = players[idx].handValue
-				players[idx].mu.RUnlock()
-			}
+			// Read handValue directly since we hold g.mu
+			p := players[idx]
+			hv := p.handValue
 			if hv == nil {
 				return fmt.Errorf("[pot %d] player %d eligible at showdown but HandValue == nil", pi, idx)
 			}
@@ -295,7 +289,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 			return fmt.Errorf("[pot %d] showdown produced no winners", pi)
 		}
 
-		// Split pot; first winner gets remainder.
+		// Split pot; first winner gets remainder - directly modify balance under g.mu
 		share := pot.amount / int64(len(winners))
 		rem := pot.amount % int64(len(winners))
 		for i, idx := range winners {
@@ -304,9 +298,14 @@ func (pm *potManager) distributePots(players []*Player) error {
 				add += rem
 			}
 			if players[idx] != nil {
-				if err := players[idx].credit(add); err != nil {
-					return fmt.Errorf("[pot %d] failed to credit winner %d: %w", pi, idx, err)
+				// Game FSM owns balance - modify directly (no synchronous FSM call)
+				players[idx].balance += add
+				// Notify player FSM about balance change (async, non-blocking)
+				reason := "pot_win_split"
+				if len(winners) == 1 {
+					reason = "pot_win"
 				}
+				players[idx].NotifyBalanceChange(players[idx].balance, add, reason)
 			}
 		}
 
@@ -328,9 +327,8 @@ func (pm *potManager) distributePots(players []*Player) error {
 //	Later streets or non-blind players: 0
 //
 // Returns (hiPlayer, refunded, error). Caller can decide when to rebuild pots.
+// REQUIRES: g.mu held (Game FSM thread)
 func (pm *potManager) returnUncalledBet(forced []int64) (int, int64, error) {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
 	n := len(pm.currentBets)
 	if n == 0 || len(forced) != n {
 		return -1, 0, fmt.Errorf("invalid input")

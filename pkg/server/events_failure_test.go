@@ -39,11 +39,11 @@ func (f failingDB) UnseatPlayer(ctx context.Context, tableID, playerID string) e
 
 // Snapshots — force failure
 func (f failingDB) UpsertSnapshot(ctx context.Context, s sdb.Snapshot) error {
-    return errors.New("forced snapshot error")
+	return errors.New("forced snapshot error")
 }
 
 func (f failingDB) GetSnapshot(ctx context.Context, tableID string) (*sdb.Snapshot, error) {
-    return nil, fmt.Errorf("snapshot not found")
+	return nil, fmt.Errorf("snapshot not found")
 }
 
 func (f failingDB) Close() error { return nil }
@@ -77,16 +77,17 @@ func TestSaveTableState_SnapshotFailure(t *testing.T) {
 
 	// Build and register a minimal active table so snapshot has content
 	cfg := poker.TableConfig{
-		ID:            "tid",
-		Log:           slog.Disabled,
-		GameLog:       slog.Disabled,
-		HostID:        "h",
-		MinPlayers:    2,
-		MaxPlayers:    2,
-		SmallBlind:    5,
-		BigBlind:      10,
-		StartingChips: 1000,
-		TimeBank:      time.Second,
+		ID:               "tid",
+		Log:              slog.Disabled,
+		GameLog:          slog.Disabled,
+		HostID:           "h",
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       5,
+		BigBlind:         10,
+		StartingChips:    1000,
+		TimeBank:         time.Second,
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 	tbl := poker.NewTable(cfg)
 	_, _ = tbl.AddNewUser("p1", "p1", 0, 0)

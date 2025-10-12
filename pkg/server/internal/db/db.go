@@ -90,6 +90,7 @@ func createSchema(db *sql.DB) error {
 			starting_chips  INTEGER NOT NULL,
 			timebank_ms     INTEGER NOT NULL DEFAULT 0,
 			autostart_ms    INTEGER NOT NULL DEFAULT 0,
+			auto_advance_ms INTEGER NOT NULL DEFAULT 1000,
 			created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (host_id) REFERENCES players(id)
 		);`,
@@ -233,6 +234,7 @@ type Table struct {
 	StartingChips int64
 	TimebankMS    int64
 	AutoStartMS   int64
+	AutoAdvanceMS int64
 	CreatedAt     time.Time
 }
 
@@ -372,36 +374,41 @@ func (db *DB) UpsertSnapshot(ctx context.Context, s Snapshot) error {
 }
 
 func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
+	timeBankMS := t.TimeBank.Milliseconds()
+	autoStartMS := t.AutoStartDelay.Milliseconds()
+	autoAdvanceMS := t.AutoAdvanceDelay.Milliseconds()
+
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO tables (
 			id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
-			min_balance, starting_chips, timebank_ms, autostart_ms, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+			min_balance, starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
 		ON CONFLICT(id) DO UPDATE SET
-			host_id        = excluded.host_id,
-			buy_in         = excluded.buy_in,
-			min_players    = excluded.min_players,
-			max_players    = excluded.max_players,
-			small_blind    = excluded.small_blind,
-			big_blind      = excluded.big_blind,
-			min_balance    = excluded.min_balance,
-			starting_chips = excluded.starting_chips,
-			timebank_ms    = excluded.timebank_ms,
-			autostart_ms   = excluded.autostart_ms
+			host_id         = excluded.host_id,
+			buy_in          = excluded.buy_in,
+			min_players     = excluded.min_players,
+			max_players     = excluded.max_players,
+			small_blind     = excluded.small_blind,
+			big_blind       = excluded.big_blind,
+			min_balance     = excluded.min_balance,
+			starting_chips  = excluded.starting_chips,
+			timebank_ms     = excluded.timebank_ms,
+			autostart_ms    = excluded.autostart_ms,
+			auto_advance_ms = excluded.auto_advance_ms
 	`, t.ID, t.HostID, t.BuyIn, t.MinPlayers, t.MaxPlayers, t.SmallBlind, t.BigBlind,
-		t.MinBalance, t.StartingChips, t.TimeBank, t.AutoStartDelay, time.Now())
+		t.MinBalance, t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, time.Now())
 	return err
 }
 
 func (db *DB) GetTable(ctx context.Context, id string) (*Table, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
-		       min_balance, starting_chips, timebank_ms, autostart_ms, created_at
+		       min_balance, starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
 		FROM tables WHERE id = ?
 	`, id)
 	var t Table
 	if err := row.Scan(&t.ID, &t.HostID, &t.BuyIn, &t.MinPlayers, &t.MaxPlayers, &t.SmallBlind, &t.BigBlind,
-		&t.MinBalance, &t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.CreatedAt); err != nil {
+		&t.MinBalance, &t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.AutoAdvanceMS, &t.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("table not found: %s", id)
 		}

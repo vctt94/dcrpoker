@@ -58,19 +58,20 @@ func NewUser(id, name string, dcrAccountBalance int64, seat int) *User {
 
 // TableConfig holds configuration for a new poker table
 type TableConfig struct {
-	ID             string
-	Log            slog.Logger
-	GameLog        slog.Logger
-	HostID         string
-	BuyIn          int64 // DCR amount required to join table (in atoms)
-	MinPlayers     int
-	MaxPlayers     int
-	SmallBlind     int64 // Poker chips amount for small blind
-	BigBlind       int64 // Poker chips amount for big blind
-	MinBalance     int64 // Minimum DCR account balance required (in atoms)
-	StartingChips  int64 // Poker chips each player starts with in the game
-	TimeBank       time.Duration
-	AutoStartDelay time.Duration // Delay before automatically starting next hand after showdown
+	ID               string
+	Log              slog.Logger
+	GameLog          slog.Logger
+	HostID           string
+	BuyIn            int64 // DCR amount required to join table (in atoms)
+	MinPlayers       int
+	MaxPlayers       int
+	SmallBlind       int64 // Poker chips amount for small blind
+	BigBlind         int64 // Poker chips amount for big blind
+	MinBalance       int64 // Minimum DCR account balance required (in atoms)
+	StartingChips    int64 // Poker chips each player starts with in the game
+	TimeBank         time.Duration
+	AutoStartDelay   time.Duration // Delay before automatically starting next hand after showdown
+	AutoAdvanceDelay time.Duration // Delay between streets when all players are all-in (must be > 0)
 }
 
 // TableEventManager handles notifications and state updates for table events
@@ -290,6 +291,9 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		if err := t.handleAutoStart(); err != nil {
 			t.log.Debugf("Auto-start check failed: %v, will retry on next trigger", err)
 		}
+	case GameEventGameOver:
+		t.log.Infof("Table received GameEventGameOver - winner: %s", event.WinnerID)
+		t.handleGameOver(event.WinnerID)
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
 	}
@@ -326,6 +330,24 @@ func (t *Table) handleAutoStart() error {
 	// Conditions met - start new hand
 	t.log.Debugf("Auto-start conditions met: starting new hand")
 	return t.startNewHand()
+}
+
+// handleGameOver is called when the game has ended (only one player has chips)
+func (t *Table) handleGameOver(winnerID string) {
+	t.log.Infof("Game over - winner: %s. Game will remain in SHOWDOWN state.", winnerID)
+
+	t.mu.RLock()
+	game := t.game
+	t.mu.RUnlock()
+
+	if game != nil {
+		game.mu.Lock()
+		game.cancelAutoStart()
+		game.mu.Unlock()
+		t.log.Debugf("Canceled auto-start timer due to game over")
+	}
+
+	// TODO: settle payouts, remove table, pay winner
 }
 
 // Thread-safe readiness check for state fns.
@@ -401,6 +423,11 @@ func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 
 // GetTableStateString returns a string representation of the current table state
 func (t *Table) GetTableStateString() string {
+	// Check if state machine is nil (table closed)
+	if t.sm == nil {
+		return "TERMINATED"
+	}
+
 	currentState := t.sm.Current()
 	if currentState == nil {
 		return "TERMINATED"
@@ -472,12 +499,13 @@ func (t *Table) StartGame() error {
 		gameLog = t.config.GameLog
 	}
 	g, err := NewGame(GameConfig{
-		NumPlayers:     len(active),
-		StartingChips:  t.config.StartingChips,
-		SmallBlind:     t.config.SmallBlind,
-		BigBlind:       t.config.BigBlind,
-		AutoStartDelay: t.config.AutoStartDelay,
-		Log:            gameLog,
+		NumPlayers:       len(active),
+		StartingChips:    t.config.StartingChips,
+		SmallBlind:       t.config.SmallBlind,
+		BigBlind:         t.config.BigBlind,
+		AutoStartDelay:   t.config.AutoStartDelay,
+		AutoAdvanceDelay: t.config.AutoAdvanceDelay,
+		Log:              gameLog,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create game: %w", err)
@@ -1214,14 +1242,18 @@ func (t *Table) RestoreGame(tableID string) (*Game, error) {
 	if tblCfg.GameLog != nil {
 		gameLog = tblCfg.GameLog
 	}
+	t.log.Debugf("RestoreGame: NumPlayers=%d, StartingChips=%d, SmallBlind=%d, BigBlind=%d, TimeBank=%v, AutoStartDelay=%v, AutoAdvanceDelay=%v",
+		len(t.users), tblCfg.StartingChips, tblCfg.SmallBlind, tblCfg.BigBlind, tblCfg.TimeBank, tblCfg.AutoStartDelay, tblCfg.AutoAdvanceDelay)
+
 	gCfg := GameConfig{
-		NumPlayers:     len(t.users),
-		StartingChips:  tblCfg.StartingChips,
-		SmallBlind:     tblCfg.SmallBlind,
-		BigBlind:       tblCfg.BigBlind,
-		TimeBank:       tblCfg.TimeBank,
-		AutoStartDelay: tblCfg.AutoStartDelay,
-		Log:            gameLog,
+		NumPlayers:       len(t.users),
+		StartingChips:    tblCfg.StartingChips,
+		SmallBlind:       tblCfg.SmallBlind,
+		BigBlind:         tblCfg.BigBlind,
+		TimeBank:         tblCfg.TimeBank,
+		AutoStartDelay:   tblCfg.AutoStartDelay,
+		AutoAdvanceDelay: tblCfg.AutoAdvanceDelay,
+		Log:              gameLog,
 	}
 	game, err := NewGame(gCfg)
 	if err != nil {

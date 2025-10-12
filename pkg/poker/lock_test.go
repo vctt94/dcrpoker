@@ -4,6 +4,7 @@ package poker
 
 import (
 	"testing"
+	"time"
 )
 
 // Test_LockOrdering_Assertions tests that mustHeld panics when lock is not held
@@ -42,11 +43,12 @@ func Test_LockOrdering_Assertions(t *testing.T) {
 // Test_BettingRound_MustHoldLock tests that maybeCompleteBettingRound requires g.mu
 func Test_BettingRound_MustHoldLock(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		SmallBlind:    10,
-		BigBlind:      20,
-		StartingChips: 1000,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		StartingChips:    1000,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -68,11 +70,12 @@ func Test_BettingRound_MustHoldLock(t *testing.T) {
 // Test_HandleMethods_HoldLock tests that handle* methods require g.mu
 func Test_HandleMethods_HoldLock(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		SmallBlind:    10,
-		BigBlind:      20,
-		StartingChips: 1000,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		StartingChips:    1000,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -121,28 +124,4 @@ func Test_HandleMethods_HoldLock(t *testing.T) {
 		}()
 		_ = game.handlePlayerBet("player1", 100) // Should panic
 	})
-}
-
-// Test_PotManager_RebuildRequiresLock tests that rebuildPotsIncremental requires pm.mu
-func Test_PotManager_RebuildRequiresLock(t *testing.T) {
-	pm := NewPotManager(2)
-
-	// Create dummy players
-	players := []*Player{
-		NewPlayer("p1", "Alice", 1000),
-		NewPlayer("p2", "Bob", 1000),
-	}
-	defer players[0].Close()
-	defer players[1].Close()
-
-	foldStatus := []bool{false, false}
-
-	// Try calling rebuildPotsIncremental without holding lock - should panic
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic when calling rebuildPotsIncremental without lock, but didn't panic")
-		}
-	}()
-
-	pm.rebuildPotsIncremental(players, foldStatus) // Should panic
 }

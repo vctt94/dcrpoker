@@ -220,6 +220,7 @@ message CreateTableRequest {
   int64 starting_chips = 8; // Poker chips each player starts with
   int32 time_bank_seconds = 9; // Player timeout in seconds (default: 30)
   int32 auto_start_ms = 10; // Auto-start delay between hands in ms (0 = disabled)
+  int32 auto_advance_ms = 11; // Auto-advance delay between streets when all-in in ms (must be > 0)
 }
 
 message CreateTableResponse {

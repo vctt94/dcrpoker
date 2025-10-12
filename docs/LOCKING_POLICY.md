@@ -11,13 +11,17 @@
 To prevent deadlocks, **all code MUST acquire locks in this strict order**:
 
 ```
-Table.mu → Game.mu → PotManager.mu → Player.mu
+Table.mu → Game.mu → Player.mu
 ```
+
+**IMPORTANT:** PotManager no longer has its own mutex. It is **FSM-only data** owned by the Game FSM.
+All PotManager operations MUST be called with `Game.mu` held (on the Game FSM thread).
 
 **Rules:**
 - ✅ **ALLOWED**: Acquire locks left-to-right in the hierarchy
 - ❌ **FORBIDDEN**: Acquire locks in reverse order or skip levels and go back
 - ⚠️  **NEVER** hold a higher-level lock while attempting to acquire a lower-level lock
+- ⚠️  **PotManager methods** assume `Game.mu` is held and will assert this in debug builds
 
 ### Examples
 
@@ -45,18 +49,16 @@ t.mu.Lock()  // DEADLOCK: violates hierarchy!
 defer t.mu.Unlock()
 ```
 
-**✅ CORRECT (Pre-compute before locking):**
+**✅ CORRECT (Game FSM owns PotManager - no separate lock):**
 ```go
-// Pre-compute Player data BEFORE acquiring PotManager lock
-foldStatus := make([]bool, len(players))
-for i, p := range players {
-    foldStatus[i] = p.HasFolded()  // acquires p.mu internally
+// PotManager methods require Game.mu held (Game FSM thread invariant)
+func (g *Game) AddPlayerBet(playerIndex int, amount int64) {
+    g.mu.Lock()
+    defer g.mu.Unlock()
+    
+    // PotManager has no lock - it's FSM-only data owned by Game
+    g.potManager.addBet(playerIndex, amount, g.players)
 }
-
-// Now safe to acquire PotManager lock
-pm.mu.Lock()
-defer pm.mu.Unlock()
-// Use pre-computed foldStatus here
 ```
 
 ---
@@ -263,27 +265,43 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 }
 ```
 
-### 5.2 Pre-compute Pattern (Avoid nested locks)
+### 5.2 FSM-Only Data Pattern (PotManager)
+
+**PotManager is FSM-only data with no mutex:**
 
 ```go
-func (pm *PotManager) AddBet(playerIndex int, amount int64, players []*Player) {
-    // PRE-COMPUTE all player state BEFORE acquiring pm.mu
+// REQUIRES: g.mu held (Game FSM thread)
+func (pm *PotManager) addBet(playerIndex int, amount int64, players []*Player) {
+    // Caller must hold g.mu - we trust this invariant
+    // Can safely read player state since caller holds Game.mu
     foldStatus := make([]bool, len(players))
-    allInStatus := make([]bool, len(players))
-    
     for i, p := range players {
         if p != nil {
-            foldStatus[i] = p.HasFolded()      // p.mu acquired internally
-            allInStatus[i] = p.IsAllIn()       // p.mu acquired internally
+            foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
         }
     }
     
-    // NOW safe to acquire pm.mu since we won't call back into players
-    pm.mu.Lock()
-    defer pm.mu.Unlock()
-    
+    // Modify pot state directly (no lock needed - owned by Game FSM)
     pm.currentBets[playerIndex] += amount
-    pm.rebuildPots(foldStatus, allInStatus)
+    pm.totalBets[playerIndex] += amount
+    pm.rebuildPotsIncremental(players, foldStatus)
+}
+```
+
+**Game FSM directly modifies player balances (no synchronous Credit() calls):**
+
+```go
+// REQUIRES: g.mu held (Game FSM thread)
+func (pm *PotManager) distributePots(players []*Player, foldStatus []bool, handValues []*HandValue) error {
+    for _, pot := range pm.pots {
+        // ... determine winners ...
+        
+        // Directly modify player.balance (Game FSM owns authoritative balance)
+        for _, idx := range winners {
+            players[idx].balance += pot.amount
+        }
+    }
+    return nil
 }
 ```
 
@@ -407,4 +425,5 @@ func (g *Game) methodA() {
 2. `-race` detector in CI
 3. Optional `-tags lockcheck` assertions
 4. Automated linter checks (future: custom linter for lock order)
+
 

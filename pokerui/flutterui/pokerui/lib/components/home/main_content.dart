@@ -365,10 +365,13 @@ class _PokerMainContentState extends State<PokerMainContent> {
                           final isRaise = currentBet > 0 && myBet < currentBet;
 
                           void seedDefault() {
-                            final seed = (bb * 3);
-                            final defAmt = (seed > currentBet) ? seed : currentBet;
-                            if (defAmt > 0) {
-                              _betCtrl.text = defAmt.toString();
+                            // Pre-fill with amount to ADD (not total)
+                            // Default: raise to 3x BB or minimum raise if facing a bet
+                            final defaultBet = (bb * 3);
+                            final targetTotal = (defaultBet > currentBet) ? defaultBet : currentBet;
+                            final amountToAdd = targetTotal - myBet;
+                            if (amountToAdd > 0) {
+                              _betCtrl.text = amountToAdd.toString();
                             }
                           }
 
@@ -381,14 +384,22 @@ class _PokerMainContentState extends State<PokerMainContent> {
                               );
                               return;
                             }
-                            // Let server validate, but pre-check to guide UX
-                            if (currentBet > 0 && amt < currentBet) {
+                            
+                            // Calculate total bet: user enters amount to ADD, server expects TOTAL
+                            // If raising, minimum raise is currentBet + (currentBet - myBet)
+                            // If opening bet, minimum is typically BB
+                            final totalBet = myBet + amt;
+                            
+                            // Pre-check: when facing a bet, total must be at least currentBet
+                            if (currentBet > 0 && totalBet < currentBet) {
+                              final minRaise = currentBet - myBet;
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Amount must be ≥ current bet ($currentBet)')),
+                                SnackBar(content: Text('Must add at least $minRaise to call ($currentBet total)')),
                               );
                               return;
                             }
-                            final ok = await model.makeBet(amt);
+                            
+                            final ok = await model.makeBet(totalBet);
                             if (!ok && model.errorMessage.isNotEmpty) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(content: Text(model.errorMessage)),
@@ -401,9 +412,11 @@ class _PokerMainContentState extends State<PokerMainContent> {
                           }
 
                           void setTo3xBB() {
-                            final amt = (bb * 3);
-                            final defAmt = (amt > currentBet) ? amt : currentBet;
-                            _betCtrl.text = defAmt.toString();
+                            // Set amount to ADD to reach 3x BB total
+                            final defaultBet = (bb * 3);
+                            final targetTotal = (defaultBet > currentBet) ? defaultBet : currentBet;
+                            final amountToAdd = targetTotal - myBet;
+                            _betCtrl.text = amountToAdd.toString();
                           }
 
                           if (!_showBetInput) {

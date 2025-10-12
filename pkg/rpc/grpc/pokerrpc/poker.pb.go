@@ -1310,6 +1310,7 @@ type CreateTableRequest struct {
 	StartingChips   int64                  `protobuf:"varint,8,opt,name=starting_chips,json=startingChips,proto3" json:"starting_chips,omitempty"`         // Poker chips each player starts with
 	TimeBankSeconds int32                  `protobuf:"varint,9,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"` // Player timeout in seconds (default: 30)
 	AutoStartMs     int32                  `protobuf:"varint,10,opt,name=auto_start_ms,json=autoStartMs,proto3" json:"auto_start_ms,omitempty"`            // Auto-start delay between hands in ms (0 = disabled)
+	AutoAdvanceMs   int32                  `protobuf:"varint,11,opt,name=auto_advance_ms,json=autoAdvanceMs,proto3" json:"auto_advance_ms,omitempty"`      // Auto-advance delay between streets when all-in in ms (must be > 0)
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1410,6 +1411,13 @@ func (x *CreateTableRequest) GetTimeBankSeconds() int32 {
 func (x *CreateTableRequest) GetAutoStartMs() int32 {
 	if x != nil {
 		return x.AutoStartMs
+	}
+	return 0
+}
+
+func (x *CreateTableRequest) GetAutoAdvanceMs() int32 {
+	if x != nil {
+		return x.AutoAdvanceMs
 	}
 	return 0
 }
@@ -3259,7 +3267,7 @@ const file_poker_proto_rawDesc = "" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12,\n" +
 	"\thand_rank\x18\x02 \x01(\x0e2\x0f.poker.HandRankR\bhandRank\x12(\n" +
 	"\tbest_hand\x18\x03 \x03(\v2\v.poker.CardR\bbestHand\x12\x1a\n" +
-	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\xe0\x02\n" +
+	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\x88\x03\n" +
 	"\x12CreateTableRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1f\n" +
 	"\vsmall_blind\x18\x02 \x01(\x03R\n" +
@@ -3275,7 +3283,8 @@ const file_poker_proto_rawDesc = "" +
 	"\x0estarting_chips\x18\b \x01(\x03R\rstartingChips\x12*\n" +
 	"\x11time_bank_seconds\x18\t \x01(\x05R\x0ftimeBankSeconds\x12\"\n" +
 	"\rauto_start_ms\x18\n" +
-	" \x01(\x05R\vautoStartMs\"0\n" +
+	" \x01(\x05R\vautoStartMs\x12&\n" +
+	"\x0fauto_advance_ms\x18\v \x01(\x05R\rautoAdvanceMs\"0\n" +
 	"\x13CreateTableResponse\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\"J\n" +
 	"\x10JoinTableRequest\x12\x1b\n" +

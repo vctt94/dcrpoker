@@ -63,7 +63,7 @@ go run cmd/client/main.go -server localhost:50052 -player my-player
 ### Run Tests
 
 ```
-go clean -testcache && go test -tags=lockcheck -v -race ./... -count=10 > test_output.log 2>&1
+go clean -testcache && go test -tags=lockcheck -v -race ./... -count=10 -timeout 300s > test_output.log 2>&1
 ```
 
 

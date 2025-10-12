@@ -389,6 +389,7 @@ const CreateTableRequest$json = {
     {'1': 'starting_chips', '3': 8, '4': 1, '5': 3, '10': 'startingChips'},
     {'1': 'time_bank_seconds', '3': 9, '4': 1, '5': 5, '10': 'timeBankSeconds'},
     {'1': 'auto_start_ms', '3': 10, '4': 1, '5': 5, '10': 'autoStartMs'},
+    {'1': 'auto_advance_ms', '3': 11, '4': 1, '5': 5, '10': 'autoAdvanceMs'},
   ],
 };
 
@@ -400,7 +401,8 @@ final $typed_data.Uint8List createTableRequestDescriptor = $convert.base64Decode
     'ptaW5QbGF5ZXJzEh8KC21pbl9iYWxhbmNlGAYgASgDUgptaW5CYWxhbmNlEhUKBmJ1eV9pbhgH'
     'IAEoA1IFYnV5SW4SJQoOc3RhcnRpbmdfY2hpcHMYCCABKANSDXN0YXJ0aW5nQ2hpcHMSKgoRdG'
     'ltZV9iYW5rX3NlY29uZHMYCSABKAVSD3RpbWVCYW5rU2Vjb25kcxIiCg1hdXRvX3N0YXJ0X21z'
-    'GAogASgFUgthdXRvU3RhcnRNcw==');
+    'GAogASgFUgthdXRvU3RhcnRNcxImCg9hdXRvX2FkdmFuY2VfbXMYCyABKAVSDWF1dG9BZHZhbm'
+    'NlTXM=');
 
 @$core.Deprecated('Use createTableResponseDescriptor instead')
 const CreateTableResponse$json = {

@@ -75,20 +75,25 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 	tblLog := s.logBackend.Logger("TABLE")
 	gameLog := s.logBackend.Logger("GAME")
 
+	timeBankDur := time.Duration(tcfg.TimebankMS) * time.Millisecond
+	autoStartDur := time.Duration(tcfg.AutoStartMS) * time.Millisecond
+	autoAdvanceDur := time.Duration(tcfg.AutoAdvanceMS) * time.Millisecond
+
 	cfg := poker.TableConfig{
-		ID:             tcfg.ID,
-		Log:            tblLog,
-		GameLog:        gameLog,
-		HostID:         tcfg.HostID,
-		BuyIn:          tcfg.BuyIn,
-		MinPlayers:     tcfg.MinPlayers,
-		MaxPlayers:     tcfg.MaxPlayers,
-		SmallBlind:     tcfg.SmallBlind,
-		BigBlind:       tcfg.BigBlind,
-		MinBalance:     tcfg.MinBalance,
-		StartingChips:  tcfg.StartingChips,
-		TimeBank:       time.Duration(tcfg.TimebankMS) * time.Millisecond,
-		AutoStartDelay: time.Duration(tcfg.AutoStartMS) * time.Millisecond,
+		ID:               tcfg.ID,
+		Log:              tblLog,
+		GameLog:          gameLog,
+		HostID:           tcfg.HostID,
+		BuyIn:            tcfg.BuyIn,
+		MinPlayers:       tcfg.MinPlayers,
+		MaxPlayers:       tcfg.MaxPlayers,
+		SmallBlind:       tcfg.SmallBlind,
+		BigBlind:         tcfg.BigBlind,
+		MinBalance:       tcfg.MinBalance,
+		StartingChips:    tcfg.StartingChips,
+		TimeBank:         timeBankDur,
+		AutoStartDelay:   autoStartDur,
+		AutoAdvanceDelay: autoAdvanceDur,
 	}
 
 	// 3) Create in-memory table
@@ -204,7 +209,6 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	if gs == nil {
 		return fmt.Errorf("invalid snapshot")
 	}
-
 	// Ensure a game instance is attached to the table and players are set
 	g, err := table.RestoreGame(table.GetConfig().ID)
 	if err != nil {
@@ -214,7 +218,7 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	g.SetPlayers(users)
 
 	// Restore community cards if any
-	if gs.CommunityCards != nil && len(gs.CommunityCards) > 0 {
+	if len(gs.CommunityCards) > 0 {
 		g.SetCommunityCards(gs.CommunityCards)
 	}
 

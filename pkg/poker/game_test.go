@@ -23,10 +23,11 @@ func createTestLogger() slog.Logger {
 
 func TestNewGame(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 1000, // Set to 1000 to match the expected balance
-		Seed:          42,   // Use a fixed seed for deterministic testing
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    1000, // Set to 1000 to match the expected balance
+		Seed:             42,   // Use a fixed seed for deterministic testing
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -74,9 +75,10 @@ func TestNewGame(t *testing.T) {
 
 func TestNewGameErrorsOnInvalidPlayers(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    1,
-		StartingChips: 100,
-		Log:           createTestLogger(),
+		NumPlayers:       1,
+		StartingChips:    100,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	_, err := NewGame(cfg)
@@ -90,12 +92,26 @@ func TestNewGameErrorsOnInvalidPlayers(t *testing.T) {
 	}
 }
 
+func TestNewGameErrorsOnMissingAutoAdvanceDelay(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		StartingChips:    100,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 0, // Invalid - must be > 0
+	}
+
+	_, err := NewGame(cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "AutoAdvanceDelay must be set")
+}
+
 func TestDealCards(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 100,
-		Seed:          42,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    100,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -145,9 +161,10 @@ func TestDealCards(t *testing.T) {
 
 func TestCommunityCards(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers: 2,
-		Seed:       42,
-		Log:        createTestLogger(),
+		NumPlayers:       2,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -207,9 +224,10 @@ func TestCommunityCards(t *testing.T) {
 func TestShowdown(t *testing.T) {
 	// Create a game with 2 players
 	cfg := GameConfig{
-		NumPlayers: 2,
-		Seed:       42,
-		Log:        createTestLogger(),
+		NumPlayers:       2,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -280,9 +298,10 @@ func TestShowdown(t *testing.T) {
 func TestTieBreakerShowdown(t *testing.T) {
 	// Create a game with 3 players
 	cfg := GameConfig{
-		NumPlayers: 3,
-		Seed:       42,
-		Log:        createTestLogger(),
+		NumPlayers:       3,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -362,7 +381,12 @@ func TestTieBreakerShowdown(t *testing.T) {
 
 // Split pot: Board makes the best five-card hand for both players.
 func TestSplitPotShowdown(t *testing.T) {
-	cfg := GameConfig{NumPlayers: 2, Seed: 1, Log: createTestLogger()}
+	cfg := GameConfig{
+		NumPlayers:       2,
+		Seed:             1,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
 	game, err := NewGame(cfg)
 	require.NoError(t, err)
 
@@ -412,7 +436,12 @@ func TestSplitPotShowdown(t *testing.T) {
 
 // Side pot: p3 all-in short, p1/p2 create side pot; winners differ per pot.
 func TestSidePotShowdown(t *testing.T) {
-	cfg := GameConfig{NumPlayers: 3, Seed: 1, Log: createTestLogger()}
+	cfg := GameConfig{
+		NumPlayers:       3,
+		Seed:             1,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
 	game, err := NewGame(cfg)
 	require.NoError(t, err)
 
@@ -466,8 +495,22 @@ func TestSidePotShowdown(t *testing.T) {
 
 	// Pots are automatically built on each bet, no need to call BuildPotsFromTotals
 
-	// Distribute pots
+	// Pre-compute player state
+	foldStatus := make([]bool, len(game.players))
+	handValues := make([]*HandValue, len(game.players))
+	for i, p := range game.players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			handValues[i] = p.handValue
+			p.mu.RUnlock()
+		}
+	}
+
+	// Distribute pots - now requires game.mu held (Game FSM thread invariant)
+	game.mu.Lock()
 	game.potManager.distributePots(game.players)
+	game.mu.Unlock()
 
 	// Expected: p3 gets 90 (main), p1 gets 40 (side)
 	if game.players[2].Balance() != 90 {
@@ -483,12 +526,13 @@ func TestSidePotShowdown(t *testing.T) {
 
 func TestAutoStartOnNewHandStarted(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:     2,
-		StartingChips:  1000,
-		SmallBlind:     10,
-		BigBlind:       20,
-		AutoStartDelay: 10 * time.Millisecond,
-		Log:            createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    1000,
+		SmallBlind:       10,
+		BigBlind:         20,
+		AutoStartDelay:   10 * time.Millisecond,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 	game, err := NewGame(cfg)
 	require.NoError(t, err)
@@ -524,14 +568,15 @@ func TestAutoStartOnNewHandStarted(t *testing.T) {
 // without panicking.
 func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:     2,
-		StartingChips:  100,
-		SmallBlind:     10,
-		BigBlind:       20,
-		Seed:           1,
-		AutoStartDelay: 0,
-		TimeBank:       0,
-		Log:            createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    100,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             1,
+		AutoStartDelay:   0,
+		TimeBank:         0,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 	game, err := NewGame(cfg)
 	require.NoError(t, err)
@@ -604,12 +649,13 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 // Ensure auto-start sends event even when players have short stacks (>0 chips).
 func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:     2,
-		StartingChips:  0,
-		SmallBlind:     10,
-		BigBlind:       20,
-		AutoStartDelay: 10 * time.Millisecond,
-		Log:            createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    0,
+		SmallBlind:       10,
+		BigBlind:         20,
+		AutoStartDelay:   10 * time.Millisecond,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 	game, err := NewGame(cfg)
 	require.NoError(t, err)
@@ -645,11 +691,12 @@ func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 // their HasBet is NOT force-set to currentBet.
 func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 15, // SB starts with 15, will post 10 as SB, leaving 5
-		SmallBlind:    10,
-		BigBlind:      20,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    15, // SB starts with 15, will post 10 as SB, leaving 5
+		SmallBlind:       10,
+		BigBlind:         20,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 	g, err := NewGame(cfg)
 	require.NoError(t, err)
@@ -711,8 +758,15 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	assert.Equal(t, int64(15), sbPlayerAfter.CurrentBet, "SB should have currentBet of 15 (10 SB + 5 call)")
 	assert.Contains(t, sbPlayerAfter.StateString, "ALL_IN", "SB should be in ALL_IN state")
 
-	// The table-wide currentBet should remain 20 (the BB)
-	assert.Equal(t, int64(20), g.GetCurrentBet(), "Table currentBet should remain 20")
+	// With auto-advance enabled, when one player is all-in and can't match,
+	// the betting round completes and advances to FLOP, resetting currentBet to 0
+	// Wait for FLOP to be reached
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "Game should advance to FLOP")
+
+	// After advancing to FLOP, currentBet is reset to 0
+	assert.Equal(t, int64(0), g.GetCurrentBet(), "Table currentBet should be 0 after advancing to FLOP")
 }
 
 // Verifies that a timeout-triggered fold completes the round to SHOWDOWN and auto-starts a new hand,
@@ -770,12 +824,13 @@ func TestTimeoutCompletesShowdownAndAutoStarts(t *testing.T) {
 func TestIsTurnFlagManagement(t *testing.T) {
 	// Create a heads-up game
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 1000,
-		SmallBlind:    5,
-		BigBlind:      10,
-		Seed:          42,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    1000,
+		SmallBlind:       5,
+		BigBlind:         10,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -872,12 +927,13 @@ func TestIsTurnFlagManagement(t *testing.T) {
 // TestIsTurnFlagOnFold verifies that isTurn is cleared when a player folds
 func TestIsTurnFlagOnFold(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    3,
-		StartingChips: 1000,
-		SmallBlind:    5,
-		BigBlind:      10,
-		Seed:          42,
-		Log:           createTestLogger(),
+		NumPlayers:       3,
+		StartingChips:    1000,
+		SmallBlind:       5,
+		BigBlind:         10,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -966,12 +1022,13 @@ func TestIsTurnFlagOnFold(t *testing.T) {
 // TestIsTurnFlagOnCheck verifies that isTurn is managed correctly on check
 func TestIsTurnFlagOnCheck(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 1000,
-		SmallBlind:    5,
-		BigBlind:      10,
-		Seed:          42,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    1000,
+		SmallBlind:       5,
+		BigBlind:         10,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
@@ -1066,12 +1123,13 @@ func TestIsTurnFlagOnCheck(t *testing.T) {
 // Verify that GetStateSnapshot copies blind flags for players.
 func TestGameStateSnapshotCopiesBlindFlags(t *testing.T) {
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 100,
-		SmallBlind:    10,
-		BigBlind:      20,
-		Seed:          1,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    100,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             1,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	g, err := NewGame(cfg)
@@ -1127,12 +1185,13 @@ func TestShowdownBugReproduction(t *testing.T) {
 	// and verify that the bug is fixed
 	// Create a game with the exact scenario from the logs
 	config := GameConfig{
-		NumPlayers:     2,
-		StartingChips:  1000, // Will be overridden per player
-		SmallBlind:     10,
-		BigBlind:       20,
-		AutoStartDelay: 0, // Start immediately, no delay
-		Log:            createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    1000, // Will be overridden per player
+		SmallBlind:       10,
+		BigBlind:         20,
+		AutoStartDelay:   0, // Start immediately, no delay
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	// Create game first
@@ -1374,12 +1433,13 @@ func TestShowdownBugReproduction(t *testing.T) {
 func TestShowdownTotalPotBug(t *testing.T) {
 	// Create a game with 2 players
 	cfg := GameConfig{
-		NumPlayers:    2,
-		StartingChips: 1000,
-		SmallBlind:    10,
-		BigBlind:      20,
-		Seed:          42,
-		Log:           createTestLogger(),
+		NumPlayers:       2,
+		StartingChips:    1000,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	game, err := NewGame(cfg)
