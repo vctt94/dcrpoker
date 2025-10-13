@@ -45,6 +45,8 @@ type PlayerSnapshot struct {
 	HasFolded         bool
 	IsAllIn           bool
 	IsDealer          bool
+	IsSmallBlind      bool
+	IsBigBlind        bool
 	IsTurn            bool
 	GameState         string
 	HandDescription   string
@@ -193,7 +195,11 @@ func (w *eventWorker) run() {
 			w.processor.log.Debugf("Event worker %d stopping (processor shutdown)", w.id)
 			return
 
-		case event := <-w.processor.queue:
+		case event, ok := <-w.processor.queue:
+			if !ok {
+				w.processor.log.Debugf("Event worker %d exiting: queue closed", w.id)
+				return
+			}
 			if event != nil {
 				w.processEvent(event)
 			}

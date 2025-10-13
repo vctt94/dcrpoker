@@ -1,52 +1,75 @@
 package server
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/decred/slog"
+	"github.com/stretchr/testify/require"
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
+	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server/internal/db"
 )
 
 // ---------- Test scaffolding ---------- //
+
 // stubDB is a minimal in-memory implementation of the Database interface used only for these unit tests.
 type stubDB struct{}
 
-func (stubDB) GetPlayerBalance(string) (int64, error)                  { return 0, nil }
-func (stubDB) UpdatePlayerBalance(string, int64, string, string) error { return nil }
-func (stubDB) SaveTableState(*db.TableState) error                     { return nil }
-func (stubDB) LoadTableState(string) (*db.TableState, error)           { return nil, nil }
-func (stubDB) DeleteTableState(string) error                           { return nil }
-func (stubDB) SavePlayerState(string, *db.PlayerState) error           { return nil }
-func (stubDB) SaveSnapshot(*db.TableState, []*db.PlayerState) error    { return nil }
-func (stubDB) LoadPlayerStates(string) ([]*db.PlayerState, error)      { return nil, nil }
-func (stubDB) DeletePlayerState(string, string) error                  { return nil }
-func (stubDB) GetAllTableIDs() ([]string, error)                       { return nil, nil }
-func (stubDB) Close() error                                            { return nil }
+// --- Players / wallet ---
+func (stubDB) GetPlayerBalance(ctx context.Context, _ string) (int64, error) { return 0, nil }
+func (stubDB) UpdatePlayerBalance(ctx context.Context, _ string, _ int64, _ string, _ string) error {
+	return nil
+}
+
+func (stubDB) GetSnapshot(ctx context.Context, _ string) (*db.Snapshot, error) {
+	return nil, nil
+}
+
+// --- Tables (only what tests may touch indirectly) ---
+func (stubDB) GetTable(ctx context.Context, id string) (*db.Table, error) {
+	return &db.Table{ID: id}, nil
+}
+func (stubDB) DeleteTable(ctx context.Context, _ string) error    { return nil }
+func (stubDB) ListTableIDs(ctx context.Context) ([]string, error) { return nil, nil }
+
+// --- Participants ---
+func (stubDB) ActiveParticipants(ctx context.Context, _ string) ([]db.Participant, error) {
+	return nil, nil
+}
+func (stubDB) SeatPlayer(ctx context.Context, _ string, _ string, _ int) error { return nil }
+func (stubDB) UnseatPlayer(ctx context.Context, _ string, _ string) error      { return nil }
+
+// --- Snapshots (fast-restore cache) ---
+func (stubDB) UpsertSnapshot(ctx context.Context, _ db.Snapshot) error   { return nil }
+func (stubDB) UpsertTable(_ context.Context, _ *poker.TableConfig) error { return nil }
+
+// --- Close ---
+func (stubDB) Close() error { return nil }
 
 // newBareServer returns a minimal Server suitable for snapshot tests.
 func newBareServer() *Server {
 	return &Server{
-		log:    slog.Disabled,
-		db:     stubDB{},
-		tables: make(map[string]*poker.Table),
+		log: slog.Disabled,
+		db:  stubDB{},
 	}
 }
 
 // helper to build a 2-player table already in GAME_ACTIVE phase.
 func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 	cfg := poker.TableConfig{
-		ID:            id,
-		Log:           slog.Disabled,
-		HostID:        "p1",
-		BuyIn:         0,
-		MinPlayers:    2,
-		MaxPlayers:    2,
-		SmallBlind:    10,
-		BigBlind:      20,
-		StartingChips: 1000,
-		TimeBank:      30 * time.Second,
+		ID:               id,
+		Log:              slog.Disabled,
+		HostID:           "p1",
+		BuyIn:            0,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		StartingChips:    1000,
+		TimeBank:         30 * time.Second,
+		AutoAdvanceDelay: 1 * time.Second,
 	}
 
 	table := poker.NewTable(cfg)
@@ -79,15 +102,25 @@ func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 func TestGameSnapshotCurrentBet(t *testing.T) {
 	s := newBareServer()
 	table := buildActiveHeadsUpTable(t, "table_test")
-	s.tables[table.GetConfig().ID] = table
+	s.tables.Store(table.GetConfig().ID, table)
+
+	// Wait until PRE_FLOP with blinds posted.
+	require.Eventually(t, func() bool {
+		g := table.GetGame()
+		if g == nil {
+			return false
+		}
+		if g.GetPhase() != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		snap := g.GetStateSnapshot()
+		return snap.CurrentBet == table.GetConfig().BigBlind
+	}, 2*time.Second, 10*time.Millisecond, "game did not reach PRE_FLOP with blinds posted")
 
 	snap, err := s.collectTableSnapshot(table.GetConfig().ID)
-	if err != nil {
-		t.Fatalf("snapshot err: %v", err)
-	}
-	if snap.GameSnapshot == nil {
-		t.Fatal("GameSnapshot nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, snap.GameSnapshot)
+
 	got, want := snap.GameSnapshot.CurrentBet, table.GetConfig().BigBlind
 	if got != want {
 		t.Fatalf("CurrentBet mismatch: got %d want %d", got, want)

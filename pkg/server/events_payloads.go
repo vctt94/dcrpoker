@@ -52,13 +52,13 @@ type CallMadePayload struct {
 func (CallMadePayload) Kind() pokerrpc.NotificationType { return pokerrpc.NotificationType_CALL_MADE }
 
 type CheckMadePayload struct {
-	PlayerID string
+    PlayerID string
 }
 
 func (CheckMadePayload) Kind() pokerrpc.NotificationType { return pokerrpc.NotificationType_CHECK_MADE }
 
 type PlayerFoldedPayload struct {
-	PlayerID string
+    PlayerID string
 }
 
 func (PlayerFoldedPayload) Kind() pokerrpc.NotificationType {
@@ -96,5 +96,16 @@ type PlayerLeftPayload struct {
 }
 
 func (PlayerLeftPayload) Kind() pokerrpc.NotificationType {
-	return pokerrpc.NotificationType_PLAYER_LEFT
+    return pokerrpc.NotificationType_PLAYER_LEFT
+}
+
+// PlayerAllInPayload announces that a player has gone all-in and the amount
+// they just committed in the action that caused it.
+type PlayerAllInPayload struct {
+    PlayerID string
+    Amount   int64
+}
+
+func (PlayerAllInPayload) Kind() pokerrpc.NotificationType {
+    return pokerrpc.NotificationType_PLAYER_ALL_IN
 }

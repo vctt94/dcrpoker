@@ -224,9 +224,11 @@ type DeckState struct {
 
 // GetState returns the current state of the deck for persistence
 func (d *Deck) GetState() *DeckState {
-	return &DeckState{
-		RemainingCards: d.cards,
-	}
+    cards := make([]Card, len(d.cards))
+    copy(cards, d.cards)
+    return &DeckState{
+        RemainingCards: cards,
+    }
 }
 
 // RestoreState restores the deck from a saved state

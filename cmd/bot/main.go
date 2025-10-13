@@ -127,7 +127,7 @@ func realMain() error {
 				userID.String())
 
 			// Update player balance
-			err := db.UpdatePlayerBalance(userID.String(), int64(tip.AmountMatoms/1e3),
+			err := db.UpdatePlayerBalance(ctx, userID.String(), int64(tip.AmountMatoms/1e3),
 				"tip", "Received tip from user")
 			if err != nil {
 				log.Errorf("Failed to update player balance: %v", err)

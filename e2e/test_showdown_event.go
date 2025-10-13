@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"fmt"
@@ -152,20 +152,18 @@ func main() {
 		fmt.Printf("Player2 check failed: %v\n", err)
 	}
 
-	// Trigger phase advancement to reach showdown
-	fmt.Println("Advancing phase to trigger showdown...")
-	table.MaybeAdvancePhase()
-
+	// Phase advancement now happens automatically via Game FSM events to Table
 	// Give the event processing goroutine time to process
-	time.Sleep(100 * time.Millisecond)
+	fmt.Println("Waiting for betting round completion and showdown...")
+	time.Sleep(200 * time.Millisecond)
 
 	// Debug: Check final state
 	if game != nil {
 		fmt.Printf("Final game phase: %v\n", game.GetPhase())
 		fmt.Printf("Actions in round: %d\n", game.GetActionsInRound())
 		fmt.Printf("Community cards: %d\n", len(game.GetCommunityCards()))
-		fmt.Printf("Player1 hand: %d cards\n", len(game.GetPlayers()[0].Hand))
-		fmt.Printf("Player2 hand: %d cards\n", len(game.GetPlayers()[1].Hand))
+		fmt.Printf("Player1 hand: %d cards\n", len(game.GetCurrentHand().GetPlayerCards("player1", "player1")))
+		fmt.Printf("Player2 hand: %d cards\n", len(game.GetCurrentHand().GetPlayerCards("player2", "player2")))
 	}
 
 	// Check if event was published

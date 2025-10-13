@@ -2,6 +2,7 @@ package poker
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9,184 +10,179 @@ import (
 
 // These tests ensure the state machine preserves fold status correctly.
 func TestPlayerStateMachine_FoldRegression(t *testing.T) {
-	// Test to prevent regression of the bug where HasFolded was being reset to false
-	// by the state machine after setting it to true
-
-	// Create a player
 	player := NewPlayer("test-player", "Test Player", 1000)
-	require.NotNil(t, player)
+	t.Cleanup(player.Close)
 
-	// Player starts in AT_TABLE state
-	assert.Equal(t, "AT_TABLE", player.GetCurrentStateString())
-	assert.False(t, player.GetCurrentStateString() == "FOLDED", "Player should not be folded initially")
+	require.Equal(t, "AT_TABLE", player.GetCurrentStateString())
 
-	// Simulate player folding during a game
-	player.stateMachine.Dispatch(playerStateFolded)
+	require.NoError(t, player.StartHandParticipation()) // move to IN_GAME
+	reply := make(chan error, 1)
+	player.handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
 
-	// The critical test: when the state machine runs, it should NOT reset HasFolded to false
-	// This simulates what happens when playerStateAtTable is called after a fold
-	player.stateMachine.Dispatch(player.stateMachine.GetCurrentState())
+	require.Equal(t, "FOLDED", player.GetCurrentStateString())
 
-	// After the state machine dispatch, the player should:
-	// 1. Still be marked as folded
-	// 2. Have transitioned to FOLDED state
-	assert.True(t, player.GetCurrentStateString() == "FOLDED", "Player should remain folded after state machine dispatch")
-	assert.Equal(t, "FOLDED", player.GetCurrentStateString(), "Player should be in FOLDED state")
+	assert.Equal(t, "FOLDED", player.GetCurrentStateString())
 }
 
 func TestPlayerStateMachine_FoldStateTransition(t *testing.T) {
-	// Test that folding properly transitions the player to FOLDED state
-
 	player := NewPlayer("test-player", "Test Player", 1000)
+	t.Cleanup(player.Close)
 
-	// Start in IN_GAME state
-	player.SetGameState("IN_GAME")
-	assert.Equal(t, "IN_GAME", player.GetCurrentStateString())
-	assert.False(t, player.GetCurrentStateString() == "FOLDED")
+	// Move to IN_GAME and wait for FSM
+	require.NoError(t, player.StartHandParticipation())
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == "IN_GAME"
+	}, 200*time.Millisecond, 10*time.Millisecond)
 
-	// Simulate fold action
-	player.stateMachine.Dispatch(playerStateFolded)
+	// Fold and wait for FOLDED
+	reply := make(chan error, 1)
+	player.handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+	require.Equal(t, "FOLDED", player.GetCurrentStateString())
 
-	// State machine should transition to FOLDED
-
-	assert.True(t, player.GetCurrentStateString() == "FOLDED", "Player should be folded")
-	assert.Equal(t, "FOLDED", player.GetCurrentStateString(), "Player should be in FOLDED state")
+	assert.Equal(t, "FOLDED", player.GetCurrentStateString())
 }
 
 func TestPlayerStateMachine_FoldStatePersistence(t *testing.T) {
-	// Test that once in FOLDED state, the fold flag persists through multiple state machine steps
-
 	player := NewPlayer("test-player", "Test Player", 1000)
+	t.Cleanup(player.Close)
 
-	// Transition to folded state
-	player.stateMachine.Dispatch(playerStateFolded)
+	// Start hand first (folding at table is usually invalid)
+	require.NoError(t, player.StartHandParticipation())
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == "IN_GAME"
+	}, 200*time.Millisecond, 10*time.Millisecond)
 
-	assert.True(t, player.GetCurrentStateString() == "FOLDED", "Player should be folded")
-	assert.Equal(t, "FOLDED", player.GetCurrentStateString(), "Player should be in FOLDED state")
+	// Fold and confirm
+	reply := make(chan error, 1)
+	player.handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+	require.Equal(t, "FOLDED", player.GetCurrentStateString())
 
-	// Run state machine multiple times - fold should persist
+	// Persistency check (no extra helper needed)
 	for i := 0; i < 5; i++ {
-		assert.True(t, player.GetCurrentStateString() == "FOLDED", "Player should remain folded after dispatch %d", i+1)
-		assert.Equal(t, "FOLDED", player.GetCurrentStateString(), "Player should remain in FOLDED state after dispatch %d", i+1)
+		assert.Equalf(t, "FOLDED", player.GetCurrentStateString(),
+			"dispatch %d: should remain FOLDED", i+1)
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
-func TestPlayerStateMachine_UnfoldTransition(t *testing.T) {
-	// Test that clearing the fold flag transitions player out of FOLDED state
-
+// TestPlayerStateMachine_FoldTransition verifies that a player can transition from IN_GAME to FOLDED state.
+func TestPlayerStateMachine_FoldTransition(t *testing.T) {
 	player := NewPlayer("test-player", "Test Player", 1000)
+	t.Cleanup(player.Close)
 
-	// Get to folded state
-	player.stateMachine.Dispatch(playerStateFolded)
+	// Start a hand first
+	require.NoError(t, player.StartHandParticipation())
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == "IN_GAME"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+
+	// Fold
+	reply := make(chan error, 1)
+	player.handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+	require.Equal(t, "FOLDED", player.GetCurrentStateString())
+
+	// Verify player is in folded state
 	assert.Equal(t, "FOLDED", player.GetCurrentStateString())
-
-	// Clear fold flag (simulate new hand)
-	player.stateMachine.Dispatch(playerStateAtTable)
-
-	assert.False(t, player.GetCurrentStateString() == "FOLDED", "Player should not be folded")
-	assert.Equal(t, "AT_TABLE", player.GetCurrentStateString(), "Player should be back in AT_TABLE state")
 }
 
 func TestPlayerStateMachine_FoldFromDifferentStates(t *testing.T) {
 	type tc struct {
 		name                 string
 		setup                func(p *Player)
+		expectPreFoldState   string // state we must reach before sending evFold
 		expectStateAfterFold string
-		expectHasFolded      bool
 	}
 
 	tests := []tc{
 		{
-			name: "Fold from AT_TABLE",
+			name: "Fold from AT_TABLE (ignored)",
 			setup: func(p *Player) {
-				p.SetGameState("AT_TABLE")
+				// already AT_TABLE; do nothing
 			},
-			expectStateAfterFold: "FOLDED",
-			expectHasFolded:      true,
+			expectPreFoldState:   "AT_TABLE",
+			expectStateAfterFold: "AT_TABLE",
 		},
 		{
 			name: "Fold from IN_GAME",
 			setup: func(p *Player) {
-				p.SetGameState("IN_GAME")
+				p.StartHandParticipation()
 			},
+			expectPreFoldState:   "IN_GAME",
 			expectStateAfterFold: "FOLDED",
-			expectHasFolded:      true,
 		},
 		{
 			name: "Fold from ALL_IN (ignored)",
 			setup: func(p *Player) {
-				// Set up all-in conditions: balance = 0 and has bet
-				p.Balance = 0
-				p.HasBet = 100
-				p.SetGameState("IN_GAME")
-				p.stateMachine.Dispatch(playerStateAllIn)
+				// Prepare all-in BEFORE starting the hand so the loop sees it quickly.
+				p.balance = 0
+				p.currentBet = 100
+				p.HandleStartHand() // Use HandleStartHand to check all-in condition
 			},
-			// Folding while all-in should be ignored; remain in ALL_IN.
+			expectPreFoldState:   "ALL_IN",
 			expectStateAfterFold: "ALL_IN",
-			expectHasFolded:      false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			player := NewPlayer("test-player", "Test Player", 1000)
+			p := NewPlayer("test-player", "Test Player", 1000)
+			t.Cleanup(p.Close)
 
-			tt.setup(player)
+			// 1) Drive to the pre-fold state and wait (Pike loop is async)
+			tt.setup(p)
+			// Give a bit more time for state machine to initialize
+			time.Sleep(50 * time.Millisecond)
+			require.Eventually(t, func() bool {
+				return p.GetCurrentStateString() == tt.expectPreFoldState
+			}, 500*time.Millisecond, 10*time.Millisecond, "did not reach pre-fold state %s (got %s)", tt.expectPreFoldState, p.GetCurrentStateString())
 
-			// Act: attempt to fold
-			player.stateMachine.Dispatch(playerStateFolded)
+			// 2) Send fold (only if hand participation is active)
+			if p.handParticipation != nil {
+				reply := make(chan error, 1)
+				p.handParticipation.Send(evFoldReq{Reply: reply})
+				<-reply
+			}
 
-			// Assert
-			assert.Equal(t, tt.expectStateAfterFold, player.GetCurrentStateString())
-			assert.Equal(t, tt.expectHasFolded, player.GetCurrentStateString() == "FOLDED")
+			// 3) Wait for expected post-fold state
+			require.Eventually(t, func() bool {
+				return p.GetCurrentStateString() == tt.expectStateAfterFold
+			}, 300*time.Millisecond, 10*time.Millisecond, "after fold, wanted %s; got %s", tt.expectStateAfterFold, p.GetCurrentStateString())
+
+			assert.Equal(t, tt.expectStateAfterFold, p.GetCurrentStateString())
+			// “has folded” is equivalent to being in FOLDED state:
+			assert.Equal(t, tt.expectStateAfterFold == "FOLDED", p.GetCurrentStateString() == "FOLDED")
 		})
 	}
 }
 
 func TestResetForNewHand_ClearsFoldState(t *testing.T) {
-	// Test that ResetForNewHand properly clears fold state for a new hand
-
 	player := NewPlayer("test-player", "Test Player", 1000)
+	t.Cleanup(player.Close)
 
-	// Fold player
-	player.stateMachine.Dispatch(playerStateFolded)
+	// Must start hand participation and be IN_GAME before we can fold
+	require.NoError(t, player.StartHandParticipation())
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == "IN_GAME"
+	}, 200*time.Millisecond, 10*time.Millisecond)
+
+	// Fold and wait for FOLDED
+	reply := make(chan error, 1)
+	player.handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+	require.Equal(t, "FOLDED", player.GetCurrentStateString())
 	assert.Equal(t, "FOLDED", player.GetCurrentStateString())
 
-	// Reset for new hand
-	player.ResetForNewHand(1000)
+	// Reset for new hand and start hand participation again
+	require.NoError(t, player.ResetForNewHand(1000))
+	require.NoError(t, player.StartHandParticipation())
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == "IN_GAME"
+	}, 200*time.Millisecond, 10*time.Millisecond)
 
-	// Fold state should be cleared
-	assert.False(t, player.GetCurrentStateString() == "FOLDED", "Player should not be folded after new hand reset")
+	assert.NotEqual(t, "FOLDED", player.GetCurrentStateString(), "Player should not be folded after new hand reset")
 	assert.Equal(t, "IN_GAME", player.GetCurrentStateString(), "Player should be in IN_GAME state after reset")
-}
-
-func TestTryFold_AllowsFoldWhenNotAllIn(t *testing.T) {
-	// Test that TryFold allows folding when player is not all-in
-
-	player := NewPlayer("test-player", "Test Player", 1000)
-	player.SetGameState("IN_GAME")
-	player.stateMachine.Dispatch(playerStateInGame)
-
-	// TryFold should succeed
-	success := player.TryFold()
-	assert.True(t, success, "TryFold should succeed when not all-in")
-	assert.True(t, player.GetCurrentStateString() == "FOLDED", "Player should be folded")
-	assert.Equal(t, "FOLDED", player.GetCurrentStateString(), "Player should be in FOLDED state")
-}
-
-func TestTryFold_PreventsFoldWhenAllIn(t *testing.T) {
-	// Test that TryFold prevents folding when player is all-in
-
-	player := NewPlayer("test-player", "Test Player", 1000)
-	// Set up all-in conditions: balance = 0 and has bet
-	player.Balance = 0
-	player.HasBet = 100
-	player.SetGameState("IN_GAME")
-	player.stateMachine.Dispatch(playerStateAllIn)
-
-	// TryFold should fail
-	success := player.TryFold()
-	assert.False(t, success, "TryFold should fail when all-in")
-	assert.False(t, player.GetCurrentStateString() == "FOLDED", "Player should not be folded")
-	assert.Equal(t, "ALL_IN", player.GetCurrentStateString(), "Player should remain in ALL_IN state")
 }

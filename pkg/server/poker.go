@@ -12,47 +12,50 @@ import (
 )
 
 func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream pokerrpc.PokerService_StartGameStreamServer) error {
-	// Register the stream
-	s.gameStreamsMu.Lock()
-	if s.gameStreams[req.TableId] == nil {
-		s.gameStreams[req.TableId] = make(map[string]pokerrpc.PokerService_StartGameStreamServer)
-	}
-	s.gameStreams[req.TableId][req.PlayerId] = stream
-	s.gameStreamsMu.Unlock()
+	tableID, playerID := req.TableId, req.PlayerId
 
-	// Remove stream when done
+	// Get or create the table bucket (single step).
+	bAny, _ := s.gameStreams.LoadOrStore(tableID, &bucket{})
+	b := bAny.(*bucket)
+
+	// Register player stream. If a stream already exists for this player,
+	// replace it with the newest one without incrementing the count. This
+	// ensures the most recent attachment (e.g., Flutter UI) receives updates
+	// and avoids starving newer clients when multiple components attach.
+	if _, loaded := b.streams.Load(playerID); loaded {
+		b.streams.Store(playerID, stream)
+	} else {
+		b.streams.Store(playerID, stream)
+		b.count.Add(1)
+	}
+
+	// Unregister on exit only if this goroutine still owns the stored stream.
+	// This prevents a replaced (older) stream from deleting the newer mapping.
 	defer func() {
-		s.gameStreamsMu.Lock()
-		if tableStreams, exists := s.gameStreams[req.TableId]; exists {
-			delete(tableStreams, req.PlayerId)
-			if len(tableStreams) == 0 {
-				delete(s.gameStreams, req.TableId)
+		if v, present := b.streams.Load(playerID); present && v == stream {
+			b.streams.Delete(playerID)
+			if b.count.Add(-1) == 0 {
+				// Remove this bucket iff it's still the same one we used.
+				s.gameStreams.CompareAndDelete(tableID, b)
 			}
 		}
-		s.gameStreamsMu.Unlock()
 	}()
 
-	// Send initial game state
-	gameState, err := s.buildGameState(req.TableId, req.PlayerId)
+	// Send initial game state.
+	gs, err := s.buildGameState(tableID, playerID)
 	if err != nil {
 		return err
 	}
-
-	if err := stream.Send(gameState); err != nil {
+	if err := stream.Send(gs); err != nil {
 		return err
 	}
 
-	// Keep stream open and wait for context cancellation
-	// Game state updates will be sent via the notification system when events occur
-	ctx := stream.Context()
-	<-ctx.Done()
+	<-stream.Context().Done()
 	return nil
 }
 
 func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*pokerrpc.MakeBetResponse, error) {
-	s.mu.RLock()
-	table, ok := s.tables[req.TableId]
-	s.mu.RUnlock()
+	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
@@ -61,21 +64,40 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
 	}
 
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
+	// Snapshot previous balance to compute contributed amount on all-in
+	var prevBalance int64
+	if game := table.GetGame(); game != nil {
+		for _, p := range game.GetPlayers() {
+			if p.ID() == req.PlayerId {
+				prevBalance = p.Balance()
+				break
+			}
+		}
 	}
 
 	if err := table.MakeBet(req.PlayerId, req.Amount); err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	// Publish typed BET_MADE event
+	// Determine the actual absolute bet the server accepted for this player
+	// (it may be lower than the requested amount due to stack limits/all-in).
+	var acceptedAmount int64 = req.Amount
+	if game := table.GetGame(); game != nil {
+		for _, p := range game.GetPlayers() {
+			if p.ID() == req.PlayerId {
+				acceptedAmount = p.CurrentBet()
+				break
+			}
+		}
+	}
+
+	// Publish BET_MADE event with the accepted amount
 	if evt, err := s.buildGameEvent(
 		pokerrpc.NotificationType_BET_MADE,
 		req.TableId,
 		BetMadePayload{
 			PlayerID: req.PlayerId,
-			Amount:   req.Amount,
+			Amount:   acceptedAmount,
 		},
 	); err == nil {
 		s.eventProcessor.PublishEvent(evt)
@@ -83,8 +105,32 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 		s.log.Errorf("Failed to build BET_MADE event: %v", err)
 	}
 
+	// If this action took the player all-in, emit a dedicated ALL_IN event.
+	if game := table.GetGame(); game != nil {
+		for _, p := range game.GetPlayers() {
+			if p.ID() == req.PlayerId {
+				if p.GetCurrentStateString() == "ALL_IN" || (p.Balance() == 0 && p.CurrentBet() > 0) {
+					contributed := prevBalance - p.Balance()
+					if contributed < 0 {
+						contributed = 0
+					}
+					if evt, err := s.buildGameEvent(
+						pokerrpc.NotificationType_PLAYER_ALL_IN,
+						req.TableId,
+						PlayerAllInPayload{PlayerID: req.PlayerId, Amount: contributed},
+					); err == nil {
+						s.eventProcessor.PublishEvent(evt)
+					} else {
+						s.log.Errorf("Failed to build PLAYER_ALL_IN event: %v", err)
+					}
+				}
+				break
+			}
+		}
+	}
+
 	// DCR account balance is independent of chip bets; this just returns the wallet balance.
-	balance, err := s.db.GetPlayerBalance(req.PlayerId)
+	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
 	if err != nil {
 		return nil, err
 	}
@@ -97,17 +143,12 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 }
 
 func (s *Server) FoldBet(ctx context.Context, req *pokerrpc.FoldBetRequest) (*pokerrpc.FoldBetResponse, error) {
-	s.mu.RLock()
-	table, ok := s.tables[req.TableId]
-	s.mu.RUnlock()
+	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
-	}
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
 	}
 
 	if err := table.HandleFold(req.PlayerId); err != nil {
@@ -133,36 +174,43 @@ func (s *Server) FoldBet(ctx context.Context, req *pokerrpc.FoldBetRequest) (*po
 
 // Call implements the Call RPC method
 func (s *Server) CallBet(ctx context.Context, req *pokerrpc.CallBetRequest) (*pokerrpc.CallBetResponse, error) {
-	s.mu.RLock()
-	table, ok := s.tables[req.TableId]
-	s.mu.RUnlock()
+	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
 	}
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
-	}
 
-	// Determine how many chips the player actually needs to add (delta) to call.
+	// Snapshot player's previous bet to compute actual delta contributed.
 	var prevBet int64
 	if game := table.GetGame(); game != nil {
 		for _, p := range game.GetPlayers() {
-			if p.ID == req.PlayerId {
-				prevBet = p.HasBet
+			if p.ID() == req.PlayerId {
+				prevBet = p.CurrentBet()
 				break
 			}
 		}
 	}
-	currentBet := table.GetCurrentBet()
 
 	if err := table.HandleCall(req.PlayerId); err != nil {
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
-	delta := currentBet - prevBet
+	// After handling the call, recompute player's bet and derive the actual delta
+	// (important for short-stack all-ins where full call isn't possible).
+	var newBet int64 = prevBet
+	var newBalance int64
+	if game := table.GetGame(); game != nil {
+		for _, p := range game.GetPlayers() {
+			if p.ID() == req.PlayerId {
+				newBet = p.CurrentBet()
+				newBalance = p.Balance()
+				break
+			}
+		}
+	}
+	delta := newBet - prevBet
 	if delta < 0 {
 		delta = 0 // safety
 	}
@@ -181,22 +229,37 @@ func (s *Server) CallBet(ctx context.Context, req *pokerrpc.CallBetRequest) (*po
 		s.log.Errorf("Failed to build CALL_MADE event: %v", err)
 	}
 
+	// If the call put the player all-in, emit a PLAYER_ALL_IN event with the contributed amount.
+	if game := table.GetGame(); game != nil {
+		for _, p := range game.GetPlayers() {
+			if p.ID() == req.PlayerId {
+				if p.GetCurrentStateString() == "ALL_IN" || (newBalance == 0 && p.CurrentBet() > 0) {
+					if evt, err := s.buildGameEvent(
+						pokerrpc.NotificationType_PLAYER_ALL_IN,
+						req.TableId,
+						PlayerAllInPayload{PlayerID: req.PlayerId, Amount: delta},
+					); err == nil {
+						s.eventProcessor.PublishEvent(evt)
+					} else {
+						s.log.Errorf("Failed to build PLAYER_ALL_IN event: %v", err)
+					}
+				}
+				break
+			}
+		}
+	}
+
 	return &pokerrpc.CallBetResponse{Success: true, Message: "Call successful"}, nil
 }
 
 // Check implements the Check RPC method
 func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*pokerrpc.CheckBetResponse, error) {
-	s.mu.RLock()
-	table, ok := s.tables[req.TableId]
-	s.mu.RUnlock()
+	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
-	}
-	if table.GetCurrentPlayerID() != req.PlayerId {
-		return nil, status.Error(codes.FailedPrecondition, "not your turn")
 	}
 
 	if err := table.HandleCheck(req.PlayerId); err != nil {
@@ -219,50 +282,67 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 
 // buildPlayerForUpdate creates a Player proto message with appropriate card visibility
 func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string, game *poker.Game) *pokerrpc.Player {
+	stateStr := p.GetCurrentStateString()
+	grpcPlayer := p.Marshal() // snapshot with turn/dealer/blinds flags
 	player := &pokerrpc.Player{
-		Id:         p.ID,
-		Balance:    p.Balance,
-		IsReady:    p.IsReady,
-		Folded:     p.GetCurrentStateString() == "FOLDED",
-		CurrentBet: p.HasBet,
+		Id:      p.ID(),
+		Balance: p.Balance(),
+		IsReady: p.IsReady(),
+		Folded:  stateStr == "FOLDED",
+		// Surface all-in so UIs can render an explicit badge without inference.
+		IsAllIn:      stateStr == "ALL_IN",
+		CurrentBet:   p.CurrentBet(),
+		PlayerState:  p.GetTablePresenceState(),
+		IsDealer:     grpcPlayer.IsDealer,
+		IsSmallBlind: grpcPlayer.IsSmallBlind,
+		IsBigBlind:   grpcPlayer.IsBigBlind,
+		IsTurn:       grpcPlayer.IsTurn,
 	}
 
-	// Early return if game doesn't exist or player has no cards
+	// Heads-up sanity: dealer must also be SB.
+	if game != nil && len(game.GetPlayers()) == 2 && grpcPlayer.IsDealer && !grpcPlayer.IsSmallBlind {
+		s.log.Warnf("INCONSISTENT STATE: Player %s is dealer but not SB in heads-up! phase=%v", p.ID(), game.GetPhase())
+	}
+
+	// No game -> nothing else to surface.
 	if game == nil {
 		return player
 	}
 
-	// Show cards if it's the requesting player's own data (except during NEW_HAND_DEALING to avoid race conditions)
-	// OR during showdown for all players
-	if p.ID == requestingPlayerID {
-		// Show own cards during all active game phases (not just showdown)
-		if game.GetPhase() != pokerrpc.GamePhase_NEW_HAND_DEALING && len(p.Hand) > 0 {
-			player.Hand = make([]*pokerrpc.Card, len(p.Hand))
-			for i, card := range p.Hand {
-				player.Hand[i] = &pokerrpc.Card{
-					Suit:  card.GetSuit(),
-					Value: card.GetValue(),
-				}
-			}
-			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v)", len(p.Hand), p.ID, game.GetPhase())
-		} else {
-			// Debug: Log why cards are not being shown
-			s.log.Debugf("DEBUG: Not showing cards for player %s: phase=%v, handSize=%d", p.ID, game.GetPhase(), len(p.Hand))
+	hand := game.GetCurrentHand()
+	if hand == nil {
+		// Still return base player info; cards come only from an active hand.
+		return player
+	}
+
+	// Decide visibility once, then fill if any cards are visible.
+	var cards []poker.Card
+	isShowdown := game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN
+	isSelf := p.ID() == requestingPlayerID
+
+	switch {
+	case isSelf:
+		// Always show own cards as soon as they exist.
+		cards = hand.GetPlayerCards(p.ID(), requestingPlayerID)
+		if len(cards) > 0 {
+			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v, state=%s)",
+				len(cards), p.ID(), game.GetPhase(), stateStr)
 		}
-	} else if game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && len(p.Hand) > 0 {
-		// Show other players' cards only during showdown
-		player.Hand = make([]*pokerrpc.Card, len(p.Hand))
-		for i, card := range p.Hand {
-			player.Hand[i] = &pokerrpc.Card{
-				Suit:  card.GetSuit(),
-				Value: card.GetValue(),
-			}
+	case isShowdown:
+		// Show others' cards only at showdown (visibility enforced by GetPlayerCards).
+		cards = hand.GetPlayerCards(p.ID(), requestingPlayerID)
+	}
+
+	if n := len(cards); n > 0 {
+		player.Hand = make([]*pokerrpc.Card, n)
+		for i, c := range cards {
+			player.Hand[i] = &pokerrpc.Card{Suit: c.GetSuit(), Value: c.GetValue()}
 		}
 	}
 
-	// Include hand description during showdown
-	if game != nil && game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN && p.HandDescription != "" {
-		player.HandDescription = p.HandDescription
+	// Hand description is surfaced only at showdown.
+	if isShowdown && p.HandDescription() != "" {
+		player.HandDescription = p.HandDescription()
 	}
 
 	return player
@@ -294,7 +374,8 @@ func (s *Server) buildGameStateForPlayer(table *poker.Table, game *poker.Game, r
 				Balance: 0, // No poker chips when no game - Balance field should be poker chips, not DCR
 				IsReady: user.IsReady,
 
-				Hand: make([]*pokerrpc.Card, 0), // Empty hand when no game
+				Hand:        make([]*pokerrpc.Card, 0), // Empty hand when no game
+				PlayerState: pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
 			})
 		}
 	}
@@ -321,6 +402,10 @@ func (s *Server) buildGameStateForPlayer(table *poker.Table, game *poker.Game, r
 		}
 	}
 
+	// Note: Do not override per-player IsTurn here; the Player FSM is the
+	// single authority for that flag. UIs should rely on CurrentPlayer for
+	// highlighting to avoid transient races between EndTurn/StartTurn events.
+
 	return &pokerrpc.GameUpdate{
 		TableId:         table.GetConfig().ID,
 		Phase:           table.GetGamePhase(),
@@ -337,10 +422,9 @@ func (s *Server) buildGameStateForPlayer(table *poker.Table, game *poker.Game, r
 }
 
 func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateRequest) (*pokerrpc.GetGameStateResponse, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	table, ok := s.tables[req.TableId]
+	// Acquire server lock only to fetch table pointer, then release before
+	// calling into table methods to avoid lock coupling (Server → Table).
+	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
@@ -477,10 +561,7 @@ func (s *Server) EvaluateHand(ctx context.Context, req *pokerrpc.EvaluateHandReq
 }
 
 func (s *Server) GetLastWinners(ctx context.Context, req *pokerrpc.GetLastWinnersRequest) (*pokerrpc.GetLastWinnersResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	table, ok := s.tables[req.TableId]
+	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
@@ -492,12 +573,20 @@ func (s *Server) GetLastWinners(ctx context.Context, req *pokerrpc.GetLastWinner
 	}
 
 	winners := make([]*pokerrpc.Winner, 0, len(last.WinnerInfo))
+	// If there is a single winner, surface the total pot (pre-refund snapshot)
+	// as their Winnings in this response so clients/tests can display the
+	// headline pot amount. Actual chip credits already reflect refunds.
+	singleWinner := len(last.WinnerInfo) == 1
 
 	// If game hasn't started or is nil, fall back to last showdown if available.
 	if !table.IsGameStarted() || table.GetGame() == nil {
 		s.log.Debugf("GetLastWinners: table %s returning cached showdown: winners=%d pot=%d", req.TableId, len(last.WinnerInfo), last.TotalPot)
 		for _, wi := range last.WinnerInfo {
-			winners = append(winners, &pokerrpc.Winner{PlayerId: wi.PlayerId, Winnings: wi.Winnings, HandRank: wi.HandRank, BestHand: wi.BestHand})
+			amt := wi.Winnings
+			if singleWinner {
+				amt = last.TotalPot
+			}
+			winners = append(winners, &pokerrpc.Winner{PlayerId: wi.PlayerId, Winnings: amt, HandRank: wi.HandRank, BestHand: wi.BestHand})
 		}
 		return &pokerrpc.GetLastWinnersResponse{Winners: winners}, nil
 	}
@@ -506,16 +595,18 @@ func (s *Server) GetLastWinners(ctx context.Context, req *pokerrpc.GetLastWinner
 
 	s.log.Debugf("GetLastWinners: table %s game phase=%v", req.TableId, game.GetPhase())
 	for _, wi := range last.WinnerInfo {
-		winners = append(winners, &pokerrpc.Winner{PlayerId: wi.PlayerId, Winnings: wi.Winnings, HandRank: wi.HandRank, BestHand: wi.BestHand})
+		amt := wi.Winnings
+		if singleWinner {
+			amt = last.TotalPot
+		}
+		winners = append(winners, &pokerrpc.Winner{PlayerId: wi.PlayerId, Winnings: amt, HandRank: wi.HandRank, BestHand: wi.BestHand})
 	}
 	return &pokerrpc.GetLastWinnersResponse{Winners: winners}, nil
 
 }
 
 func (s *Server) ShowCards(ctx context.Context, req *pokerrpc.ShowCardsRequest) (*pokerrpc.ShowCardsResponse, error) {
-	s.mu.RLock()
-	table, ok := s.tables[req.TableId]
-	s.mu.RUnlock()
+	table, ok := s.getTable(req.TableId)
 
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
@@ -542,9 +633,7 @@ func (s *Server) ShowCards(ctx context.Context, req *pokerrpc.ShowCardsRequest) 
 }
 
 func (s *Server) HideCards(ctx context.Context, req *pokerrpc.HideCardsRequest) (*pokerrpc.HideCardsResponse, error) {
-	s.mu.RLock()
-	table, ok := s.tables[req.TableId]
-	s.mu.RUnlock()
+	table, ok := s.getTable(req.TableId)
 
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")

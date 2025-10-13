@@ -29,7 +29,7 @@ func (pc *PokerClient) StartGameStream(ctx context.Context) error {
 
 	// Start the game stream
 	stream, err := pc.PokerService.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  currentTableID,
 	})
 	if err != nil {
@@ -50,7 +50,7 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 	// Convert poker.TableConfig to RPC CreateTableRequest
 	timeBankSeconds := int32(config.TimeBank.Seconds())
 	resp, err := pc.LobbyService.CreateTable(ctx, &pokerrpc.CreateTableRequest{
-		PlayerId:        pc.ID,
+		PlayerId:        pc.ID.String(),
 		SmallBlind:      config.SmallBlind,
 		BigBlind:        config.BigBlind,
 		MaxPlayers:      int32(config.MaxPlayers),
@@ -60,6 +60,7 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 		StartingChips:   config.StartingChips,
 		TimeBankSeconds: timeBankSeconds,
 		AutoStartMs:     int32(config.AutoStartDelay.Milliseconds()),
+		AutoAdvanceMs:   int32(config.AutoAdvanceDelay.Milliseconds()),
 	})
 	if err != nil {
 		return "", err
@@ -76,7 +77,7 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 // JoinTable joins an existing poker table and tracks the table ID
 func (pc *PokerClient) JoinTable(ctx context.Context, tableID string) error {
 	resp, err := pc.LobbyService.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  tableID,
 	})
 	if err != nil {
@@ -110,7 +111,7 @@ func (pc *PokerClient) LeaveTable(ctx context.Context) error {
 	pc.stopGameStream()
 
 	resp, err := pc.LobbyService.LeaveTable(ctx, &pokerrpc.LeaveTableRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  tableID,
 	})
 	if err != nil {
@@ -138,7 +139,7 @@ func (pc *PokerClient) GetTables(ctx context.Context) ([]*pokerrpc.Table, error)
 // GetPlayerCurrentTable returns the current table for the player
 func (pc *PokerClient) GetPlayerCurrentTable(ctx context.Context) (string, error) {
 	resp, err := pc.LobbyService.GetPlayerCurrentTable(ctx, &pokerrpc.GetPlayerCurrentTableRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 	})
 	if err != nil {
 		return "", err
@@ -149,7 +150,7 @@ func (pc *PokerClient) GetPlayerCurrentTable(ctx context.Context) (string, error
 // GetBalance returns the current balance for the player
 func (pc *PokerClient) GetBalance(ctx context.Context) (int64, error) {
 	resp, err := pc.LobbyService.GetBalance(ctx, &pokerrpc.GetBalanceRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 	})
 	if err != nil {
 		return 0, err
@@ -160,7 +161,7 @@ func (pc *PokerClient) GetBalance(ctx context.Context) (int64, error) {
 // UpdateBalance updates the player's balance
 func (pc *PokerClient) UpdateBalance(ctx context.Context, amount int64, description string) (int64, error) {
 	resp, err := pc.LobbyService.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    pc.ID,
+		PlayerId:    pc.ID.String(),
 		Amount:      amount,
 		Description: description,
 	})
@@ -173,7 +174,7 @@ func (pc *PokerClient) UpdateBalance(ctx context.Context, amount int64, descript
 // ProcessTip processes a tip from this player to another player
 func (pc *PokerClient) ProcessTip(ctx context.Context, toPlayerID string, amount int64, message string) (int64, error) {
 	resp, err := pc.LobbyService.ProcessTip(ctx, &pokerrpc.ProcessTipRequest{
-		FromPlayerId: pc.ID,
+		FromPlayerId: pc.ID.String(),
 		ToPlayerId:   toPlayerID,
 		Amount:       amount,
 		Message:      message,
@@ -198,7 +199,7 @@ func (pc *PokerClient) SetPlayerReady(ctx context.Context) error {
 	}
 
 	resp, err := pc.LobbyService.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  tableID,
 	})
 	if err != nil {
@@ -221,7 +222,7 @@ func (pc *PokerClient) SetPlayerUnready(ctx context.Context) error {
 	}
 
 	resp, err := pc.LobbyService.SetPlayerUnready(ctx, &pokerrpc.SetPlayerUnreadyRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  tableID,
 	})
 	if err != nil {
@@ -244,7 +245,7 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 
 	// Create notification stream
 	notificationStream, err := pc.LobbyService.StartNotificationStream(ctx, &pokerrpc.StartNotificationStreamRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 	})
 	if err != nil {
 		return fmt.Errorf("error creating notification stream: %w", err)
@@ -308,6 +309,24 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 				case pokerrpc.NotificationType_GAME_STARTED:
 					if ntfn.Started {
 						pc.ntfns.notifyGameStarted(ntfn.TableId, ts)
+						// Ensure we are streaming game updates as soon as the game starts.
+						if current := pc.GetCurrentTableID(); current == "" {
+							pc.SetCurrentTableID(ntfn.TableId)
+						}
+						if err := pc.StartGameStream(ctx); err != nil {
+							pc.log.Errorf("failed to start game stream after GAME_STARTED: %v", err)
+							// Surface as fatal to callers/listeners.
+							pc.ErrorsCh <- fmt.Errorf("failed to start game stream: %w", err)
+							return
+						}
+					}
+
+				case pokerrpc.NotificationType_NEW_HAND_STARTED:
+					// Re-assert streaming on new hands as a safety net.
+					if err := pc.StartGameStream(ctx); err != nil {
+						pc.log.Errorf("failed to start game stream after NEW_HAND_STARTED: %v", err)
+						pc.ErrorsCh <- fmt.Errorf("failed to start game stream: %w", err)
+						return
 					}
 
 				case pokerrpc.NotificationType_GAME_ENDED:
@@ -316,7 +335,7 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 
 				case pokerrpc.NotificationType_BET_MADE:
 					pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
-					if ntfn.PlayerId == pc.ID {
+					if ntfn.PlayerId == pc.ID.String() {
 						pc.Lock()
 						pc.BetAmt = ntfn.Amount
 						pc.Unlock()
@@ -336,7 +355,7 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 
 				case pokerrpc.NotificationType_PLAYER_READY:
 					pc.ntfns.notifyPlayerReady(ntfn.PlayerId, ntfn.Ready, ts)
-					if ntfn.PlayerId == pc.ID {
+					if ntfn.PlayerId == pc.ID.String() {
 						pc.Lock()
 						pc.IsReady = ntfn.Ready
 						pc.Unlock()
@@ -346,7 +365,7 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 
 				case pokerrpc.NotificationType_PLAYER_UNREADY:
 					pc.ntfns.notifyPlayerReady(ntfn.PlayerId, false, ts)
-					if ntfn.PlayerId == pc.ID {
+					if ntfn.PlayerId == pc.ID.String() {
 						pc.Lock()
 						pc.IsReady = false
 						pc.Unlock()
@@ -367,7 +386,7 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 					toID := pc.ID           // For now, assume tip is to this client
 					amount := ntfn.Amount
 					message := ntfn.Message
-					pc.ntfns.notifyTipReceived(fromID, toID, amount, message, ts)
+					pc.ntfns.notifyTipReceived(fromID, toID.String(), amount, message, ts)
 
 				case pokerrpc.NotificationType_SHOWDOWN_RESULT:
 					pc.ntfns.notifyShowdownResult(ntfn.TableId, ntfn.Winners, ts)

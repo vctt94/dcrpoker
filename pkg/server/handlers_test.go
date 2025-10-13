@@ -105,3 +105,86 @@ func TestGameStateHandlerBuildGameStates(t *testing.T) {
 		t.Errorf("p1 should NOT see p2 hand in preflop phase")
 	}
 }
+
+// TestGameStateHandlerShowsOwnCardsDuringNewHandDealing asserts that a player
+// sees their own hole cards in updates even during NEW_HAND_DEALING, while
+// opponents' cards remain hidden.
+func TestGameStateHandlerShowsOwnCardsDuringNewHandDealing(t *testing.T) {
+    // Arrange: snapshot with phase NEW_HAND_DEALING and dealt hands
+    cardA := poker.NewCardFromSuitValue(poker.Spades, poker.Ace)
+    cardK := poker.NewCardFromSuitValue(poker.Hearts, poker.King)
+
+    p1Snap := &PlayerSnapshot{
+        ID:      "p1",
+        Balance: 1000,
+        IsReady: true,
+        Hand:    []poker.Card{cardA, cardK},
+    }
+    p2Snap := &PlayerSnapshot{
+        ID:      "p2",
+        Balance: 1000,
+        IsReady: true,
+        Hand:    []poker.Card{cardA, cardK},
+    }
+
+    tsnap := &TableSnapshot{
+        ID:      "tid",
+        Players: []*PlayerSnapshot{p1Snap, p2Snap},
+        GameSnapshot: &GameSnapshot{
+            Phase:         pokerrpc.GamePhase_NEW_HAND_DEALING,
+            Pot:           0,
+            CurrentBet:    0,
+            CurrentPlayer: "",
+        },
+        Config: poker.TableConfig{MinPlayers: 2},
+        State:  TableState{GameStarted: true, PlayerCount: 2},
+    }
+
+    gsh := NewGameStateHandler(newBareServer())
+    updates := gsh.buildGameStatesFromSnapshot(tsnap)
+    if len(updates) != 2 {
+        t.Fatalf("expected updates for 2 players, got %d", len(updates))
+    }
+
+    // When building an update for p1, p1 must see their 2 cards; p2's must be hidden.
+    up1 := updates["p1"]
+    if up1 == nil {
+        t.Fatalf("missing update for p1")
+    }
+    var p1HandCnt, p2HandCnt int
+    for _, pl := range up1.Players {
+        switch pl.Id {
+        case "p1":
+            p1HandCnt = len(pl.Hand)
+        case "p2":
+            p2HandCnt = len(pl.Hand)
+        }
+    }
+    if p1HandCnt != 2 {
+        t.Errorf("p1 should see own 2 hole cards during NEW_HAND_DEALING; got %d", p1HandCnt)
+    }
+    if p2HandCnt != 0 {
+        t.Errorf("p1 should NOT see p2's hand during NEW_HAND_DEALING; got %d", p2HandCnt)
+    }
+
+    // Symmetric check for p2's perspective
+    up2 := updates["p2"]
+    if up2 == nil {
+        t.Fatalf("missing update for p2")
+    }
+    p1HandCnt, p2HandCnt = 0, 0
+    for _, pl := range up2.Players {
+        switch pl.Id {
+        case "p1":
+            p1HandCnt = len(pl.Hand)
+        case "p2":
+            p2HandCnt = len(pl.Hand)
+        }
+    }
+    if p2HandCnt != 2 {
+        t.Errorf("p2 should see own 2 hole cards during NEW_HAND_DEALING; got %d", p2HandCnt)
+    }
+    if p1HandCnt != 0 {
+        t.Errorf("p2 should NOT see p1's hand during NEW_HAND_DEALING; got %d", p1HandCnt)
+    }
+}

@@ -22,6 +22,10 @@ func NewNotificationHandler(server *Server) *NotificationHandler {
 // HandleEvent processes an event and broadcasts appropriate notifications
 func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
 	switch event.Type {
+	case pokerrpc.NotificationType_TABLE_CREATED:
+		nh.handleTableCreated(event)
+	case pokerrpc.NotificationType_TABLE_REMOVED:
+		nh.handleTableRemoved(event)
 	case pokerrpc.NotificationType_BET_MADE:
 		nh.handleBetMade(event)
 	case pokerrpc.NotificationType_PLAYER_FOLDED:
@@ -44,7 +48,29 @@ func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
 		nh.handleNewHandStarted(event)
 	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
 		nh.handleShowdownResult(event)
+	case pokerrpc.NotificationType_PLAYER_ALL_IN:
+		nh.handlePlayerAllIn(event)
 	}
+}
+
+func (nh *NotificationHandler) handleTableCreated(event *GameEvent) {
+	// Inform all connected clients that a new table was created so they can
+	// refresh their lobby/waiting room lists.
+	notification := &pokerrpc.Notification{
+		Type:    pokerrpc.NotificationType_TABLE_CREATED,
+		TableId: event.TableID,
+	}
+	nh.server.broadcastNotificationToAll(notification)
+}
+
+func (nh *NotificationHandler) handleTableRemoved(event *GameEvent) {
+	// Inform all connected clients that a table was removed so they can
+	// remove it from their lobby/waiting room lists.
+	notification := &pokerrpc.Notification{
+		Type:    pokerrpc.NotificationType_TABLE_REMOVED,
+		TableId: event.TableID,
+	}
+	nh.server.broadcastNotificationToAll(notification)
 }
 
 func (nh *NotificationHandler) handleBetMade(event *GameEvent) {
@@ -150,7 +176,8 @@ func (nh *NotificationHandler) handlePlayerJoined(event *GameEvent) {
 		PlayerId: pl.PlayerID,
 		TableId:  event.TableID,
 	}
-	nh.server.notifyPlayers(event.PlayerIDs, notification)
+	// Broadcast to all so lobby lists update on every client.
+	nh.server.broadcastNotificationToAll(notification)
 }
 
 func (nh *NotificationHandler) handlePlayerLeft(event *GameEvent) {
@@ -164,7 +191,8 @@ func (nh *NotificationHandler) handlePlayerLeft(event *GameEvent) {
 		PlayerId: pl.PlayerID,
 		TableId:  event.TableID,
 	}
-	nh.server.notifyPlayers(event.PlayerIDs, notification)
+	// Broadcast to all so lobby lists update on every client.
+	nh.server.broadcastNotificationToAll(notification)
 }
 
 func (nh *NotificationHandler) handleNewHandStarted(event *GameEvent) {
@@ -186,6 +214,21 @@ func (nh *NotificationHandler) handleShowdownResult(event *GameEvent) {
 		Type:     pokerrpc.NotificationType_SHOWDOWN_RESULT,
 		TableId:  event.TableID,
 		Showdown: sp.Showdown,
+	}
+	nh.server.notifyPlayers(event.PlayerIDs, notification)
+}
+
+func (nh *NotificationHandler) handlePlayerAllIn(event *GameEvent) {
+	pl, ok := event.Payload.(PlayerAllInPayload)
+	if !ok {
+		nh.server.log.Warnf("PLAYER_ALL_IN without PlayerAllInPayload; skipping (table=%s)", event.TableID)
+		return
+	}
+	notification := &pokerrpc.Notification{
+		Type:     pokerrpc.NotificationType_PLAYER_ALL_IN,
+		PlayerId: pl.PlayerID,
+		TableId:  event.TableID,
+		Amount:   pl.Amount,
 	}
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }
@@ -234,8 +277,9 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSna
 		var players []*pokerrpc.Player
 		for _, ps := range tableSnapshot.Players {
 			player := &pokerrpc.Player{
-				Id:      ps.ID,
-				IsReady: ps.IsReady,
+				Id:          ps.ID,
+				IsReady:     ps.IsReady,
+				PlayerState: pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
 			}
 			players = append(players, player)
 		}
@@ -254,18 +298,26 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSna
 	var players []*pokerrpc.Player
 	for _, ps := range tableSnapshot.Players {
 		player := &pokerrpc.Player{
-			Id:         ps.ID,
-			Balance:    ps.Balance,
-			IsReady:    ps.IsReady,
-			Folded:     ps.HasFolded,
-			CurrentBet: ps.HasBet,
+			Id:           ps.ID,
+			Balance:      ps.Balance,
+			IsReady:      ps.IsReady,
+			Folded:       ps.HasFolded,
+			IsAllIn:      ps.IsAllIn,
+			CurrentBet:   ps.HasBet,
+			PlayerState:  toRPCPlayerState(ps.GameState),
+			IsDealer:     ps.IsDealer,
+			IsSmallBlind: ps.IsSmallBlind,
+			IsBigBlind:   ps.IsBigBlind,
+			// Use FSM-derived snapshot value. UIs should prefer
+			// GameUpdate.CurrentPlayer for highlighting.
+			IsTurn: ps.IsTurn,
 		}
 
 		if ps.ID == requestingPlayerID {
 			// Show own cards during all active game phases
 			gamePhase := tableSnapshot.GameSnapshot.Phase
 
-			if tableSnapshot.GameSnapshot.Phase != pokerrpc.GamePhase_NEW_HAND_DEALING && len(ps.Hand) > 0 {
+			if len(ps.Hand) > 0 {
 				player.Hand = make([]*pokerrpc.Card, len(ps.Hand))
 				for i, card := range ps.Hand {
 					player.Hand[i] = &pokerrpc.Card{
@@ -314,6 +366,24 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSna
 		GameStarted:     tableSnapshot.State.GameStarted,
 		PlayersRequired: int32(tableSnapshot.Config.MinPlayers),
 		PlayersJoined:   int32(tableSnapshot.State.PlayerCount),
+	}
+}
+
+// toRPCPlayerState maps saved state strings to the protobuf enum.
+func toRPCPlayerState(state string) pokerrpc.PlayerState {
+	switch state {
+	case "AT_TABLE":
+		return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
+	case "IN_GAME":
+		return pokerrpc.PlayerState_PLAYER_STATE_IN_GAME
+	case "ALL_IN":
+		return pokerrpc.PlayerState_PLAYER_STATE_ALL_IN
+	case "FOLDED":
+		return pokerrpc.PlayerState_PLAYER_STATE_FOLDED
+	case "LEFT":
+		return pokerrpc.PlayerState_PLAYER_STATE_LEFT
+	default:
+		return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
 	}
 }
 

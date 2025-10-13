@@ -119,6 +119,7 @@ func (r *Renderer) RenderCreateTable() string {
 		{"Buy In", r.ui.buyIn},
 		{"Min Balance", r.ui.minBalance},
 		{"Starting Chips", r.ui.startingChips},
+		{"Auto Advance (ms)", r.ui.autoAdvanceMs},
 	}
 
 	for i, field := range fields {
@@ -423,36 +424,43 @@ func (r *Renderer) renderYourCardsAndGameInfo() string {
 		MarginBottom(1).
 		Render("🂠 YOUR HAND") + "\n"
 
+	// During WAITING we don't expect cards; render header only.
+	if r.ui.gamePhase == pokerrpc.GamePhase_WAITING {
+		return s
+	}
+
+	// Require player list outside WAITING; otherwise surface an error.
+	if len(r.ui.players) == 0 {
+		r.ui.err = fmt.Errorf("players not available for rendering hand (phase=%s)", r.ui.gamePhase.String())
+		return s
+	}
+
+	// Find player's cards
+	var playerCards []*pokerrpc.Card
+	for _, player := range r.ui.players {
+		if player.Id == r.ui.clientID {
+			playerCards = player.Hand
+			break
+		}
+	}
+
+	// If no cards are available during an active phase, raise an error and do not render placeholders.
+	if len(playerCards) == 0 {
+		r.ui.err = fmt.Errorf("no hole cards available (phase=%s)", r.ui.gamePhase.String())
+		return s
+	}
+
+	// Render actual cards
 	var cardElements []string
-
-	// Show empty cards during WAITING phase or when no players data is available
-	if r.ui.gamePhase == pokerrpc.GamePhase_WAITING || r.ui.gamePhase == pokerrpc.GamePhase_NEW_HAND_DEALING || len(r.ui.players) == 0 {
-		cardElements = []string{CardStyle.Render("  "), CardStyle.Render("  ")}
-	} else {
-		// Find player's cards
-		var playerCards []*pokerrpc.Card
-		for _, player := range r.ui.players {
-			if player.Id == r.ui.clientID {
-				playerCards = player.Hand
-				break
-			}
-		}
-
-		if len(playerCards) > 0 {
-			for _, card := range playerCards {
-				cardDisplay := r.formatCard(card)
-				var styledCard string
-				if isRedSuit(card.Suit) {
-					styledCard = RedCardStyle.Render(cardDisplay)
-				} else {
-					styledCard = CardStyle.Render(cardDisplay)
-				}
-				cardElements = append(cardElements, styledCard)
-			}
+	for _, card := range playerCards {
+		cardDisplay := r.formatCard(card)
+		var styledCard string
+		if isRedSuit(card.Suit) {
+			styledCard = RedCardStyle.Render(cardDisplay)
 		} else {
-			// Show empty cards if no cards found or cards list is empty
-			cardElements = []string{CardStyle.Render("  "), CardStyle.Render("  ")}
+			styledCard = CardStyle.Render(cardDisplay)
 		}
+		cardElements = append(cardElements, styledCard)
 	}
 
 	cardsDisplay := strings.Join(cardElements, " ")
@@ -514,7 +522,9 @@ func (r *Renderer) formatPlayerInfo(player *pokerrpc.Player) string {
 
 	// Current bet
 	if player.CurrentBet > 0 {
-		info = append(info, fmt.Sprintf("Bet: %d", player.CurrentBet))
+		// Clarify that this is the total committed this round (absolute),
+		// not the delta of the last action.
+		info = append(info, fmt.Sprintf("Bet (total this street): %d", player.CurrentBet))
 	}
 
 	// Status indicators - clean and clear

@@ -16,7 +16,7 @@ func (pc *PokerClient) ShowCards(ctx context.Context) error {
 	}
 
 	resp, err := pc.PokerService.ShowCards(ctx, &pokerrpc.ShowCardsRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  tableID,
 	})
 	if err != nil {
@@ -39,7 +39,7 @@ func (pc *PokerClient) HideCards(ctx context.Context) error {
 	}
 
 	resp, err := pc.PokerService.HideCards(ctx, &pokerrpc.HideCardsRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  tableID,
 	})
 	if err != nil {
@@ -61,7 +61,7 @@ func (pc *PokerClient) Fold(ctx context.Context) error {
 	}
 
 	_, err := pc.PokerService.FoldBet(ctx, &pokerrpc.FoldBetRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  currentTableID,
 	})
 	return err
@@ -75,7 +75,7 @@ func (pc *PokerClient) Check(ctx context.Context) error {
 	}
 
 	_, err := pc.PokerService.CheckBet(ctx, &pokerrpc.CheckBetRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  currentTableID,
 	})
 	return err
@@ -90,7 +90,7 @@ func (pc *PokerClient) Call(ctx context.Context, currentBet int64) error {
 
 	// Use dedicated Call RPC to avoid race with fetching current bet separately
 	_, err := pc.PokerService.CallBet(ctx, &pokerrpc.CallBetRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  currentTableID,
 	})
 	return err
@@ -104,7 +104,7 @@ func (pc *PokerClient) Raise(ctx context.Context, amount int64) error {
 	}
 
 	_, err := pc.PokerService.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  currentTableID,
 		Amount:   amount,
 	})
@@ -119,7 +119,7 @@ func (pc *PokerClient) Bet(ctx context.Context, amount int64) error {
 	}
 
 	_, err := pc.PokerService.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 		TableId:  currentTableID,
 		Amount:   amount,
 	})

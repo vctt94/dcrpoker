@@ -2,35 +2,63 @@ package server
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
 // broadcastNotification sends a notification to a specific player
 func (s *Server) sendNotificationToPlayer(playerID string, notification *pokerrpc.Notification) {
-	s.notificationMu.RLock()
-	notifStream, exists := s.notificationStreams[playerID]
-	s.notificationMu.RUnlock()
+	// Serialize per-player sends to avoid concurrent Send on the same stream
+	muAny, _ := s.notifSendMutexes.LoadOrStore(playerID, &sync.Mutex{})
+	mu := muAny.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
 
+	v, exists := s.notificationStreams.Load(playerID)
 	if !exists {
 		return // Player doesn't have an active notification stream
 	}
+	notifStream, _ := v.(*NotificationStream)
 
 	select {
 	case <-notifStream.done:
 		return // Stream is closed
 	default:
 		// Send notification, ignore errors as client might have disconnected
-		notifStream.stream.Send(notification)
+		_ = notifStream.stream.Send(notification)
 	}
+}
+
+// broadcastNotificationToAll sends a notification to all connected players
+// that currently have an active notification stream.
+func (s *Server) broadcastNotificationToAll(notification *pokerrpc.Notification) {
+	s.notificationStreams.Range(func(key, value any) bool {
+		notifStream, ok := value.(*NotificationStream)
+		if !ok || notifStream == nil {
+			return true
+		}
+		// Lock per player before sending
+		playerID := notifStream.playerID
+		muAny, _ := s.notifSendMutexes.LoadOrStore(playerID, &sync.Mutex{})
+		mu := muAny.(*sync.Mutex)
+		mu.Lock()
+		{
+			select {
+			case <-notifStream.done:
+				// Skip closed streams
+			default:
+				_ = notifStream.stream.Send(notification)
+			}
+		}
+		mu.Unlock()
+		return true
+	})
 }
 
 // broadcastNotificationToTable sends a notification to all players at a table
 func (s *Server) broadcastNotificationToTable(tableID string, notification *pokerrpc.Notification) {
-	s.mu.RLock()
-	table, exists := s.tables[tableID]
-	s.mu.RUnlock()
-
+	table, exists := s.getTable(tableID)
 	if !exists {
 		return
 	}
@@ -59,9 +87,7 @@ func (s *Server) SendAllPlayersReady(tableID string) {
 		TableId: tableID,
 	}
 
-	go func() {
-		s.broadcastNotificationToTable(tableID, notification)
-	}()
+	s.broadcastNotificationToTable(tableID, notification)
 }
 
 // SendGameStarted sends GAME_STARTED notification to all players at the table
@@ -73,9 +99,7 @@ func (s *Server) SendGameStarted(tableID string) {
 		Started: true,
 	}
 
-	go func() {
-		s.broadcastNotificationToTable(tableID, notification)
-	}()
+	s.broadcastNotificationToTable(tableID, notification)
 }
 
 // SendNewHandStarted sends NEW_HAND_STARTED notification to all players at the table
@@ -86,9 +110,7 @@ func (s *Server) SendNewHandStarted(tableID string) {
 		TableId: tableID,
 	}
 
-	go func() {
-		s.broadcastNotificationToTable(tableID, notification)
-	}()
+	s.broadcastNotificationToTable(tableID, notification)
 }
 
 // SendPlayerReady sends PLAYER_READY notification to all players at the table
@@ -112,9 +134,7 @@ func (s *Server) SendPlayerReady(tableID, playerID string, ready bool) {
 		Ready:    ready,
 	}
 
-	go func() {
-		s.broadcastNotificationToTable(tableID, notification)
-	}()
+	s.broadcastNotificationToTable(tableID, notification)
 }
 
 // SendBlindPosted sends blind posted notification to all players at the table
@@ -138,9 +158,7 @@ func (s *Server) SendBlindPosted(tableID, playerID string, amount int64, isSmall
 		Amount:   amount,
 	}
 
-	go func() {
-		s.broadcastNotificationToTable(tableID, notification)
-	}()
+	s.broadcastNotificationToTable(tableID, notification)
 }
 
 // SendShowdownResult sends SHOWDOWN_RESULT notification to all players at the table
@@ -153,71 +171,44 @@ func (s *Server) SendShowdownResult(tableID string, winners []*pokerrpc.Winner, 
 		Amount:  pot,
 	}
 
-	go func() {
-		s.broadcastNotificationToTable(tableID, notification)
-	}()
+	s.broadcastNotificationToTable(tableID, notification)
 }
 
 // notifyPlayer sends a notification to a specific player
 // This version only uses the notification mutex, not the main server mutex
 func (s *Server) notifyPlayer(playerID string, notification *pokerrpc.Notification) {
-	s.notificationMu.RLock()
-	notifStream, exists := s.notificationStreams[playerID]
-	s.notificationMu.RUnlock()
-
-	if !exists {
-		return // Player doesn't have an active notification stream
-	}
-
-	select {
-	case <-notifStream.done:
-		return // Stream is closed
-	default:
-		// Send notification, ignore errors as client might have disconnected
-		notifStream.stream.Send(notification)
-	}
+	s.sendNotificationToPlayer(playerID, notification)
 }
 
-// sendGameStateUpdates sends pre-built game states to players
-// This version only uses the game streams mutex, not the main server mutex
-func (s *Server) sendGameStateUpdates(tableID string, playerGameStates map[string]*pokerrpc.GameUpdate) {
-	s.gameStreamsMu.RLock()
-	playerStreams, exists := s.gameStreams[tableID]
-	s.gameStreamsMu.RUnlock()
+// sendGameStateUpdates broadcasts pre-built updates to all players at tableID.
+// Assumes s.gameStreams is sync.Map{tableID -> *bucket} and bucket.streams is sync.Map{playerID -> stream}.
+func (s *Server) sendGameStateUpdates(tableID string, byPlayer map[string]*pokerrpc.GameUpdate) {
+	// Serialize per-table game state sends to avoid concurrent Send on same stream
+	muVal, _ := s.broadcastMutexes.LoadOrStore(tableID, &sync.Mutex{})
+	mu := muVal.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
 
-	if !exists || len(playerStreams) == 0 {
+	bAny, ok := s.gameStreams.Load(tableID)
+	if !ok {
+		return
+	}
+	b, _ := bAny.(*bucket)
+	if b == nil {
 		return
 	}
 
-	s.log.Debugf("sendGameStateUpdates: broadcasting to %d players on table %s", len(playerStreams), tableID)
+	n := int(b.count.Load())
+	s.log.Debugf("sendGameStateUpdates: broadcasting to %d players on table %s", n, tableID)
 
-	// Send pre-built game states to each player stream
-	// Use a single goroutine to avoid goroutine explosion
-	go func() {
-		for playerID, stream := range playerStreams {
-			if gameState, ok := playerGameStates[playerID]; ok {
-				// Send the update, ignore errors as client might have disconnected
-				stream.Send(gameState)
+	b.streams.Range(func(k, v any) bool {
+		playerID, ok1 := k.(string)
+		stream, ok2 := v.(pokerrpc.PokerService_StartGameStreamServer)
+		if ok1 && ok2 {
+			if upd, ok := byPlayer[playerID]; ok && upd != nil {
+				_ = stream.Send(upd)
 			}
 		}
-	}()
-}
-
-// tablePlayerIDs returns the list of player IDs currently seated at the given
-// table. A short-lived read lock protects the map lookup; the table itself is
-// already thread-safe.
-func (s *Server) tablePlayerIDs(tableID string) []string {
-	s.mu.RLock()
-	tbl, ok := s.tables[tableID]
-	s.mu.RUnlock()
-	if !ok {
-		return nil
-	}
-
-	users := tbl.GetUsers()
-	ids := make([]string, 0, len(users))
-	for _, u := range users {
-		ids = append(ids, u.ID)
-	}
-	return ids
+		return true
+	})
 }

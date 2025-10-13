@@ -1,5 +1,6 @@
 cmd/bot/bot
 cmd/client/client
 CLAUDE.md
-pokerui
 bin
+AGENTS.md
+grpc/generated

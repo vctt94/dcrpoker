@@ -4,12 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -17,6 +15,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/companyzero/bisonrelay/clientrpc/types"
+	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/vctt94/bisonbotkit/botclient"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
@@ -31,7 +30,7 @@ type GameUpdateMsg *pokerrpc.GameUpdate
 // PokerClient represents a poker client with notification handling
 type PokerClient struct {
 	sync.RWMutex
-	ID           string
+	ID           zkidentity.ShortID
 	DataDir      string
 	BRClient     *botclient.BotClient
 	LobbyService pokerrpc.LobbyServiceClient
@@ -117,13 +116,13 @@ func newClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 	var brClient *botclient.BotClient
 	var log slog.Logger
 	var logBackend *logging.LogBackend
-	var clientID string
+	var clientID zkidentity.ShortID
 	if cfg.Offline {
 		if cfg.PlayerID == "" {
 			return nil, fmt.Errorf("clientID is required when running offline")
 		}
-		// If running offline, require explicit PlayerID from config.
-		clientID = cfg.PlayerID
+		// generate a random client ID
+
 		// Minimal logging backend when offline
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "info"})
 		log = lb.Logger("PokerClient")
@@ -150,10 +149,9 @@ func newClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Failed to get user public identity: %v", err)
 		}
-		clientID = hex.EncodeToString(publicIdentity.Identity[:])
-		if clientID == "" {
-			return nil, fmt.Errorf("clientID can not be empty")
-		}
+
+		clientID.FromBytes(publicIdentity.Identity)
+
 		log = brClient.LogBackend.Logger("PokerClient")
 		logBackend = brClient.LogBackend
 	}
@@ -206,14 +204,12 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context, grpcHost string
 		// Use TLS
 		grpcServerCertPath := pc.cfg.GRPCServerCert
 		if grpcServerCertPath == "" {
-			grpcServerCertPath = filepath.Join(pc.DataDir, "server.cert")
+			return fmt.Errorf("GRPCServerCert not configured and insecure mode disabled")
 		}
 
-		// Check if server certificate exists, create default one if not
+		// Require that the server certificate exists; do not auto-create.
 		if _, err := os.Stat(grpcServerCertPath); os.IsNotExist(err) {
-			if err := CreateDefaultServerCert(grpcServerCertPath); err != nil {
-				return fmt.Errorf("failed to create default server certificate: %v", err)
-			}
+			return fmt.Errorf("server certificate not found at %s", grpcServerCertPath)
 		}
 
 		// Load the server certificate
@@ -227,13 +223,10 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context, grpcHost string
 			return fmt.Errorf("failed to add server certificate to pool")
 		}
 
-		// Use GRPCHost for TLS ServerName, fallback to grpcHost parameter if needed
+		// Use GRPCHost for TLS ServerName strictly; do not fallback.
 		serverName := pc.cfg.GRPCHost
 		if serverName == "" {
-			serverName = grpcHost
-		}
-		if serverName == "" {
-			serverName = "localhost" // fallback
+			return fmt.Errorf("GRPCHost not configured for TLS ServerName")
 		}
 
 		// Create the TLS credentials with ServerName
@@ -266,12 +259,12 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context, grpcHost string
 func (pc *PokerClient) initializeAccount(ctx context.Context) error {
 	// Make sure we have an account
 	balanceResp, err := pc.LobbyService.GetBalance(ctx, &pokerrpc.GetBalanceRequest{
-		PlayerId: pc.ID,
+		PlayerId: pc.ID.String(),
 	})
 	if err != nil {
 		// Initialize account with deposit
 		updateResp, err := pc.LobbyService.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    pc.ID,
+			PlayerId:    pc.ID.String(),
 			Amount:      1000,
 			Description: "Initial deposit",
 		})
@@ -437,7 +430,7 @@ func (pc *PokerClient) validate() error {
 	if pc.PokerService == nil {
 		return fmt.Errorf("poker service is not initialized")
 	}
-	if pc.ID == "" {
+	if pc.ID.String() == "" {
 		return fmt.Errorf("client ID is not set")
 	}
 	if pc.UpdatesCh == nil {

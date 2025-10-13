@@ -61,6 +61,16 @@ enum GamePhase {
   SHOWDOWN = 6;
 }
 
+// PlayerState captures the per-player state machine state.
+enum PlayerState {
+  PLAYER_STATE_UNINITIALIZED = 0;
+  PLAYER_STATE_AT_TABLE = 1;
+  PLAYER_STATE_IN_GAME  = 2;
+  PLAYER_STATE_ALL_IN   = 3;
+  PLAYER_STATE_FOLDED   = 4;
+  PLAYER_STATE_LEFT     = 5;
+}
+
 enum NotificationType {
   UNKNOWN = 0;
   PLAYER_JOINED = 1;
@@ -85,6 +95,7 @@ enum NotificationType {
   CARDS_SHOWN = 20;
   CARDS_HIDDEN = 21;
   NEW_HAND_STARTED = 22;
+  PLAYER_ALL_IN = 23;
 }
 
 enum HandRank {
@@ -209,6 +220,7 @@ message CreateTableRequest {
   int64 starting_chips = 8; // Poker chips each player starts with
   int32 time_bank_seconds = 9; // Player timeout in seconds (default: 30)
   int32 auto_start_ms = 10; // Auto-start delay between hands in ms (0 = disabled)
+  int32 auto_advance_ms = 11; // Auto-advance delay between streets when all-in in ms (must be > 0)
 }
 
 message CreateTableResponse {
@@ -330,6 +342,9 @@ message Player {
   bool is_dealer = 9;
   bool is_ready = 10;
   string hand_description = 11; // Hand evaluation description (available during showdown)
+  PlayerState player_state = 12; // Canonical player state (enum)
+  bool is_small_blind = 13; // True if this player is the small blind for current hand
+  bool is_big_blind = 14;   // True if this player is the big blind for current hand
 }
 
 message Card {
