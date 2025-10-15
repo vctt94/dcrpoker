@@ -40,8 +40,8 @@ func NewDB(path string) (*DB, error) {
 	return &DB{d}, nil
 }
 
-// Close closes the underlying DB.
-func (db *DB) Close() error { return db.Close() }
+// Close closes the underlying sql.DB to release all resources.
+func (db *DB) Close() error { return db.DB.Close() }
 
 // withTx runs fn in a transaction, committing on success.
 func (db *DB) withTx(ctx context.Context, fn func(*sql.Tx) error) (err error) {
