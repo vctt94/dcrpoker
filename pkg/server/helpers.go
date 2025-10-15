@@ -21,9 +21,6 @@ func (s *Server) buildGameState(tableID, requestingPlayerID string) (*pokerrpc.G
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	// Process any player timeouts before building the state
-	table.HandleTimeouts()
-
 	game := table.GetGame()
 
 	return s.buildGameStateForPlayer(table, game, requestingPlayerID), nil

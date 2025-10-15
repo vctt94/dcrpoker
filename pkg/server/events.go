@@ -52,6 +52,7 @@ type PlayerSnapshot struct {
 	HandDescription   string
 	HasBet            int64
 	StartingBalance   int64
+	LastAction        time.Time
 }
 
 // GameSnapshot represents an immutable snapshot of game state

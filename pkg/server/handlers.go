@@ -354,18 +354,40 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSna
 		})
 	}
 
+	// Compute authoritative timebank fields from snapshot
+	var tbSec int32
+	var deadlineMs int64
+	if tableSnapshot != nil {
+		if tb := tableSnapshot.Config.TimeBank; tb > 0 {
+			tbSec = int32(tb.Seconds())
+			// find current player snapshot and add tb to LastAction
+			curID := tableSnapshot.GameSnapshot.CurrentPlayer
+			if curID != "" {
+				for _, ps := range tableSnapshot.Players {
+					if ps.ID == curID {
+						dl := ps.LastAction.Add(tableSnapshot.Config.TimeBank)
+						deadlineMs = dl.UnixMilli()
+						break
+					}
+				}
+			}
+		}
+	}
+
 	return &pokerrpc.GameUpdate{
-		TableId:         tableSnapshot.ID,
-		Phase:           tableSnapshot.GameSnapshot.Phase,
-		PhaseName:       tableSnapshot.GameSnapshot.Phase.String(),
-		Players:         players,
-		CommunityCards:  communityCards,
-		Pot:             tableSnapshot.GameSnapshot.Pot,
-		CurrentBet:      tableSnapshot.GameSnapshot.CurrentBet,
-		CurrentPlayer:   tableSnapshot.GameSnapshot.CurrentPlayer,
-		GameStarted:     tableSnapshot.State.GameStarted,
-		PlayersRequired: int32(tableSnapshot.Config.MinPlayers),
-		PlayersJoined:   int32(tableSnapshot.State.PlayerCount),
+		TableId:            tableSnapshot.ID,
+		Phase:              tableSnapshot.GameSnapshot.Phase,
+		PhaseName:          tableSnapshot.GameSnapshot.Phase.String(),
+		Players:            players,
+		CommunityCards:     communityCards,
+		Pot:                tableSnapshot.GameSnapshot.Pot,
+		CurrentBet:         tableSnapshot.GameSnapshot.CurrentBet,
+		CurrentPlayer:      tableSnapshot.GameSnapshot.CurrentPlayer,
+		GameStarted:        tableSnapshot.State.GameStarted,
+		PlayersRequired:    int32(tableSnapshot.Config.MinPlayers),
+		PlayersJoined:      int32(tableSnapshot.State.PlayerCount),
+		TimeBankSeconds:    tbSec,
+		TurnDeadlineUnixMs: deadlineMs,
 	}
 }
 

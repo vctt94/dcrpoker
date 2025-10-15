@@ -71,11 +71,6 @@ class UiPlayer {
   });
 
   factory UiPlayer.fromProto(pr.Player p) {
-    // Debug log position flags
-    if (p.isDealer || p.isSmallBlind || p.isBigBlind) {
-      print('DEBUG fromProto: Player ${p.id} proto.isDealer=${p.isDealer} proto.isSB=${p.isSmallBlind} proto.isBB=${p.isBigBlind}');
-    }
-    
     return UiPlayer(
         id: p.id,
         name: p.name,
@@ -180,6 +175,8 @@ class UiGameState {
   final bool gameStarted;
   final int playersRequired;
   final int playersJoined;
+  final int timeBankSeconds;     // configured per-turn timebank (seconds)
+  final int turnDeadlineUnixMs;  // absolute ms deadline for current player (0 if N/A)
 
   const UiGameState({
     required this.tableId,
@@ -195,6 +192,8 @@ class UiGameState {
     required this.gameStarted,
     required this.playersRequired,
     required this.playersJoined,
+    required this.timeBankSeconds,
+    required this.turnDeadlineUnixMs,
   });
 
   factory UiGameState.fromUpdate(pr.GameUpdate u) => UiGameState(
@@ -211,6 +210,8 @@ class UiGameState {
         gameStarted: u.gameStarted,
         playersRequired: u.playersRequired,
         playersJoined: u.playersJoined,
+        timeBankSeconds: u.hasTimeBankSeconds() ? u.timeBankSeconds : 0,
+        turnDeadlineUnixMs: u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
       );
 }
 
@@ -237,6 +238,10 @@ class PokerModel extends ChangeNotifier {
   // Streams
   StreamSubscription<pr.Notification>? _ntfnSub;
   StreamSubscription<pr.GameUpdate>? _gameSub;
+
+  // Timebank tracking (server-provided deadline)
+  int timeBankSeconds = 30; // default when unknown
+  DateTime? _turnDeadline;
 
   // Backoff
   int _retries = 0;
@@ -490,6 +495,8 @@ class PokerModel extends ChangeNotifier {
         timeBankSeconds,
         autoStartMs,
       ));
+      // Cache timebank seconds locally for countdowns in this session
+      this.timeBankSeconds = timeBankSeconds;
       final tid = res['table_id'] as String?;
       if (tid == null || (res['status'] as String?) != 'created') {
         final msg = res['message'] ?? 'unknown error';
@@ -513,8 +520,8 @@ class PokerModel extends ChangeNotifier {
       if (_seated && currentTableId == tableId) {
         print('DEBUG: joinTable dedup - already seated at $tableId; reattaching stream');
         await _attachGameStream();
-        await refreshGameState();
-        await _refreshLastWinners();
+        // Stream drives UI; fetch winners in background.
+        unawaited(_refreshLastWinners());
         _resetBackoff();
         notifyListeners();
         return true;
@@ -536,9 +543,8 @@ class PokerModel extends ChangeNotifier {
       print('DEBUG: joinTable ok - tableId=$tableId playerId=$playerId');
       await refreshTables();
       await _attachGameStream(); // subscribe immediately with this.playerId
-      // Ensure we didn't miss the GAME_STARTED snapshot by fetching current state.
-      await refreshGameState();
-      await _refreshLastWinners(); // useful if a hand just ended
+      // Let stream drive UI; fetch winners in background.
+      unawaited(_refreshLastWinners());
       _resetBackoff();
       notifyListeners();
       return true;
@@ -581,14 +587,11 @@ class PokerModel extends ChangeNotifier {
       if (_seated && currentTableId == tid) {
         print('DEBUG: _restoreCurrentTable - already at $tid, skipping rejoin');
         await _attachGameStream();
-        await refreshGameState();
         return;
       }
 
       // Re-join via golib to reconcile client-side state and attach streams
       await joinTable(tid);
-      // Proactively refresh the state in case we attached mid-hand.
-      await refreshGameState();
     } catch (_) {
       // ignore
     } finally {
@@ -689,7 +692,6 @@ class PokerModel extends ChangeNotifier {
     }
 
     print('DEBUG: Processing game update - phase: ${u.phase}, gameStarted: ${u.gameStarted}, currentPlayer: ${u.currentPlayer}');
-    
     game = UiGameState.fromUpdate(u);
 
     final myP = me;
@@ -708,17 +710,37 @@ class PokerModel extends ChangeNotifier {
     if (u.phase == pr.GamePhase.SHOWDOWN) {
       _state = PokerState.showdown;
       unawaited(_refreshLastWinners());
+      _turnDeadline = null;
     } else if (u.phase != pr.GamePhase.WAITING) {
       _state = PokerState.handInProgress;
     } else {
       _state = PokerState.inLobby;
+      _turnDeadline = null;
     }
+
+    // Server-authoritative timebank: read from GameUpdate
+    if (u.timeBankSeconds > 0) {
+      timeBankSeconds = u.timeBankSeconds;
+    }
+    _turnDeadline = (u.turnDeadlineUnixMs > 0)
+        ? DateTime.fromMillisecondsSinceEpoch(u.turnDeadlineUnixMs.toInt())
+        : null;
 
     print('DEBUG: Updated state to: $_state, isMyTurn: $isMyTurn');
     
     errorMessage = '';
     _resetBackoff();
     notifyListeners();
+  }
+
+  // Removed local ticker; painter handles repainting via a RenderLoop using the deadline
+
+  double get timebankRemainingSeconds {
+    final dl = _turnDeadline;
+    if (dl == null) return 0;
+    final rem = dl.difference(DateTime.now());
+    if (rem.isNegative) return 0;
+    return rem.inMilliseconds / 1000.0;
   }
 
   void _onGameStreamError(Object e, StackTrace st) {
@@ -819,7 +841,6 @@ class PokerModel extends ChangeNotifier {
     try {
       final resp = await poker.getGameState(pr.GetGameStateRequest()..tableId = tid);
       print('DEBUG: refreshGameState - phase: ${resp.gameState.phase}, gameStarted: ${resp.gameState.gameStarted}, currentPlayer: ${resp.gameState.currentPlayer}');
-      
       game = UiGameState.fromUpdate(resp.gameState);
 
       final myP = me;
@@ -830,7 +851,19 @@ class PokerModel extends ChangeNotifier {
         final h = myP!.hand;
         print('DEBUG: My cards (from GetGameState): ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
       }
-            
+      // Keep coarse UI state in sync even when attaching mid-hand.
+      // This mirrors the logic in _onGameUpdate so that the UI shows
+      // the table (and hole cards) immediately on reconnect/restore.
+      final phase = resp.gameState.phase;
+      if (phase == pr.GamePhase.SHOWDOWN) {
+        _state = PokerState.showdown;
+        unawaited(_refreshLastWinners());
+      } else if (phase != pr.GamePhase.WAITING) {
+        _state = PokerState.handInProgress;
+      } else {
+        _state = PokerState.inLobby;
+      }
+
       print('DEBUG: refreshGameState - Updated state to: $_state, isMyTurn: $isMyTurn');
       
       notifyListeners();

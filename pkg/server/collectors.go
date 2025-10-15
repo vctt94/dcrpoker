@@ -105,6 +105,7 @@ func (s *Server) collectPlayerSnapshot(user *poker.User, game *poker.Game) *Play
 		HandDescription:   "",
 		HasBet:            0,
 		StartingBalance:   0,
+		LastAction:        time.Time{},
 	}
 
 	// If game exists and player is in it, get game-specific data
@@ -183,6 +184,7 @@ func (s *Server) collectPlayerSnapshotFromGameSnapshot(user *poker.User, gs *pok
 		snapshot.HandDescription = player.HandDescription
 		snapshot.HasBet = player.CurrentBet
 		snapshot.StartingBalance = player.StartingBalance
+		snapshot.LastAction = player.LastAction
 
 		if len(player.Hand) > 0 {
 			snapshot.Hand = make([]poker.Card, len(player.Hand))

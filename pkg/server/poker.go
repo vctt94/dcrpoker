@@ -152,7 +152,8 @@ func (s *Server) FoldBet(ctx context.Context, req *pokerrpc.FoldBetRequest) (*po
 	}
 
 	if err := table.HandleFold(req.PlayerId); err != nil {
-		return nil, status.Error(codes.Internal, "failed to process fold: "+err.Error())
+		// Invalid-at-this-time actions are a client precondition issue, not server-internal.
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 
 	// Publish typed PLAYER_FOLDED event
@@ -406,18 +407,39 @@ func (s *Server) buildGameStateForPlayer(table *poker.Table, game *poker.Game, r
 	// single authority for that flag. UIs should rely on CurrentPlayer for
 	// highlighting to avoid transient races between EndTurn/StartTurn events.
 
+	// Authoritative timebank fields
+	var tbSec int32
+	var deadlineMs int64
+	cfg := table.GetConfig()
+	if cfg.TimeBank > 0 {
+		tbSec = int32(cfg.TimeBank.Seconds())
+		// Compute deadline for the current player if applicable, using a snapshot
+		if currentPlayerID != "" {
+			snap := game.GetStateSnapshot()
+			for _, ps := range snap.Players {
+				if ps.ID == currentPlayerID {
+					dl := ps.LastAction.Add(cfg.TimeBank)
+					deadlineMs = dl.UnixMilli()
+					break
+				}
+			}
+		}
+	}
+
 	return &pokerrpc.GameUpdate{
-		TableId:         table.GetConfig().ID,
-		Phase:           table.GetGamePhase(),
-		PhaseName:       table.GetGamePhase().String(),
-		Players:         players,
-		CommunityCards:  communityCards,
-		Pot:             pot,
-		CurrentBet:      table.GetCurrentBet(),
-		CurrentPlayer:   currentPlayerID,
-		GameStarted:     table.IsGameStarted(),
-		PlayersRequired: int32(table.GetMinPlayers()),
-		PlayersJoined:   int32(len(table.GetUsers())),
+		TableId:            table.GetConfig().ID,
+		Phase:              table.GetGamePhase(),
+		PhaseName:          table.GetGamePhase().String(),
+		Players:            players,
+		CommunityCards:     communityCards,
+		Pot:                pot,
+		CurrentBet:         table.GetCurrentBet(),
+		CurrentPlayer:      currentPlayerID,
+		GameStarted:        table.IsGameStarted(),
+		PlayersRequired:    int32(table.GetMinPlayers()),
+		PlayersJoined:      int32(len(table.GetUsers())),
+		TimeBankSeconds:    tbSec,
+		TurnDeadlineUnixMs: deadlineMs,
 	}
 }
 
@@ -428,9 +450,6 @@ func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateReq
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
-
-	// Process any player timeouts before building the state.
-	table.HandleTimeouts()
 
 	// Extract requesting player ID from context metadata
 	requestingPlayerID := ""

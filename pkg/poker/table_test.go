@@ -558,8 +558,8 @@ func TestHandleTimeoutsAutoFold(t *testing.T) {
 	require.NotNil(t, live, "live player not found by id")
 	live.lastAction = time.Now().Add(-2 * tbl.GetConfig().TimeBank)
 
-	// Run timeout handling (only from the timeout loop in real code; here we call directly).
-	tbl.HandleTimeouts()
+	// Simulate timebank expiry for current player.
+	g.TriggerTimebankExpiredFor(curID)
 
 	// Assert it folded. Poll briefly in case advancement is async.
 	require.Eventually(t, func() bool {

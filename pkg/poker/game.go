@@ -207,6 +207,7 @@ const (
 	GameEventShowdownComplete                          // Showdown processing complete, result available
 	GameEventAutoStartTriggered                        // Auto-start timer fired, Table should check conditions and start if ready
 	GameEventGameOver                                  // Game has ended, only one player has chips remaining
+	GameEventStateUpdated                              // Generic state update (e.g., turn changed)
 )
 
 // GameEvent represents an event sent from Game FSM to Table
@@ -214,6 +215,21 @@ type GameEvent struct {
 	Type           GameEventType
 	ShowdownResult *ShowdownResult // Only set for GameEventShowdownComplete
 	WinnerID       string          // Only set for GameEventGameOver - ID of the player who won
+	ActorID        string          // Optional: actor who triggered the update (e.g., timebank auto-action)
+	Action         string          // Optional: "check" or "fold" for auto-actions
+}
+
+// PlayerEventType represents different player-originated events sent to Game
+type PlayerEventType int
+
+const (
+	PlayerEventTimebankExpired PlayerEventType = iota // Player's per-turn timebank expired
+)
+
+// PlayerEvent represents an event sent from Player to Game
+type PlayerEvent struct {
+	Type     PlayerEventType
+	PlayerID string
 }
 
 // Game holds the context and data for our poker game
@@ -271,6 +287,9 @@ type Game struct {
 
 	// Event channel for sending events to Table (betting round complete, showdown, etc.)
 	tableEventChan chan<- GameEvent
+
+	// Player event channel (timebank expired, etc.)
+	playerEventChan chan PlayerEvent
 }
 
 // SetTableEventChannel sets the channel for sending events to the Table
@@ -334,10 +353,32 @@ func NewGame(cfg GameConfig) (*Game, error) {
 	// Initialize state machine with first state function
 	g.sm = statemachine.New(g, stateNewHandDealing, 32)
 
+	// Player events channel and loop
+	g.playerEventChan = make(chan PlayerEvent, 32)
+	go func(ch <-chan PlayerEvent) {
+		for ev := range ch {
+			switch ev.Type {
+			case PlayerEventTimebankExpired:
+				if sm := g.sm; sm != nil {
+					sm.Send(evTimebankExpiredReq{id: ev.PlayerID})
+				}
+			}
+		}
+	}(g.playerEventChan)
+
 	return g, nil
 }
 
 func (g *Game) Start(ctx context.Context) { g.sm.Start(ctx) }
+
+// TriggerTimebankExpiredFor simulates a player's timebank expiry by emitting
+// the corresponding internal event. Intended for tests only.
+func (g *Game) TriggerTimebankExpiredFor(playerID string) {
+	sm := g.sm
+	if sm != nil {
+		sm.Send(evTimebankExpiredReq{id: playerID})
+	}
+}
 
 // NEW_HAND_DEALING: wait for evStartHand to begin setup
 func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
@@ -1036,7 +1077,23 @@ func (g *Game) Close() {
 	sm := g.sm
 	autoStartTimer := g.autoStartTimer
 	autoAdvanceTimer := g.autoAdvanceTimer
+	playerCh := g.playerEventChan
 	g.mu.Unlock()
+
+	// Cancel all player timebank timers and sever their event channels
+	for _, p := range players {
+		if p != nil {
+			p.cancelTimebank()
+			p.mu.Lock()
+			p.playerEventChan = nil
+			p.mu.Unlock()
+		}
+	}
+
+	// Close player event channel to stop the forwarder goroutine
+	if playerCh != nil {
+		close(playerCh)
+	}
 
 	// Stop all player state machines without holding lock to avoid deadlock
 	for _, p := range players {
@@ -1054,6 +1111,7 @@ func (g *Game) Close() {
 	// Clear references under lock
 	g.mu.Lock()
 	g.sm = nil
+	g.playerEventChan = nil
 	g.mu.Unlock()
 
 	// Cancel timers if running (timer.Stop() is safe to call concurrently)
@@ -1081,6 +1139,9 @@ func (g *Game) SetPlayers(users []*User) {
 		player.tableSeat = user.TableSeat
 		player.isReady = user.IsReady
 		player.lastAction = time.Now() // Set current time since User doesn't have LastAction
+		// Wire timebank scheduling
+		player.timebankDelay = g.config.TimeBank
+		player.playerEventChan = g.playerEventChan
 		player.mu.Unlock()
 
 		g.players[i] = player
@@ -1112,12 +1173,16 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 			_ = p.ResetForNewHand(p.balance)
 			p.tableSeat = u.TableSeat
 			p.isReady = u.IsReady
+			p.timebankDelay = g.config.TimeBank
+			p.playerEventChan = g.playerEventChan
 			newPlayers = append(newPlayers, p)
 		} else {
 			// New seat joined between hands
 			np := NewPlayer(u.ID, u.Name, g.config.StartingChips)
 			np.tableSeat = u.TableSeat
 			np.isReady = u.IsReady
+			np.timebankDelay = g.config.TimeBank
+			np.playerEventChan = g.playerEventChan
 			newPlayers = append(newPlayers, np)
 		}
 	}
@@ -2562,6 +2627,9 @@ type evHandleBetReq struct {
 	reply  chan error
 }
 
+// Fired by Player's per-turn timer; request the game to auto-act.
+type evTimebankExpiredReq struct{ id string }
+
 // handleGameEvent centralizes cross-state request handling. It returns (nextState, handled).
 func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 	switch e := ev.(type) {
@@ -2569,6 +2637,31 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		g.mu.Lock()
 		g.maybeCompleteBettingRound()
 		g.mu.Unlock()
+		return nil, true
+	case evTimebankExpiredReq:
+		// Decide auto action without holding g.mu while calling external APIs
+		var act string
+		g.mu.Lock()
+		// Validate phase
+		actionable := (g.phase == pokerrpc.GamePhase_PRE_FLOP || g.phase == pokerrpc.GamePhase_FLOP || g.phase == pokerrpc.GamePhase_TURN || g.phase == pokerrpc.GamePhase_RIVER)
+		if actionable && g.currentPlayer >= 0 && g.currentPlayer < len(g.players) && g.players[g.currentPlayer] != nil && g.players[g.currentPlayer].ID() == e.id {
+			p := g.players[g.currentPlayer]
+			need := g.currentBet - p.currentBet
+			if need <= 0 {
+				act = "check"
+			} else {
+				act = "fold"
+			}
+		}
+		g.mu.Unlock()
+		switch act {
+		case "check":
+			_ = g.HandlePlayerCheck(e.id)
+		case "fold":
+			_ = g.HandlePlayerFold(e.id)
+		}
+		// Notify table to push a fresh GameUpdate and optional typed action event
+		g.sendTableEvent(GameEvent{Type: GameEventStateUpdated, ActorID: e.id, Action: act})
 		return nil, true
 	case evAdvanceToNextPlayerReq:
 		g.mu.Lock()

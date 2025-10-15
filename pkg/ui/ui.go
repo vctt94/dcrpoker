@@ -78,6 +78,11 @@ type PokerUI struct {
 
 	// current account balance
 	balance int64
+
+	// Timebank tracking
+	timeBankSeconds int
+	turnStartAt     time.Time
+	turnDeadline    time.Time
 }
 
 // NewPokerUI creates a new poker UI model
@@ -97,6 +102,7 @@ func NewPokerUI(ctx context.Context, client *client.PokerClient) *PokerUI {
 		currentView:         "mainMenu",
 		showMyCards:         false, // Default to not showing cards
 		playersShowingCards: make(map[string]bool),
+		timeBankSeconds:     30, // default to 30s if not provided by server
 	}
 
 	// Create component handlers
@@ -115,7 +121,11 @@ func NewPokerUI(ctx context.Context, client *client.PokerClient) *PokerUI {
 }
 
 func (m *PokerUI) Init() tea.Cmd {
-	return m.dispatcher.getBalanceCmd()
+	// Start a periodic tick to update timebank countdowns
+	return tea.Batch(
+		m.dispatcher.getBalanceCmd(),
+		tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg { return t }),
+	)
 }
 
 // GetCurrentTableBigBlind returns the big blind value for the current table
@@ -138,6 +148,9 @@ func (m *PokerUI) GetCurrentTableBigBlind() int64 {
 func (m *PokerUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle global messages first
 	switch msg := msg.(type) {
+	case time.Time:
+		// periodic tick; just trigger re-render and reschedule
+		return m, tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg { return t })
 	case tablesMsg:
 		m.tables = []*pokerrpc.Table(msg)
 		m.selectedTable = 0
@@ -168,7 +181,25 @@ func (m *PokerUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case client.GameUpdateMsg:
 		gameUpdate := (*pokerrpc.GameUpdate)(msg)
+		// Detect turn change to start/reset timebank window
+		prevCurrent := m.currentPlayerID
 		m.updateGameState(gameUpdate)
+
+		// Update timebank seconds from server if present
+		if gameUpdate.TimeBankSeconds > 0 {
+			m.timeBankSeconds = int(gameUpdate.TimeBankSeconds)
+		}
+
+		// Prefer authoritative server deadline when provided
+		if gameUpdate.TurnDeadlineUnixMs > 0 {
+			// Convert Unix ms to time.Time
+			m.turnDeadline = time.Unix(0, gameUpdate.TurnDeadlineUnixMs*int64(time.Millisecond))
+			m.turnStartAt = time.Time{}
+		} else if gameUpdate.CurrentPlayer != "" && gameUpdate.CurrentPlayer != prevCurrent {
+			// Fallback: approximate locally only when server doesn't provide a deadline
+			m.turnStartAt = time.Now()
+			m.turnDeadline = m.turnStartAt.Add(time.Duration(m.timeBankSeconds) * time.Second)
+		}
 		return m, nil
 
 	case errorMsg:
@@ -252,7 +283,7 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 				m.selectedFormField--
 			}
 		case "down", "j":
-			if m.selectedFormField < 6 { // 7 fields total (0-6)
+			if m.selectedFormField < 7 { // 8 fields total (0-7)
 				m.selectedFormField++
 			}
 		case "enter", " ":
@@ -264,6 +295,13 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 			minBalance, _ := strconv.ParseInt(m.minBalance, 10, 64)
 			startingChips, _ := strconv.ParseInt(m.startingChips, 10, 64)
 			autoAdvanceMs, _ := strconv.ParseInt(m.autoAdvanceMs, 10, 64)
+			// Optional timebank seconds; default to 30 if empty or zero
+			tbSec := int64(m.timeBankSeconds)
+			if m.getFormFieldValue(7) != "" { // if user entered something for timebank
+				if parsed, err := strconv.ParseInt(m.getFormFieldValue(7), 10, 64); err == nil && parsed > 0 {
+					tbSec = parsed
+				}
+			}
 
 			config := poker.TableConfig{
 				SmallBlind:       smallBlind,
@@ -273,9 +311,12 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 				BuyIn:            buyIn,
 				MinBalance:       minBalance,
 				StartingChips:    startingChips,
+				TimeBank:         time.Duration(tbSec) * time.Second,
 				AutoStartDelay:   3 * time.Second,                                 // Auto-start new hands after 3 seconds
 				AutoAdvanceDelay: time.Duration(autoAdvanceMs) * time.Millisecond, // Auto-advance delay when all-in
 			}
+			// Track locally for countdowns
+			m.timeBankSeconds = int(tbSec)
 			return m.stateCreateTable, m.dispatcher.createTableCmd(config)
 		case "q":
 			m.selectedItem = 0
@@ -568,6 +609,10 @@ func (m *PokerUI) updateFormField(input string) {
 			m.startingChips += input
 		case 6:
 			m.autoAdvanceMs += input
+		case 7:
+			// Timebank seconds (UI-only input)
+			// Store in a transient string via helper getter/setter
+			m.setFormFieldValue(7, m.getFormFieldValue(7)+input)
 		}
 	} else if input == "backspace" {
 		switch m.selectedFormField {
@@ -599,7 +644,28 @@ func (m *PokerUI) updateFormField(input string) {
 			if len(m.autoAdvanceMs) > 0 {
 				m.autoAdvanceMs = m.autoAdvanceMs[:len(m.autoAdvanceMs)-1]
 			}
+		case 7:
+			cur := m.getFormFieldValue(7)
+			if len(cur) > 0 {
+				m.setFormFieldValue(7, cur[:len(cur)-1])
+			}
 		}
+	}
+}
+
+// getFormFieldValue provides a way to store an extra input field (timebank seconds)
+func (m *PokerUI) getFormFieldValue(idx int) string {
+	// idx==7 used for timebank seconds; store in betAmount temporarily to avoid adding more fields
+	if idx == 7 {
+		// reuse betAmount as a general-purpose string store for this input context
+		return m.betAmount
+	}
+	return ""
+}
+
+func (m *PokerUI) setFormFieldValue(idx int, val string) {
+	if idx == 7 {
+		m.betAmount = val
 	}
 }
 
@@ -624,13 +690,22 @@ func (m *PokerUI) updateGameState(gameUpdate *pokerrpc.GameUpdate) {
 	case pokerrpc.GamePhase_WAITING:
 		m.currentState = m.stateGameLobby
 		m.currentView = "gameLobby"
+		// Clear countdown when not in betting phases
+		m.turnDeadline = time.Time{}
 	case pokerrpc.GamePhase_NEW_HAND_DEALING:
 		// During dealing phase, stay in active game view but show dealing status
 		m.currentState = m.stateActiveGame
 		m.currentView = "activeGame"
+		// Clear countdown while dealing
+		m.turnDeadline = time.Time{}
 	default:
 		m.currentState = m.stateActiveGame
 		m.currentView = "activeGame"
+	}
+
+	// Clear countdown if no current player
+	if m.currentPlayerID == "" {
+		m.turnDeadline = time.Time{}
 	}
 
 	m.err = nil
@@ -694,8 +769,13 @@ func (m *PokerUI) handleNotification(notification *pokerrpc.Notification) tea.Cm
 		return m.dispatcher.getBalanceCmd()
 
 	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
-		// Store showdown results for display
+		// Store showdown results and immediately reflect SHOWDOWN phase in UI
 		m.winners = notification.Winners
+		m.gamePhase = pokerrpc.GamePhase_SHOWDOWN
+		m.currentPlayerID = ""
+		m.currentState = m.stateActiveGame
+		m.currentView = "activeGame"
+		m.selectedItem = 0
 		m.message = fmt.Sprintf("Showdown complete! Winners: %d players", len(notification.Winners))
 		return nil
 

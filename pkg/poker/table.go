@@ -165,33 +165,11 @@ func NewTable(cfg TableConfig) *Table {
 	t.sm = statemachine.New(t, tableStateWaitingForPlayers, 32)
 	t.sm.Start(context.Background())
 
-	// Start timeout goroutine (track with WaitGroup)
-	t.wg.Add(1)
-	go t.timeoutLoop()
-
 	// Start game event processing goroutine (track with WaitGroup)
 	t.wg.Add(1)
 	go t.gameEventLoop()
 
 	return t
-}
-
-// timeoutLoop runs a periodic timeout check every 200ms
-func (t *Table) timeoutLoop() {
-	defer t.wg.Done()
-
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			// Check for timeouts
-			t.HandleTimeouts()
-		case <-t.timeoutStop:
-			return
-		}
-	}
 }
 
 // Close stops all background goroutines and cleans up resources.
@@ -282,6 +260,17 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		// Advance to next street
 		if err := t.advanceToNextStreet(); err != nil {
 			t.log.Errorf("Failed to advance to next street: %v", err)
+		}
+	case GameEventStateUpdated:
+		// Publish typed action notification when available to keep clients in sync,
+		// then trigger a game state broadcast via the event pipeline.
+		switch event.Action {
+		case "check":
+			t.PublishEvent(pokerrpc.NotificationType_CHECK_MADE, t.config.ID, nil)
+		case "fold":
+			t.PublishEvent(pokerrpc.NotificationType_PLAYER_FOLDED, t.config.ID, nil)
+		default:
+			t.PublishEvent(pokerrpc.NotificationType_UNKNOWN, t.config.ID, nil)
 		}
 	case GameEventShowdownComplete:
 		if err := t.handleShowdownComplete(event.ShowdownResult); err != nil {
@@ -391,7 +380,6 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 // PLAYERS_READY
 func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
-		fmt.Println("tableStatePlayersReady")
 		switch ev.(type) {
 		case evUsersChanged:
 			if !t.allPlayersReady() {
@@ -503,6 +491,7 @@ func (t *Table) StartGame() error {
 		StartingChips:    t.config.StartingChips,
 		SmallBlind:       t.config.SmallBlind,
 		BigBlind:         t.config.BigBlind,
+		TimeBank:         t.config.TimeBank,
 		AutoStartDelay:   t.config.AutoStartDelay,
 		AutoAdvanceDelay: t.config.AutoAdvanceDelay,
 		Log:              gameLog,
@@ -797,59 +786,6 @@ func (t *Table) GetGamePhase() pokerrpc.GamePhase {
 		return pokerrpc.GamePhase_WAITING
 	}
 	return t.game.GetPhase()
-}
-
-// HandleTimeouts auto-checks or auto-folds the current player when their timebank expires.
-// It uses only a read snapshot to decide, and performs exactly ONE mutating call.
-// IMPORTANT: do not call this from GetGameState or other read-only RPCs.
-// Call only from the dedicated timeout loop goroutine.
-func (t *Table) HandleTimeouts() {
-	// Fast exits with no locks
-	if !t.isGameActive() || t.config.TimeBank == 0 {
-		return
-	}
-	g := t.game
-	if g == nil {
-		return
-	}
-
-	// Only act during betting streets (read-only)
-	switch g.GetPhase() {
-	case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
-	default:
-		return
-	}
-
-	// Get current player directly from game
-	cp := g.GetCurrentPlayerObject()
-	if cp == nil {
-		return
-	}
-
-	// Respect monotonic time: compare against a deadline derived from lastAction.
-	// Protect reads with player lock to avoid data races with actions.
-	cp.mu.RLock()
-	la := cp.lastAction
-	curBet := cp.currentBet
-	pid := cp.id
-	cp.mu.RUnlock()
-	deadline := la.Add(t.config.TimeBank)
-	if time.Now().Before(deadline) {
-		return
-	}
-
-	playerID := pid
-	need := g.GetCurrentBet() - curBet
-
-	// Decide from snapshot WITHOUT holding any locks, then perform exactly one mutating call.
-	// Use game-level handlers to avoid a second turn check race at the table layer.
-	// Betting round completion is handled by Game FSM sending events to Table.
-	if need <= 0 {
-		_ = g.HandlePlayerCheck(playerID)
-	} else {
-		_ = g.HandlePlayerFold(playerID)
-	}
-
 }
 
 // GetGame returns the current game (can be nil)

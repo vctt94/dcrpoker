@@ -131,6 +131,8 @@ message GameUpdate {
   int32 players_required = 11;
   int32 players_joined = 12;
   string phase_name = 13;  // Human-readable name of the current phase
+  int32 time_bank_seconds = 14;       // Timebank per player (seconds)
+  int64 turn_deadline_unix_ms = 15;   // Absolute deadline for current turn (Unix ms). 0 if N/A
 }
 
 message MakeBetRequest {
