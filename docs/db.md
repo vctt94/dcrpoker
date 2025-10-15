@@ -3,13 +3,17 @@
 erDiagram
   players ||--o{ transactions : has
   players ||--o{ table_participants : sits_in
+  players ||--o{ hand_players : participates
+  players ||--o{ table_buyins : buys_in
+  players ||--o{ table_cashouts : cashes_out
   tables  ||--o{ table_participants : has
   tables  ||--o{ table_buyins : has
   tables  ||--o{ table_cashouts : has
   tables  ||--o{ hands : deals
-  hands   ||--o{ events : emits
-  tables  ||--o{ events : emits_table
-  tables  ||--|| table_snapshots : snapshot
+  tables  ||--o| table_snapshots : snapshot
+  hands   ||--o{ hand_players : has
+  hands   ||--o{ actions : contains
+  hands   ||--o{ board_cards : has
 
   players {
     string   id PK
@@ -30,21 +34,22 @@ erDiagram
   tables {
     string   id PK
     string   host_id
+    int      buy_in
     int      min_players
     int      max_players
-    int      starting_chips
     int      small_blind
     int      big_blind
+    int      min_balance
+    int      starting_chips
     int      timebank_ms
     int      autostart_ms
-    int      seed
+    int      auto_advance_ms
     datetime created_at
   }
 
   table_participants {
-    int      id PK
-    string   table_id
-    string   player_id
+    string   table_id PK
+    string   player_id PK
     int      seat
     datetime joined_at
     datetime left_at
@@ -74,25 +79,41 @@ erDiagram
     datetime started_at
     datetime ended_at
     int      dealer_seat
-    int      deck_seed
-    string   deck_commit
+    int      sb_seat
+    int      bb_seat
+    string   result_json
   }
 
-  events {
+  hand_players {
+    int      hand_id PK
+    string   player_id PK
+    int      seat
+    int      starting_stack
+    string   hole_cards_json
+  }
+
+  actions {
     int      id PK
-    string   table_id
     int      hand_id
     int      ord
-    string   type
-    string   payload
+    string   street
+    int      actor_seat
+    string   action
+    int      amount
+    boolean  is_allin
     datetime created_at
   }
 
+  board_cards {
+    int      hand_id PK
+    string   street PK
+    string   cards_json
+  }
+
   table_snapshots {
-    int      id PK
-    string   table_id
+    string   table_id PK
     datetime snapshot_at
-    string   payload
+    blob     payload
   }
 
 ```
