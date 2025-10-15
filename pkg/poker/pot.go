@@ -243,14 +243,17 @@ func (pm *potManager) distributePots(players []*Player) error {
 			}
 		}
 
-		// Uncontested pot path - directly modify balance under g.mu
+		// Uncontested pot path - modify balance with Player.mu under Game.mu (Table→Game→Player order)
 		if len(alive) == 1 {
 			w := alive[0]
 			if players[w] != nil {
-				// Game FSM owns balance - modify directly (no synchronous FSM call)
+				// Acquire player lock before mutating fields to avoid data races
+				players[w].mu.Lock()
 				players[w].balance += pot.amount
+				newBal := players[w].balance
+				players[w].mu.Unlock()
 				// Notify player FSM about balance change (async, non-blocking)
-				players[w].NotifyBalanceChange(players[w].balance, pot.amount, "pot_win")
+				players[w].NotifyBalanceChange(newBal, pot.amount, "pot_win")
 			}
 			pm.pots[pi].amount = 0
 			for j := range pm.pots[pi].eligibility {
@@ -289,7 +292,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 			return fmt.Errorf("[pot %d] showdown produced no winners", pi)
 		}
 
-		// Split pot; first winner gets remainder - directly modify balance under g.mu
+		// Split pot; first winner gets remainder - modify balance with Player.mu under Game.mu
 		share := pot.amount / int64(len(winners))
 		rem := pot.amount % int64(len(winners))
 		for i, idx := range winners {
@@ -298,14 +301,17 @@ func (pm *potManager) distributePots(players []*Player) error {
 				add += rem
 			}
 			if players[idx] != nil {
-				// Game FSM owns balance - modify directly (no synchronous FSM call)
+				// Acquire player lock before mutating fields to avoid data races
+				players[idx].mu.Lock()
 				players[idx].balance += add
+				newBal := players[idx].balance
+				players[idx].mu.Unlock()
 				// Notify player FSM about balance change (async, non-blocking)
 				reason := "pot_win_split"
 				if len(winners) == 1 {
 					reason = "pot_win"
 				}
-				players[idx].NotifyBalanceChange(players[idx].balance, add, reason)
+				players[idx].NotifyBalanceChange(newBal, add, reason)
 			}
 		}
 
