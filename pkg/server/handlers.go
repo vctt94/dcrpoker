@@ -419,7 +419,6 @@ func NewPersistenceHandler(server *Server) *PersistenceHandler {
 	return &PersistenceHandler{server: server}
 }
 
-func (ph *PersistenceHandler) HandleEvent(event *GameEvent) {
-	// Save table state asynchronously using existing method
+func (ph *PersistenceHandler) SaveTableStateAsync(event *GameEvent) {
 	ph.server.saveTableStateAsync(event.TableID, string(event.Type))
 }

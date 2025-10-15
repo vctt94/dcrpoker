@@ -233,5 +233,5 @@ func (w *eventWorker) processGameStateUpdates(event *GameEvent) {
 // processPersistence handles state persistence for the event
 func (w *eventWorker) processPersistence(event *GameEvent) {
 	handler := NewPersistenceHandler(w.processor.server)
-	handler.HandleEvent(event)
+	handler.SaveTableStateAsync(event)
 }

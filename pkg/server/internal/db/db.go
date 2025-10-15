@@ -17,7 +17,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 )
 
-// DB wraps sql.DB.
+// DB wraps sql.
 type DB struct {
 	*sql.DB
 }
@@ -41,7 +41,7 @@ func NewDB(path string) (*DB, error) {
 }
 
 // Close closes the underlying DB.
-func (db *DB) Close() error { return db.DB.Close() }
+func (db *DB) Close() error { return db.Close() }
 
 // withTx runs fn in a transaction, committing on success.
 func (db *DB) withTx(ctx context.Context, fn func(*sql.Tx) error) (err error) {

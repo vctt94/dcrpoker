@@ -10,6 +10,19 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/statemachine"
 )
 
+// PlayerEventType represents different player-originated events sent to Game
+type PlayerEventType int
+
+const (
+	PlayerEventTimebankExpired PlayerEventType = iota // Player's per-turn timebank expired
+)
+
+// PlayerEvent represents an event sent from Player to Game
+type PlayerEvent struct {
+	Type     PlayerEventType
+	PlayerID string
+}
+
 type Player struct {
 	mu RWLock
 	// identity

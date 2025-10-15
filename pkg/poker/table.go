@@ -980,7 +980,6 @@ func (t *Table) HandleCheck(userID string) error {
 			return err
 		}
 
-		t.log.Debugf("HandleCheck: user %s checked; actionsInRound=%d currentBet=%d", userID, t.game.GetActionsInRound(), t.game.GetCurrentBet())
 	}
 
 	t.lastAction = time.Now()
@@ -1088,11 +1087,9 @@ func (t *Table) SetPlayerReady(userID string, ready bool) error {
 
 // TableStateSnapshot represents a point-in-time snapshot of table state for safe concurrent access
 type TableStateSnapshot struct {
-	Config      TableConfig
-	Users       []*User
-	GameStarted bool
-	GamePhase   pokerrpc.GamePhase
-	Game        *GameStateSnapshot // Nested game state snapshot if game is active
+	Config TableConfig
+	Users  []User
+	Game   GameStateSnapshot // Nested game state snapshot if game is active
 }
 
 // GetStateSnapshot returns an atomic snapshot of the table state for safe concurrent access
@@ -1101,9 +1098,9 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	t.mu.RLock()
 
 	// Create a deep copy of users to avoid race conditions
-	usersCopy := make([]*User, 0, len(t.users))
+	usersCopy := make([]User, 0, len(t.users))
 	for _, user := range t.users {
-		userCopy := &User{
+		userCopy := User{
 			ID:                user.ID,
 			Name:              user.Name,
 			DCRAccountBalance: user.DCRAccountBalance,
@@ -1117,7 +1114,6 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	// Grab references we need without holding lock during expensive operations
 	config := t.config
 	game := t.game
-	gamePhase := t.getGamePhase()
 	t.mu.RUnlock()
 
 	// Sort by TableSeat to ensure consistent ordering
@@ -1127,28 +1123,16 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 
 	// Get game state snapshot WITHOUT holding table lock to avoid nested lock deadlock
 	// (game.GetStateSnapshot may need to acquire player locks)
-	var gameSnapshot *GameStateSnapshot
+	var gameSnapshot GameStateSnapshot
 	if game != nil {
-		snapshot := game.GetStateSnapshot()
-		gameSnapshot = &snapshot
+		gameSnapshot = game.GetStateSnapshot()
 	}
 
 	return TableStateSnapshot{
-		Config:      config,
-		Users:       usersCopy,
-		GameStarted: game != nil,
-		GamePhase:   gamePhase,
-		Game:        gameSnapshot,
+		Config: config,
+		Users:  usersCopy,
+		Game:   gameSnapshot,
 	}
-}
-
-// getGamePhase returns the current phase
-func (t *Table) getGamePhase() pokerrpc.GamePhase {
-	mustHeld(&t.mu)
-	if t.game == nil {
-		return pokerrpc.GamePhase_WAITING
-	}
-	return t.game.GetPhase()
 }
 
 // SetUserDCRAccountBalance safely updates the DCRAccountBalance of a user seated at the table.
