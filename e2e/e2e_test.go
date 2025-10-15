@@ -413,10 +413,19 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Note: we rely on explicit waits before actions in tests that need them.
 
+	// Helper: wait until it's the specified player's turn
+	waitForTurn := func(playerID string, timeout time.Duration) {
+		require.Eventually(t, func() bool {
+			state := env.getGameState(ctx, tableID)
+			return state.CurrentPlayer == playerID
+		}, timeout, 25*time.Millisecond, "did not become %s's turn within %s", playerID, timeout)
+	}
+
 	// PRE-FLOP BETTING
 	// In 4-player game: player1=dealer, player2=SB, player3=BB, player4=UTG (acts first)
 
 	// Player4 calls the big blind
+	waitForTurn("player4", 2*time.Second)
 	_, err := env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player4",
 		TableId:  tableID,
@@ -425,6 +434,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player1 raises
+	waitForTurn("player1", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player1",
 		TableId:  tableID,
@@ -433,6 +443,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player2 calls the raise (SB needs to add 50 more to existing 10)
+	waitForTurn("player2", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player2",
 		TableId:  tableID,
@@ -441,6 +452,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player3 calls the raise (BB needs to add 40 more to existing 20)
+	waitForTurn("player3", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player3",
 		TableId:  tableID,
@@ -449,6 +461,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player4 calls the raise
+	waitForTurn("player4", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player4",
 		TableId:  tableID,
@@ -470,6 +483,7 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Post-flop betting starts with small blind (player2)
 	// Player2 checks
+	waitForTurn("player2", 2*time.Second)
 	_, err = env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
 		PlayerId: "player2",
 		TableId:  tableID,
@@ -477,6 +491,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player3 bets 100
+	waitForTurn("player3", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player3",
 		TableId:  tableID,
@@ -485,6 +500,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player4 calls
+	waitForTurn("player4", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player4",
 		TableId:  tableID,
@@ -493,6 +509,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player1 folds
+	waitForTurn("player1", 2*time.Second)
 	_, err = env.pokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
 		PlayerId: "player1",
 		TableId:  tableID,
@@ -500,6 +517,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player2 folds
+	waitForTurn("player2", 2*time.Second)
 	_, err = env.pokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
 		PlayerId: "player2",
 		TableId:  tableID,
@@ -520,6 +538,7 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Only player3 and player4 remain
 	// Player3 bets 200
+	waitForTurn("player3", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player3",
 		TableId:  tableID,
@@ -528,6 +547,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player4 calls
+	waitForTurn("player4", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player4",
 		TableId:  tableID,
@@ -548,6 +568,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	assert.Equal(t, 5, len(state.CommunityCards), "expected 5 community cards after river")
 
 	// Player3 checks
+	waitForTurn("player3", 2*time.Second)
 	_, err = env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
 		PlayerId: "player3",
 		TableId:  tableID,
@@ -555,6 +576,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player4 bets 300
+	waitForTurn("player4", 2*time.Second)
 	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
 		PlayerId: "player4",
 		TableId:  tableID,
@@ -563,6 +585,7 @@ func TestCompleteHandFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Player3 folds
+	waitForTurn("player3", 2*time.Second)
 	_, err = env.pokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
 		PlayerId: "player3",
 		TableId:  tableID,
@@ -920,19 +943,10 @@ func TestBasicBetting(t *testing.T) {
 
 	// Helper: wait until it's the specified player's turn (scoped to this test)
 	waitForTurnBasic := func(playerID string, timeout time.Duration) {
-		ctxTurn, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-		for {
+		require.Eventually(t, func() bool {
 			state := env.getGameState(ctx, tableID)
-			if state.CurrentPlayer == playerID {
-				return
-			}
-			select {
-			case <-ctxTurn.Done():
-				t.Fatalf("did not become %s's turn within %s (current=%s, phase=%v)", playerID, timeout, state.CurrentPlayer, state.Phase)
-			case <-time.After(25 * time.Millisecond):
-			}
-		}
+			return state.CurrentPlayer == playerID
+		}, timeout, 25*time.Millisecond, "did not become %s's turn within %s", playerID, timeout)
 	}
 
 	// Note: second helper removed; using waitForTurnBasic below.
@@ -2165,11 +2179,11 @@ func TestHeadsUpAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 	require.NoError(t, err)
 	t.Logf("Player %s went all-in", currentPlayer)
 
-	// Wait for turn to advance
+	// Wait for turn to advance or phase to change (fast transitions can skip straight to next phase)
 	require.Eventually(t, func() bool {
 		state = env.getGameState(ctx, tableID)
-		return state.CurrentPlayer != currentPlayer
-	}, 2*time.Second, 10*time.Millisecond, "turn should advance after all-in")
+		return state.CurrentPlayer != currentPlayer || state.Phase != pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "turn or phase should advance after all-in")
 
 	// Second player calls all-in
 	state = env.getGameState(ctx, tableID)
