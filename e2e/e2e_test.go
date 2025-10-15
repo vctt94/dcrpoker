@@ -2087,15 +2087,23 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 				folded++
 				t.Logf("Player %s folded (%d/2)", currentPlayer, folded)
 
-				// Wait for turn to advance or showdown to be reached
-				require.Eventually(t, func() bool {
-					newState := env.getGameState(ctx, tableID)
-					return newState.CurrentPlayer != currentPlayer || newState.Phase == pokerrpc.GamePhase_SHOWDOWN
-				}, 2*time.Second, 10*time.Millisecond, "turn should advance or showdown reached after fold")
+				// After the first fold, wait for the turn to advance.
+				if folded == 1 {
+					require.Eventually(t, func() bool {
+						newState := env.getGameState(ctx, tableID)
+						return newState.CurrentPlayer != currentPlayer
+					}, 2*time.Second, 10*time.Millisecond, "turn should advance after first fold")
+				}
 			}
 		}
 
-		// Verify we reached showdown
+		// Verify we reached showdown (allow extra time on CI)
+		require.Eventually(t, func() bool {
+			state := env.getGameState(ctx, tableID)
+			return state.Phase == pokerrpc.GamePhase_SHOWDOWN
+		}, 2*time.Second, 10*time.Millisecond, "should reach showdown after two folds")
+
+		// Final state assertion
 		state := env.getGameState(ctx, tableID)
 		assert.Equal(t, pokerrpc.GamePhase_SHOWDOWN, state.Phase, "should be in showdown phase")
 
