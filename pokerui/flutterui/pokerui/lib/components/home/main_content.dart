@@ -492,38 +492,80 @@ class _PokerMainContentState extends State<PokerMainContent> {
   }
 
   Widget _buildShowdownState(BuildContext context, PokerModel model) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(Icons.emoji_events, size: 64, color: Colors.amber),
-          const SizedBox(height: 16),
-          const Text(
-            'Showdown!',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 16),
-          if (model.lastWinners.isNotEmpty) ...[
-            const Text('Winners:', style: TextStyle(color: Colors.white70)),
-            const SizedBox(height: 8),
-            ...model.lastWinners.map((winner) => Text(
-              'Player ${winner.playerId}: ${winner.handRank.name}',
-              style: const TextStyle(color: Colors.white70),
-            )),
-            const SizedBox(height: 16),
-          ],
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: model.leaveTable,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                child: const Text('Leave Table'),
+    final game = model.game;
+    if (game == null) {
+      return const Center(child: Text('No game data available'));
+    }
+
+    final focusNode = FocusNode();
+    final pokerGame = PokerGame(model.playerId, model);
+
+    // Minimal showdown overlay: keep table visible; show only who won (Pn) without cards.
+    final winners = model.lastWinners;
+    final players = game.players;
+
+    String _pLabel(String pid) {
+      final idx = players.indexWhere((p) => p.id == pid);
+      return idx >= 0 ? 'P${idx + 1}' : 'P?';
+    }
+
+    return Stack(
+      children: [
+        // Reuse the poker table canvas (community cards + seats stay visible)
+        pokerGame.buildWidget(game, focusNode),
+
+        // Compact winners banner at the top center
+        if (winners.isNotEmpty)
+          Positioned(
+            top: 16,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.78),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.amber, width: 1.5),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Showdown',
+                      style: TextStyle(color: Colors.amber, fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 6),
+                    for (final w in winners)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                          _pLabel(w.playerId),
+                          style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ],
+            ),
           ),
-        ],
-      ),
+
+        // Leave table control stays available
+        Positioned(
+          bottom: 20,
+          left: 0,
+          right: 0,
+          child: Center(
+            child: ElevatedButton(
+              onPressed: model.leaveTable,
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              child: const Text('Leave Table'),
+            ),
+          ),
+        ),
+      ],
     );
   }
 

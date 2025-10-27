@@ -163,6 +163,85 @@ class PokerGame {
                               ],
                             ),
                           ),
+
+                          // Clickable hotspots over hero hole cards to toggle show/hide during showdown.
+                          if (gameState.phase == pr.GamePhase.SHOWDOWN)
+                            LayoutBuilder(builder: (context, c) {
+                              final size = c.biggest;
+                              // Match painter sizing/placement
+                              final cw = math.min(size.width * 0.06, 54.0);
+                              final ch = cw * 1.4;
+                              final gap = cw * 0.12;
+                              final centerX = size.width / 2;
+                              const marginBottom = 80.0;
+                              final y = size.height - ch - marginBottom;
+                              final x1 = centerX - cw - gap / 2;
+                              final x2 = centerX + gap / 2;
+
+                              void toggleShowHide() {
+                                if (pokerModel.myCardsShown) {
+                                  pokerModel.hideCards();
+                                } else {
+                                  pokerModel.showCards();
+                                }
+                              }
+
+                              return Stack(children: [
+                                Positioned(
+                                  left: x1,
+                                  top: y,
+                                  width: cw,
+                                  height: ch,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: toggleShowHide,
+                                    child: const SizedBox.expand(),
+                                  ),
+                                ),
+                                Positioned(
+                                  left: x2,
+                                  top: y,
+                                  width: cw,
+                                  height: ch,
+                                  child: GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: toggleShowHide,
+                                    child: const SizedBox.expand(),
+                                  ),
+                                ),
+                                // Small eye badge to indicate current show/hide state
+                                Positioned(
+                                  left: centerX - 12,
+                                  top: y - 22,
+                                  child: Opacity(
+                                    opacity: 0.85,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.75),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(color: Colors.white24),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            pokerModel.myCardsShown ? Icons.visibility : Icons.visibility_off,
+                                            size: 14,
+                                            color: Colors.white70,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            pokerModel.myCardsShown ? 'Shown' : 'Hidden',
+                                            style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ]);
+                            }),
                         ],
                       ),
                     ),
@@ -483,8 +562,12 @@ class PokerPainter extends CustomPainter {
   final UiGameState gameState;
   // This is the viewer's player ID (hero), not necessarily the player to act.
   final String currentPlayerId;
+  // Used to stagger simple reveal animations at showdown
+  final int showdownStartMs;
   
-  PokerPainter(this.gameState, this.currentPlayerId, {Listenable? repaint}) : super(repaint: repaint);
+  PokerPainter(this.gameState, this.currentPlayerId, {Listenable? repaint})
+      : showdownStartMs = DateTime.now().millisecondsSinceEpoch,
+        super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -692,11 +775,36 @@ class PokerPainter extends CustomPainter {
         angle,
       );
 
-      // Draw opponent backs near their seat if their hand is hidden but they are in-hand.
-      // If a player's hand is known (e.g., at showdown or hero), it will be drawn elsewhere.
       if (player.id != currentPlayerId) {
         final hasAnyCards = player.hand.isNotEmpty;
-        if (!hasAnyCards && (gameState.phase != pr.GamePhase.WAITING && gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
+        if (gameState.phase == pr.GamePhase.SHOWDOWN) {
+          if (hasAnyCards) {
+            // Reveal known opponent hands near their seat with a subtle slide-in.
+            final cw = 18.0;
+            final ch = cw * 1.4;
+            final gap = 4.0;
+            final startX = playerX - cw - gap / 2;
+            final baseY = playerY - playerRadius - ch - 6;
+            final now = DateTime.now().millisecondsSinceEpoch;
+            final elapsed = (now - showdownStartMs - i * 120);
+            final t = (elapsed / 450.0).clamp(0.0, 1.0);
+            final y = baseY + (1.0 - t) * 14.0;
+            _drawCard(canvas, startX, y, cw, ch, player.hand[0]);
+            if (player.hand.length > 1) {
+              _drawCard(canvas, startX + cw + gap, y, cw, ch, player.hand[1]);
+            }
+          } else {
+            // If still hidden at showdown, show subtle backs.
+            final cw = 16.0;
+            final ch = cw * 1.4;
+            final gap = 4.0;
+            final startX = playerX - cw - gap / 2;
+            final y = playerY - playerRadius - ch - 6;
+            _drawCardBack(canvas, startX, y, cw, ch);
+            _drawCardBack(canvas, startX + cw + gap, y, cw, ch);
+          }
+        } else if (!hasAnyCards && (gameState.phase != pr.GamePhase.WAITING && gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
+          // Non-showdown phases: use backs to indicate in-hand cards for opponents.
           final cw = 16.0;
           final ch = cw * 1.4;
           final gap = 4.0;

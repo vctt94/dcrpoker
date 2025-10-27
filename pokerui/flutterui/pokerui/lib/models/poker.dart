@@ -251,6 +251,9 @@ class PokerModel extends ChangeNotifier {
   bool _iAmReady = false;
   bool _seated = false; // track whether user is seated at any table
   bool _restoring = false; // guard against repeated restore/join loops
+  // Track per-player show/hide state from notifications
+  final Map<String, bool> playersShowingCards = {};
+  bool get myCardsShown => playersShowingCards[playerId] ?? false;
 
   PokerModel({
     required this.lobby,
@@ -382,6 +385,8 @@ class PokerModel extends ChangeNotifier {
         break;
 
       case pr.NotificationType.NEW_HAND_STARTED:
+        playersShowingCards.clear();
+        break;
       case pr.NotificationType.GAME_STARTED:
       case pr.NotificationType.GAME_ENDED:
       case pr.NotificationType.BET_MADE:
@@ -392,6 +397,20 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.BIG_BLIND_POSTED:
       case pr.NotificationType.SHOWDOWN_RESULT:
         // Game stream will drive UI; still useful for toasts.
+        break;
+
+      case pr.NotificationType.CARDS_SHOWN:
+        if (n.playerId.isNotEmpty) {
+          playersShowingCards[n.playerId] = true;
+          notifyListeners();
+        }
+        break;
+
+      case pr.NotificationType.CARDS_HIDDEN:
+        if (n.playerId.isNotEmpty) {
+          playersShowingCards[n.playerId] = false;
+          notifyListeners();
+        }
         break;
 
       default:
@@ -568,6 +587,7 @@ class PokerModel extends ChangeNotifier {
       game = null;
       _iAmReady = false;
       _seated = false;
+      playersShowingCards.clear();
       _state = PokerState.browsingTables;
       notifyListeners();
       unawaited(refreshTables());
@@ -637,6 +657,8 @@ class PokerModel extends ChangeNotifier {
       await poker.showCards(pr.ShowCardsRequest()
         ..playerId = playerId
         ..tableId = tid);
+      playersShowingCards[playerId] = true; // optimistic update; server will confirm via notification
+      notifyListeners();
     } catch (e) {
       errorMessage = 'Show cards failed: $e';
       notifyListeners();
@@ -650,6 +672,8 @@ class PokerModel extends ChangeNotifier {
       await poker.hideCards(pr.HideCardsRequest()
         ..playerId = playerId
         ..tableId = tid);
+      playersShowingCards[playerId] = false; // optimistic update
+      notifyListeners();
     } catch (e) {
       errorMessage = 'Hide cards failed: $e';
       notifyListeners();
