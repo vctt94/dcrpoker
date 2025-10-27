@@ -67,9 +67,9 @@ func realMain() error {
 	}
 
 	// Create channels for handling PMs and tips
-	pmChan := make(chan types.ReceivedPM)
-	tipChan := make(chan types.ReceivedTip)
-	tipProgressChan := make(chan types.TipProgressEvent)
+	pmChan := make(chan *types.ReceivedPM)
+	tipChan := make(chan *types.ReceivedTip)
+	tipProgressChan := make(chan *types.TipProgressEvent)
 
 	cfg.Config.PMChan = pmChan
 	cfg.Config.TipProgressChan = tipProgressChan
@@ -112,7 +112,7 @@ func realMain() error {
 	// Handle PMs
 	go func() {
 		for pm := range pmChan {
-			state.HandlePM(ctx, botInstance, &pm)
+			state.HandlePM(ctx, botInstance, pm)
 		}
 	}()
 

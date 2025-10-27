@@ -1,0 +1,43 @@
+name: Go CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ '**' ]
+
+jobs:
+  vet-and-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Show Go environment
+        run: |
+          go version
+          go env
+
+      - name: Go vet
+        run: go vet ./...
+
+      - name: gofmt simplify and write
+        run: gofmt -s -w .
+
+      - name: Fail if formatting changed
+        run: |
+          if ! git diff --quiet; then
+            echo "Code formatted by gofmt. Please run 'gofmt -s -w .' locally and commit changes." >&2
+            git --no-pager diff --stat
+            exit 1
+          fi
+
+      - name: Go tests (lockcheck, race, repeated)
+        run: go test -tags=lockcheck -v -race ./... -count=3 -timeout 300s
+

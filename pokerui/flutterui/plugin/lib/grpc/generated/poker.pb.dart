@@ -98,6 +98,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     $core.int? playersRequired,
     $core.int? playersJoined,
     $core.String? phaseName,
+    $core.int? timeBankSeconds,
+    $fixnum.Int64? turnDeadlineUnixMs,
   }) {
     final $result = create();
     if (tableId != null) {
@@ -139,6 +141,12 @@ class GameUpdate extends $pb.GeneratedMessage {
     if (phaseName != null) {
       $result.phaseName = phaseName;
     }
+    if (timeBankSeconds != null) {
+      $result.timeBankSeconds = timeBankSeconds;
+    }
+    if (turnDeadlineUnixMs != null) {
+      $result.turnDeadlineUnixMs = turnDeadlineUnixMs;
+    }
     return $result;
   }
   GameUpdate._() : super();
@@ -159,6 +167,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     ..a<$core.int>(11, _omitFieldNames ? '' : 'playersRequired', $pb.PbFieldType.O3)
     ..a<$core.int>(12, _omitFieldNames ? '' : 'playersJoined', $pb.PbFieldType.O3)
     ..aOS(13, _omitFieldNames ? '' : 'phaseName')
+    ..a<$core.int>(14, _omitFieldNames ? '' : 'timeBankSeconds', $pb.PbFieldType.O3)
+    ..aInt64(15, _omitFieldNames ? '' : 'turnDeadlineUnixMs')
     ..hasRequiredFields = false
   ;
 
@@ -287,6 +297,24 @@ class GameUpdate extends $pb.GeneratedMessage {
   $core.bool hasPhaseName() => $_has(12);
   @$pb.TagNumber(13)
   void clearPhaseName() => clearField(13);
+
+  @$pb.TagNumber(14)
+  $core.int get timeBankSeconds => $_getIZ(13);
+  @$pb.TagNumber(14)
+  set timeBankSeconds($core.int v) { $_setSignedInt32(13, v); }
+  @$pb.TagNumber(14)
+  $core.bool hasTimeBankSeconds() => $_has(13);
+  @$pb.TagNumber(14)
+  void clearTimeBankSeconds() => clearField(14);
+
+  @$pb.TagNumber(15)
+  $fixnum.Int64 get turnDeadlineUnixMs => $_getI64(14);
+  @$pb.TagNumber(15)
+  set turnDeadlineUnixMs($fixnum.Int64 v) { $_setInt64(14, v); }
+  @$pb.TagNumber(15)
+  $core.bool hasTurnDeadlineUnixMs() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearTurnDeadlineUnixMs() => clearField(15);
 }
 
 class MakeBetRequest extends $pb.GeneratedMessage {

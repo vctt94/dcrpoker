@@ -52,6 +52,7 @@ type PlayerSnapshot struct {
 	HandDescription   string
 	HasBet            int64
 	StartingBalance   int64
+	LastAction        time.Time
 }
 
 // GameSnapshot represents an immutable snapshot of game state
@@ -232,5 +233,5 @@ func (w *eventWorker) processGameStateUpdates(event *GameEvent) {
 // processPersistence handles state persistence for the event
 func (w *eventWorker) processPersistence(event *GameEvent) {
 	handler := NewPersistenceHandler(w.processor.server)
-	handler.HandleEvent(event)
+	handler.SaveTableStateAsync(event)
 }

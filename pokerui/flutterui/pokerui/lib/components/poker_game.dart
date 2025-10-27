@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'package:pokerui/components/helper.dart';
 
 class PokerTableBackground extends StatelessWidget {
   const PokerTableBackground({super.key, this.frac = 0.70});
@@ -57,10 +58,17 @@ class PokerTableBackground extends StatelessWidget {
 class PokerGame {
   final PokerModel pokerModel;
   final String playerId;
+  final RenderLoop _loop = RenderLoop();
 
   PokerGame(this.playerId, this.pokerModel);
 
   Widget buildWidget(UiGameState gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
+    // Start/stop lightweight repaint loop only while an authoritative deadline is active.
+    if (gameState.turnDeadlineUnixMs > 0) {
+      _loop.start();
+    } else {
+      _loop.stop();
+    }
     return GestureDetector(
       onTap: () => focusNode.requestFocus(),
       child: Focus(
@@ -94,7 +102,7 @@ class PokerGame {
 
                           // Game canvas (repaints)
                           CustomPaint(
-                            painter: PokerPainter(gameState, playerId),
+                            painter: PokerPainter(gameState, playerId, repaint: _loop),
                             isComplex: true,
                             willChange: true,
                           ),
@@ -150,8 +158,8 @@ class PokerGame {
                                           ),
                                         ),
                                       ),
-                                    ),
                                   ),
+                                ),
                               ],
                             ),
                           ),
@@ -476,7 +484,7 @@ class PokerPainter extends CustomPainter {
   // This is the viewer's player ID (hero), not necessarily the player to act.
   final String currentPlayerId;
   
-  PokerPainter(this.gameState, this.currentPlayerId);
+  PokerPainter(this.gameState, this.currentPlayerId, {Listenable? repaint}) : super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -495,6 +503,9 @@ class PokerPainter extends CustomPainter {
 
     // Draw hero hole cards as an overlay near the bottom center.
     _drawHeroHoleCards(canvas, size);
+
+    // Draw current player's timebank badge last so it sits above cards/badges.
+    _drawCurrentTimebank(canvas, size, centerX, centerY, tableRadius);
   }
 
   void _drawTable(Canvas canvas, Size size, double centerX, double centerY, double tableRadius) {
@@ -762,11 +773,6 @@ class PokerPainter extends CustomPainter {
     // Use blind positions from server instead of calculating client-side
     final badges = <_SeatBadge>[];
     
-    // Debug log position flags
-    if (player.isDealer || player.isSmallBlind || player.isBigBlind) {
-      print('DEBUG DART: Player ${player.id} isDealer=${player.isDealer} isSB=${player.isSmallBlind} isBB=${player.isBigBlind}');
-    }
-    
     if (player.isDealer) {
       badges.add(const _SeatBadge('D', Colors.amber));
     }
@@ -820,7 +826,7 @@ class PokerPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant PokerPainter old) => 
+  bool shouldRepaint(covariant PokerPainter old) =>
       old.gameState != gameState || old.currentPlayerId != currentPlayerId;
 
   void _drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<_SeatBadge> badges, bool isHero, double angle) {
@@ -917,6 +923,68 @@ class PokerPainter extends CustomPainter {
       _drawCardBack(canvas, startX, y, cw, ch);
       _drawCardBack(canvas, startX + cw + gap, y, cw, ch);
     }
+  }
+
+  void _drawCurrentTimebank(Canvas canvas, Size size, double centerX, double centerY, double tableRadius) {
+    if (gameState.turnDeadlineUnixMs <= 0) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final remMs = (gameState.turnDeadlineUnixMs - nowMs).clamp(0, 1 << 30);
+    final remSec = remMs / 1000.0;
+    if (remSec <= 0) return;
+
+    final players = gameState.players;
+    if (players.isEmpty) return;
+    final count = players.length;
+    final heroIndex = players.indexWhere((p) => p.id == currentPlayerId);
+    final idx = players.indexWhere((p) => p.id == gameState.currentPlayerId);
+    if (idx < 0) return;
+
+    double angle;
+    if (idx == heroIndex) {
+      angle = math.pi / 2;
+    } else if (heroIndex == -1) {
+      angle = (idx * 2 * math.pi) / count;
+    } else {
+      final adjustedIndex = idx > heroIndex ? idx - 1 : idx;
+      final otherCount = count - 1;
+      if (otherCount > 0) {
+        final step = (2 * math.pi) / (otherCount + 1);
+        angle = math.pi + (adjustedIndex + 1) * step;
+      } else {
+        angle = (idx * 2 * math.pi) / count;
+      }
+    }
+
+    const playerRadius = 30.0;
+    final playerX = centerX + (tableRadius + 50) * math.cos(angle);
+    final playerY = centerY + (tableRadius + 50) * math.sin(angle);
+
+    final tbText = TextPainter(
+      text: TextSpan(
+        text: '⏱ ${remSec.toStringAsFixed(1)}s',
+        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+
+    final badgeW = tbText.width + 12;
+    const badgeH = 18.0;
+    // Prefer to the right of the seat; fallback to left if clipping.
+    double bx = playerX + playerRadius + 12;
+    double by = playerY - badgeH / 2;
+    if (bx + badgeW > size.width - 4) {
+      bx = playerX - playerRadius - 12 - badgeW;
+    }
+    if (by < 2) by = 2;
+    if (by + badgeH > size.height - 2) by = size.height - 2 - badgeH;
+
+    final badgeRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(bx, by, badgeW, badgeH),
+      const Radius.circular(8),
+    );
+    final tbBg = Paint()..color = Colors.black.withOpacity(0.9);
+    canvas.drawRRect(badgeRect, tbBg);
+    tbText.paint(canvas, Offset(bx + (badgeW - tbText.width) / 2, by + (badgeH - tbText.height) / 2));
   }
 }
 

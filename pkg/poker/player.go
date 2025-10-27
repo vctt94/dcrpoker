@@ -3,11 +3,25 @@ package poker
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/statemachine"
 )
+
+// PlayerEventType represents different player-originated events sent to Game
+type PlayerEventType int
+
+const (
+	PlayerEventTimebankExpired PlayerEventType = iota // Player's per-turn timebank expired
+)
+
+// PlayerEvent represents an event sent from Player to Game
+type PlayerEvent struct {
+	Type     PlayerEventType
+	PlayerID string
+}
 
 type Player struct {
 	mu RWLock
@@ -43,6 +57,12 @@ type Player struct {
 	// showdown info
 	handValue       *HandValue
 	handDescription string
+
+	// Timebank (per-turn) management
+	timebankTimer    *time.Timer
+	timebankCanceled atomic.Bool
+	timebankDelay    time.Duration
+	playerEventChan  chan<- PlayerEvent
 }
 
 func NewPlayer(id, name string, balance int64) *Player {
@@ -988,6 +1008,9 @@ func (p *Player) StartTurn() {
 		tp.Send(evStartTurn{Reply: reply})
 		<-reply // Wait for FSM to process
 	}
+
+	// Schedule timebank for this player's turn, if configured
+	p.scheduleTimebank()
 }
 
 // For debugging
@@ -1004,6 +1027,9 @@ func (p *Player) EndTurn() {
 	tp := p.tablePresence
 	p.mu.RUnlock()
 
+	// Cancel any pending timebank on turn end
+	p.cancelTimebank()
+
 	if hp != nil {
 		reply := make(chan error, 1)
 		hp.Send(evEndTurn{Reply: reply})
@@ -1012,6 +1038,47 @@ func (p *Player) EndTurn() {
 		reply := make(chan error, 1)
 		tp.Send(evEndTurn{Reply: reply})
 		<-reply // Wait for FSM to process
+	}
+}
+
+// scheduleTimebank sets up a per-player timer to auto-act when their timebank expires.
+// Safe to call without holding any external locks.
+func (p *Player) scheduleTimebank() {
+	// Stop any existing timer
+	p.timebankCanceled.Store(true)
+	if t := p.timebankTimer; t != nil {
+		_ = t.Stop()
+		p.timebankTimer = nil
+	}
+
+	// Only schedule if delay is positive
+	if p.timebankDelay <= 0 {
+		return
+	}
+	pid := p.ID()
+	delay := p.timebankDelay
+
+	// Arm the timer
+	p.timebankCanceled.Store(false)
+	p.timebankTimer = time.AfterFunc(delay, func() {
+		if p.timebankCanceled.Load() {
+			return
+		}
+		if ch := p.playerEventChan; ch != nil {
+			select {
+			case ch <- PlayerEvent{Type: PlayerEventTimebankExpired, PlayerID: pid}:
+			default:
+			}
+		}
+	})
+}
+
+// CancelTimebank cancels any scheduled timebank timer for this player.
+func (p *Player) cancelTimebank() {
+	p.timebankCanceled.Store(true)
+	if t := p.timebankTimer; t != nil {
+		_ = t.Stop()
+		p.timebankTimer = nil
 	}
 }
 

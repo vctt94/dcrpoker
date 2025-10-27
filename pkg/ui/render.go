@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
@@ -120,6 +121,7 @@ func (r *Renderer) RenderCreateTable() string {
 		{"Min Balance", r.ui.minBalance},
 		{"Starting Chips", r.ui.startingChips},
 		{"Auto Advance (ms)", r.ui.autoAdvanceMs},
+		{"Time Bank (sec)", r.ui.getFormFieldValue(7)},
 	}
 
 	for i, field := range fields {
@@ -627,6 +629,16 @@ func (r *Renderer) renderActionButtons() string {
 		MarginBottom(1).
 		Render("⚡ YOUR TURN - CHOOSE ACTION") + "\n"
 
+	// Timebank countdown for current player (local approximation)
+	if !r.ui.turnDeadline.IsZero() {
+		rem := time.Until(r.ui.turnDeadline)
+		if rem < 0 {
+			rem = 0
+		}
+		secs := float64(rem.Milliseconds()) / 1000.0
+		result += HelpStyle.Render(fmt.Sprintf("⏱ Timebank: %.1fs", secs)) + "\n"
+	}
+
 	// Clean action buttons with minimal icons
 	options := r.ui.getActiveGameOptions()
 	for i, option := range options {
@@ -742,7 +754,17 @@ func (r *Renderer) renderPlayersCompact() string {
 				Foreground(lipgloss.Color("46")).
 				Bold(true).
 				Background(lipgloss.Color("22"))
-			line = fmt.Sprintf(" ⏰ ACTING: %s - Chips: %d", playerName, player.Balance)
+			// Include timebank countdown if available
+			if !r.ui.turnDeadline.IsZero() {
+				rem := time.Until(r.ui.turnDeadline)
+				if rem < 0 {
+					rem = 0
+				}
+				secs := float64(rem.Milliseconds()) / 1000.0
+				line = fmt.Sprintf(" ⏰ ACTING: %s - Chips: %d (⏱ %.1fs)", playerName, player.Balance, secs)
+			} else {
+				line = fmt.Sprintf(" ⏰ ACTING: %s - Chips: %d", playerName, player.Balance)
+			}
 		} else if player.Folded {
 			// Folded player - muted
 			style = lipgloss.NewStyle().

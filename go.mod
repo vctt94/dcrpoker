@@ -1,6 +1,6 @@
 module github.com/vctt94/pokerbisonrelay
 
-go 1.24.1
+go 1.23.4
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.4
@@ -14,21 +14,15 @@ require (
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/prometheus/procfs v0.12.0
 	github.com/stretchr/testify v1.10.0
-	github.com/vctt94/bisonbotkit v0.0.2-0.20250523161144-863683dc780c
+	github.com/vctt94/bisonbotkit v0.0.2-0.20251015145737-a3703422c6ed
 	golang.org/x/mobile v0.0.0-20240604190613-2782386b8afd
 	google.golang.org/grpc v1.64.0
 	google.golang.org/protobuf v1.36.6
 )
 
-replace github.com/companyzero/bisonrelay => ../../bisonrelay
-
-replace github.com/vctt94/bisonbotkit => ../bisonbotkit
-
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.4.3 // indirect
 	github.com/agl/ed25519 v0.0.0-20170116200512-5312a6153412 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/bits-and-blooms/bitset v1.12.0 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
 	github.com/charmbracelet/x/ansi v0.8.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13-0.20250311204145-2c3ea96c31dd // indirect
@@ -53,7 +47,6 @@ require (
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
-	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
@@ -62,7 +55,6 @@ require (
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.36.0 // indirect
-	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
 	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/sync v0.12.0 // indirect

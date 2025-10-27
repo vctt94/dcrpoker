@@ -806,7 +806,7 @@ func TestTimeoutCompletesShowdownAndAutoStarts(t *testing.T) {
 	cur.mu.Unlock()
 
 	// Trigger timeout handling
-	tbl.HandleTimeouts()
+	g.TriggerTimebankExpiredFor(cur.ID())
 
 	// First it should reach SHOWDOWN (uncontested fold-win)
 	require.Eventually(t, func() bool {
@@ -1544,4 +1544,150 @@ func TestShowdownTotalPotBug(t *testing.T) {
 	// Note: We're not checking final balances here because this is a unit test
 	// that focuses on the TotalPot bug. The actual balance accounting would
 	// be handled by the full game flow with proper bet/debit mechanisms.
+}
+
+// Test that when the current player's timebank expires facing a bet, they auto-fold.
+func TestTimebank_AutoFold_Preflop(t *testing.T) {
+	tbl := NewTable(TableConfig{
+		ID:               "tbl-timebank-fold",
+		Log:              createTestLogger(),
+		GameLog:          createTestLogger(),
+		HostID:           "host",
+		BuyIn:            0,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       5,
+		BigBlind:         10,
+		MinBalance:       0,
+		StartingChips:    100,
+		TimeBank:         50 * time.Millisecond,
+		AutoStartDelay:   10 * time.Millisecond,
+		AutoAdvanceDelay: 10 * time.Millisecond,
+	})
+
+	// Seat two users and ready
+	require.NoError(t, tbl.AddUser(NewUser("p1", "P1", 0, 0)))
+	require.NoError(t, tbl.AddUser(NewUser("p2", "P2", 0, 1)))
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
+
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait until: PRE_FLOP and current player is facing action (need > 0)
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		if g == nil {
+			return false
+		}
+		if g.GetPhase() != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		cp := g.GetCurrentPlayerObject()
+		if cp == nil {
+			return false
+		}
+		cp.mu.RLock()
+		need := g.GetCurrentBet() - cp.currentBet
+		cpid := cp.id
+		cp.mu.RUnlock()
+		return need > 0 && cpid != ""
+	}, 2*time.Second, 10*time.Millisecond)
+
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+	cur := g.GetCurrentPlayerObject()
+	require.NotNil(t, cur)
+	curID := cur.ID()
+
+	// Simulate timebank expiration
+	g.TriggerTimebankExpiredFor(curID)
+
+	// Player should auto-fold
+	require.Eventually(t, func() bool {
+		// Find the player by id and check state
+		for _, p := range g.GetPlayers() {
+			if p == nil {
+				continue
+			}
+			if p.ID() == curID {
+				return p.GetCurrentStateString() == "FOLDED"
+			}
+		}
+		return false
+	}, 1*time.Second, 10*time.Millisecond)
+}
+
+// Test that when the current player's timebank expires with nothing to call, they auto-check.
+func TestTimebank_AutoCheck_Flop(t *testing.T) {
+	tbl := NewTable(TableConfig{
+		ID:               "tbl-timebank-check",
+		Log:              createTestLogger(),
+		GameLog:          createTestLogger(),
+		HostID:           "host",
+		BuyIn:            0,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       5,
+		BigBlind:         10,
+		MinBalance:       0,
+		StartingChips:    100,
+		TimeBank:         50 * time.Millisecond,
+		AutoStartDelay:   10 * time.Millisecond,
+		AutoAdvanceDelay: 10 * time.Millisecond,
+	})
+
+	// Seat two users and ready
+	require.NoError(t, tbl.AddUser(NewUser("p1", "P1", 0, 0)))
+	require.NoError(t, tbl.AddUser(NewUser("p2", "P2", 0, 1)))
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
+
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait until game exists
+	require.Eventually(t, func() bool { return tbl.GetGame() != nil }, 2*time.Second, 10*time.Millisecond)
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+
+	// Force move to flop and reset table current bet; start turn for post-flop actor
+	g.StateFlop()
+	g.mu.Lock()
+	g.currentBet = 0
+	g.mu.Unlock()
+	g.InitializeCurrentPlayer()
+
+	// Capture current player id
+	cp := g.GetCurrentPlayerObject()
+	require.NotNil(t, cp)
+	curID := cp.ID()
+
+	// Sanity: need <= 0 to favor auto-check path
+	cp.mu.RLock()
+	need := g.GetCurrentBet() - cp.currentBet
+	cp.mu.RUnlock()
+	require.LessOrEqual(t, need, int64(0))
+
+	// Trigger timebank expiration and expect a check (not folded) and turn advancement
+	g.TriggerTimebankExpiredFor(curID)
+
+	require.Eventually(t, func() bool {
+		// Current player should have advanced to someone else
+		next := g.GetCurrentPlayerObject()
+		return next != nil && next.ID() != curID
+	}, 1*time.Second, 10*time.Millisecond)
+
+	// Ensure the player did not fold
+	var state string
+	for _, p := range g.GetPlayers() {
+		if p == nil {
+			continue
+		}
+		if p.ID() == curID {
+			state = p.GetCurrentStateString()
+			break
+		}
+	}
+	require.Equal(t, "IN_GAME", state)
 }

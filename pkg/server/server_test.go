@@ -1499,3 +1499,85 @@ func TestBlindPostingAndBalances(t *testing.T) {
 	assert.Equal(t, expectedBalance, p1Info.Balance, "p1 balance incorrect after blinds+call")
 	assert.Equal(t, expectedBalance, p2Info.Balance, "p2 balance incorrect after blinds+call")
 }
+
+// waitForUpdate waits for a GameUpdate on the mock stream or times out.
+func waitForUpdate(t *testing.T, ms *mockGameStream, timeout time.Duration) *pokerrpc.GameUpdate {
+	t.Helper()
+	select {
+	case upd := <-ms.sentCh:
+		return upd
+	case <-time.After(timeout):
+		t.Fatalf("timeout waiting for GameUpdate")
+		return nil
+	}
+}
+
+// TestTimebankExpiryBroadcast ensures a GameUpdate is broadcast after an auto-action
+// due to timebank expiry and that the current player changes accordingly.
+func TestTimebankExpiryBroadcast(t *testing.T) {
+	s := newBareServer()
+	// Start event processor so table notifications trigger GameUpdates
+	s.eventProcessor = NewEventProcessor(s, 64, 1)
+	s.eventProcessor.Start()
+
+	// Build an active heads-up table and register it in the server
+	tbl := buildActiveHeadsUpTable(t, "timebank-broadcast-tbl")
+	s.tables.Store(tbl.GetConfig().ID, tbl)
+
+	// Wire table events into the server's event processor
+	tableEventChan := make(chan poker.TableEvent, 64)
+	tbl.SetEventChannel(tableEventChan)
+	go s.processTableEvents(tableEventChan)
+
+	// Attach two streaming clients
+	p1, p2 := "p1", "p2"
+	ms1 := newMockGameStream()
+	ms2 := newMockGameStream()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_ = s.StartGameStream(&pokerrpc.StartGameStreamRequest{TableId: tbl.GetConfig().ID, PlayerId: p1}, ms1)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = s.StartGameStream(&pokerrpc.StartGameStreamRequest{TableId: tbl.GetConfig().ID, PlayerId: p2}, ms2)
+	}()
+
+	// Drain initial updates for both streams
+	_ = waitForUpdate(t, ms1, 500*time.Millisecond)
+	_ = waitForUpdate(t, ms2, 500*time.Millisecond)
+
+	// Obtain game and current player
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+
+	// Ensure we are in a betting phase and there is a current player
+	require.Eventually(t, func() bool {
+		phase := g.GetPhase()
+		return phase == pokerrpc.GamePhase_PRE_FLOP || phase == pokerrpc.GamePhase_FLOP || phase == pokerrpc.GamePhase_TURN || phase == pokerrpc.GamePhase_RIVER
+	}, 2*time.Second, 10*time.Millisecond)
+
+	cur := g.GetCurrentPlayerObject()
+	require.NotNil(t, cur)
+	curID := cur.ID()
+
+	// Simulate timebank expiry for the current player
+	g.TriggerTimebankExpiredFor(curID)
+
+	// Expect a broadcast with the current player changed on both streams
+	// (allow a short window for the server to process and push updates)
+	got1 := waitForUpdate(t, ms1, 2*time.Second)
+	got2 := waitForUpdate(t, ms2, 2*time.Second)
+
+	require.NotNil(t, got1)
+	require.NotNil(t, got2)
+	require.NotEqual(t, curID, got1.CurrentPlayer, "ms1 should see advanced turn after timebank expiry")
+	require.NotEqual(t, curID, got2.CurrentPlayer, "ms2 should see advanced turn after timebank expiry")
+
+	// Cleanup streams
+	ms1.cancel()
+	ms2.cancel()
+	wg.Wait()
+}

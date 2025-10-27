@@ -3,13 +3,17 @@
 erDiagram
   players ||--o{ transactions : has
   players ||--o{ table_participants : sits_in
+  players ||--o{ hand_players : participates
+  players ||--o{ table_buyins : buys_in
+  players ||--o{ table_cashouts : cashes_out
   tables  ||--o{ table_participants : has
   tables  ||--o{ table_buyins : has
   tables  ||--o{ table_cashouts : has
   tables  ||--o{ hands : deals
-  hands   ||--o{ events : emits
-  tables  ||--o{ events : emits_table
-  tables  ||--|| table_snapshots : snapshot
+  tables  ||--o| table_snapshots : snapshot
+  hands   ||--o{ hand_players : has
+  hands   ||--o{ actions : contains
+  hands   ||--o{ board_cards : has
 
   players {
     string   id PK
@@ -30,21 +34,22 @@ erDiagram
   tables {
     string   id PK
     string   host_id
+    int      buy_in
     int      min_players
     int      max_players
-    int      starting_chips
     int      small_blind
     int      big_blind
+    int      min_balance
+    int      starting_chips
     int      timebank_ms
     int      autostart_ms
-    int      seed
+    int      auto_advance_ms
     datetime created_at
   }
 
   table_participants {
-    int      id PK
-    string   table_id
-    string   player_id
+    string   table_id PK
+    string   player_id PK
     int      seat
     datetime joined_at
     datetime left_at
@@ -74,57 +79,92 @@ erDiagram
     datetime started_at
     datetime ended_at
     int      dealer_seat
-    int      deck_seed
-    string   deck_commit
+    int      sb_seat
+    int      bb_seat
+    string   result_json
   }
 
-  events {
+  hand_players {
+    int      hand_id PK
+    string   player_id PK
+    int      seat
+    int      starting_stack
+    string   hole_cards_json
+  }
+
+  actions {
     int      id PK
-    string   table_id
     int      hand_id
     int      ord
-    string   type
-    string   payload
+    string   street
+    int      actor_seat
+    string   action
+    int      amount
+    boolean  is_allin
     datetime created_at
   }
 
+  board_cards {
+    int      hand_id PK
+    string   street PK
+    string   cards_json
+  }
+
   table_snapshots {
-    int      id PK
-    string   table_id
+    string   table_id PK
     datetime snapshot_at
-    string   payload
+    blob     payload
   }
 
 ```
 
 ## Events
 
+The system uses an event-driven architecture with snapshot-based persistence.
+
+### Event Processing Flow
+
 ```mermaid
 sequenceDiagram
   autonumber
   participant C as Client
   participant T as TableServer
-  participant G as GameFSM
-  participant DB as DBEvents
+  participant EP as EventProcessor
+  participant NH as NotificationHandler
+  participant GH as GameStateHandler
+  participant PH as PersistenceHandler
+  participant DB as Database
 
-  C->>T: SeatPlayer | SetReady | StartHand | Bet | Call | Check | Fold
-  T->>G: Dispatch event
-  G->>G: Mutate in memory state
-  G-->>T: Send notifications
-  T->>DB: AppendEvent tableId handId type payload
-  DB-->>T: Return ord
-
-  T->>DB: LoadSnapshot tableId
-  DB-->>T: Snapshot blob
-  T->>G: Hydrate from snapshot or init fresh
-  T->>DB: EventsFrom tableId fromOrd
-  DB-->>T: Ordered events
-  T->>G: Replay events to reducer
-
-
+  C->>T: RPC calls (JoinTable, MakeBet, CallBet, etc.)
+  T->>T: Direct table operations
+  T->>EP: PublishEvent(event)
+  EP->>NH: Process notifications
+  EP->>GH: Process game state updates
+  EP->>PH: Process persistence
+  NH-->>C: Broadcast notifications
+  GH-->>C: Update game streams
+  PH->>DB: UpsertSnapshot(table_snapshots)
 ```
 
+### Event Types
+
+Events are `NotificationType` enum values from the protobuf definition:
+- `TABLE_CREATED`, `TABLE_REMOVED`
+- `PLAYER_JOINED`, `PLAYER_LEFT`, `PLAYER_READY`
+- `GAME_STARTED`, `GAME_ENDED`, `NEW_HAND_STARTED`
+- `BET_MADE`, `CALL_MADE`, `CHECK_MADE`, `PLAYER_FOLDED`
+- `SHOWDOWN_RESULT`, `PLAYER_ALL_IN`
+
+### Event Processing Architecture
+
+1. **EventProcessor**: Manages a queue of events with worker goroutines
+2. **NotificationHandler**: Broadcasts events to connected clients
+3. **GameStateHandler**: Updates game state streams for real-time UI
+4. **PersistenceHandler**: Saves table snapshots for fast restoration
+
 ## State Machine
+
+### Game
 ```mermaid
 %% Game FSM — complete state flow with all intermediate states
 stateDiagram-v2
@@ -200,18 +240,6 @@ stateDiagram-v2
 
   GAME_ACTIVE: Game is running
   GAME_ACTIVE --> WAITING_FOR_PLAYERS: evGameEnded
-
-  note right of WAITING_FOR_PLAYERS
-    Checks allPlayersReady():
-    - At least MinPlayers seated
-    - All users have IsReady=true
-  end note
-
-  note right of GAME_ACTIVE
-    StartGame() sends evStartGameReq
-    which triggers Game FSM startup.
-    Subsequent hands stay in GAME_ACTIVE.
-  end note
 ```
 
 ### Table State Responsibilities
@@ -232,7 +260,11 @@ stateDiagram-v2
   [*] --> SEATED
 
   SEATED: Player seated at table
-  SEATED --> SEATED: evReady, evDeductBlind, evAddChips, evDisconnect
+  SEATED --> SEATED: evReady
+  SEATED --> SEATED: evDeductBlind
+  SEATED --> SEATED: evBalanceNotification
+  SEATED --> SEATED: evDisconnect
+  SEATED --> SEATED: evStartHand, evStartTurn, evEndTurn, evBet, evCall, evFoldReq, evEndHand
   SEATED --> LEFT: evLeave
 
   LEFT: Player left table (terminal)
@@ -247,28 +279,24 @@ stateDiagram-v2
   [*] --> ACTIVE
 
   ACTIVE: Player active in hand, can bet/fold
-  ACTIVE --> ACTIVE: evStartTurn, evEndTurn, evBet, evCallDelta
-  ACTIVE --> ALL_IN: balance=0 (from bet/call)
+  ACTIVE --> ACTIVE: evStartTurn
+  ACTIVE --> ACTIVE: evEndTurn
+  ACTIVE --> ACTIVE: evCall
+  ACTIVE --> ACTIVE: evCallDelta
+  ACTIVE --> ALL_IN: evBet (balance=0)
+  ACTIVE --> ALL_IN: evCallDelta (balance=0)
   ACTIVE --> FOLDED: evFoldReq
   ACTIVE --> [*]: evEndHand
 
   ALL_IN: Player all-in, cannot act
+  ALL_IN --> ALL_IN: evStartTurn
+  ALL_IN --> ALL_IN: evEndTurn
   ALL_IN --> [*]: evEndHand
 
   FOLDED: Player folded, out of hand
+  FOLDED --> FOLDED: evStartTurn
+  FOLDED --> FOLDED: evEndTurn
   FOLDED --> [*]: evEndHand
-
-  note right of ACTIVE
-    Auto-transitions to ALL_IN
-    when balance reaches 0
-    after any bet or call
-  end note
-
-  note right of ALL_IN
-    Initialized directly to ALL_IN
-    if player is all-in from
-    posting blinds (HandleStartHand)
-  end note
 ```
 
 ### Player State Machine Responsibilities
@@ -281,14 +309,6 @@ stateDiagram-v2
 - **ACTIVE**: Player can make betting decisions (bet, call, fold). Sets `isTurn` flag when it's player's turn. Auto-transitions to ALL_IN when balance reaches zero.
 - **ALL_IN**: Player has committed all chips, cannot make further actions. Passively waits for hand completion.
 - **FOLDED**: Player has folded, out of the hand. Sets `hasFolded` flag and waits for hand completion.
-
-### Key Design Notes
-
-1. **Separation of Concerns**: Table presence persists across hands; hand participation is created/destroyed per hand.
-2. **Flag-Based State**: FSMs set durable flags (`hasFolded`, `isAllIn`) that persist after FSM stops, ensuring showdown logic sees correct state.
-3. **Event Forwarding**: Table presence FSM forwards unknown events to hand participation FSM when active.
-4. **Synchronous Initialization**: Game's `statePreDeal` posts blinds first, then calls `HandleStartHand()` which detects all-in condition and initializes FSM in correct state (ACTIVE or ALL_IN).
-5. **Event Naming Convention**: Events like `evDeductBlind` and `evAddChips` use action-oriented names to clarify they are game-commanded state updates (not player actions). This follows the command pattern where Game commands Player FSM to update state, maintaining encapsulation and thread safety.
 
 ## State Machine Coordination
 
@@ -308,58 +328,3 @@ Table FSM (Lobby/Session)
               ├─ Table Presence: Seated/Left (session-level)
               └─ Hand Participation: Active/AllIn/Folded (hand-level)
 ```
-
-### Typical Flow
-
-1. **Table: WAITING_FOR_PLAYERS**
-   - Players join, mark ready
-   - `evUsersChanged` → checks `allPlayersReady()`
-   - Transitions to `PLAYERS_READY`
-
-2. **Table: PLAYERS_READY → GAME_ACTIVE**
-   - Server calls `StartGame()`
-   - Table sends `evStartGameReq` to Table FSM
-   - Table creates Game instance and starts Game FSM
-   - Game FSM receives `evStartHand` → `statePreDeal`
-
-3. **Game: statePreDeal → stateDeal → stateBlinds → statePreFlop**
-   - `statePreDeal`: Advances dealer, posts blinds, creates Hand Participation FSMs
-   - `stateDeal`: Deals hole cards
-   - `stateBlinds`: Sets first player to act
-   - `statePreFlop`: Begins first betting round
-
-4. **Game: Betting Rounds (PRE_FLOP → FLOP → TURN → RIVER)**
-   - Game sets `currentPlayer`, sends `evStartTurn`
-   - Player Hand Participation FSM handles betting actions
-   - Player FSM sends action responses back to Game
-   - Game validates, updates pot, advances to next player
-   - On round complete: Game sends `evAdvance` → next street
-
-5. **Game: SHOWDOWN**
-   - Game evaluates hands, distributes pots
-   - Game sends `GameEventShowdownComplete` to Table
-   - Table stores result, publishes to clients
-   - Auto-start timer triggers `startNewHand()`
-
-6. **Subsequent Hands**
-   - Table stays in `GAME_ACTIVE`
-   - `startNewHand()` calls `Game.ResetForNewHandFromUsers()`
-   - Game resets deck, clears `currentHand`
-   - Game receives `evStartHand` → loops back to `statePreDeal`
-   - Player Hand Participation FSMs destroyed and recreated each hand
-
-7. **Game Ends**
-   - Game sends `evGameEnded` to Table FSM
-   - Table transitions `GAME_ACTIVE` → `WAITING_FOR_PLAYERS`
-   - Player Table Presence FSMs remain active (players still seated)
-   - Player Hand Participation FSMs destroyed
-
-### Critical Synchronization Points
-
-1. **Blind Posting Before Hand Start**: `statePreDeal` posts blinds BEFORE calling `HandleStartHand()`, ensuring players see correct balances and can detect all-in from blinds.
-
-2. **PRE_FLOP Wait**: `StartGame()` and `startNewHand()` wait for Game FSM to reach `statePreFlop` before broadcasting `NEW_HAND_STARTED`, ensuring clients see complete state (blinds posted, current player set).
-
-3. **Event Forwarding**: Player Table Presence FSM forwards unhandled events to Hand Participation FSM, allowing betting actions to reach the correct handler.
-
-4. **Flag Persistence**: Player FSMs set flags (`hasFolded`, `isAllIn`) that outlive the FSM lifecycle, ensuring showdown sees correct state after FSM stops.

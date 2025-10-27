@@ -286,16 +286,6 @@ class _PokerMainContentState extends State<PokerMainContent> {
       return const Center(child: Text('No game data available'));
     }
 
-    // Debug snapshot for UI layer
-    final myP = model.me;
-    final myHandCnt = myP?.hand.length ?? 0;
-    // Keep this lightweight to avoid log spam
-    // Shows who is to act and whether we have cards client-side
-    // during PRE_FLOP and later.
-    // Example: UI DEBUG: my=... curr=... hand=2 phase=...
-    // ignore: avoid_print
-    print('DEBUG: UI HandInProgress - my=${_shortId(model.playerId)} curr=${_shortId(game.currentPlayerId)} hand=$myHandCnt phase=${game.phase}');
-
     final focusNode = FocusNode();
     final pokerGame = PokerGame(model.playerId, model);
 

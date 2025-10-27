@@ -150,6 +150,8 @@ const GameUpdate$json = {
     {'1': 'players_required', '3': 11, '4': 1, '5': 5, '10': 'playersRequired'},
     {'1': 'players_joined', '3': 12, '4': 1, '5': 5, '10': 'playersJoined'},
     {'1': 'phase_name', '3': 13, '4': 1, '5': 9, '10': 'phaseName'},
+    {'1': 'time_bank_seconds', '3': 14, '4': 1, '5': 5, '10': 'timeBankSeconds'},
+    {'1': 'turn_deadline_unix_ms', '3': 15, '4': 1, '5': 3, '10': 'turnDeadlineUnixMs'},
   ],
 };
 
@@ -163,7 +165,9 @@ final $typed_data.Uint8List gameUpdateDescriptor = $convert.base64Decode(
     'gIIAEoA1IIbWluUmFpc2USGwoJbWF4X3JhaXNlGAkgASgDUghtYXhSYWlzZRIhCgxnYW1lX3N0'
     'YXJ0ZWQYCiABKAhSC2dhbWVTdGFydGVkEikKEHBsYXllcnNfcmVxdWlyZWQYCyABKAVSD3BsYX'
     'llcnNSZXF1aXJlZBIlCg5wbGF5ZXJzX2pvaW5lZBgMIAEoBVINcGxheWVyc0pvaW5lZBIdCgpw'
-    'aGFzZV9uYW1lGA0gASgJUglwaGFzZU5hbWU=');
+    'aGFzZV9uYW1lGA0gASgJUglwaGFzZU5hbWUSKgoRdGltZV9iYW5rX3NlY29uZHMYDiABKAVSD3'
+    'RpbWVCYW5rU2Vjb25kcxIxChV0dXJuX2RlYWRsaW5lX3VuaXhfbXMYDyABKANSEnR1cm5EZWFk'
+    'bGluZVVuaXhNcw==');
 
 @$core.Deprecated('Use makeBetRequestDescriptor instead')
 const MakeBetRequest$json = {

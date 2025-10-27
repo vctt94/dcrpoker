@@ -134,8 +134,7 @@ func newClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 		// Initialize BisonRelay client
 		bc, err := botclient.NewClient(clientConfig)
 		if err != nil {
-			fmt.Printf("Failed to create bot client: %v\n", err)
-			os.Exit(1)
+			return nil, fmt.Errorf("failed to create bot client: %v", err)
 		}
 		if bc == nil {
 			return nil, fmt.Errorf("bot client is nil")

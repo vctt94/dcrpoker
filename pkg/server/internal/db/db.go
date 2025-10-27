@@ -3,15 +3,21 @@ package db
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"errors"
 	"fmt"
+	"io/fs"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 )
 
-// DB wraps sql.DB.
+// DB wraps sql.
 type DB struct {
 	*sql.DB
 }
@@ -27,14 +33,14 @@ func NewDB(path string) (*DB, error) {
 		_ = d.Close()
 		return nil, fmt.Errorf("enable foreign_keys: %w", err)
 	}
-	if err := createSchema(d); err != nil {
+	if err := applyMigrations(d); err != nil {
 		_ = d.Close()
 		return nil, err
 	}
 	return &DB{d}, nil
 }
 
-// Close closes the underlying DB.
+// Close closes the underlying sql.DB to release all resources.
 func (db *DB) Close() error { return db.DB.Close() }
 
 // withTx runs fn in a transaction, committing on success.
@@ -55,151 +61,202 @@ func (db *DB) withTx(ctx context.Context, fn func(*sql.Tx) error) (err error) {
 }
 
 // =========================
-// ======== SCHEMA =========
+// ======= MIGRATIONS ======
 // =========================
 
-func createSchema(db *sql.DB) error {
-	stmts := []string{
-		// Players & wallet transactions
-		`CREATE TABLE IF NOT EXISTS players (
-			id         TEXT PRIMARY KEY,
-			name       TEXT NOT NULL,
-			balance    INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);`,
-		`CREATE TABLE IF NOT EXISTS transactions (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			player_id   TEXT NOT NULL,
-			amount      INTEGER NOT NULL,
-			type        TEXT NOT NULL,
-			description TEXT,
-			created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (player_id) REFERENCES players(id)
-		);`,
+//go:embed migrations
+var migrationFS embed.FS
 
-		// Poker tables (configuration; *not* per-hand/transient state)
-		`CREATE TABLE IF NOT EXISTS tables (
-			id              TEXT PRIMARY KEY,
-			host_id         TEXT NOT NULL,
-			buy_in          INTEGER NOT NULL,
-			min_players     INTEGER NOT NULL,
-			max_players     INTEGER NOT NULL,
-			small_blind     INTEGER NOT NULL,
-			big_blind       INTEGER NOT NULL,
-			min_balance     INTEGER NOT NULL,
-			starting_chips  INTEGER NOT NULL,
-			timebank_ms     INTEGER NOT NULL DEFAULT 0,
-			autostart_ms    INTEGER NOT NULL DEFAULT 0,
-			auto_advance_ms INTEGER NOT NULL DEFAULT 1000,
-			created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (host_id) REFERENCES players(id)
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_tables_created_at ON tables(created_at);`,
+type migration struct {
+	version int
+	name    string
+	path    string
+}
 
-		// Membership at a table (active row has left_at NULL).
-		`CREATE TABLE IF NOT EXISTS table_participants (
-			table_id   TEXT NOT NULL,
-			player_id  TEXT NOT NULL,
-			seat       INTEGER NOT NULL,
-			joined_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			left_at    TIMESTAMP,
-			ready      BOOLEAN NOT NULL DEFAULT FALSE,
-			PRIMARY KEY (table_id, player_id),
-			UNIQUE (table_id, seat),
-			FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE,
-			FOREIGN KEY (player_id) REFERENCES players(id)
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_participants_active ON table_participants(table_id, left_at);`,
-
-		// Table-level buy-ins / cash-outs (chips ledger inside the table)
-		`CREATE TABLE IF NOT EXISTS table_buyins (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			table_id   TEXT NOT NULL,
-			player_id  TEXT NOT NULL,
-			amount     INTEGER NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE,
-			FOREIGN KEY (player_id) REFERENCES players(id)
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_buyins_player ON table_buyins(player_id, table_id);`,
-
-		`CREATE TABLE IF NOT EXISTS table_cashouts (
-			id         INTEGER PRIMARY KEY AUTOINCREMENT,
-			table_id   TEXT NOT NULL,
-			player_id  TEXT NOT NULL,
-			amount     INTEGER NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE,
-			FOREIGN KEY (player_id) REFERENCES players(id)
-		);`,
-
-		// Hand history (canonical, reducible state)
-		`CREATE TABLE IF NOT EXISTS hands (
-			id           INTEGER PRIMARY KEY AUTOINCREMENT,
-			table_id     TEXT NOT NULL,
-			hand_no      INTEGER NOT NULL,
-			started_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			ended_at     TIMESTAMP,
-			dealer_seat  INTEGER NOT NULL,
-			sb_seat      INTEGER NOT NULL,
-			bb_seat      INTEGER NOT NULL,
-			result_json  TEXT,
-			UNIQUE (table_id, hand_no),
-			FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_hands_table ON hands(table_id, hand_no);`,
-
-		`CREATE TABLE IF NOT EXISTS hand_players (
-			hand_id         INTEGER NOT NULL,
-			player_id       TEXT NOT NULL,
-			seat            INTEGER NOT NULL,
-			starting_stack  INTEGER NOT NULL,
-			hole_cards_json TEXT,
-			PRIMARY KEY (hand_id, player_id),
-			FOREIGN KEY (hand_id) REFERENCES hands(id) ON DELETE CASCADE,
-			FOREIGN KEY (player_id) REFERENCES players(id)
-		);`,
-		`CREATE INDEX IF NOT EXISTS idx_hand_players_seat ON hand_players(hand_id, seat);`,
-
-		// Ordered betting/actions (deterministic replay)
-		`CREATE TABLE IF NOT EXISTS actions (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			hand_id     INTEGER NOT NULL,
-			ord         INTEGER NOT NULL,
-			street      TEXT NOT NULL,         -- "PREFLOP","FLOP","TURN","RIVER","SHOWDOWN"
-			actor_seat  INTEGER NOT NULL,
-			action      TEXT NOT NULL,         -- "POST_SB","POST_BB","CHECK","CALL","BET","RAISE","FOLD","ALLIN","REFUND"
-			amount      INTEGER NOT NULL DEFAULT 0,
-			is_allin    BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (hand_id) REFERENCES hands(id) ON DELETE CASCADE
-		);`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_actions_order ON actions(hand_id, ord);`,
-
-		// Optional: community cards per street (audit/export)
-		`CREATE TABLE IF NOT EXISTS board_cards (
-			hand_id    INTEGER NOT NULL,
-			street     TEXT NOT NULL,          -- "FLOP","TURN","RIVER"
-			cards_json TEXT NOT NULL,
-			PRIMARY KEY (hand_id, street),
-			FOREIGN KEY (hand_id) REFERENCES hands(id) ON DELETE CASCADE
-		);`,
-
-		// Optional: fast-restore snapshot cache (opaque; NOT canonical)
-		`CREATE TABLE IF NOT EXISTS table_snapshots (
-			table_id    TEXT PRIMARY KEY,
-			snapshot_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			payload     BLOB NOT NULL,
-			FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
-		);`,
+func applyMigrations(db *sql.DB) error {
+	// Ensure the schema_migrations tracking table exists
+	if _, err := db.Exec(`
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version     INTEGER PRIMARY KEY,
+            name        TEXT NOT NULL,
+            applied_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+    `); err != nil {
+		return fmt.Errorf("create schema_migrations: %w", err)
 	}
 
-	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			return fmt.Errorf("schema exec failed: %w\nstmt: %s", err, s)
+	// Discover migration files from embed FS
+	entries, err := fs.ReadDir(migrationFS, "migrations")
+	if err != nil {
+		return fmt.Errorf("read migrations dir: %w", err)
+	}
+
+	var migs []migration
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if filepath.Ext(name) != ".sql" {
+			continue
+		}
+		// Parse version prefix: 0001_description.sql
+		base := filepath.Base(name)
+		parts := strings.SplitN(base, "_", 2)
+		if len(parts) < 1 {
+			continue
+		}
+		vstr := strings.TrimPrefix(parts[0], "")
+		v, err := strconv.Atoi(strings.TrimLeft(vstr, "0"))
+		if err != nil {
+			// Fall back: if vstr is all zeros, treat as 0
+			if vstr == "0000" || vstr == "0" {
+				v = 0
+			} else {
+				return fmt.Errorf("invalid migration filename: %s", name)
+			}
+		}
+		migs = append(migs, migration{version: v, name: name, path: filepath.Join("migrations", name)})
+	}
+
+	sort.Slice(migs, func(i, j int) bool { return migs[i].name < migs[j].name })
+
+	// Load applied versions into a set
+	applied := make(map[int]bool)
+	rows, err := db.Query(`SELECT version FROM schema_migrations`)
+	if err != nil {
+		return fmt.Errorf("query schema_migrations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var v int
+		if err := rows.Scan(&v); err != nil {
+			return err
+		}
+		applied[v] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Apply pending migrations
+	for _, m := range migs {
+		if applied[m.version] {
+			continue
+		}
+
+		// Read SQL file
+		b, err := migrationFS.ReadFile(m.path)
+		if err != nil {
+			return fmt.Errorf("read migration %s: %w", m.name, err)
+		}
+		sqlText := string(b)
+
+		// Execute statements one-by-one for better error control.
+		// Split on ';' and trim; ignore empties.
+		// Note: scripts in this repo are simple and do not embed semicolons in strings.
+		stmts := splitSQLStatements(sqlText)
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		for _, s := range stmts {
+			if s == "" {
+				continue
+			}
+			if _, err := tx.Exec(s); err != nil {
+				// Allow duplicate column on ADD COLUMN
+				lerr := strings.ToLower(err.Error())
+				if strings.Contains(lerr, "duplicate column") || strings.Contains(lerr, "duplicate column name") {
+					continue
+				}
+				_ = tx.Rollback()
+				return fmt.Errorf("migration %s failed: %w (stmt: %s)", m.name, err, s)
+			}
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version, name) VALUES (?, ?)`, m.version, m.name); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("record migration %s: %w", m.name, err)
+		}
+		if err := tx.Commit(); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// splitSQLStatements splits a string on semicolons into independent statements.
+func splitSQLStatements(s string) []string {
+	out := make([]string, 0, 8)
+	var b strings.Builder
+	inSingle := false
+	inDouble := false
+	inLineComment := false
+	inBlockComment := false
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		r := rs[i]
+
+		// Handle end of line comments
+		if inLineComment {
+			if r == '\n' || r == '\r' {
+				inLineComment = false
+				// Preserve newline so statement boundaries aren’t lost
+				b.WriteRune(r)
+			}
+			continue
+		}
+		// Handle end of block comments
+		if inBlockComment {
+			if r == '*' && i+1 < len(rs) && rs[i+1] == '/' {
+				inBlockComment = false
+				i++ // skip '/'
+			}
+			continue
+		}
+
+		// Detect start of comments when not inside quotes
+		if !inSingle && !inDouble {
+			if r == '-' && i+1 < len(rs) && rs[i+1] == '-' {
+				inLineComment = true
+				i++ // skip second '-'
+				continue
+			}
+			if r == '/' && i+1 < len(rs) && rs[i+1] == '*' {
+				inBlockComment = true
+				i++ // skip '*'
+				continue
+			}
+		}
+
+		// Quote state toggles
+		if r == '\'' && !inDouble {
+			inSingle = !inSingle
+			b.WriteRune(r)
+			continue
+		}
+		if r == '"' && !inSingle {
+			inDouble = !inDouble
+			b.WriteRune(r)
+			continue
+		}
+
+		// Statement boundary
+		if r == ';' && !inSingle && !inDouble {
+			stmt := strings.TrimSpace(b.String())
+			if stmt != "" {
+				out = append(out, stmt)
+			}
+			b.Reset()
+			continue
+		}
+
+		b.WriteRune(r)
+	}
+	if tail := strings.TrimSpace(b.String()); tail != "" {
+		out = append(out, tail)
+	}
+	return out
 }
 
 // =========================
@@ -403,7 +460,7 @@ func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 func (db *DB) GetTable(ctx context.Context, id string) (*Table, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
-		       min_balance, starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
+			min_balance, starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
 		FROM tables WHERE id = ?
 	`, id)
 	var t Table

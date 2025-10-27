@@ -178,15 +178,16 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	_ = table.SetUserDCRAccountBalance(req.PlayerId, dcrBalance-config.BuyIn)
 
 	// Publish join notification.
-	if evt, err := s.buildGameEvent(
+	evt, err := s.buildGameEvent(
 		pokerrpc.NotificationType_PLAYER_JOINED,
 		req.TableId,
 		PlayerJoinedPayload{PlayerID: req.PlayerId},
-	); err == nil {
-		s.eventProcessor.PublishEvent(evt)
-	} else {
+	)
+	if err != nil {
 		s.log.Errorf("Failed to build PLAYER_JOINED event: %v", err)
+		return nil, err
 	}
+	s.eventProcessor.PublishEvent(evt)
 
 	return &pokerrpc.JoinTableResponse{
 		Success:    true,
@@ -292,15 +293,16 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 		}
 
 		// Notify clients
-		if evt, err := s.buildGameEvent(
+		evt, err := s.buildGameEvent(
 			pokerrpc.NotificationType_TABLE_REMOVED,
 			req.TableId,
 			nil,
-		); err != nil {
+		)
+		if err != nil {
 			s.log.Errorf("Failed to build TABLE_REMOVED event: %v", err)
-		} else {
-			s.eventProcessor.PublishEvent(evt)
+			return nil, err
 		}
+		s.eventProcessor.PublishEvent(evt)
 
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
@@ -476,15 +478,16 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 			// game state (dealer, blinds, current player, etc.). Without this, the first
 			// game update received by the clients would still be in the pre-start state
 			// which prevents the UI from progressing to the actual hand.
-			if gameStartedEvent, errGS := s.buildGameEvent(
+			gameStartedEvent, errGS := s.buildGameEvent(
 				pokerrpc.NotificationType_GAME_STARTED,
 				req.TableId,
 				GameStartedPayload{PlayerIDs: []string{req.PlayerId}},
-			); errGS == nil {
-				s.eventProcessor.PublishEvent(gameStartedEvent)
-			} else {
+			)
+			if errGS != nil {
 				s.log.Errorf("Failed to build GAME_STARTED event: %v", errGS)
+				return
 			}
+			s.eventProcessor.PublishEvent(gameStartedEvent)
 		}()
 	}
 
@@ -511,15 +514,16 @@ func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUn
 	}
 
 	// Publish typed PLAYER_READY event (with ready=false)
-	if event, err := s.buildGameEvent(
+	event, err := s.buildGameEvent(
 		pokerrpc.NotificationType_PLAYER_READY,
 		req.TableId,
 		PlayerMarkedReadyPayload{PlayerID: req.PlayerId, Ready: false},
-	); err == nil {
-		s.eventProcessor.PublishEvent(event)
-	} else {
+	)
+	if err != nil {
 		s.log.Errorf("Failed to build PLAYER_READY event: %v", err)
+		return nil, err
 	}
+	s.eventProcessor.PublishEvent(event)
 
 	return &pokerrpc.SetPlayerUnreadyResponse{
 		Success: true,

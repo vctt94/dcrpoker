@@ -378,22 +378,24 @@ func (x *StartGameStreamRequest) GetTableId() string {
 }
 
 type GameUpdate struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	TableId         string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
-	Phase           GamePhase              `protobuf:"varint,2,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
-	Players         []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
-	CommunityCards  []*Card                `protobuf:"bytes,4,rep,name=community_cards,json=communityCards,proto3" json:"community_cards,omitempty"`
-	Pot             int64                  `protobuf:"varint,5,opt,name=pot,proto3" json:"pot,omitempty"`                                 // Total poker chips in the pot
-	CurrentBet      int64                  `protobuf:"varint,6,opt,name=current_bet,json=currentBet,proto3" json:"current_bet,omitempty"` // Current poker chips bet amount in this round
-	CurrentPlayer   string                 `protobuf:"bytes,7,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
-	MinRaise        int64                  `protobuf:"varint,8,opt,name=min_raise,json=minRaise,proto3" json:"min_raise,omitempty"` // Minimum poker chips raise amount
-	MaxRaise        int64                  `protobuf:"varint,9,opt,name=max_raise,json=maxRaise,proto3" json:"max_raise,omitempty"` // Maximum poker chips raise amount
-	GameStarted     bool                   `protobuf:"varint,10,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
-	PlayersRequired int32                  `protobuf:"varint,11,opt,name=players_required,json=playersRequired,proto3" json:"players_required,omitempty"`
-	PlayersJoined   int32                  `protobuf:"varint,12,opt,name=players_joined,json=playersJoined,proto3" json:"players_joined,omitempty"`
-	PhaseName       string                 `protobuf:"bytes,13,opt,name=phase_name,json=phaseName,proto3" json:"phase_name,omitempty"` // Human-readable name of the current phase
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state              protoimpl.MessageState `protogen:"open.v1"`
+	TableId            string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
+	Phase              GamePhase              `protobuf:"varint,2,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
+	Players            []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
+	CommunityCards     []*Card                `protobuf:"bytes,4,rep,name=community_cards,json=communityCards,proto3" json:"community_cards,omitempty"`
+	Pot                int64                  `protobuf:"varint,5,opt,name=pot,proto3" json:"pot,omitempty"`                                 // Total poker chips in the pot
+	CurrentBet         int64                  `protobuf:"varint,6,opt,name=current_bet,json=currentBet,proto3" json:"current_bet,omitempty"` // Current poker chips bet amount in this round
+	CurrentPlayer      string                 `protobuf:"bytes,7,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
+	MinRaise           int64                  `protobuf:"varint,8,opt,name=min_raise,json=minRaise,proto3" json:"min_raise,omitempty"` // Minimum poker chips raise amount
+	MaxRaise           int64                  `protobuf:"varint,9,opt,name=max_raise,json=maxRaise,proto3" json:"max_raise,omitempty"` // Maximum poker chips raise amount
+	GameStarted        bool                   `protobuf:"varint,10,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
+	PlayersRequired    int32                  `protobuf:"varint,11,opt,name=players_required,json=playersRequired,proto3" json:"players_required,omitempty"`
+	PlayersJoined      int32                  `protobuf:"varint,12,opt,name=players_joined,json=playersJoined,proto3" json:"players_joined,omitempty"`
+	PhaseName          string                 `protobuf:"bytes,13,opt,name=phase_name,json=phaseName,proto3" json:"phase_name,omitempty"`                                 // Human-readable name of the current phase
+	TimeBankSeconds    int32                  `protobuf:"varint,14,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"`            // Timebank per player (seconds)
+	TurnDeadlineUnixMs int64                  `protobuf:"varint,15,opt,name=turn_deadline_unix_ms,json=turnDeadlineUnixMs,proto3" json:"turn_deadline_unix_ms,omitempty"` // Absolute deadline for current turn (Unix ms). 0 if N/A
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *GameUpdate) Reset() {
@@ -515,6 +517,20 @@ func (x *GameUpdate) GetPhaseName() string {
 		return x.PhaseName
 	}
 	return ""
+}
+
+func (x *GameUpdate) GetTimeBankSeconds() int32 {
+	if x != nil {
+		return x.TimeBankSeconds
+	}
+	return 0
+}
+
+func (x *GameUpdate) GetTurnDeadlineUnixMs() int64 {
+	if x != nil {
+		return x.TurnDeadlineUnixMs
+	}
+	return 0
 }
 
 type MakeBetRequest struct {
@@ -3202,7 +3218,7 @@ const file_poker_proto_rawDesc = "" +
 	"\vpoker.proto\x12\x05poker\"P\n" +
 	"\x16StartGameStreamRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
-	"\btable_id\x18\x02 \x01(\tR\atableId\"\xd6\x03\n" +
+	"\btable_id\x18\x02 \x01(\tR\atableId\"\xb5\x04\n" +
 	"\n" +
 	"GameUpdate\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12&\n" +
@@ -3220,7 +3236,9 @@ const file_poker_proto_rawDesc = "" +
 	"\x10players_required\x18\v \x01(\x05R\x0fplayersRequired\x12%\n" +
 	"\x0eplayers_joined\x18\f \x01(\x05R\rplayersJoined\x12\x1d\n" +
 	"\n" +
-	"phase_name\x18\r \x01(\tR\tphaseName\"`\n" +
+	"phase_name\x18\r \x01(\tR\tphaseName\x12*\n" +
+	"\x11time_bank_seconds\x18\x0e \x01(\x05R\x0ftimeBankSeconds\x121\n" +
+	"\x15turn_deadline_unix_ms\x18\x0f \x01(\x03R\x12turnDeadlineUnixMs\"`\n" +
 	"\x0eMakeBetRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
 	"\btable_id\x18\x02 \x01(\tR\atableId\x12\x16\n" +
