@@ -2,6 +2,35 @@ import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
+extension _HandRankLabel on pr.HandRank {
+  String get label {
+    switch (this) {
+      case pr.HandRank.HIGH_CARD:
+        return 'High Card';
+      case pr.HandRank.PAIR:
+        return 'Pair';
+      case pr.HandRank.TWO_PAIR:
+        return 'Two Pair';
+      case pr.HandRank.THREE_OF_A_KIND:
+        return 'Three of a Kind';
+      case pr.HandRank.STRAIGHT:
+        return 'Straight';
+      case pr.HandRank.FLUSH:
+        return 'Flush';
+      case pr.HandRank.FULL_HOUSE:
+        return 'Full House';
+      case pr.HandRank.FOUR_OF_A_KIND:
+        return 'Four of a Kind';
+      case pr.HandRank.STRAIGHT_FLUSH:
+        return 'Straight Flush';
+      case pr.HandRank.ROYAL_FLUSH:
+        return 'Royal Flush';
+      default:
+        return name;
+    }
+  }
+}
+
 /// Showdown UI: shows board, winners (with best 5 cards), and any revealed hands.
 class ShowdownWidget extends StatelessWidget {
   final PokerModel model;
@@ -17,6 +46,18 @@ class ShowdownWidget extends StatelessWidget {
 
     // Play:Gdiffspliters who chose to show their hole cards (non-empty hand list)
     final revealedPlayers = players.where((p) => p.hand.isNotEmpty).toList();
+
+    // Build a set of card keys used by any winner for lightweight highlighting on the board.
+    final Set<String> winningBoardKeys = {};
+    if (game != null && game.communityCards.isNotEmpty && winners.isNotEmpty) {
+      final ccKeys = game.communityCards.map(_cardKey).toSet();
+      for (final w in winners) {
+        for (final c in w.bestHand) {
+          final k = _cardKey(c);
+          if (ccKeys.contains(k)) winningBoardKeys.add(k);
+        }
+      }
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
@@ -38,7 +79,11 @@ class ShowdownWidget extends StatelessWidget {
               if (game != null && game.communityCards.isNotEmpty)
                 _Section(
                   title: 'Community Cards',
-                  child: _CardRow(cards: game.communityCards),
+                  child: _CardRow(
+                    cards: game.communityCards,
+                    highlightKeys: winningBoardKeys,
+                    dimNonHighlights: winningBoardKeys.isNotEmpty,
+                  ),
                 ),
 
               // Winners section
@@ -70,6 +115,25 @@ class ShowdownWidget extends StatelessWidget {
                               handDesc: '',
                             ),
                           ).name,
+                          handDesc: players
+                                  .firstWhere(
+                                      (p) => p.id == w.playerId,
+                                      orElse: () => const UiPlayer(
+                                            id: '',
+                                            name: '',
+                                            balance: 0,
+                                            hand: [],
+                                            currentBet: 0,
+                                            folded: false,
+                                            isTurn: false,
+                                            isAllIn: false,
+                                            isDealer: false,
+                                            isSmallBlind: false,
+                                            isBigBlind: false,
+                                            isReady: false,
+                                            handDesc: '',
+                                          ))
+                                  .handDesc,
                         ),
                     ],
                   ),
@@ -100,16 +164,18 @@ class ShowdownWidget extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 8,
                 children: [
-                  ElevatedButton.icon(
-                    onPressed: model.showCards,
-                    icon: const Icon(Icons.visibility),
-                    label: const Text('Show My Cards'),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: model.hideCards,
-                    icon: const Icon(Icons.visibility_off),
-                    label: const Text('Hide My Cards'),
-                  ),
+                  if (!(model.myCardsShown))
+                    ElevatedButton.icon(
+                      onPressed: model.showCards,
+                      icon: const Icon(Icons.visibility),
+                      label: const Text('Show My Cards'),
+                    ),
+                  if (model.myCardsShown)
+                    ElevatedButton.icon(
+                      onPressed: model.hideCards,
+                      icon: const Icon(Icons.visibility_off),
+                      label: const Text('Hide My Cards'),
+                    ),
                   ElevatedButton(
                     onPressed: onLeave ?? model.leaveTable,
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
@@ -158,9 +224,10 @@ class _Section extends StatelessWidget {
 }
 
 class _WinnerRow extends StatelessWidget {
-  const _WinnerRow({required this.winner, required this.name});
+  const _WinnerRow({required this.winner, required this.name, this.handDesc = ''});
   final UiWinner winner;
   final String name;
+  final String handDesc;
 
   @override
   Widget build(BuildContext context) {
@@ -188,7 +255,7 @@ class _WinnerRow extends StatelessWidget {
                   border: Border.all(color: Colors.amber, width: 1),
                 ),
                 child: Text(
-                  winner.handRank.name,
+                  winner.handRank.label,
                   style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -201,6 +268,15 @@ class _WinnerRow extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
+          if (handDesc.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6.0),
+              child: Text(
+                handDesc,
+                style: const TextStyle(color: Colors.white70, fontStyle: FontStyle.italic),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
           _CardRow(cards: winner.bestHand),
         ],
       ),
@@ -240,8 +316,10 @@ class _RevealedPlayerCard extends StatelessWidget {
 }
 
 class _CardRow extends StatelessWidget {
-  const _CardRow({required this.cards});
+  const _CardRow({required this.cards, this.highlightKeys = const {}, this.dimNonHighlights = false});
   final List<pr.Card> cards;
+  final Set<String> highlightKeys;
+  final bool dimNonHighlights;
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +333,12 @@ class _CardRow extends StatelessWidget {
       mainAxisAlignment: MainAxisAlignment.start,
       children: [
         for (var i = 0; i < count; i++) ...[
-          _PlayingCard(card: cards[i], width: cardW),
+          _PlayingCard(
+            card: cards[i],
+            width: cardW,
+            highlighted: highlightKeys.contains(_cardKey(cards[i])),
+            dimmed: dimNonHighlights && !highlightKeys.contains(_cardKey(cards[i])),
+          ),
           if (i != count - 1) const SizedBox(width: 8),
         ]
       ],
@@ -264,9 +347,11 @@ class _CardRow extends StatelessWidget {
 }
 
 class _PlayingCard extends StatelessWidget {
-  const _PlayingCard({required this.card, required this.width});
+  const _PlayingCard({required this.card, required this.width, this.highlighted = false, this.dimmed = false});
   final pr.Card card;
   final double width;
+  final bool highlighted;
+  final bool dimmed;
 
   @override
   Widget build(BuildContext context) {
@@ -275,18 +360,26 @@ class _PlayingCard extends StatelessWidget {
     final suitSym = _suitSymbol(card.suit);
     final isRed = _isRed(card.suit);
 
-    return Container(
+    return AnimatedContainer(
       width: w,
       height: h,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.black, width: 2),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 6, spreadRadius: 1)],
+        border: Border.all(color: highlighted ? Colors.amber : Colors.black, width: highlighted ? 3 : 2),
+        boxShadow: [
+          if (highlighted)
+            BoxShadow(color: Colors.amber.withOpacity(0.6), blurRadius: 16, spreadRadius: 1),
+          BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 6, spreadRadius: 1),
+        ],
       ),
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
       child: Padding(
         padding: const EdgeInsets.all(4.0),
-        child: Stack(
+        child: Opacity(
+          opacity: dimmed ? 0.55 : 1.0,
+          child: Stack(
           children: [
             Align(
               alignment: Alignment.topLeft,
@@ -349,6 +442,7 @@ class _PlayingCard extends StatelessWidget {
               ),
             ),
           ],
+          ),
         ),
       ),
     );
@@ -369,3 +463,5 @@ class _PlayingCard extends StatelessWidget {
     return s == 'hearts' || s == 'diamonds' || suit == '♥' || suit == '♦' || suit == '\u2665' || suit == '\u2666';
   }
 }
+
+String _cardKey(pr.Card c) => '${c.value}|${c.suit}'.toLowerCase();

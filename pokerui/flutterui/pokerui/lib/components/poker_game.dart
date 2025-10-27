@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/components/cards.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
@@ -62,6 +63,19 @@ class PokerGame {
 
   PokerGame(this.playerId, this.pokerModel);
 
+  int _potForDisplay(UiGameState gameState) {
+    // During showdown, servers may reset pot to 0 as chips are distributed.
+    // Prefer the sum of winners' payouts as the final pot display when available.
+    if (gameState.phase == pr.GamePhase.SHOWDOWN) {
+      final winners = pokerModel.lastWinners;
+      if (winners.isNotEmpty) {
+        final sum = winners.fold<int>(0, (acc, w) => acc + w.winnings);
+        if (sum > 0) return sum;
+      }
+    }
+    return gameState.pot;
+  }
+
   Widget buildWidget(UiGameState gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
     // Start/stop lightweight repaint loop only while an authoritative deadline is active.
     if (gameState.turnDeadlineUnixMs > 0) {
@@ -107,12 +121,35 @@ class PokerGame {
                             willChange: true,
                           ),
 
+                          // Widget-based overlays for cards
+                          IgnorePointer(child: _CommunityCardsOverlay(cards: gameState.communityCards)),
+
+                          // Hero hole cards overlay (visible during all active phases)
+                          if (gameState.phase != pr.GamePhase.WAITING)
+                            (gameState.phase == pr.GamePhase.SHOWDOWN
+                                // Allow interaction at showdown so user can tap to show/hide
+                                ? _HeroCardsOverlay(
+                                    players: gameState.players,
+                                    heroId: playerId,
+                                    cache: pokerModel.myHoleCardsCache,
+                                    model: pokerModel,
+                                  )
+                                // Otherwise render non-interactive to avoid stealing input
+                                : IgnorePointer(
+                                    child: _HeroCardsOverlay(
+                                      players: gameState.players,
+                                      heroId: playerId,
+                                      cache: pokerModel.myHoleCardsCache,
+                                      model: pokerModel,
+                                    ),
+                                  )),
+
                           // Pot and betting info overlay
                           IgnorePointer(
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                // Pot display
+                                // Pot display (show final pot at showdown if gameState.pot was reset)
                                 Positioned(
                                   top: 20,
                                   left: 0,
@@ -126,7 +163,7 @@ class PokerGame {
                                         border: Border.all(color: Colors.amber, width: 2),
                                       ),
                                       child: Text(
-                                        'Pot: ${gameState.pot}',
+                                        'Pot: ${_potForDisplay(gameState)}',
                                         style: const TextStyle(
                                           color: Colors.amber,
                                           fontSize: 20,
@@ -164,84 +201,6 @@ class PokerGame {
                             ),
                           ),
 
-                          // Clickable hotspots over hero hole cards to toggle show/hide during showdown.
-                          if (gameState.phase == pr.GamePhase.SHOWDOWN)
-                            LayoutBuilder(builder: (context, c) {
-                              final size = c.biggest;
-                              // Match painter sizing/placement
-                              final cw = math.min(size.width * 0.06, 54.0);
-                              final ch = cw * 1.4;
-                              final gap = cw * 0.12;
-                              final centerX = size.width / 2;
-                              const marginBottom = 80.0;
-                              final y = size.height - ch - marginBottom;
-                              final x1 = centerX - cw - gap / 2;
-                              final x2 = centerX + gap / 2;
-
-                              void toggleShowHide() {
-                                if (pokerModel.myCardsShown) {
-                                  pokerModel.hideCards();
-                                } else {
-                                  pokerModel.showCards();
-                                }
-                              }
-
-                              return Stack(children: [
-                                Positioned(
-                                  left: x1,
-                                  top: y,
-                                  width: cw,
-                                  height: ch,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: toggleShowHide,
-                                    child: const SizedBox.expand(),
-                                  ),
-                                ),
-                                Positioned(
-                                  left: x2,
-                                  top: y,
-                                  width: cw,
-                                  height: ch,
-                                  child: GestureDetector(
-                                    behavior: HitTestBehavior.opaque,
-                                    onTap: toggleShowHide,
-                                    child: const SizedBox.expand(),
-                                  ),
-                                ),
-                                // Small eye badge to indicate current show/hide state
-                                Positioned(
-                                  left: centerX - 12,
-                                  top: y - 22,
-                                  child: Opacity(
-                                    opacity: 0.85,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.75),
-                                        borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(color: Colors.white24),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            pokerModel.myCardsShown ? Icons.visibility : Icons.visibility_off,
-                                            size: 14,
-                                            color: Colors.white70,
-                                          ),
-                                          const SizedBox(width: 4),
-                                          Text(
-                                            pokerModel.myCardsShown ? 'Shown' : 'Hidden',
-                                            style: const TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w600),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ]);
-                            }),
                         ],
                       ),
                     ),
@@ -578,13 +537,9 @@ class PokerPainter extends CustomPainter {
     // Draw poker table
     _drawTable(canvas, size, centerX, centerY, tableRadius);
     
-    // Draw community cards
-    _drawCommunityCards(canvas, centerX, centerY, tableRadius);
-    
     // Draw players
     _drawPlayers(canvas, size, centerX, centerY, tableRadius);
 
-    // Draw hero hole cards as an overlay near the bottom center.
     _drawHeroHoleCards(canvas, size);
 
     // Draw current player's timebank badge last so it sits above cards/badges.
@@ -606,25 +561,6 @@ class PokerPainter extends CustomPainter {
       ..strokeWidth = 8;
     
     canvas.drawCircle(Offset(centerX, centerY), tableRadius, borderPaint);
-  }
-
-  void _drawCommunityCards(Canvas canvas, double centerX, double centerY, double tableRadius) {
-    if (gameState.communityCards.isEmpty) return;
-
-    final cardWidth = 30.0;
-    final cardHeight = 42.0;
-    final cardSpacing = 5.0;
-    final totalWidth = (gameState.communityCards.length * cardWidth) + 
-                      ((gameState.communityCards.length - 1) * cardSpacing);
-    final startX = centerX - (totalWidth / 2);
-    final cardY = centerY - 20;
-
-    for (int i = 0; i < gameState.communityCards.length; i++) {
-      final card = gameState.communityCards[i];
-      final cardX = startX + (i * (cardWidth + cardSpacing));
-      
-      _drawCard(canvas, cardX, cardY, cardWidth, cardHeight, card);
-    }
   }
 
   void _drawCard(Canvas canvas, double x, double y, double width, double height, pr.Card card) {
@@ -996,41 +932,6 @@ class PokerPainter extends CustomPainter {
   }
 
   void _drawHeroHoleCards(Canvas canvas, Size size) {
-    // Find hero in current players
-    UiPlayer? hero;
-    for (final p in gameState.players) {
-      if (p.id == currentPlayerId) {
-        hero = p;
-        break;
-      }
-    }
-    if (hero == null) return;
-
-    // do not draw during waiting phase
-    if (gameState.phase == pr.GamePhase.WAITING) return;
-
-    // Determine sizes relative to viewport
-    final cw = math.min(size.width * 0.06, 54.0);
-    final ch = cw * 1.4;
-    final gap = cw * 0.12;
-
-    // Bottom-center placement with safe margin
-    final centerX = size.width / 2;
-    // Leave room for action buttons (at bottom:20) + player circle + badges + chips
-    // Total: ~20 (buttons) + 60 (player radius*2) + 20 (badges) + 20 (chips) + gaps = 180px
-    final marginBottom = 80.0;
-    final y = size.height - ch - marginBottom;
-    final startX = centerX - cw - gap / 2;
-
-    final cards = hero.hand;
-    if (cards.length >= 2) {
-      _drawCard(canvas, startX, y, cw, ch, cards[0]);
-      _drawCard(canvas, startX + cw + gap, y, cw, ch, cards[1]);
-    } else {
-      // Draw facedown placeholders when cards are hidden/unavailable
-      _drawCardBack(canvas, startX, y, cw, ch);
-      _drawCardBack(canvas, startX + cw + gap, y, cw, ch);
-    }
   }
 
   void _drawCurrentTimebank(Canvas canvas, Size size, double centerX, double centerY, double tableRadius) {
@@ -1109,4 +1010,206 @@ class _BadgeLayout {
   final _SeatBadge badge;
   final TextPainter textPainter;
   final double width;
+}
+
+// Helpers used by overlays to compute positions within the 16:9 viewport
+Rect _pokerViewportRect(Size size) {
+  const double aspect = 16 / 9;
+  final double containerAspect = size.width / (size.height == 0 ? 1 : size.height);
+  double w, h, left, top;
+  if (containerAspect > aspect) {
+    h = size.height;
+    w = h * aspect;
+    left = (size.width - w) / 2;
+    top = 0;
+  } else {
+    w = size.width;
+    h = w / aspect;
+    left = 0;
+    top = (size.height - h) / 2;
+  }
+  return Rect.fromLTWH(left, top, w, h);
+}
+
+Map<String, Offset> _seatPositionsFor(List<UiPlayer> ps, String heroId, Offset center, double ringRadius) {
+  final map = <String, Offset>{};
+  if (ps.isEmpty) return map;
+  final count = ps.length;
+  final heroIndex = ps.indexWhere((p) => p.id == heroId);
+  const playerRadius = 30.0;
+
+  for (int i = 0; i < count; i++) {
+    double angle;
+    if (i == heroIndex) {
+      angle = math.pi / 2;
+    } else if (heroIndex == -1) {
+      angle = (i * 2 * math.pi) / count;
+    } else {
+      final adjustedIndex = i > heroIndex ? i - 1 : i;
+      final otherCount = count - 1;
+      if (otherCount > 0) {
+        final step = (2 * math.pi) / (otherCount + 1);
+        angle = math.pi + (adjustedIndex + 1) * step;
+      } else {
+        angle = (i * 2 * math.pi) / count;
+      }
+    }
+    final x = center.dx + (ringRadius) * math.cos(angle);
+    final y = center.dy + (ringRadius) * math.sin(angle);
+    map[ps[i].id] = Offset(x, y - playerRadius);
+  }
+  return map;
+}
+
+class _CommunityCardsOverlay extends StatelessWidget {
+  const _CommunityCardsOverlay({required this.cards});
+  final List<pr.Card> cards;
+
+  @override
+  Widget build(BuildContext context) {
+    if (cards.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(builder: (context, c) {
+      final size = c.biggest;
+      final box = _pokerViewportRect(size);
+      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
+      final cw = (box.width * 0.05).clamp(24.0, 48.0).toDouble();
+      final ch = cw * 1.4;
+      final gap = cw * 0.10;
+      final totalW = (cards.length * cw) + ((cards.length - 1) * gap);
+      final startX = center.dx - totalW / 2;
+      final y = center.dy - ch / 2 - 20.0;
+
+      final children = <Widget>[];
+      for (int i = 0; i < cards.length; i++) {
+        final x = startX + i * (cw + gap);
+        children.add(Positioned(
+          left: x,
+          top: y,
+          width: cw,
+          height: ch,
+          child: CardFace(card: cards[i]),
+        ));
+      }
+      return Stack(children: children);
+    });
+  }
+}
+
+class _OpponentsShowdownHandsOverlay extends StatefulWidget {
+  const _OpponentsShowdownHandsOverlay({required this.players, required this.heroId});
+  final List<UiPlayer> players;
+  final String heroId;
+
+  @override
+  State<_OpponentsShowdownHandsOverlay> createState() => _OpponentsShowdownHandsOverlayState();
+}
+
+class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsOverlay> {
+  // Snapshot of shown hands during showdown. We only add new reveals and never
+  // remove, so they remain visible even if later snapshots clear hands.
+  final Map<String, List<pr.Card>> _shownHands = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _ingest(widget.players);
+  }
+
+  @override
+  void didUpdateWidget(covariant _OpponentsShowdownHandsOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If new players reveal cards mid-showdown, capture them
+    if (!identical(oldWidget.players, widget.players)) {
+      _ingest(widget.players);
+    }
+  }
+
+  void _ingest(List<UiPlayer> players) {
+    for (final p in players) {
+      if (p.id == widget.heroId) continue;
+      if (p.hand.isNotEmpty) {
+        _shownHands[p.id] = List<pr.Card>.from(p.hand);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.players.isEmpty) return const SizedBox.shrink();
+    return LayoutBuilder(builder: (context, c) {
+      final size = c.biggest;
+      final box = _pokerViewportRect(size);
+      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
+      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
+      final seats = _seatPositionsFor(widget.players, widget.heroId, center, tableRadius + 50);
+
+      final cw = (box.width * 0.032).clamp(16.0, 28.0).toDouble();
+      final ch = cw * 1.4;
+      const gap = 4.0;
+
+      final children = <Widget>[];
+      for (final p in widget.players) {
+        if (p.id == widget.heroId) continue;
+        final pos = seats[p.id];
+        if (pos == null) continue;
+        final pairW = (cw * 2) + gap;
+        final minLeft = box.left + 2.0;
+        final maxLeft = box.right - pairW - 2.0;
+        final baseLeft = pos.dx - pairW / 2;
+        final left = baseLeft.clamp(minLeft, maxLeft).toDouble();
+
+        final minTop = box.top + 2.0;
+        final maxTop = box.bottom - ch - 2.0;
+        final baseTop = pos.dy - ch - 6.0;
+        final top = baseTop.clamp(minTop, maxTop).toDouble();
+
+        final snap = _shownHands[p.id];
+        if (snap != null && snap.isNotEmpty) {
+          children.addAll([
+            Positioned(left: left, top: top, width: cw, height: ch, child: CardFace(card: snap[0])),
+            if (snap.length > 1)
+              Positioned(left: left + cw + gap, top: top, width: cw, height: ch, child: CardFace(card: snap[1])),
+          ]);
+        } else {
+          children.addAll([
+            Positioned(left: left, top: top, width: cw, height: ch, child: const CardBack()),
+            Positioned(left: left + cw + gap, top: top, width: cw, height: ch, child: const CardBack()),
+          ]);
+        }
+      }
+      return Stack(children: children);
+    });
+  }
+}
+
+class _HeroCardsOverlay extends StatelessWidget {
+  const _HeroCardsOverlay({required this.players, required this.heroId, required this.cache, required this.model});
+  final List<UiPlayer> players;
+  final String heroId;
+  final List<pr.Card> cache;
+  final PokerModel model;
+
+  @override
+  Widget build(BuildContext context) {
+    final hero = players.firstWhere((p) => p.id == heroId, orElse: () => const UiPlayer(
+      id: '', name: '', balance: 0, hand: [], currentBet: 0, folded: false, isTurn: false, isAllIn: false, isDealer: false, isSmallBlind: false, isBigBlind: false, isReady: false, handDesc: '',
+    ));
+    if (hero.id.isEmpty) return const SizedBox.shrink();
+    // Prefer live hero.hand; fall back to cached hole cards when snapshots omit them (e.g., during showdown).
+    final List<pr.Card> cards = hero.hand.isNotEmpty ? hero.hand : cache;
+    final bool faceUp = cards.isNotEmpty;
+    final bool hint = (model.game?.phase == pr.GamePhase.SHOWDOWN) && !model.myCardsShown;
+    return HeroCardFlipOverlay(
+      cards: cards,
+      showFace: faceUp,
+      showHint: hint,
+      onToggle: () {
+        if (model.myCardsShown) {
+          model.hideCards();
+        } else {
+          model.showCards();
+        }
+      },
+    );
+  }
 }

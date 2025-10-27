@@ -112,6 +112,19 @@ class UiWinner {
 }
 
 @immutable
+class UiBetFx {
+  final String playerId;
+  final int amount; // chips added to currentBet in a single action
+  final int createdMs; // wall time when detected
+
+  const UiBetFx({
+    required this.playerId,
+    required this.amount,
+    required this.createdMs,
+  });
+}
+
+@immutable
 class UiTable {
   final String id;
   final String hostId;
@@ -234,6 +247,13 @@ class PokerModel extends ChangeNotifier {
   List<UiWinner> lastWinners = const [];
   String errorMessage = '';
   int myAtomsBalance = 0; // DCR atoms (wallet balance for buy-in requirements)
+
+  // Cache hero hole cards for use at showdown when the server may omit them
+  List<pr.Card> _myHoleCardsCache = const [];
+  List<pr.Card> get myHoleCardsCache => _myHoleCardsCache;
+
+  // Lightweight FX hook: last bet/call animation trigger
+  UiBetFx? lastBetFx; // set when a player's currentBet increases
 
   // Streams
   StreamSubscription<pr.Notification>? _ntfnSub;
@@ -386,11 +406,28 @@ class PokerModel extends ChangeNotifier {
 
       case pr.NotificationType.NEW_HAND_STARTED:
         playersShowingCards.clear();
+        // Clear cached hero hole cards for the new hand to avoid stale display
+        _myHoleCardsCache = const [];
+        // Clear any stale bet FX at the start of a new hand
+        lastBetFx = null;
+        notifyListeners();
         break;
       case pr.NotificationType.GAME_STARTED:
       case pr.NotificationType.GAME_ENDED:
       case pr.NotificationType.BET_MADE:
+        if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
+          final amt = n.hasAmount() ? n.amount.toInt() : 0;
+          lastBetFx = UiBetFx(playerId: n.playerId, amount: amt, createdMs: DateTime.now().millisecondsSinceEpoch);
+          notifyListeners();
+        }
+        break;
       case pr.NotificationType.CALL_MADE:
+        if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
+          final amt = n.hasAmount() ? n.amount.toInt() : 0;
+          lastBetFx = UiBetFx(playerId: n.playerId, amount: amt, createdMs: DateTime.now().millisecondsSinceEpoch);
+          notifyListeners();
+        }
+        break;
       case pr.NotificationType.CHECK_MADE:
       case pr.NotificationType.PLAYER_FOLDED:
       case pr.NotificationType.SMALL_BLIND_POSTED:
@@ -716,7 +753,14 @@ class PokerModel extends ChangeNotifier {
     }
 
     print('DEBUG: Processing game update - phase: ${u.phase}, gameStarted: ${u.gameStarted}, currentPlayer: ${u.currentPlayer}');
-    game = UiGameState.fromUpdate(u);
+    final next = UiGameState.fromUpdate(u);
+    // Update hero hole cards cache when available
+    final heroNow = next.players.firstWhereOrNull((p) => p.id == playerId);
+    if (heroNow != null && heroNow.hand.isNotEmpty) {
+      _myHoleCardsCache = List<pr.Card>.from(heroNow.hand);
+    }
+    // Rely on explicit notifications for bet/call FX; avoid inferring from snapshots
+    game = next;
 
     final myP = me;
     final handCnt = myP?.hand.length ?? 0;
@@ -735,11 +779,14 @@ class PokerModel extends ChangeNotifier {
       _state = PokerState.showdown;
       unawaited(_refreshLastWinners());
       _turnDeadline = null;
+      // Clear transient FX; UI follows server phase strictly.
+      lastBetFx = null;
     } else if (u.phase != pr.GamePhase.WAITING) {
       _state = PokerState.handInProgress;
     } else {
       _state = PokerState.inLobby;
       _turnDeadline = null;
+      lastBetFx = null;
     }
 
     // Server-authoritative timebank: read from GameUpdate
