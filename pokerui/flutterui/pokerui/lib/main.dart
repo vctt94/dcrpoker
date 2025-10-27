@@ -16,7 +16,6 @@ import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/screens/home.dart';
 import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
-import 'package:pokerui/screens/poker_table_screen.dart';
 import 'package:pokerui/screens/startup_error.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
@@ -344,7 +343,6 @@ class MyApp extends StatelessWidget {
       },
       routes: {
         '/': (context) => const PokerHomeScreen(),
-        '/table': (context) => const PokerTableScreen(),
         '/settings': (context) => NewConfigScreen(
               model: NewConfigModel.fromConfig(cfg),
               onConfigSaved: () async {

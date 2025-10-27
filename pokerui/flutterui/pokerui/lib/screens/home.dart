@@ -123,15 +123,6 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                                         style: TextStyle(color: Colors.white),
                                       ),
                                       Row(children: [
-                                        ElevatedButton.icon(
-                                          onPressed: () {
-                                            Navigator.pushNamed(context, '/table');
-                                          },
-                                          icon: const Icon(Icons.casino),
-                                          label: const Text('View Table'),
-                                          style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.green),
-                                        ),
                                         const SizedBox(width: 8),
                                         ElevatedButton.icon(
                                           onPressed: () {
