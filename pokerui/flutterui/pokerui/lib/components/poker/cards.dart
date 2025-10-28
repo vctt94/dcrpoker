@@ -275,3 +275,104 @@ Rect _viewport16by9(Size size) {
   }
   return Rect.fromLTWH(left, top, w, h);
 }
+
+// Canvas-based card drawing utilities for CustomPainter usage
+void drawCardFace(Canvas canvas, double x, double y, double width, double height, pr.Card card) {
+  // Card background
+  final cardPaint = Paint()
+    ..color = Colors.white
+    ..style = PaintingStyle.fill;
+  
+  final cardRect = RRect.fromRectAndRadius(
+    Rect.fromLTWH(x, y, width, height),
+    const Radius.circular(4),
+  );
+  canvas.drawRRect(cardRect, cardPaint);
+  
+  // Card border
+  final borderPaint = Paint()
+    ..color = Colors.black
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  
+  canvas.drawRRect(cardRect, borderPaint);
+  
+  // Card content
+  final textPainter = TextPainter(
+    text: TextSpan(
+      text: '${card.value}\n${getSuitSymbol(card.suit)}',
+      style: TextStyle(
+        color: getSuitColor(card.suit),
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  );
+  textPainter.layout();
+  textPainter.paint(
+    canvas,
+    Offset(x + (width - textPainter.width) / 2, y + (height - textPainter.height) / 2),
+  );
+}
+
+void drawCardBack(Canvas canvas, double x, double y, double width, double height) {
+  // Card back background
+  final backPaint = Paint()
+    ..shader = const LinearGradient(
+      colors: [Color(0xFF1B1E2C), Color(0xFF0E111A)],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ).createShader(Rect.fromLTWH(x, y, width, height));
+
+  final cardRect = RRect.fromRectAndRadius(
+    Rect.fromLTWH(x, y, width, height),
+    const Radius.circular(4),
+  );
+  canvas.drawRRect(cardRect, backPaint);
+
+  // Border
+  final borderPaint = Paint()
+    ..color = Colors.black
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = 1;
+  canvas.drawRRect(cardRect, borderPaint);
+
+  // Minimal back pattern
+  final pipPainter = TextPainter(
+    text: const TextSpan(
+      text: '♠',
+      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+    ),
+    textDirection: TextDirection.ltr,
+  );
+  pipPainter.layout();
+  pipPainter.paint(
+    canvas,
+    Offset(x + (width - pipPainter.width) / 2, y + (height - pipPainter.height) / 2),
+  );
+}
+
+String getSuitSymbol(String suit) {
+  switch (suit.toLowerCase()) {
+    case 'hearts': return '♥';
+    case 'diamonds': return '♦';
+    case 'clubs': return '♣';
+    case 'spades': return '♠';
+    default: return suit;
+  }
+}
+
+Color getSuitColor(String suit) {
+  switch (suit.toLowerCase()) {
+    case 'hearts':
+    case 'diamonds':
+      return Colors.red;
+    case 'clubs':
+    case 'spades':
+      return Colors.black;
+    default:
+      return Colors.black;
+  }
+}
+

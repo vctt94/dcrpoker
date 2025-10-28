@@ -13,7 +13,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
-import 'package:pokerui/screens/home.dart';
+import 'package:pokerui/screens/main.dart';
 import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
 import 'package:pokerui/screens/startup_error.dart';
