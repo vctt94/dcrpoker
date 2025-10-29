@@ -17,8 +17,6 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server/internal/db"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Database is the minimal surface the server needs from the storage layer.
@@ -131,6 +129,20 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		// Apply lobby flag via table API (fires state update in FSM)
 		if err := table.SetPlayerReady(user.ID, p.Ready); err != nil {
 			s.log.Errorf("SetPlayerReady(%s): %v", user.ID, err)
+		}
+	}
+
+	// Attempt to hydrate an in-progress game from the latest fast-restore snapshot
+	if snap, err := s.db.GetSnapshot(ctx, tableID); err == nil && snap != nil && len(snap.Payload) > 0 {
+		var persisted struct {
+			Game *poker.GameStateSnapshot `json:"Game"`
+		}
+		if uerr := json.Unmarshal(snap.Payload, &persisted); uerr != nil {
+			s.log.Errorf("failed to unmarshal snapshot for table %s: %v", tableID, uerr)
+		} else if persisted.Game != nil {
+			if err := s.applyGameSnapshot(table, persisted.Game); err != nil {
+				s.log.Errorf("applyGameSnapshot(%s) failed: %v", tableID, err)
+			}
 		}
 	}
 
@@ -301,46 +313,6 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	g.StartFromRestoredSnapshot(context.Background())
 
 	return nil
-}
-
-// buildGameStateForPlayer removed; GameUpdate is now built from stable snapshots
-
-// buildGameState creates a GameUpdate for the requesting player
-func (s *Server) buildGameState(tableID, requestingPlayerID string, snap *db.Snapshot) (*pokerrpc.GameUpdate, error) {
-	// Fetch table pointer without coarse-grained server locking.
-	table, ok := s.getTable(tableID)
-	if !ok {
-		return nil, status.Error(codes.NotFound, "table not found")
-	}
-
-	game := table.GetGame()
-	// If the table exists but no game is attached (e.g., server restarted),
-	// try to restore the game from the latest snapshot before registering the
-	// stream so the initial snapshot reflects the live game.
-	if game == nil {
-		users := table.GetUsers()
-		// Attempt fast-restore from persisted snapshot, but only when seats >= 2
-		if len(users) >= 2 {
-			var persisted struct {
-				Game *poker.GameStateSnapshot `json:"Game"`
-			}
-			if err := json.Unmarshal(snap.Payload, &persisted); err == nil && persisted.Game != nil {
-				gs := persisted.Game
-				err = s.applyGameSnapshot(table, gs)
-				if err != nil {
-					return nil, err
-				}
-			}
-		}
-	}
-
-	// Build GameUpdate from a fresh, stable table snapshot
-	ts, err := s.collectTableSnapshot(tableID)
-	if err != nil {
-		return nil, err
-	}
-	gsh := NewGameStateHandler(s)
-	return gsh.buildGameUpdateFromSnapshot(ts, requestingPlayerID), nil
 }
 
 // saveTableState persists a fast-restore snapshot (opaque JSON blob) to the DB.

@@ -69,6 +69,11 @@ type Game struct {
 	currentBet int64
 	round      int
 
+	// Betting-round bookkeeping
+	// Index of the last player who made an aggressive action that set/increased
+	// the street-wide bet (bet or raise). -1 means no aggressor this street.
+	lastAggressor int
+
 	// Configuration
 	config GameConfig
 
@@ -157,6 +162,7 @@ func NewGame(cfg GameConfig) (*Game, error) {
 		config:         cfg,
 		log:            cfg.Log,
 		phase:          pokerrpc.GamePhase_NEW_HAND_DEALING,
+		lastAggressor:  -1,
 	}
 
 	// Initialize state machine with first state function
@@ -386,6 +392,8 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 func statePreFlop(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
+	// Reset aggressor at the start of a new street
+	g.lastAggressor = -1
 	ch := g.preFlopReached // Read channel reference under lock
 	g.mu.Unlock()
 
@@ -422,6 +430,9 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.dealFlop()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_FLOP
+	g.lastAggressor = -1
+	// Initialize first actor for the new street (post-flop: player after dealer)
+	g.initializeCurrentPlayer()
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
@@ -465,6 +476,9 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.dealTurn()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_TURN
+	g.lastAggressor = -1
+	// Initialize first actor for the new street
+	g.initializeCurrentPlayer()
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
@@ -507,6 +521,9 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.dealRiver()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_RIVER
+	g.lastAggressor = -1
+	// Initialize first actor for the new street
+	g.initializeCurrentPlayer()
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
@@ -1466,9 +1483,15 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		}
 	}
 
-	// Update game-wide current bet
+	// Update game-wide current bet; if this action set/increased the street-wide
+	// bet, record the aggressor so we can detect end-of-round when action
+	// returns to them with all bets matched.
 	if amount > g.currentBet {
 		g.currentBet = amount
+		// Record aggressor as the actor currently taking a turn
+		if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
+			g.lastAggressor = g.currentPlayer
+		}
 	}
 
 	// Pot bookkeeping uses the calculated delta.
@@ -1898,14 +1921,22 @@ func (g *Game) maybeCompleteBettingRound() {
 		return
 	}
 
-	// 6) Ensure we've completed a full rotation: current player must be the
-	// street starter (the player who would act first on this street).
-	starter := g.computeStreetStarterIndexLocked()
-	if starter < 0 {
-		return
+	// 6) Determine end-of-round based on aggressor:
+	// - If there was an aggressor (bet/raise this street), the round ends when
+	//   all actionable bets are matched and action returns to the last aggressor.
+	// - If there was no aggressor (all checks), the round ends when action
+	//   returns to the street starter.
+	if g.lastAggressor >= 0 {
+		if g.currentPlayer != g.lastAggressor {
+			return
+		}
 	}
-	if g.currentPlayer != starter {
-		return
+	// No aggressor case: round ends when action returns to street starter
+	if g.lastAggressor < 0 {
+		starter := g.computeStreetStarterIndex()
+		if starter < 0 || g.currentPlayer != starter {
+			return
+		}
 	}
 
 	// 7) Street is complete -> signal FSM to advance exactly one street.
@@ -1913,8 +1944,9 @@ func (g *Game) maybeCompleteBettingRound() {
 	g.sm.Send(evAdvance{})
 
 	// 8) Prepare next betting round.
-	// Clear turn flags, zero player currentBet (since table currentBet was zeroed above),
-	// and re-init who acts next. Pot manager retains cumulative contributions.
+	// Clear turn flags and zero player currentBet (since table currentBet was
+	// zeroed above). The next state's entry will initialize the first actor for
+	// the new street based on the updated phase.
 	for _, p := range g.players {
 		if p != nil {
 			p.EndTurn()
@@ -1923,13 +1955,14 @@ func (g *Game) maybeCompleteBettingRound() {
 			p.mu.Unlock()
 		}
 	}
-	g.initializeCurrentPlayer()
+	// Reset aggressor marker eagerly; state entry also resets this defensively.
+	g.lastAggressor = -1
 }
 
 // computeStreetStarterIndexLocked returns the index of the first actionable
 // player for the current street (skips folded and all-in players).
 // Requires: g.mu held.
-func (g *Game) computeStreetStarterIndexLocked() int {
+func (g *Game) computeStreetStarterIndex() int {
 	mustHeld(&g.mu)
 	n := len(g.players)
 	if n == 0 {

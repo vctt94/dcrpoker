@@ -41,18 +41,15 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 		}
 	}()
 
-	snap, err := s.db.GetSnapshot(stream.Context(), tableID)
+	// Send initial state built from the current runtime snapshot only.
+	// No DB snapshot dependency or in-stream restore.
+	ts, err := s.collectTableSnapshot(tableID)
 	if err != nil {
 		return err
 	}
-	// build game state from snapshot if available
-	if snap != nil && len(snap.Payload) > 0 {
-		// Send initial game state.
-		gs, err := s.buildGameState(tableID, playerID, snap)
-		if err != nil {
-			return err
-		}
-		if err := stream.Send(gs); err != nil {
+	gsh := NewGameStateHandler(s)
+	if upd := gsh.buildGameUpdateFromSnapshot(ts, playerID); upd != nil {
+		if err := stream.Send(upd); err != nil {
 			return err
 		}
 	}
