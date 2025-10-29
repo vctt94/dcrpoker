@@ -355,7 +355,11 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 	_, _ = s2.Recv()
 
 	// Verify restored TURN with non-zero pot and valid current player not ALL_IN
-	waitPhase(b2.pc, pokerrpc.GamePhase_TURN)
+	// CI can be slower to restore; allow a bit more time here.
+	require.Eventually(t, func() bool {
+		st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		return err == nil && st.GameState.GetPhase() == pokerrpc.GamePhase_TURN
+	}, 6*time.Second, 25*time.Millisecond)
 	stR, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	require.NoError(t, err)
 	require.Equal(t, pokerrpc.GamePhase_TURN, stR.GameState.GetPhase())
