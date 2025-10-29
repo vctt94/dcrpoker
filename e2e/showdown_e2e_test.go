@@ -67,6 +67,8 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 	boot1 := start(t)
 	defer boot1.grpc.Stop()
 	defer boot1.conn.Close()
+	defer boot1.srv.Stop()
+	defer boot1.db.Close()
 
 	// Seed balances
 	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
@@ -112,27 +114,42 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 	// Start streams
 	s1, err := boot1.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p1})
 	require.NoError(t, err)
+	if closer, ok := interface{}(s1).(interface{ CloseSend() error }); ok {
+		defer closer.CloseSend()
+	}
 	s2, err := boot1.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p2})
 	require.NoError(t, err)
+	if closer, ok := interface{}(s2).(interface{ CloseSend() error }); ok {
+		defer closer.CloseSend()
+	}
 
-	// Wait first snapshots
-	var u1, u2 *pokerrpc.GameUpdate
-	for {
-		st, err := s1.Recv()
-		require.NoError(t, err)
-		if st != nil {
-			u1 = st
-			break
+	// Helper: receive until player's own hand is visible or timeout.
+	waitOwnHand := func(s pokerrpc.PokerService_StartGameStreamClient, pid string, d time.Duration) *pokerrpc.GameUpdate {
+		deadline := time.After(d)
+		for {
+			select {
+			case <-deadline:
+				t.Fatalf("timeout waiting for own hand for %s", pid)
+				return nil
+			default:
+				st, err := s.Recv()
+				require.NoError(t, err)
+				if st == nil {
+					continue
+				}
+				// Find own player entry and check hand length
+				for _, pl := range st.Players {
+					if pl != nil && pl.Id == pid && len(pl.Hand) >= 2 {
+						return st
+					}
+				}
+			}
 		}
 	}
-	for {
-		st, err := s2.Recv()
-		require.NoError(t, err)
-		if st != nil {
-			u2 = st
-			break
-		}
-	}
+
+	// Wait for snapshots where each player sees their own 2 hole cards
+	u1 := waitOwnHand(s1, p1, 5*time.Second)
+	u2 := waitOwnHand(s2, p2, 5*time.Second)
 	require.Equal(t, pokerrpc.GamePhase_PRE_FLOP, u1.Phase)
 	require.Equal(t, pokerrpc.GamePhase_PRE_FLOP, u2.Phase)
 
@@ -296,18 +313,47 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 	boot2 := start(t)
 	defer boot2.grpc.Stop()
 	defer boot2.conn.Close()
+	defer boot2.srv.Stop()
+	defer boot2.db.Close()
 
-	// Reconnect both players
+	// Reconnect both players (read a single initial snapshot to ensure stream is established)
 	s1r, err := boot2.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p1})
 	require.NoError(t, err)
+	if closer, ok := interface{}(s1r).(interface{ CloseSend() error }); ok {
+		defer closer.CloseSend()
+	}
 	s2r, err := boot2.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p2})
 	require.NoError(t, err)
-	_, _ = s1r.Recv()
-	_, _ = s2r.Recv()
+	if closer, ok := interface{}(s2r).(interface{ CloseSend() error }); ok {
+		defer closer.CloseSend()
+	}
+	// Reuse a lightweight one-shot receive with timeout
+	recvOne := func(s pokerrpc.PokerService_StartGameStreamClient, d time.Duration) *pokerrpc.GameUpdate {
+		ch := make(chan *pokerrpc.GameUpdate, 1)
+		errCh := make(chan error, 1)
+		go func() {
+			st, err := s.Recv()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			ch <- st
+		}()
+		select {
+		case st := <-ch:
+			return st
+		case err := <-errCh:
+			require.NoError(t, err)
+			return nil
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timeout waiting for restored stream update")
+			return nil
+		}
+	}
+	_ = recvOne(s1r, 5*time.Second)
+	_ = recvOne(s2r, 5*time.Second)
 
 	// Verify we're still in RIVER phase
-	stR1, _ := s1r.Recv()
-	_ = stR1
 	stR, err := boot2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	require.NoError(t, err)
 	require.Equal(t, pokerrpc.GamePhase_RIVER, stR.GameState.GetPhase())
