@@ -133,7 +133,7 @@ type Deck struct {
 }
 
 // NewDeck creates a new deck of cards with the given random number generator
-func NewDeck(rng *rand.Rand) *Deck {
+func newDeck(rng *rand.Rand) *Deck {
 	deck := &Deck{
 		cards: make([]Card, 0, 52),
 		rng:   rng,
@@ -187,7 +187,7 @@ func NewCardFromSuitValue(suit Suit, value Value) Card {
 func initializeDeck() []Card {
 	// Create a new deck with a deterministic seed for testing
 	rng := rand.New(rand.NewSource(42))
-	deck := NewDeck(rng)
+	deck := newDeck(rng)
 
 	// Convert to slice for compatibility with existing code
 	cards := make([]Card, len(deck.cards))
@@ -232,7 +232,7 @@ func (d *Deck) GetState() *DeckState {
 }
 
 // RestoreState restores the deck from a saved state
-func (d *Deck) RestoreState(state *DeckState) error {
+func (d *Deck) restoreState(state *DeckState) error {
 	if state == nil {
 		return fmt.Errorf("deck state is nil")
 	}

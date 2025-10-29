@@ -219,6 +219,17 @@ func (t *Table) gameEventLoop() {
 	}
 }
 
+// WireGameEvents connects a Game's event channel to this table so the Game FSM
+// can publish events (betting round complete, showdown, etc.) back to the table.
+// This is used when restoring a previously running game outside of the normal
+// StartGame/startNewHand flow.
+func (t *Table) WireGameEvents(g *Game) {
+	if g == nil {
+		return
+	}
+	g.SetTableEventChannel(t.gameEventChan)
+}
+
 // advanceToNextStreet advances the game to the next betting street
 func (t *Table) advanceToNextStreet() error {
 	if t.game == nil {
@@ -724,8 +735,9 @@ func (t *Table) MakeBet(userID string, amount int64) error {
 		return fmt.Errorf("user not found")
 	}
 
-	// Validate that it's this player's turn to act
-	if t.isGameActive() && t.game != nil {
+	// Validate that it's this player's turn to act. Allow routing as soon as a
+	// game exists; table FSM may not have switched to GAME_ACTIVE yet after a restore.
+	if t.game != nil {
 		// Disallow actions outside betting streets
 		switch t.game.GetPhase() {
 		case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
@@ -742,11 +754,27 @@ func (t *Table) MakeBet(userID string, amount int64) error {
 			return fmt.Errorf("not your turn to act")
 		}
 
-		// Delegate to Game layer - this handles all the betting logic (locks internally)
-		if err := t.game.HandlePlayerBet(userID, amount); err != nil {
+		// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
+		if cp := t.game.GetCurrentPlayerObject(); cp != nil {
+			if cp.GetCurrentStateString() != "IN_GAME" {
+				t.mu.Unlock()
+				return fmt.Errorf("player cannot act in current state")
+			}
+		}
+
+		// Route through Game FSM; no direct fallback
+		if t.game.sm == nil {
 			t.mu.Unlock()
+			return fmt.Errorf("game state machine not running")
+		}
+		reply := make(chan error, 1)
+		t.game.sm.Send(evHandleBetReq{id: userID, amount: amount, reply: reply})
+		t.lastAction = time.Now()
+		t.mu.Unlock()
+		if err := <-reply; err != nil {
 			return err
 		}
+		return nil
 	}
 
 	t.lastAction = time.Now()
@@ -849,7 +877,8 @@ func (t *Table) HandleFold(userID string) error {
 		t.mu.Unlock()
 		return fmt.Errorf("user not found")
 	}
-	if !t.isGameActive() || t.game == nil {
+	// Allow actions as soon as a game exists; table FSM may lag after restore.
+	if t.game == nil {
 		t.mu.Unlock()
 		return nil
 	}
@@ -870,16 +899,25 @@ func (t *Table) HandleFold(userID string) error {
 		return fmt.Errorf("not your turn to act")
 	}
 
-	// Mutate and maybe-advance in one critical section.
-	if err := t.game.HandlePlayerFold(userID); err != nil {
+	// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
+	if cp := t.game.GetCurrentPlayerObject(); cp != nil {
+		if cp.GetCurrentStateString() != "IN_GAME" {
+			t.mu.Unlock()
+			return fmt.Errorf("player cannot act in current state")
+		}
+	}
+
+	if t.game.sm == nil {
 		t.mu.Unlock()
+		return fmt.Errorf("game state machine not running")
+	}
+	reply := make(chan error, 1)
+	t.game.sm.Send(evHandleFoldReq{id: userID, reply: reply})
+	t.lastAction = time.Now()
+	t.mu.Unlock()
+	if err := <-reply; err != nil {
 		return err
 	}
-	t.lastAction = time.Now()
-
-	t.mu.Unlock()
-
-	// Betting round completion is now handled by Game FSM sending events to Table
 	return nil
 }
 
@@ -892,7 +930,8 @@ func (t *Table) HandleCall(userID string) error {
 		t.mu.Unlock()
 		return fmt.Errorf("user not found")
 	}
-	if !t.isGameActive() || t.game == nil {
+	// Allow actions as soon as a game exists; table FSM may lag after restore.
+	if t.game == nil {
 		t.mu.Unlock()
 		return nil
 	}
@@ -920,29 +959,22 @@ func (t *Table) HandleCall(userID string) error {
 	shouldWaitForReply := false
 
 	if t.game.sm == nil {
-		// Fallback to direct handler if FSM not initialized
-		if err := t.game.HandlePlayerCall(userID); err != nil {
-			t.mu.Unlock()
-			return err
-		}
-	} else {
-		reply = make(chan error, 1)
-		t.game.sm.Send(evHandleCallReq{id: userID, reply: reply})
-		shouldWaitForReply = true
+		t.mu.Unlock()
+		return fmt.Errorf("game state machine not running")
 	}
+	reply = make(chan error, 1)
+	t.game.sm.Send(evHandleCallReq{id: userID, reply: reply})
+	shouldWaitForReply = true
 
 	t.lastAction = time.Now()
 	t.mu.Unlock()
 
-	// Wait for the Game FSM to apply the call (if using FSM path)
-	// Check this before unlocking to avoid race with endGame() setting t.game=nil
 	if shouldWaitForReply {
 		if err := <-reply; err != nil {
 			return err
 		}
 	}
 
-	// Betting round completion is now handled by Game FSM sending events to Table
 	return nil
 }
 
@@ -956,8 +988,9 @@ func (t *Table) HandleCheck(userID string) error {
 		return fmt.Errorf("user not found")
 	}
 
-	// Validate that it's this player's turn to act
-	if t.isGameActive() && t.game != nil {
+	// Validate that it's this player's turn to act. Allow routing as soon as a
+	// game exists; table FSM may lag after a restore.
+	if t.game != nil {
 		// Disallow actions outside betting streets
 		switch t.game.GetPhase() {
 		case pokerrpc.GamePhase_PRE_FLOP, pokerrpc.GamePhase_FLOP, pokerrpc.GamePhase_TURN, pokerrpc.GamePhase_RIVER:
@@ -974,11 +1007,29 @@ func (t *Table) HandleCheck(userID string) error {
 			return fmt.Errorf("not your turn to act")
 		}
 
-		// Delegate to Game layer - this handles all the checking logic (locks internally)
-		if err := t.game.HandlePlayerCheck(userID); err != nil {
+		// Require FSM to be running; do not fallback
+		if t.game.sm == nil {
 			t.mu.Unlock()
+			return fmt.Errorf("game state machine not running")
+		}
+
+		// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
+		if cp := t.game.GetCurrentPlayerObject(); cp != nil {
+			if cp.GetCurrentStateString() != "IN_GAME" {
+				t.mu.Unlock()
+				return fmt.Errorf("player cannot act in current state")
+			}
+		}
+		reply := make(chan error, 1)
+		t.game.sm.Send(evHandleCheckReq{id: userID, reply: reply})
+
+		t.lastAction = time.Now()
+		t.mu.Unlock()
+
+		if err := <-reply; err != nil {
 			return err
 		}
+		return nil
 
 	}
 

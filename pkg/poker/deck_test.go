@@ -8,7 +8,7 @@ import (
 
 func TestNewDeck(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	deck := NewDeck(rng)
+	deck := newDeck(rng)
 
 	// Check deck size
 	if deck.Size() != 52 {
@@ -51,8 +51,8 @@ func TestDeckShuffle(t *testing.T) {
 	// Create two decks with the same seed
 	rng1 := rand.New(rand.NewSource(42))
 	rng2 := rand.New(rand.NewSource(42))
-	deck1 := NewDeck(rng1)
-	deck2 := NewDeck(rng2)
+	deck1 := newDeck(rng1)
+	deck2 := newDeck(rng2)
 
 	// Both decks should have the same order
 	for i := 0; i < 52; i++ {
@@ -63,7 +63,7 @@ func TestDeckShuffle(t *testing.T) {
 
 	// Create a deck with a different seed
 	rng3 := rand.New(rand.NewSource(43))
-	deck3 := NewDeck(rng3)
+	deck3 := newDeck(rng3)
 
 	// This deck should have a different order
 	sameOrder := true
@@ -80,7 +80,7 @@ func TestDeckShuffle(t *testing.T) {
 
 func TestDeckDraw(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
-	deck := NewDeck(rng)
+	deck := newDeck(rng)
 
 	// Draw all cards
 	for i := 0; i < 52; i++ {
@@ -191,7 +191,7 @@ func testRNG() *rand.Rand {
 func TestDeckStateSerialization(t *testing.T) {
 	// Create a deck and draw some cards
 	rng := testRNG()
-	deck := NewDeck(rng)
+	deck := newDeck(rng)
 
 	// Draw a few cards to change the deck state
 	_, _ = deck.Draw()

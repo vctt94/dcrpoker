@@ -80,6 +80,10 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	if _, err := table.AddNewUser(req.PlayerId, req.PlayerId, creatorBalance, 0); err != nil {
 		return nil, err
 	}
+	// Persist the creator's seat so restarts can restore both participants
+	if err := s.db.SeatPlayer(ctx, cfg.ID, req.PlayerId, 0); err != nil {
+		s.log.Errorf("SeatPlayer (host) failed (table=%s player=%s seat=%d): %v", cfg.ID, req.PlayerId, 0, err)
+	}
 
 	// Deduct buy-in
 	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, -req.BuyIn, "table buy-in", "created table"); err != nil {
