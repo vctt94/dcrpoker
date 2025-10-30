@@ -17,8 +17,6 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server/internal/db"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // Database is the minimal surface the server needs from the storage layer.
@@ -62,9 +60,7 @@ func NewDatabase(dbPath string) (Database, error) {
 	return db.NewDB(dbPath)
 }
 
-// loadTableFromDatabase restores a table config + currently seated players.
-// It intentionally does NOT resurrect an in-flight hand; the game engine
-// will start a new hand when appropriate (or you can plug in snapshot restore).
+// loadTableFromDatabase restores a table config and currently seated players.
 func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 	ctx := context.Background()
 
@@ -99,8 +95,12 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		AutoAdvanceDelay: autoAdvanceDur,
 	}
 
-	// 3) Create in-memory table
+	// 3) Create in-memory table and wire event forwarding
 	table := poker.NewTable(cfg)
+	// Create a channel for table events and start a goroutine to process them
+	tableEventChan := make(chan poker.TableEvent, 100)
+	table.SetEventChannel(tableEventChan)
+	go s.processTableEvents(tableEventChan)
 
 	// 4) Load active participants and seat deterministically by seat number
 	parts, err := s.db.ActiveParticipants(ctx, tableID)
@@ -132,66 +132,22 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		}
 	}
 
-	// 5) Try fast-restore snapshot; otherwise, start fresh when appropriate.
-	snap, err := s.db.GetSnapshot(ctx, tableID)
-	if err != nil || snap == nil || len(snap.Payload) == 0 {
-		// No snapshot available, start fresh if players are ready
-		if table.CheckAllPlayersReady() {
-			// Start game asynchronously to avoid blocking table restoration
-			go func() {
-				if err := table.StartGame(); err != nil {
-					s.log.Errorf("auto-start game for table %s: %v", tableID, err)
-				}
-			}()
+	// Attempt to hydrate an in-progress game from the latest fast-restore snapshot
+	if snap, err := s.db.GetSnapshot(ctx, tableID); err == nil && snap != nil && len(snap.Payload) > 0 {
+		var persisted struct {
+			Game *poker.GameStateSnapshot `json:"Game"`
 		}
-		return table, nil
-	}
-
-	// Unmarshal only the game sub-structure; ignore other fields like Config.Log
-	var persisted struct {
-		Game *poker.GameStateSnapshot `json:"Game"`
-	}
-	if err := json.Unmarshal(snap.Payload, &persisted); err != nil {
-		s.log.Errorf("unmarshal snapshot for table %s: %v", tableID, err)
-		return table, nil
-	}
-
-	if persisted.Game == nil {
-		// No game data in snapshot, start fresh if players are ready
-		if table.CheckAllPlayersReady() {
-			go func() {
-				if err := table.StartGame(); err != nil {
-					s.log.Errorf("auto-start game for table %s: %v", tableID, err)
-				}
-			}()
+		if uerr := json.Unmarshal(snap.Payload, &persisted); uerr != nil {
+			s.log.Errorf("failed to unmarshal snapshot for table %s: %v", tableID, uerr)
+		} else if persisted.Game != nil {
+			if err := s.applyGameSnapshot(table, persisted.Game); err != nil {
+				s.log.Errorf("applyGameSnapshot(%s) failed: %v", tableID, err)
+			}
 		}
-		return table, nil
 	}
 
-	if err := s.applyGameSnapshot(table, persisted.Game); err != nil {
-		s.log.Errorf("apply snapshot for table %s: %v", tableID, err)
-		return table, nil
-	}
-
-	s.log.Infof("Restored game from snapshot for table %s", tableID)
-
-	// Register the runtime table
 	s.tables.Store(tableID, table)
 	return table, nil
-}
-
-// restoreGameState currently just starts a fresh Game using the table runtime.
-// If you later persist snapshots, you can hydrate here.
-func (s *Server) restoreGameState(table *poker.Table, tcfg *db.Table, _ []db.Participant) (*poker.Game, error) {
-	users := table.GetUsers()
-	sort.Slice(users, func(i, j int) bool { return users[i].TableSeat < users[j].TableSeat })
-
-	game, err := table.RestoreGame(tcfg.ID)
-	if err != nil {
-		return nil, fmt.Errorf("restore/start game: %w", err)
-	}
-	s.log.Infof("Started new game for table %s with %d players", tcfg.ID, len(users))
-	return game, nil
 }
 
 // loadAllTables loads all persisted tables on startup.
@@ -229,7 +185,9 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	if gs == nil {
 		return fmt.Errorf("invalid snapshot")
 	}
-	// Ensure a game instance is attached to the table and players are set
+	s.log.Debugf("applyGameSnapshot: table=%s phase=%v br=%d curBet=%d comm=%d cur=%s",
+		table.GetConfig().ID, gs.Phase, gs.BetRound, gs.CurrentBet, len(gs.CommunityCards), gs.CurrentPlayer)
+	// 1) Ensure a game instance is attached to the table and players are set
 	g, err := table.RestoreGame(table.GetConfig().ID)
 	if err != nil {
 		return fmt.Errorf("attach game: %w", err)
@@ -237,211 +195,124 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	users := table.GetUsers()
 	g.SetPlayers(users)
 
-	// Restore community cards if any
+	// Wire game→table event channel so restored games can emit updates
+	table.WireGameEvents(g)
+
+	// 2) Restore hole cards and community cards (if any)
+	if gs.Players != nil {
+		_ = g.RestoreHoleCards(gs.Players)
+	}
 	if len(gs.CommunityCards) > 0 {
 		g.SetCommunityCards(gs.CommunityCards)
 	}
 
-	// Derive phase from community cards count
-	phase := pokerrpc.GamePhase_PRE_FLOP
-	switch n := len(gs.CommunityCards); n {
-	case 0:
-		phase = pokerrpc.GamePhase_PRE_FLOP
-	case 3:
-		phase = pokerrpc.GamePhase_FLOP
-	case 4:
-		phase = pokerrpc.GamePhase_TURN
-	case 5:
-		phase = pokerrpc.GamePhase_RIVER
+	// 2b) Restore deck state so future deals don't reintroduce already-dealt cards
+	if ds := gs.DeckState; ds != nil && len(ds.RemainingCards) > 0 {
+		if err := g.RestoreDeckState(ds); err != nil {
+			s.log.Warnf("restore deck state failed: %v", err)
+		}
 	}
 
-	// Set coarse game state: dealer, counters, current bet, phase
-	g.SetGameState(gs.Dealer, gs.Round, gs.BetRound, gs.CurrentBet, gs.Pot, phase)
+	// 3) Apply snapshot-declared phase exactly; do not derive from board size.
+	phase := gs.Phase
+	g.SetGameState(gs.Dealer, gs.Round, gs.CurrentBet, gs.Pot, phase)
 
-	// If snapshot had a known current player ID, prefer it to avoid
-	// re-deriving actor mid-street, which can be ambiguous without
-	// per-player bet deltas.
-	if gs.CurrentPlayer != "" {
+	// 4) Restore per-player derived fields (balance, currentBet, positions, turn)
+	// Use the available Player.Unmarshal helper to set role flags consistently.
+	// Restore/override per-player derived fields from snapshot.
+	if gs.Players != nil {
+		// Build a quick index id -> player
+		byID := map[string]*poker.Player{}
+		for _, p := range g.GetPlayers() {
+			if p != nil {
+				byID[p.ID()] = p
+			}
+		}
+		for _, ps := range gs.Players {
+			p := byID[ps.ID]
+			if p == nil {
+				continue
+			}
+			p.SetStartingBalance(ps.StartingBalance)
+			p.SetBalance(ps.Balance)
+			p.SetCurrentBet(ps.CurrentBet)
+
+			// Set role/turn flags via Unmarshal mirror
+			mirror := &pokerrpc.Player{
+				Id:              ps.ID,
+				Balance:         ps.Balance,
+				CurrentBet:      ps.CurrentBet,
+				IsDealer:        ps.IsDealer,
+				IsSmallBlind:    ps.IsSmallBlind,
+				IsBigBlind:      ps.IsBigBlind,
+				IsTurn:          ps.IsTurn,
+				HandDescription: ps.HandDescription,
+			}
+			p.Unmarshal(mirror)
+		}
+	}
+
+	// Ensure all seated players are in-hand (ACTIVE/ALL_IN) after restore
+	for _, p := range g.GetPlayers() {
+		if p == nil {
+			continue
+		}
+		st := p.GetCurrentStateString()
+		if st != "FOLDED" && st != "ALL_IN" {
+			_ = p.HandleStartHand()
+		}
+	}
+
+	// 5) Rebuild pots and derive current player/phase invariants from players
+	g.RestoreGameState(table.GetConfig().ID)
+
+	// 6) If snapshot had a known current player ID and we're not at SHOWDOWN,
+	// prefer it; at SHOWDOWN there is no current player to act.
+	if phase != pokerrpc.GamePhase_SHOWDOWN && gs.CurrentPlayer != "" {
 		g.SetCurrentPlayerByID(gs.CurrentPlayer)
 	}
 
-	return nil
-}
-
-// buildPlayerForUpdate creates a Player proto message with appropriate card visibility
-func (s *Server) buildPlayerForUpdate(p *poker.Player, requestingPlayerID string, game *poker.Game) *pokerrpc.Player {
-	stateStr := p.GetCurrentStateString()
-	grpcPlayer := p.Marshal() // snapshot with turn/dealer/blinds flags
-	// XXX repeating here, can use grpcplayer directly
-	player := &pokerrpc.Player{
-		Id:      p.ID(),
-		Balance: p.Balance(),
-		IsReady: p.IsReady(),
-		Folded:  stateStr == "FOLDED",
-		// Surface all-in so UIs can render an explicit badge without inference.
-		IsAllIn:      stateStr == "ALL_IN",
-		CurrentBet:   p.CurrentBet(),
-		PlayerState:  p.GetTablePresenceState(),
-		IsDealer:     grpcPlayer.IsDealer,
-		IsSmallBlind: grpcPlayer.IsSmallBlind,
-		IsBigBlind:   grpcPlayer.IsBigBlind,
-		IsTurn:       grpcPlayer.IsTurn,
-	}
-
-	// Heads-up sanity: dealer must also be SB.
-	if game != nil && len(game.GetPlayers()) == 2 && grpcPlayer.IsDealer && !grpcPlayer.IsSmallBlind {
-		s.log.Warnf("INCONSISTENT STATE: Player %s is dealer but not SB in heads-up! phase=%v", p.ID(), game.GetPhase())
-	}
-
-	// No game -> nothing else to surface.
-	if game == nil {
-		return player
-	}
-
-	hand := game.GetCurrentHand()
-	if hand == nil {
-		// Still return base player info; cards come only from an active hand.
-		return player
-	}
-
-	// Decide visibility once, then fill if any cards are visible.
-	var cards []poker.Card
-	isShowdown := game.GetPhase() == pokerrpc.GamePhase_SHOWDOWN
-	isSelf := p.ID() == requestingPlayerID
-
-	switch {
-	case isSelf:
-		// Always show own cards as soon as they exist.
-		cards = hand.GetPlayerCards(p.ID(), requestingPlayerID)
-		if len(cards) > 0 {
-			s.log.Debugf("DEBUG: Showing %d cards for player %s (own cards, phase=%v, state=%s)",
-				len(cards), p.ID(), game.GetPhase(), stateStr)
-		}
-	case isShowdown:
-		// Show others' cards only at showdown (visibility enforced by GetPlayerCards).
-		cards = hand.GetPlayerCards(p.ID(), requestingPlayerID)
-	}
-
-	if n := len(cards); n > 0 {
-		player.Hand = make([]*pokerrpc.Card, n)
-		for i, c := range cards {
-			player.Hand[i] = &pokerrpc.Card{Suit: c.GetSuit(), Value: c.GetValue()}
-		}
-	}
-
-	// Hand description is surfaced only at showdown.
-	if isShowdown && p.HandDescription() != "" {
-		player.HandDescription = p.HandDescription()
-	}
-
-	return player
-}
-
-// buildPlayers creates a slice of Player proto messages with appropriate card visibility
-func (s *Server) buildPlayers(tablePlayers []*poker.Player, game *poker.Game, requestingPlayerID string) []*pokerrpc.Player {
-	players := make([]*pokerrpc.Player, 0, len(tablePlayers))
-	for _, p := range tablePlayers {
-		player := s.buildPlayerForUpdate(p, requestingPlayerID, game)
-		players = append(players, player)
-	}
-	return players
-}
-
-// buildGameStateForPlayer creates a GameUpdate with all the necessary data for a specific player
-func (s *Server) buildGameStateForPlayer(table *poker.Table, game *poker.Game, requestingPlayerID string) *pokerrpc.GameUpdate {
-	// Build players list from users and game players
-	var players []*pokerrpc.Player
-	if game != nil {
-		players = s.buildPlayers(game.GetPlayers(), game, requestingPlayerID)
-	} else {
-		// If no game, build from table users
-		users := table.GetUsers()
-		players = make([]*pokerrpc.Player, 0, len(users))
-		for _, user := range users {
-			players = append(players, &pokerrpc.Player{
-				Id:      user.ID,
-				Balance: 0, // No poker chips when no game - Balance field should be poker chips, not DCR
-				IsReady: user.IsReady,
-
-				Hand:        make([]*pokerrpc.Card, 0), // Empty hand when no game
-				PlayerState: pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
-			})
-		}
-	}
-
-	// Build community cards slice
-	communityCards := make([]*pokerrpc.Card, 0)
-	var pot int64 = 0
-	if game != nil {
-		pot = game.GetPot()
-		for _, c := range game.GetCommunityCards() {
-			communityCards = append(communityCards, &pokerrpc.Card{
-				Suit:  c.GetSuit(),
-				Value: c.GetValue(),
-			})
-		}
-	}
-
-	var currentPlayerID string
-	if table.IsGameStarted() && game != nil {
-		// Only expose current player when action is valid (not during setup or showdown)
-		phase := game.GetPhase()
-		if phase != pokerrpc.GamePhase_NEW_HAND_DEALING && phase != pokerrpc.GamePhase_SHOWDOWN {
-			currentPlayerID = table.GetCurrentPlayerID()
-		}
-	}
-
-	// Note: Do not override per-player IsTurn here; the Player FSM is the
-	// single authority for that flag. UIs should rely on CurrentPlayer for
-	// highlighting to avoid transient races between EndTurn/StartTurn events.
-
-	// Authoritative timebank fields
-	var tbSec int32
-	var deadlineMs int64
-	cfg := table.GetConfig()
-	if cfg.TimeBank > 0 {
-		tbSec = int32(cfg.TimeBank.Seconds())
-		// Compute deadline for the current player if applicable, using a snapshot
-		if currentPlayerID != "" {
-			snap := game.GetStateSnapshot()
-			for _, ps := range snap.Players {
-				if ps.ID == currentPlayerID {
-					dl := ps.LastAction.Add(cfg.TimeBank)
-					deadlineMs = dl.UnixMilli()
-					break
+	// 7) Restore pot contributions by deriving each player's total chips put
+	// into the hand so far. PlayerSnapshot.StartingBalance reflects the
+	// balance AFTER blinds were posted (it is captured on evStartHand), so
+	// we must add the forced blind amounts back in to reconstruct full-hand
+	// contributions. Without this, an SB/BB who did not invest further on
+	// later streets would appear to have contributed 0, causing incorrect
+	// winner eligibility and wrong payouts after a restore.
+	if gs.Players != nil {
+		contrib := make(map[string]int64, len(gs.Players))
+		var sum int64
+		// Table blind configuration
+		tblCfg := table.GetConfig()
+		for _, ps := range gs.Players {
+			// Derive delta invested since hand start (post-blinds snapshot)
+			if ps.StartingBalance > 0 && ps.Balance >= 0 {
+				c := ps.StartingBalance - ps.Balance
+				if c < 0 {
+					c = 0
 				}
+				// Add forced blinds for this hand to reconstruct the full
+				// contribution. PlayerSnapshot flags encode SB/BB roles.
+				if ps.IsSmallBlind {
+					c += tblCfg.SmallBlind
+				}
+				if ps.IsBigBlind {
+					c += tblCfg.BigBlind
+				}
+				contrib[ps.ID] = c
+				sum += c
 			}
 		}
+		if sum > 0 && phase != pokerrpc.GamePhase_SHOWDOWN {
+			g.RestorePotsFromContributions(contrib)
+		}
 	}
 
-	return &pokerrpc.GameUpdate{
-		TableId:            table.GetConfig().ID,
-		Phase:              table.GetGamePhase(),
-		PhaseName:          table.GetGamePhase().String(),
-		Players:            players,
-		CommunityCards:     communityCards,
-		Pot:                pot,
-		CurrentBet:         table.GetCurrentBet(),
-		CurrentPlayer:      currentPlayerID,
-		GameStarted:        table.IsGameStarted(),
-		PlayersRequired:    int32(table.GetMinPlayers()),
-		PlayersJoined:      int32(len(table.GetUsers())),
-		TimeBankSeconds:    tbSec,
-		TurnDeadlineUnixMs: deadlineMs,
-	}
-}
+	// Start the Game FSM in a passive restored state so it processes events
+	// (advance, timebank, etc.) without mutating restored fields on entry.
+	g.StartFromRestoredSnapshot(context.Background())
 
-// buildGameState creates a GameUpdate for the requesting player
-func (s *Server) buildGameState(tableID, requestingPlayerID string) (*pokerrpc.GameUpdate, error) {
-	// Fetch table pointer without coarse-grained server locking.
-	table, ok := s.getTable(tableID)
-	if !ok {
-		return nil, status.Error(codes.NotFound, "table not found")
-	}
-
-	game := table.GetGame()
-
-	return s.buildGameStateForPlayer(table, game, requestingPlayerID), nil
+	return nil
 }
 
 // saveTableState persists a fast-restore snapshot (opaque JSON blob) to the DB.

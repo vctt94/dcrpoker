@@ -65,11 +65,14 @@ type Game struct {
 	communityCards []Card
 
 	// Game state
-	potManager     *potManager
-	currentBet     int64
-	round          int
-	betRound       int // Tracks which betting round (pre-flop, flop, turn, river)
-	actionsInRound int // Track actions in current betting round
+	potManager *potManager
+	currentBet int64
+	round      int
+
+	// Betting-round bookkeeping
+	// Index of the last player who made an aggressive action that set/increased
+	// the street-wide bet (bet or raise). -1 means no aggressor this street.
+	lastAggressor int
 
 	// Configuration
 	config GameConfig
@@ -151,19 +154,23 @@ func NewGame(cfg GameConfig) (*Game, error) {
 		players:        make([]*Player, 0, cfg.NumPlayers), // Empty slice, Table will populate
 		currentPlayer:  0,
 		dealer:         -1, // Start at -1 so first advancement makes it 0
-		deck:           NewDeck(rng),
+		deck:           newDeck(rng),
 		communityCards: nil,
 		potManager:     NewPotManager(cfg.NumPlayers),
 		currentBet:     0,
 		round:          0,
-		betRound:       0,
 		config:         cfg,
 		log:            cfg.Log,
 		phase:          pokerrpc.GamePhase_NEW_HAND_DEALING,
+		lastAggressor:  -1,
 	}
 
 	// Initialize state machine with first state function
 	g.sm = statemachine.New(g, stateNewHandDealing, 32)
+	if g.sm == nil {
+		g.log.Errorf("game state machine not running")
+		return nil, fmt.Errorf("game state machine not running")
+	}
 
 	// Player events channel and loop
 	g.playerEventChan = make(chan PlayerEvent, 32)
@@ -171,9 +178,7 @@ func NewGame(cfg GameConfig) (*Game, error) {
 		for ev := range ch {
 			switch ev.Type {
 			case PlayerEventTimebankExpired:
-				if sm := g.sm; sm != nil {
-					sm.Send(evTimebankExpiredReq{id: ev.PlayerID})
-				}
+				g.sm.Send(evTimebankExpiredReq{id: ev.PlayerID})
 			}
 		}
 	}(g.playerEventChan)
@@ -182,6 +187,18 @@ func NewGame(cfg GameConfig) (*Game, error) {
 }
 
 func (g *Game) Start(ctx context.Context) { g.sm.Start(ctx) }
+
+// StartFromRestoredSnapshot starts the FSM in a passive restored state that
+// does not mutate game fields on entry and only processes events. This keeps
+// the restored phase/current bet/community cards intact while still allowing
+// evAdvance / timebank / action events to flow through the FSM.
+func (g *Game) StartFromRestoredSnapshot(ctx context.Context) {
+	g.mu.Lock()
+	// Replace the state machine with a restored passive state
+	g.sm = statemachine.New(g, stateRestored, 32)
+	g.mu.Unlock()
+	g.sm.Start(ctx)
+}
 
 // TriggerTimebankExpiredFor simulates a player's timebank expiry by emitting
 // the corresponding internal event. Intended for tests only.
@@ -224,8 +241,6 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	// before dealing in ResetForNewHandFromUsers to keep a single deck per hand)
 	g.communityCards = nil
 	g.currentBet = 0
-	g.betRound = 0
-	g.actionsInRound = 0 // Reset action counter for new hand
 	g.winners = nil
 
 	// Reset auto-advance state for new hand
@@ -377,6 +392,8 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 func statePreFlop(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
+	// Reset aggressor at the start of a new street
+	g.lastAggressor = -1
 	ch := g.preFlopReached // Read channel reference under lock
 	g.mu.Unlock()
 
@@ -400,15 +417,7 @@ func statePreFlop(g *Game, in <-chan any) GameStateFn {
 		case evGotoShowdown:
 			return stateShowdown
 		case evAdvance:
-			g.mu.Lock()
-			can := g.betRound == 0
-			if can {
-				g.betRound++
-			}
-			g.mu.Unlock()
-			if can {
-				return stateFlop
-			}
+			return stateFlop
 		default:
 		}
 	}
@@ -421,6 +430,9 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.dealFlop()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_FLOP
+	g.lastAggressor = -1
+	// Initialize first actor for the new street (post-flop: player after dealer)
+	g.initializeCurrentPlayer()
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
@@ -451,15 +463,7 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 		case evGotoShowdown:
 			return stateShowdown
 		case evAdvance:
-			g.mu.Lock()
-			can := g.betRound == 1
-			if can {
-				g.betRound++
-			}
-			g.mu.Unlock()
-			if can {
-				return stateTurn
-			}
+			return stateTurn
 		default:
 		}
 	}
@@ -472,6 +476,9 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.dealTurn()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_TURN
+	g.lastAggressor = -1
+	// Initialize first actor for the new street
+	g.initializeCurrentPlayer()
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
@@ -501,15 +508,7 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 		case evGotoShowdown:
 			return stateShowdown
 		case evAdvance:
-			g.mu.Lock()
-			can := g.betRound == 2
-			if can {
-				g.betRound++
-			}
-			g.mu.Unlock()
-			if can {
-				return stateRiver
-			}
+			return stateRiver
 		default:
 		}
 	}
@@ -522,6 +521,9 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.dealRiver()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_RIVER
+	g.lastAggressor = -1
+	// Initialize first actor for the new street
+	g.initializeCurrentPlayer()
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
@@ -557,13 +559,152 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 		case evGotoShowdown:
 			return stateShowdown
 		case evAdvance:
-			if g.betRound == 3 {
-				return stateShowdown
-			}
+			return stateShowdown
 		default:
 		}
 	}
 	return nil
+}
+
+// stateRestored is a passive state used after restoring a game from a snapshot.
+// It does not mutate game state on entry. It forwards generic events via
+// handleGameEvent and only transitions on explicit evAdvance/evGotoShowdown.
+func stateRestored(g *Game, in <-chan any) GameStateFn {
+	for ev := range in {
+		// Allow cross-state requests (handle/ack via FSM)
+		if next, handled := handleGameEvent(g, ev); handled {
+			if next != nil {
+				return next
+			}
+			continue
+		}
+		switch ev.(type) {
+		case evGotoShowdown:
+			return stateShowdown
+		case evAdvance:
+			// Advance solely based on current phase
+			g.mu.Lock()
+			phase := g.phase
+			g.mu.Unlock()
+			switch phase {
+			case pokerrpc.GamePhase_PRE_FLOP:
+				return stateFlop
+			case pokerrpc.GamePhase_FLOP:
+				return stateTurn
+			case pokerrpc.GamePhase_TURN:
+				return stateRiver
+			case pokerrpc.GamePhase_RIVER:
+				return stateShowdown
+			default:
+				// ignore
+			}
+		default:
+			// ignore
+		}
+	}
+	return nil
+}
+
+// RestoreHoleCards rebuilds the current hand and populates players' hole cards
+// from a persisted snapshot of players. It replaces any existing hand.
+func (g *Game) RestoreHoleCards(players []PlayerSnapshot) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Build player ID list from current game players to initialize Hand
+	ids := make([]string, 0, len(g.players))
+	for _, p := range g.players {
+		if p != nil {
+			ids = append(ids, p.ID())
+		}
+	}
+	h := NewHand(ids)
+
+	// Populate hole cards from snapshot when available
+	for _, ps := range players {
+		if len(ps.Hand) == 0 {
+			continue
+		}
+		for _, c := range ps.Hand {
+			_ = h.DealCardToPlayer(ps.ID, c)
+		}
+	}
+
+	g.currentHand = h
+	return nil
+}
+
+// RestorePotFromSnapshot overrides the pot manager with a single pot equal to
+// the captured amount and marks all non-folded players as eligible. This is a
+// pragmatic restore path that preserves pot value across reconnects when per-
+// player contributions are not available in the snapshot.
+func (g *Game) RestorePotFromSnapshot(amount int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.potManager == nil {
+		g.potManager = NewPotManager(len(g.players))
+	}
+	n := len(g.players)
+	p := newPot(n)
+	p.amount = amount
+	for i, pl := range g.players {
+		if pl == nil {
+			continue
+		}
+		if pl.GetCurrentStateString() != "FOLDED" {
+			p.makeEligible(i)
+		}
+	}
+	g.potManager.pots = []*pot{p}
+	g.potManager.currentBets = make(map[int]int64)
+	g.potManager.totalBets = make(map[int]int64)
+}
+
+// RestorePotsFromContributions rebuilds the pot manager from a map of total
+// chip contributions per player ID. It derives eligibility from live player
+// states (non-folded players are eligible) and resets per-street current bets.
+func (g *Game) RestorePotsFromContributions(contrib map[string]int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// Only create new pot manager if it doesn't exist
+	if g.potManager == nil {
+		g.potManager = NewPotManager(len(g.players))
+		// Reset aggregates only when creating new pot manager
+		g.potManager.currentBets = make(map[int]int64)
+		g.potManager.totalBets = make(map[int]int64)
+	}
+	// If pot manager already exists, preserve its current state
+
+	// Map player ID -> index
+	idxByID := make(map[string]int, len(g.players))
+	for i, p := range g.players {
+		if p != nil {
+			idxByID[p.id] = i
+		}
+	}
+
+	// Apply contributions by index
+	for id, amt := range contrib {
+		if amt <= 0 {
+			continue
+		}
+		if idx, ok := idxByID[id]; ok {
+			g.potManager.totalBets[idx] = amt
+		}
+	}
+
+	// Fold status snapshot under Game.mu
+	foldStatus := make([]bool, len(g.players))
+	for i, p := range g.players {
+		if p != nil {
+			p.mu.RLock()
+			foldStatus[i] = p.hasFolded
+			p.mu.RUnlock()
+		}
+	}
+
+	g.potManager.rebuildPotsIncremental(g.players, foldStatus)
 }
 
 func stateShowdown(g *Game, in <-chan any) GameStateFn {
@@ -1015,7 +1156,7 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 		}
 		nextRng = rand.New(rand.NewSource(base ^ mix ^ int64(g.round+1)))
 	}
-	g.deck = NewDeck(nextRng)
+	g.deck = newDeck(nextRng)
 
 	// Clear currentHand so statePreDeal creates a fresh one
 	g.currentHand = nil
@@ -1069,9 +1210,6 @@ func (g *Game) handlePlayerFold(playerID string) error {
 			return err
 		}
 	}
-
-	// Count this action in the round
-	g.actionsInRound++
 
 	// If only one player remains, send showdown event to table
 	if g.unfoldsPlayers() == 1 {
@@ -1181,8 +1319,6 @@ func (g *Game) handlePlayerCall(playerID string) error {
 	// End the player's turn before advancing
 	player.EndTurn()
 
-	g.actionsInRound++
-
 	// Check if we should advance to next player or go to showdown
 	// Count active (non-folded, non-all-in) players
 	activePlayers := 0
@@ -1245,7 +1381,6 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 	// End the player's turn before advancing
 	player.EndTurn()
 
-	g.actionsInRound++
 	g.advanceToNextPlayer(time.Now())
 
 	// Check if betting round is complete and notify table
@@ -1348,9 +1483,15 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		}
 	}
 
-	// Update game-wide current bet
+	// Update game-wide current bet; if this action set/increased the street-wide
+	// bet, record the aggressor so we can detect end-of-round when action
+	// returns to them with all bets matched.
 	if amount > g.currentBet {
 		g.currentBet = amount
+		// Record aggressor as the actor currently taking a turn
+		if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
+			g.lastAggressor = g.currentPlayer
+		}
 	}
 
 	// Pot bookkeeping uses the calculated delta.
@@ -1366,7 +1507,6 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 	// End the player's turn before advancing
 	player.EndTurn()
 
-	g.actionsInRound++
 	g.advanceToNextPlayer(time.Now())
 
 	// Check if betting round is complete and notify table
@@ -1634,7 +1774,7 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 		for i, c := range hv.BestHand {
 			bestStrs[i] = c.String()
 		}
-		g.log.Debugf("CARDS: Player %s evaluated: rank=%s rankValue=%d bestHand=%v description=%s",
+		g.log.Debugf("CARDS: Player %s evaluated: rank=%v rankValue=%d bestHand=%v description=%s",
 			p.id, hv.Rank, hv.RankValue, bestStrs, hv.HandDescription)
 	}
 
@@ -1776,40 +1916,37 @@ func (g *Game) maybeCompleteBettingRound() {
 		return
 	}
 
-	// 5) Need everybody to have acted once this street.
-	if g.actionsInRound < active {
-		return
-	}
-	// 6) Need all actionable bets matched.
+	// 5) Need all actionable bets matched to be able to advance.
 	if unmatched > 0 {
 		return
 	}
 
-	// 7) Street is complete -> advance exactly one street (or showdown on river).
-	switch g.phase {
-	case pokerrpc.GamePhase_PRE_FLOP:
-		g.dealFlop()
-		g.currentBet = 0
-		g.phase = pokerrpc.GamePhase_FLOP
-		g.sm.Send(evAdvance{})
-	case pokerrpc.GamePhase_FLOP:
-		g.dealTurn()
-		g.currentBet = 0
-		g.phase = pokerrpc.GamePhase_TURN
-		g.sm.Send(evAdvance{})
-	case pokerrpc.GamePhase_TURN:
-		g.dealRiver()
-		g.currentBet = 0
-		g.phase = pokerrpc.GamePhase_RIVER
-		g.sm.Send(evAdvance{})
-	case pokerrpc.GamePhase_RIVER:
-		g.phase = pokerrpc.GamePhase_SHOWDOWN
-		g.sm.Send(evGotoShowdown{})
+	// 6) Determine end-of-round based on aggressor:
+	// - If there was an aggressor (bet/raise this street), the round ends when
+	//   all actionable bets are matched and action returns to the last aggressor.
+	// - If there was no aggressor (all checks), the round ends when action
+	//   returns to the street starter.
+	if g.lastAggressor >= 0 {
+		if g.currentPlayer != g.lastAggressor {
+			return
+		}
+	}
+	// No aggressor case: round ends when action returns to street starter
+	if g.lastAggressor < 0 {
+		starter := g.computeStreetStarterIndex()
+		if starter < 0 || g.currentPlayer != starter {
+			return
+		}
 	}
 
+	// 7) Street is complete -> signal FSM to advance exactly one street.
+	// Dealing and phase updates occur in state handlers.
+	g.sm.Send(evAdvance{})
+
 	// 8) Prepare next betting round.
-	// Clear turn flags, zero player currentBet (since table currentBet was zeroed above),
-	// and re-init who acts next. Pot manager retains cumulative contributions.
+	// Clear turn flags and zero player currentBet (since table currentBet was
+	// zeroed above). The next state's entry will initialize the first actor for
+	// the new street based on the updated phase.
 	for _, p := range g.players {
 		if p != nil {
 			p.EndTurn()
@@ -1818,8 +1955,41 @@ func (g *Game) maybeCompleteBettingRound() {
 			p.mu.Unlock()
 		}
 	}
-	g.actionsInRound = 0
-	g.initializeCurrentPlayer()
+	// Reset aggressor marker eagerly; state entry also resets this defensively.
+	g.lastAggressor = -1
+}
+
+// computeStreetStarterIndexLocked returns the index of the first actionable
+// player for the current street (skips folded and all-in players).
+// Requires: g.mu held.
+func (g *Game) computeStreetStarterIndex() int {
+	mustHeld(&g.mu)
+	n := len(g.players)
+	if n == 0 {
+		return -1
+	}
+	start := 0
+	if g.phase == pokerrpc.GamePhase_PRE_FLOP {
+		if n == 2 {
+			start = g.dealer
+		} else {
+			start = (g.dealer + 3) % n
+		}
+	} else {
+		start = (g.dealer + 1) % n
+	}
+	for i := 0; i < n; i++ {
+		idx := (start + i) % n
+		p := g.players[idx]
+		if p == nil {
+			continue
+		}
+		st := p.GetCurrentStateString()
+		if st != "FOLDED" && st != "ALL_IN" {
+			return idx
+		}
+	}
+	return -1
 }
 
 // AdvanceToNextPlayer moves to the next active player (external API)
@@ -1875,8 +2045,8 @@ func (g *Game) initializeCurrentPlayer() {
 			g.currentPlayer = 0 // Reset to first player if out of bounds
 		}
 
-		// Use the unified player state directly
-		if g.players[g.currentPlayer].GetCurrentStateString() != "FOLDED" {
+		// Use the unified player state directly; only IN_GAME can act.
+		if g.players[g.currentPlayer].GetCurrentStateString() == "IN_GAME" {
 			break
 		}
 
@@ -1907,13 +2077,6 @@ func (g *Game) GetRound() int {
 	return g.round
 }
 
-// GetBetRound returns the current betting round
-func (g *Game) GetBetRound() int {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
-	return g.betRound
-}
-
 // GetDealer returns the dealer position
 func (g *Game) GetDealer() int {
 	g.mu.RLock()
@@ -1932,14 +2095,29 @@ func (g *Game) GetDeckState() interface{} {
 	return g.deck.cards
 }
 
+// RestoreDeckState restores the underlying deck from a serialized DeckState.
+// It replaces the remaining cards while preserving the existing RNG.
+func (g *Game) RestoreDeckState(state *DeckState) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if state == nil {
+		return fmt.Errorf("deck state is nil")
+	}
+	if g.deck == nil {
+		// NewGame always initializes a deck, but guard just in case.
+		// Use a fresh RNG; order is defined by the provided cards.
+		g.deck = newDeck(rand.New(rand.NewSource(time.Now().UnixNano())))
+	}
+	return g.deck.restoreState(state)
+}
+
 // SetGameState allows restoring game state from persistence
-func (g *Game) SetGameState(dealer, round, betRound int, currentBet, pot int64, phase pokerrpc.GamePhase) {
+func (g *Game) SetGameState(dealer, round int, currentBet, pot int64, phase pokerrpc.GamePhase) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	g.dealer = dealer
 	g.round = round
-	g.betRound = betRound
 	g.currentBet = currentBet
 	g.phase = phase
 	// Note: Pot will be restored through the potManager when restoring player bets
@@ -1978,7 +2156,17 @@ func (g *Game) RestoreGameState(tableID string) {
 	}
 
 	// 3) (re)choose a valid current player from rules, not from snapshot
-	g.initializeCurrentPlayer() // uses phase/dealer and skips folded/all-in/disconnected
+	// Skip setting a current player at SHOWDOWN (no actions allowed).
+	if g.phase != pokerrpc.GamePhase_SHOWDOWN {
+		g.initializeCurrentPlayer() // uses phase/dealer and skips folded/all-in/disconnected
+	} else {
+		g.currentPlayer = -1
+		for _, p := range g.players {
+			if p != nil {
+				p.EndTurn()
+			}
+		}
+	}
 
 	// 4) If nobody is actionable (e.g., only one alive), push to showdown
 	alive := 0
@@ -2165,7 +2353,7 @@ type GameStateSnapshot struct {
 	BetRound       int
 	Phase          pokerrpc.GamePhase
 	CommunityCards []Card
-	DeckState      interface{}
+	DeckState      *DeckState
 	Players        []PlayerSnapshot
 	CurrentPlayer  string
 	Winners        []PlayerSnapshot
@@ -2285,12 +2473,25 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 		}
 	}
 
+	// Derive bet round index from phase for snapshot compatibility
+	var br int
+	switch g.phase {
+	case pokerrpc.GamePhase_PRE_FLOP:
+		br = 0
+	case pokerrpc.GamePhase_FLOP:
+		br = 1
+	case pokerrpc.GamePhase_TURN:
+		br = 2
+	case pokerrpc.GamePhase_RIVER:
+		br = 3
+	}
+
 	return GameStateSnapshot{
 		Dealer:         g.dealer,
 		CurrentBet:     g.currentBet,
 		Pot:            potAmount,
 		Round:          g.round,
-		BetRound:       g.betRound,
+		BetRound:       br,
 		Phase:          g.phase,
 		CommunityCards: communityCardsCopy,
 		DeckState:      g.deck.GetState(),

@@ -41,13 +41,17 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 		}
 	}()
 
-	// Send initial game state.
-	gs, err := s.buildGameState(tableID, playerID)
+	// Send initial state built from the current runtime snapshot only.
+	// No DB snapshot dependency or in-stream restore.
+	ts, err := s.collectTableSnapshot(tableID)
 	if err != nil {
 		return err
 	}
-	if err := stream.Send(gs); err != nil {
-		return err
+	gsh := NewGameStateHandler(s)
+	if upd := gsh.buildGameUpdateFromSnapshot(ts, playerID); upd != nil {
+		if err := stream.Send(upd); err != nil {
+			return err
+		}
 	}
 
 	<-stream.Context().Done()
@@ -291,7 +295,7 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateRequest) (*pokerrpc.GetGameStateResponse, error) {
 	// Acquire server lock only to fetch table pointer, then release before
 	// calling into table methods to avoid lock coupling (Server → Table).
-	table, ok := s.getTable(req.TableId)
+	_, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
@@ -304,10 +308,14 @@ func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateReq
 		}
 	}
 
-	game := table.GetGame()
-
+	// Build from a stable snapshot to avoid racing live state
+	ts, err := s.collectTableSnapshot(req.TableId)
+	if err != nil {
+		return nil, err
+	}
+	gsh := NewGameStateHandler(s)
 	return &pokerrpc.GetGameStateResponse{
-		GameState: s.buildGameStateForPlayer(table, game, requestingPlayerID),
+		GameState: gsh.buildGameUpdateFromSnapshot(ts, requestingPlayerID),
 	}, nil
 }
 
