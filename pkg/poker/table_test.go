@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/decred/slog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
@@ -1024,4 +1025,35 @@ func TestTableClose_WaitGroupProperlyTracked(t *testing.T) {
 	// Verify we can't accidentally double-close channels (closeOnce protection)
 	// This should not panic
 	table.Close()
+}
+
+// TestEventMetrics_Counters validates counters increment on publish/drop
+func TestEventMetrics_Counters(t *testing.T) {
+	ResetEventMetrics()
+
+	cfg := TableConfig{
+		ID:               "tbl-evt-metrics",
+		Log:              slog.Disabled,
+		GameLog:          slog.Disabled,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		AutoAdvanceDelay: 1,
+	}
+	tbl := NewTable(cfg)
+	defer tbl.Close()
+
+	ch := make(chan TableEvent, 2)
+	tbl.SetEventChannel(ch)
+
+	// Two publishes should both succeed
+	tbl.PublishEvent(pokerrpc.NotificationType_BET_MADE, cfg.ID, nil)
+	tbl.PublishEvent(pokerrpc.NotificationType_CALL_MADE, cfg.ID, nil)
+	require.Equal(t, 2, len(ch))
+
+	// One more publish when full should drop
+	tbl.PublishEvent(pokerrpc.NotificationType_CHECK_MADE, cfg.ID, nil)
+
+	snap := GetEventMetricsSnapshot()
+	require.EqualValues(t, 2, snap.Published)
+	require.EqualValues(t, 1, snap.Dropped)
 }
