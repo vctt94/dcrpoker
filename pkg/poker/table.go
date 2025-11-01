@@ -77,6 +77,7 @@ type TableConfig struct {
 // TableEventManager handles notifications and state updates for table events
 type TableEventManager struct {
 	eventChannel chan<- TableEvent
+	log          slog.Logger
 }
 
 // SetEventChannel sets the event channel for the event manager
@@ -86,16 +87,27 @@ func (tem *TableEventManager) SetEventChannel(eventChannel chan<- TableEvent) {
 
 // PublishEvent publishes an event to the channel (non-blocking)
 func (tem *TableEventManager) PublishEvent(eventType pokerrpc.NotificationType, tableID string, payload interface{}) {
-	if tem.eventChannel != nil {
-		select {
-		case tem.eventChannel <- TableEvent{
-			Type:    eventType,
-			TableID: tableID,
-			Payload: payload,
-		}:
-		default:
-			// Channel is full or closed, event is dropped
-			// In production, you might want to log this
+	if tem.eventChannel == nil {
+		// No channel wired; count as dropped and warn once per call site
+		IncrementEventDropped()
+		if tem.log != nil {
+			tem.log.Errorf("TableEvent drop: no event channel (type=%s table=%s)", eventType, tableID)
+		}
+		return
+	}
+
+	select {
+	case tem.eventChannel <- TableEvent{
+		Type:    eventType,
+		TableID: tableID,
+		Payload: payload,
+	}:
+		IncrementEventPublished()
+	default:
+		// Channel is full or closed, event is dropped
+		IncrementEventDropped()
+		if tem.log != nil {
+			tem.log.Errorf("TableEvent drop: channel full or closed (type=%s table=%s)", eventType, tableID)
 		}
 	}
 }
@@ -154,7 +166,7 @@ func NewTable(cfg TableConfig) *Table {
 		users:         make(map[string]*User),
 		createdAt:     time.Now(),
 		lastAction:    time.Now(),
-		eventManager:  &TableEventManager{},
+		eventManager:  &TableEventManager{log: cfg.Log},
 		timeoutChan:   make(chan struct{}, 1),
 		timeoutStop:   make(chan struct{}),
 		gameEventChan: make(chan GameEvent, 10), // Buffered to avoid blocking Game FSM

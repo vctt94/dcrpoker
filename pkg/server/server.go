@@ -110,7 +110,8 @@ func (s *Server) getTable(tableID string) (*poker.Table, bool) {
 	return nil, false
 }
 
-func (s *Server) getAllTables() []*poker.Table {
+// GetAllTables returns all tables from the server registry.
+func (s *Server) GetAllTables() []*poker.Table {
 	tableRefs := make([]*poker.Table, 0)
 	s.tables.Range(func(_, value any) bool {
 		if t, ok := value.(*poker.Table); ok && t != nil {
@@ -119,4 +120,24 @@ func (s *Server) getAllTables() []*poker.Table {
 		return true
 	})
 	return tableRefs
+}
+
+func (s *Server) getAllTables() []*poker.Table {
+	return s.GetAllTables()
+}
+
+// EventQueueDepth returns the current depth of the server event queue.
+func (s *Server) EventQueueDepth() int {
+	if s.eventProcessor == nil || s.eventProcessor.queue == nil {
+		return 0
+	}
+	return len(s.eventProcessor.queue)
+}
+
+// EventQueueCapacity returns the capacity of the server event queue buffer.
+func (s *Server) EventQueueCapacity() int {
+	if s.eventProcessor == nil || s.eventProcessor.queue == nil {
+		return 0
+	}
+	return cap(s.eventProcessor.queue)
 }

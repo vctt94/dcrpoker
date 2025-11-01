@@ -57,7 +57,12 @@ func NewDatabase(dbPath string) (Database, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create database directory: %w", err)
 	}
-	return db.NewDB(dbPath)
+	inner, err := db.NewDB(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	// Wrap with metrics instrumentation.
+	return &metricsDB{inner: inner}, nil
 }
 
 // loadTableFromDatabase restores a table config and currently seated players.
