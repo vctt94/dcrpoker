@@ -22,6 +22,24 @@
       .small { color: var(--muted); font-size: 12px; }
       a { color:#60a5fa; text-decoration:none; }
       a:hover { text-decoration:underline; }
+      pre { background:#0a0e1a; padding:16px; border-radius:8px; overflow-x:auto; font-size:12px; line-height:1.5; margin:0; }
+      .metrics-toggle { cursor:pointer; user-select:none; }
+      .metrics-content { display:none; margin-top:12px; }
+      .metrics-content.show { display:block; }
+      .metrics-section { margin-top:24px; }
+      .metrics-section:first-child { margin-top:0; }
+      .metric-row { display:flex; justify-content:space-between; align-items:start; padding:12px 0; border-bottom:1px solid #1f2937; }
+      .metric-row:last-child { border-bottom:none; }
+      .metric-label { flex:1; }
+      .metric-name { font-weight:500; margin-bottom:4px; }
+      .metric-desc { font-size:11px; color:var(--muted); }
+      .metric-value { font-size:16px; font-weight:600; margin-left:16px; white-space:nowrap; }
+      .metric-type { font-size:10px; color:var(--muted); text-transform:uppercase; margin-left:8px; }
+      .histogram-table { width:100%; margin-top:12px; }
+      .histogram-stats { display:flex; gap:24px; margin-top:12px; font-size:13px; }
+      .histogram-stat { display:flex; flex-direction:column; }
+      .histogram-stat-label { font-size:11px; color:var(--muted); text-transform:uppercase; margin-bottom:4px; }
+      .histogram-stat-value { font-size:16px; font-weight:600; }
     </style>
   </head>
   <body>
@@ -69,9 +87,108 @@
           {{- end }}
           </tbody>
         </table>
-        <div class="small" style="margin-top:8px">Prometheus metrics available at <a href="/metrics">/metrics</a></div>
+        <div class="small" style="margin-top:8px">Prometheus text format available at <a href="/metrics?format=prometheus">/metrics?format=prometheus</a></div>
+      </div>
+
+      <div class="card">
+        <div class="k metrics-toggle" onclick="this.nextElementSibling.classList.toggle('show')" style="margin-bottom:8px">
+          Prometheus Metrics <span style="color:var(--muted); font-size:10px;">(click to toggle)</span>
+        </div>
+        <div class="metrics-content">
+          {{- if gt (len .Metrics.Counters) 0 }}
+          <div class="metrics-section">
+            <div class="k" style="margin-bottom:12px">Counters</div>
+            {{- range .Metrics.Counters }}
+            <div class="metric-row">
+              <div class="metric-label">
+                <div class="metric-name">{{ .Name }}</div>
+                <div class="metric-desc">{{ .Description }}</div>
+              </div>
+              <div style="display:flex; align-items:center;">
+                <span class="metric-value">{{ .Value }}</span>
+                <span class="metric-type">{{ .Type }}</span>
+              </div>
+            </div>
+            {{- end }}
+          </div>
+          {{- end }}
+
+          {{- if gt (len .Metrics.Gauges) 0 }}
+          <div class="metrics-section">
+            <div class="k" style="margin-bottom:12px">Gauges</div>
+            {{- range .Metrics.Gauges }}
+            <div class="metric-row">
+              <div class="metric-label">
+                <div class="metric-name">{{ .Name }}</div>
+                <div class="metric-desc">{{ .Description }}</div>
+              </div>
+              <div style="display:flex; align-items:center;">
+                <span class="metric-value">{{ .Value }}</span>
+                <span class="metric-type">{{ .Type }}</span>
+              </div>
+            </div>
+            {{- end }}
+          </div>
+          {{- end }}
+
+          {{- if gt (len .Metrics.Histograms) 0 }}
+          <div class="metrics-section">
+            {{- range .Metrics.Histograms }}
+            <div class="k" style="margin-bottom:12px">{{ .Name }}</div>
+            <div class="metric-desc" style="margin-bottom:12px">{{ .Description }}</div>
+            <table class="histogram-table">
+              <thead>
+                <tr>
+                  <th style="text-align:left">Upper Bound</th>
+                  <th style="text-align:right">Cumulative Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {{- range .Buckets }}
+                <tr>
+                  <td><code>{{ .UpperBound }}</code></td>
+                  <td style="text-align:right">{{ .Count }}</td>
+                </tr>
+                {{- end }}
+              </tbody>
+            </table>
+            <div class="histogram-stats">
+              <div class="histogram-stat">
+                <div class="histogram-stat-label">Total Operations</div>
+                <div class="histogram-stat-value">{{ .Count }}</div>
+              </div>
+              <div class="histogram-stat">
+                <div class="histogram-stat-label">Sum (seconds)</div>
+                <div class="histogram-stat-value">{{ printf "%.6f" .Sum }}</div>
+              </div>
+              {{- if gt .Count 0 }}
+              <div class="histogram-stat">
+                <div class="histogram-stat-label">Average (seconds)</div>
+                <div class="histogram-stat-value">{{ printf "%.6f" .Average }}</div>
+              </div>
+              {{- end }}
+            </div>
+            {{- end }}
+          </div>
+          {{- end }}
+
+          <div style="margin-top:24px; padding-top:24px; border-top:1px solid #1f2937;">
+            <div class="small" style="margin-bottom:12px">Raw Prometheus Format</div>
+            <details>
+              <summary style="cursor:pointer; color:var(--muted); font-size:12px; margin-bottom:8px;">Show raw metrics text</summary>
+              <pre style="margin-top:8px">{{ .PrometheusMetrics }}</pre>
+            </details>
+          </div>
+        </div>
       </div>
     </div>
+    <script>
+      // Auto-expand metrics if hash is #metrics
+      if (window.location.hash === '#metrics') {
+        document.querySelector('.metrics-content').classList.add('show');
+        document.querySelector('.metrics-toggle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    </script>
   </body>
-  </html>
+</html>
 

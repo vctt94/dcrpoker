@@ -33,7 +33,7 @@ var (
 	grpcHost           = flag.String("grpchost", "", "gRPC host address")
 	grpcPort           = flag.String("grpcport", "", "gRPC port")
 	debugLevel         = flag.String("debuglevel", "", "Debug level")
-	metricsAddr        = flag.String("metricsaddr", "127.0.0.1:9090", "Address to serve Prometheus metrics (host:port). Empty to disable.")
+	metricsAddr        = flag.String("metricsaddr", "0.0.0.0:9091", "Address to serve Prometheus metrics (host:port). Empty to disable.")
 )
 
 func realMain() error {
@@ -117,25 +117,37 @@ func realMain() error {
 			parseTemplatesOnce()
 
 			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				http.Redirect(w, r, "/status", http.StatusFound)
+				http.Redirect(w, r, "/metrics", http.StatusFound)
 			})
-			mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
+			// Prometheus scraping endpoint
+			mux.HandleFunc("/metrics/prometheus", func(w http.ResponseWriter, r *http.Request) {
+				tables := pokerServer.GetAllTables()
+				sstats := Stats(tables)
+				w.Header().Set("Content-Type", "text/plain")
+				fmt.Fprint(w, formatPrometheusMetrics(pokerServer, sstats))
+			})
+
+			mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
 				tables := pokerServer.GetAllTables()
 				drops := poker.GetEventMetricsSnapshot().Dropped + server.GetMetrics().EventDropsTotal()
+				sstats := Stats(tables)
+
+				// Serve HTML status page
 				data := statusPageData{
-					GeneratedAt:   time.Now(),
-					QueueDepth:    pokerServer.EventQueueDepth(),
-					QueueCapacity: pokerServer.EventQueueCapacity(),
-					EventDrops:    drops,
-					GoRoutines:    runtime.NumGoroutine(),
-					Summary:       Stats(tables),
+					GeneratedAt:       time.Now(),
+					QueueDepth:        pokerServer.EventQueueDepth(),
+					QueueCapacity:     pokerServer.EventQueueCapacity(),
+					EventDrops:        drops,
+					GoRoutines:        runtime.NumGoroutine(),
+					Summary:           sstats,
+					PrometheusMetrics: formatPrometheusMetrics(pokerServer, sstats),
+					Metrics:           buildMetricsData(pokerServer, sstats),
 				}
 				if err := statusTmpl.Execute(w, data); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
 			})
-			mux.HandleFunc("/metrics", handleMetrics(pokerServer))
 			srv := &http.Server{Addr: *metricsAddr, Handler: mux}
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				log.Errorf("metrics serve error: %v", err)
