@@ -2504,6 +2504,10 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 // dealFlop adds three community cards. Caller MUST hold g.mu.
 func (g *Game) dealFlop() {
 	mustHeld(&g.mu)
+	// Burn one card before dealing the flop (standard poker rule)
+	if _, ok := g.deck.Draw(); ok {
+		g.log.Debugf("CARDS: Burn before flop")
+	}
 	need := 3 - len(g.communityCards)
 	for i := 0; i < need; i++ {
 		if card, ok := g.deck.Draw(); ok {
@@ -2524,6 +2528,10 @@ func (g *Game) dealFlop() {
 // dealTurn adds one community card. Caller MUST hold g.mu.
 func (g *Game) dealTurn() {
 	mustHeld(&g.mu)
+	// Burn one card before dealing the turn
+	if _, ok := g.deck.Draw(); ok {
+		g.log.Debugf("CARDS: Burn before turn")
+	}
 	if len(g.communityCards) < 4 {
 		if card, ok := g.deck.Draw(); ok {
 			g.communityCards = append(g.communityCards, card)
@@ -2543,6 +2551,10 @@ func (g *Game) dealTurn() {
 // dealRiver adds one community card. Caller MUST hold g.mu.
 func (g *Game) dealRiver() {
 	mustHeld(&g.mu)
+	// Burn one card before dealing the river
+	if _, ok := g.deck.Draw(); ok {
+		g.log.Debugf("CARDS: Burn before river")
+	}
 	if len(g.communityCards) < 5 {
 		if card, ok := g.deck.Draw(); ok {
 			g.communityCards = append(g.communityCards, card)

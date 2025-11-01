@@ -44,7 +44,7 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	}
 
 	cfg := poker.TableConfig{
-		ID:               fmt.Sprintf("table_%d", time.Now().UnixNano()),
+		ID:               fmt.Sprintf("%d", time.Now().UnixNano()),
 		Log:              tblLog,
 		GameLog:          gameLog,
 		HostID:           req.PlayerId,
