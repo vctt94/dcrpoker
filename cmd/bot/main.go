@@ -121,16 +121,28 @@ func realMain() error {
 			})
 			// Prometheus scraping endpoint
 			mux.HandleFunc("/metrics/prometheus", func(w http.ResponseWriter, r *http.Request) {
-				tables := pokerServer.GetAllTables()
-				sstats := Stats(tables)
+				sstats := Stats(pokerServer)
 				w.Header().Set("Content-Type", "text/plain")
 				fmt.Fprint(w, formatPrometheusMetrics(pokerServer, sstats))
 			})
 
 			mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
-				tables := pokerServer.GetAllTables()
 				drops := poker.GetEventMetricsSnapshot().Dropped + server.GetMetrics().EventDropsTotal()
-				sstats := Stats(tables)
+				// Get online users (notification streams) and categorized in-game users for debugging
+				onlineUsers := pokerServer.GetAllOnlineUsers()
+				_, inGameUsers := pokerServer.GetInLobbyAndInGameUsers()
+				// Debug: log what we're seeing
+				log.Debugf("Metrics collection: onlineUsers=%d, inGameUsers=%d", len(onlineUsers), len(inGameUsers))
+				if len(onlineUsers) == 0 && len(inGameUsers) > 0 {
+					log.Warnf("WARNING: Found %d in-game users but 0 online users - possible notification stream missing!", len(inGameUsers))
+					// Log which players are in-game but not online
+					for playerID := range inGameUsers {
+						if !onlineUsers[playerID] {
+							log.Warnf("Player %s has game stream but NO notification stream", playerID)
+						}
+					}
+				}
+				sstats := Stats(pokerServer)
 
 				// Serve HTML status page
 				data := statusPageData{

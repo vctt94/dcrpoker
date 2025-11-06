@@ -54,7 +54,8 @@
         <div class="card"><div class="k">Users (total)</div><div class="v">{{ .Summary.Users }}</div></div>
         <div class="card"><div class="k">Users (distinct)</div><div class="v">{{ .Summary.DistinctUsers }}</div></div>
         <div class="card"><div class="k">Online Users</div><div class="v">{{ .Summary.OnlineUsers }}</div></div>
-        <div class="card"><div class="k">Ready Users</div><div class="v">{{ .Summary.ReadyUsers }}</div></div>
+        <div class="card"><div class="k">In-Lobby Users</div><div class="v">{{ .Summary.InLobbyUsers }}</div></div>
+        <div class="card"><div class="k">In-Game Users</div><div class="v">{{ .Summary.InGameUsers }}</div></div>
         <div class="card"><div class="k">Active Games</div><div class="v">{{ .Summary.GamesActive }}</div></div>
         <div class="card"><div class="k">Event Queue</div><div class="v">{{ .QueueDepth }} / {{ .QueueCapacity }}</div></div>
         <div class="card"><div class="k">Event Drops</div><div class="v">{{ .EventDrops }}</div></div>
@@ -69,7 +70,8 @@
               <th>Table ID</th>
               <th>Users</th>
               <th>Online</th>
-              <th>Ready</th>
+              <th>In-Lobby</th>
+              <th>In-Game</th>
               <th>All Ready</th>
               <th>Active</th>
             </tr>
@@ -80,14 +82,15 @@
               <td><code>{{ .ID }}</code></td>
               <td>{{ .Users }}</td>
               <td>{{ .OnlineUsers }}</td>
-              <td>{{ .ReadyUsers }}</td>
+              <td>{{ .InLobbyUsers }}</td>
+              <td>{{ .InGameUsers }}</td>
               <td>{{ if .AllReady }}<span class="ok">Yes</span>{{ else }}<span class="warn">No</span>{{ end }}</td>
               <td>{{ if .GameActive }}<span class="ok">Active</span>{{ else }}<span class="bad">Idle</span>{{ end }}</td>
             </tr>
           {{- end }}
           </tbody>
         </table>
-        <div class="small" style="margin-top:8px">Prometheus text format available at <a href="/metrics?format=prometheus">/metrics?format=prometheus</a></div>
+        <div class="small" style="margin-top:8px">Prometheus text format available at <a href="/metrics/prometheus">/metrics/prometheus</a></div>
       </div>
 
       <div class="card">

@@ -77,6 +77,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Restore game stream if player is already at a table (similar to Flutter UI)
+	// This ensures metrics correctly count online users when TUI client reopens
+	if tableID, err := pokerClient.GetPlayerCurrentTable(ctx); err == nil && tableID != "" {
+		pokerClient.SetCurrentTableID(tableID)
+		if err := pokerClient.StartGameStream(ctx); err != nil {
+			log.Infof("Failed to restore game stream for existing table %s: %v", tableID, err)
+			// Don't exit - allow client to continue without game stream
+		} else {
+			log.Infof("Restored game stream for table %s", tableID)
+		}
+	}
+
 	// Start the UI with the client's components
 	ui.Run(ctx, pokerClient)
 }

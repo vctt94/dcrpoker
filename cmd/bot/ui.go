@@ -23,20 +23,22 @@ var (
 
 // TableInfo summarizes a single table for metrics/reporting.
 type TableInfo struct {
-	ID          string
-	Users       int
-	OnlineUsers int
-	ReadyUsers  int
-	AllReady    bool
-	GameActive  bool
+	ID           string
+	Users        int
+	OnlineUsers  int // Users with notification streams
+	InLobbyUsers int // Users with game streams but not in active game (waiting in lobby)
+	InGameUsers  int // Users with game streams actively in a game
+	AllReady     bool
+	GameActive   bool
 }
 
 // StatsSnapshot aggregates server-wide counts + per-table info for metrics.
 type StatsSnapshot struct {
 	Tables        int
 	Users         int
-	OnlineUsers   int
-	ReadyUsers    int
+	OnlineUsers   int // Total users with notification streams (connected to server)
+	InLobbyUsers  int // Total users with game streams but not in active game (waiting in lobby)
+	InGameUsers   int // Total users with game streams actively in a game
 	DistinctUsers int
 	GamesActive   int
 	TablesInfo    []TableInfo
@@ -85,35 +87,50 @@ type statusPageData struct {
 }
 
 // Stats returns a snapshot of server-wide stats and per-table info.
-func Stats(tbls []*poker.Table) StatsSnapshot {
+func Stats(srv *server.Server) StatsSnapshot {
+	tbls := srv.GetAllTables()
 	snap := StatsSnapshot{Tables: len(tbls)}
 	userSeen := make(map[string]struct{})
 	snap.TablesInfo = make([]TableInfo, 0, len(tbls))
+
+	// Use server methods to get user counts
+	onlineUsers := srv.GetAllOnlineUsers()
+	snap.OnlineUsers = len(onlineUsers)
+
+	// Get per-table in-lobby and in-game categorization from server
+	// Use server method to avoid duplicating categorization logic
+	inLobbyUsersSet, inGameUsersSet := srv.GetInLobbyAndInGameUsers()
+	snap.InLobbyUsers = len(inLobbyUsersSet)
+	snap.InGameUsers = len(inGameUsersSet)
+
+	// Iterate through tables to build per-table metrics
 	for _, t := range tbls {
 		users := t.GetUsers()
 		ti := TableInfo{ID: t.GetConfig().ID, Users: len(users)}
+
 		for _, u := range users {
-			if u.IsReady {
-				ti.ReadyUsers++
-			}
-			if !u.IsDisconnected {
+			// Check if user is online (has notification stream)
+			isOnline := onlineUsers[u.ID]
+			if isOnline {
 				ti.OnlineUsers++
-				snap.OnlineUsers++
 			}
+
+			// Track distinct users across all tables
 			if _, ok := userSeen[u.ID]; !ok {
 				userSeen[u.ID] = struct{}{}
 				snap.Users++
 				snap.DistinctUsers++
 			}
 		}
+
 		ti.AllReady = t.AreAllPlayersReady()
 		ti.GameActive = t.IsGameStarted()
 		if ti.GameActive {
 			snap.GamesActive++
 		}
-		snap.ReadyUsers += ti.ReadyUsers
 		snap.TablesInfo = append(snap.TablesInfo, ti)
 	}
+
 	return snap
 }
 
@@ -134,8 +151,8 @@ func formatPrometheusMetrics(srv *server.Server, sstats StatsSnapshot) string {
 	var buf bytes.Buffer
 	// Human-friendly summary (comments)
 	fmt.Fprintf(&buf, "# Poker Server Summary\n")
-	fmt.Fprintf(&buf, "# tables=%d users=%d distinct_users=%d online_users=%d ready_users=%d active_games=%d\n",
-		sstats.Tables, sstats.Users, sstats.DistinctUsers, sstats.OnlineUsers, sstats.ReadyUsers, sstats.GamesActive)
+	fmt.Fprintf(&buf, "# tables=%d users=%d distinct_users=%d online_users=%d in_lobby_users=%d in_game_users=%d active_games=%d\n",
+		sstats.Tables, sstats.Users, sstats.DistinctUsers, sstats.OnlineUsers, sstats.InLobbyUsers, sstats.InGameUsers, sstats.GamesActive)
 
 	// Base counters/gauges
 	snap := poker.GetEventMetricsSnapshot()
@@ -173,13 +190,17 @@ func formatPrometheusMetrics(srv *server.Server, sstats StatsSnapshot) string {
 	fmt.Fprintf(&buf, "# TYPE poker_distinct_users_total gauge\n")
 	fmt.Fprintf(&buf, "poker_distinct_users_total %d\n", sstats.DistinctUsers)
 
-	fmt.Fprintf(&buf, "# HELP poker_online_users_total Online users across all tables\n")
+	fmt.Fprintf(&buf, "# HELP poker_online_users_total Online users (with notification streams) across all tables\n")
 	fmt.Fprintf(&buf, "# TYPE poker_online_users_total gauge\n")
 	fmt.Fprintf(&buf, "poker_online_users_total %d\n", sstats.OnlineUsers)
 
-	fmt.Fprintf(&buf, "# HELP poker_ready_users_total Users marked ready across all tables\n")
-	fmt.Fprintf(&buf, "# TYPE poker_ready_users_total gauge\n")
-	fmt.Fprintf(&buf, "poker_ready_users_total %d\n", sstats.ReadyUsers)
+	fmt.Fprintf(&buf, "# HELP poker_inlobby_users_total Users in lobby (with game streams but not in active game) across all tables\n")
+	fmt.Fprintf(&buf, "# TYPE poker_inlobby_users_total gauge\n")
+	fmt.Fprintf(&buf, "poker_inlobby_users_total %d\n", sstats.InLobbyUsers)
+
+	fmt.Fprintf(&buf, "# HELP poker_ingame_users_total Users actively in games (with game streams) across all tables\n")
+	fmt.Fprintf(&buf, "# TYPE poker_ingame_users_total gauge\n")
+	fmt.Fprintf(&buf, "poker_ingame_users_total %d\n", sstats.InGameUsers)
 
 	fmt.Fprintf(&buf, "# HELP poker_games_active_total Number of tables with active game\n")
 	fmt.Fprintf(&buf, "# TYPE poker_games_active_total gauge\n")
@@ -188,8 +209,12 @@ func formatPrometheusMetrics(srv *server.Server, sstats StatsSnapshot) string {
 	// Per-table gauges
 	fmt.Fprintf(&buf, "# HELP poker_table_users Users per table\n")
 	fmt.Fprintf(&buf, "# TYPE poker_table_users gauge\n")
-	fmt.Fprintf(&buf, "# HELP poker_table_online_users Online users per table\n")
+	fmt.Fprintf(&buf, "# HELP poker_table_online_users Online users (with notification streams) per table\n")
 	fmt.Fprintf(&buf, "# TYPE poker_table_online_users gauge\n")
+	fmt.Fprintf(&buf, "# HELP poker_table_inlobby_users Users in lobby (with game streams but not in active game) per table\n")
+	fmt.Fprintf(&buf, "# TYPE poker_table_inlobby_users gauge\n")
+	fmt.Fprintf(&buf, "# HELP poker_table_ingame_users Users actively in game (with game streams) per table\n")
+	fmt.Fprintf(&buf, "# TYPE poker_table_ingame_users gauge\n")
 	fmt.Fprintf(&buf, "# HELP poker_table_active Whether table has active game (1/0)\n")
 	fmt.Fprintf(&buf, "# TYPE poker_table_active gauge\n")
 	fmt.Fprintf(&buf, "# HELP poker_table_all_ready Whether all players are ready (1/0)\n")
@@ -197,6 +222,8 @@ func formatPrometheusMetrics(srv *server.Server, sstats StatsSnapshot) string {
 	for _, ti := range sstats.TablesInfo {
 		fmt.Fprintf(&buf, "poker_table_users{table=\"%s\"} %d\n", ti.ID, ti.Users)
 		fmt.Fprintf(&buf, "poker_table_online_users{table=\"%s\"} %d\n", ti.ID, ti.OnlineUsers)
+		fmt.Fprintf(&buf, "poker_table_inlobby_users{table=\"%s\"} %d\n", ti.ID, ti.InLobbyUsers)
+		fmt.Fprintf(&buf, "poker_table_ingame_users{table=\"%s\"} %d\n", ti.ID, ti.InGameUsers)
 		if ti.GameActive {
 			fmt.Fprintf(&buf, "poker_table_active{table=\"%s\"} 1\n", ti.ID)
 		} else {
