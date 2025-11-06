@@ -28,10 +28,50 @@ func NewDB(path string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Ensure FKs are enforced at the connection-level.
+	// SQLite recommended settings for server workload.
+	// Restrict pool to a single connection; SQLite does not benefit from multiple writers.
+	d.SetMaxOpenConns(1)
+	d.SetMaxIdleConns(1)
+
+	// Busy timeout to avoid immediate "database is locked" errors.
+	if _, err := d.Exec(`PRAGMA busy_timeout = 5000;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set busy_timeout: %w", err)
+	}
+	// WAL journaling for better concurrency.
+	if _, err := d.Exec(`PRAGMA journal_mode = WAL;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set journal_mode=WAL: %w", err)
+	}
+	// Foreign key enforcement.
 	if _, err := d.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
 		_ = d.Close()
 		return nil, fmt.Errorf("enable foreign_keys: %w", err)
+	}
+	// Synchronous = NORMAL for throughput; consider FULL for maximum durability.
+	if _, err := d.Exec(`PRAGMA synchronous = NORMAL;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set synchronous=NORMAL: %w", err)
+	}
+	// Approx 64MB page cache (negative = KiB units).
+	if _, err := d.Exec(`PRAGMA cache_size = -65536;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set cache_size: %w", err)
+	}
+	// Temp objects in memory to reduce disk I/O for transient data.
+	if _, err := d.Exec(`PRAGMA temp_store = MEMORY;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set temp_store=MEMORY: %w", err)
+	}
+	// Cap mmap usage to 256MB.
+	if _, err := d.Exec(`PRAGMA mmap_size = 268435456;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set mmap_size: %w", err)
+	}
+	// Control WAL autocheckpointing.
+	if _, err := d.Exec(`PRAGMA wal_autocheckpoint = 1000;`); err != nil {
+		_ = d.Close()
+		return nil, fmt.Errorf("set wal_autocheckpoint: %w", err)
 	}
 	if err := applyMigrations(d); err != nil {
 		_ = d.Close()
