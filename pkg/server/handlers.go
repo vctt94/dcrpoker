@@ -256,9 +256,11 @@ func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot
 		return nil
 	}
 
+	// Use tableID to collect fresh snapshot for each player
+	tableID := snapshot.ID
 	gameStates := make(map[string]*pokerrpc.GameUpdate)
 	for _, playerSnapshot := range snapshot.Players {
-		gameUpdate := gsh.buildGameUpdateFromSnapshot(snapshot, playerSnapshot.ID)
+		gameUpdate := gsh.buildGameUpdateFromSnapshot(tableID, playerSnapshot.ID)
 		if gameUpdate != nil {
 			gameStates[playerSnapshot.ID] = gameUpdate
 		}
@@ -266,7 +268,9 @@ func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot
 	return gameStates
 }
 
-func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSnapshot, requestingPlayerID string) *pokerrpc.GameUpdate {
+func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, requestingPlayerID string) *pokerrpc.GameUpdate {
+	// Collect table snapshot internally to avoid passing incomplete snapshots
+	tableSnapshot := gsh.server.collectTableSnapshot(tableID)
 	if tableSnapshot == nil {
 		return nil
 	}

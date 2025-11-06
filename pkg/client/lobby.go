@@ -90,12 +90,6 @@ func (pc *PokerClient) JoinTable(ctx context.Context, tableID string) error {
 
 	pc.SetCurrentTableID(tableID)
 
-	// Start game stream for real-time updates
-	// if err := pc.StartGameStream(ctx); err != nil {
-	// 	pc.log.Warnf("Failed to start game stream: %v", err)
-	// 	// Don't return error here since joining was successful
-	// }
-
 	return nil
 }
 
@@ -322,12 +316,6 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 					}
 
 				case pokerrpc.NotificationType_NEW_HAND_STARTED:
-					// Re-assert streaming on new hands as a safety net.
-					if err := pc.StartGameStream(ctx); err != nil {
-						pc.log.Errorf("failed to start game stream after NEW_HAND_STARTED: %v", err)
-						pc.ErrorsCh <- fmt.Errorf("failed to start game stream: %w", err)
-						return
-					}
 
 				case pokerrpc.NotificationType_GAME_ENDED:
 					pc.ntfns.notifyGameEnded(ntfn.TableId, ntfn.Message, ts)

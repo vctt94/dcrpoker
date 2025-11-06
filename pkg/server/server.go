@@ -126,6 +126,76 @@ func (s *Server) getAllTables() []*poker.Table {
 	return s.GetAllTables()
 }
 
+// GetAllInGameUsers returns a map of tableID -> set of playerIDs that have active game streams.
+// This provides the authoritative source of in-game users based on runtime state.
+func (s *Server) GetAllInGameUsers() map[string]map[string]bool {
+	result := make(map[string]map[string]bool)
+	s.gameStreams.Range(func(tableIDAny, bucketAny any) bool {
+		tableID := tableIDAny.(string)
+		b := bucketAny.(*bucket)
+		if b == nil {
+			return true
+		}
+		result[tableID] = make(map[string]bool)
+		b.streams.Range(func(playerIDAny, streamAny any) bool {
+			playerID := playerIDAny.(string)
+			result[tableID][playerID] = true
+			return true
+		})
+		return true
+	})
+	return result
+}
+
+// GetAllOnlineUsers returns a set of all playerIDs that have active notification streams.
+// This provides the authoritative source of online users (regardless of table membership).
+func (s *Server) GetAllOnlineUsers() map[string]bool {
+	result := make(map[string]bool)
+	s.notificationStreams.Range(func(playerIDAny, streamAny any) bool {
+		playerID := playerIDAny.(string)
+		result[playerID] = true
+		return true
+	})
+	return result
+}
+
+// GetInLobbyAndInGameUsers returns sets of playerIDs categorized by their status:
+// - inLobby: Users with game streams but no active game (game not started)
+// - inGame: Users with game streams in active games (game started)
+func (s *Server) GetInLobbyAndInGameUsers() (inLobby map[string]bool, inGame map[string]bool) {
+	inLobby = make(map[string]bool)
+	inGame = make(map[string]bool)
+
+	inGameUsers := s.GetAllInGameUsers()
+	tables := s.GetAllTables()
+
+	// Build index of tableID -> table for quick lookup
+	tableMap := make(map[string]*poker.Table)
+	for _, t := range tables {
+		tableMap[t.GetConfig().ID] = t
+	}
+
+	// Categorize users based on whether their table has an active game
+	for tableID, playerIDs := range inGameUsers {
+		table := tableMap[tableID]
+		if table == nil {
+			continue
+		}
+
+		// Check if game has actually started (game object only exists after PRE_FLOP is reached)
+		gameActive := table.IsGameStarted()
+		for playerID := range playerIDs {
+			if gameActive {
+				inGame[playerID] = true
+			} else {
+				inLobby[playerID] = true
+			}
+		}
+	}
+
+	return inLobby, inGame
+}
+
 // EventQueueDepth returns the current depth of the server event queue.
 func (s *Server) EventQueueDepth() int {
 	if s.eventProcessor == nil || s.eventProcessor.queue == nil {

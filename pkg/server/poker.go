@@ -7,7 +7,6 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -17,6 +16,14 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 	// Get or create the table bucket (single step).
 	bAny, _ := s.gameStreams.LoadOrStore(tableID, &bucket{})
 	b := bAny.(*bucket)
+
+	// Mark user as connected when stream is established (for game logic)
+	// Note: Metrics determine online status from active streams via HasActiveStream()
+	if table, ok := s.getTable(tableID); ok {
+		if user := table.GetUser(playerID); user != nil {
+			user.IsDisconnected = false
+		}
+	}
 
 	// Register player stream. If a stream already exists for this player,
 	// replace it with the newest one without incrementing the count. This
@@ -39,23 +46,72 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 				s.gameStreams.CompareAndDelete(tableID, b)
 			}
 		}
+
+		// Handle player disconnect when stream closes (safe to call - checks conditions internally)
+		s.handlePlayerDisconnect(tableID, playerID)
 	}()
 
 	// Send initial state built from the current runtime snapshot only.
 	// No DB snapshot dependency or in-stream restore.
-	ts, err := s.collectTableSnapshot(tableID)
-	if err != nil {
-		return err
-	}
 	gsh := NewGameStateHandler(s)
-	if upd := gsh.buildGameUpdateFromSnapshot(ts, playerID); upd != nil {
+	if upd := gsh.buildGameUpdateFromSnapshot(tableID, playerID); upd != nil {
 		if err := stream.Send(upd); err != nil {
 			return err
 		}
 	}
 
+	// Wait for stream context to be done (client disconnected)
 	<-stream.Context().Done()
 	return nil
+}
+
+// handlePlayerDisconnect handles player disconnection when their game stream closes
+func (s *Server) handlePlayerDisconnect(tableID, playerID string) {
+	table, ok := s.getTable(tableID)
+	if !ok {
+		// Table doesn't exist, nothing to do
+		return
+	}
+
+	// Get user's current state
+	user := table.GetUser(playerID)
+	if user == nil {
+		// Player not at table, nothing to do
+		return
+	}
+
+	// Check if player has chips in an active game
+	var playerChips int64
+	var gamePlayer *poker.Player
+	if table.IsGameStarted() && table.GetGame() != nil {
+		game := table.GetGame()
+		for _, p := range game.GetPlayers() {
+			if p != nil && p.ID() == playerID {
+				playerChips = p.Balance()
+				gamePlayer = p
+				break
+			}
+		}
+	}
+
+	// Mark user as disconnected when their stream closes
+	// If a hand is in progress AND player still has chips, keep the seat (disconnect)
+	// Otherwise, they're still marked disconnected but may be removed later if needed
+	user.IsDisconnected = true
+
+	// Send disconnect event to player's state machine if in active game
+	if gamePlayer != nil {
+		gamePlayer.SendDisconnect()
+	}
+
+	// Save table state asynchronously
+	s.saveTableStateAsync(tableID, "player disconnected")
+
+	if table.IsGameStarted() && playerChips > 0 {
+		s.log.Debugf("Player %s disconnected from table %s (has %d chips remaining)", playerID, tableID, playerChips)
+	} else {
+		s.log.Debugf("Player %s disconnected from table %s (no active game or no chips)", playerID, tableID)
+	}
 }
 
 func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*pokerrpc.MakeBetResponse, error) {
@@ -290,33 +346,6 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 	s.eventProcessor.PublishEvent(evt)
 
 	return &pokerrpc.CheckBetResponse{Success: true, Message: "Check successful"}, nil
-}
-
-func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateRequest) (*pokerrpc.GetGameStateResponse, error) {
-	// Acquire server lock only to fetch table pointer, then release before
-	// calling into table methods to avoid lock coupling (Server → Table).
-	_, ok := s.getTable(req.TableId)
-	if !ok {
-		return nil, status.Error(codes.NotFound, "table not found")
-	}
-
-	// Extract requesting player ID from context metadata
-	requestingPlayerID := ""
-	if md, ok := metadata.FromIncomingContext(ctx); ok {
-		if playerIDs := md.Get("player-id"); len(playerIDs) > 0 {
-			requestingPlayerID = playerIDs[0]
-		}
-	}
-
-	// Build from a stable snapshot to avoid racing live state
-	ts, err := s.collectTableSnapshot(req.TableId)
-	if err != nil {
-		return nil, err
-	}
-	gsh := NewGameStateHandler(s)
-	return &pokerrpc.GetGameStateResponse{
-		GameState: gsh.buildGameUpdateFromSnapshot(ts, requestingPlayerID),
-	}, nil
 }
 
 // convertGRPCCardToInternal converts a gRPC Card to internal Card format

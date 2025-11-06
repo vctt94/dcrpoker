@@ -156,6 +156,19 @@ func (p *Player) HandlePostBlind(amount int64) int64 {
 	return <-reply
 }
 
+// SendDisconnect sends a disconnect event to the player's state machine
+func (p *Player) SendDisconnect() {
+	p.mu.RLock()
+	tp := p.tablePresence
+	p.mu.RUnlock()
+
+	if tp == nil {
+		return
+	}
+
+	tp.Send(evDisconnect{})
+}
+
 // -------------------------- State functions --------------------------
 
 func stateAtTable(p *Player, in <-chan any) PlayerStateFn {

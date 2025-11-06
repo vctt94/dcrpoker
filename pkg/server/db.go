@@ -190,15 +190,22 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 	if gs == nil {
 		return fmt.Errorf("invalid snapshot")
 	}
+
+	// Skip restore if phase is WAITING (no active game to restore)
+	if gs.Phase == pokerrpc.GamePhase_WAITING {
+		s.log.Debugf("applyGameSnapshot: skipping restore for table=%s (phase=WAITING, no active game)",
+			table.GetConfig().ID)
+		return nil
+	}
+
 	s.log.Debugf("applyGameSnapshot: table=%s phase=%v br=%d curBet=%d comm=%d cur=%s",
 		table.GetConfig().ID, gs.Phase, gs.BetRound, gs.CurrentBet, len(gs.CommunityCards), gs.CurrentPlayer)
 	// 1) Ensure a game instance is attached to the table and players are set
+	// RestoreGame already calls SetPlayers internally, so we don't need to call it again
 	g, err := table.RestoreGame(table.GetConfig().ID)
 	if err != nil {
 		return fmt.Errorf("attach game: %w", err)
 	}
-	users := table.GetUsers()
-	g.SetPlayers(users)
 
 	// Wire game→table event channel so restored games can emit updates
 	table.WireGameEvents(g)

@@ -526,44 +526,50 @@ func (t *Table) StartGame() error {
 	// 4) Inject players via API (Game owns its Player objects and SMs).
 	g.SetPlayers(active)
 
-	// 5) Publish the game on the table so helpers can reference t.game safely.
-	t.game = g
-
-	// 6) Wire up game event channel so Game FSM can send events to Table
+	// 5) Wire up game event channel so Game FSM can send events to Table
 	g.SetTableEventChannel(t.gameEventChan)
 
-	// 7) Start the game FSM so it's ready to process events
+	// 6) Start the game FSM so it's ready to process events
 	go g.Start(context.Background())
 
-	// 8) Set up notification to broadcast NEW_HAND_STARTED when FSM reaches PRE_FLOP.
+	// 7) Set up notification to broadcast NEW_HAND_STARTED when FSM reaches PRE_FLOP.
 	//    This ensures clients see complete state (blinds posted, current player set).
 	preFlopCh := g.SetupPreFlopNotification()
 	defer g.ClearPreFlopNotification()
 
-	// 10) Kick off FSM transitions: evStartHand → statePreDeal → stateDeal → stateBlinds → statePreFlop
+	// 8) Kick off FSM transitions: evStartHand → statePreDeal → stateDeal → stateBlinds → statePreFlop
 	g.sm.Send(evStartHand{})
 
-	// 11) Update table state machine to GAME_ACTIVE
+	// 9) Update table state machine to GAME_ACTIVE
 	t.sm.Send(evStartGameReq{})
 
-	// Wait for FSM to reach PRE_FLOP before broadcasting and returning
+	// NOW after sending updates we can assign the game object
+	t.game = g
+	// 10) Wait for FSM to reach PRE_FLOP before assigning game object and broadcasting
+	//     Only assign t.game after PRE_FLOP is reached - until then, no game object exists
 	select {
 	case <-preFlopCh:
 		t.log.Debugf("StartGame: PRE_FLOP reached via FSM, broadcasting NEW_HAND_STARTED")
 		t.PublishEvent(pokerrpc.NotificationType_NEW_HAND_STARTED, t.config.ID, nil)
 		t.log.Debugf("StartGame: Hand setup complete")
 	case <-time.After(5 * time.Second):
+		// Timeout - clean up the game object we created but never assigned
+		g.Close()
 		t.log.Warnf("StartGame: Timeout waiting for PRE_FLOP FSM transition")
+		return fmt.Errorf("timeout waiting for game to reach PRE_FLOP")
 	}
 
 	return nil
 }
 
-// IsGameStarted returns whether the game has started
+// IsGameStarted returns whether the game has started.
+// This checks the table state machine to determine if the game is actually active,
+// not just if a game object exists (which may be created before the game transitions to active).
 func (t *Table) IsGameStarted() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.game != nil
+	state := t.GetTableStateString()
+	return state == "GAME_ACTIVE"
 }
 
 // AreAllPlayersReady returns whether all players are ready
@@ -1217,7 +1223,6 @@ func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error 
 // XX We need to properly fix this restore for clients. and properly restore game state from sm
 func (t *Table) RestoreGame(tableID string) (*Game, error) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	tblCfg := t.config
 	// Build new game for currently seated users
@@ -1252,9 +1257,25 @@ func (t *Table) RestoreGame(tableID string) (*Game, error) {
 	// Initialize players for this game
 	game.SetPlayers(active)
 
-	// Attach game to table and mark table as active
+	// Ensure all players are ready before transitioning to GAME_ACTIVE
+	// This ensures the state machine can transition from WAITING_FOR_PLAYERS or PLAYERS_READY
+	for _, u := range t.users {
+		u.IsReady = true
+	}
+
+	// Attach game to table
 	t.game = game
-	t.sm.Send(evStartGameReq{})
+
+	// Release lock before sending event to avoid deadlock (state machine
+	// processing evStartGameReq may need table lock)
+	t.mu.Unlock()
+
+	// Send event to state machine to transition to GAME_ACTIVE (non-blocking)
+	// The state machine will check allPlayersReady() when processing this event,
+	// and since we just set all players to ready, it will transition to GAME_ACTIVE
+	if !t.sm.TrySend(evStartGameReq{}) {
+		t.log.Warnf("RestoreGame: failed to send evStartGameReq (inbox full)")
+	}
 
 	return game, nil
 }
