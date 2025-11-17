@@ -351,6 +351,26 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 	return &pokerrpc.CheckBetResponse{Success: true, Message: "Check successful"}, nil
 }
 
+func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateRequest) (*pokerrpc.GetGameStateResponse, error) {
+	// Verify table exists
+	_, ok := s.getTable(req.TableId)
+	if !ok {
+		return nil, status.Error(codes.NotFound, "table not found")
+	}
+
+	// Build game state using GameStateHandler (same logic as StartGameStream)
+	// Use empty string as requestingPlayerID to get general game state without player-specific card visibility
+	gsh := NewGameStateHandler(s)
+	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(req.TableId, "")
+	if err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build game state: %v", err))
+	}
+
+	return &pokerrpc.GetGameStateResponse{
+		GameState: gameUpdate,
+	}, nil
+}
+
 // convertGRPCCardToInternal converts a gRPC Card to internal Card format
 func convertGRPCCardToInternal(grpcCard *pokerrpc.Card) (poker.Card, error) {
 	if grpcCard == nil {
