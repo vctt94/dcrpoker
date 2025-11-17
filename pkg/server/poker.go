@@ -54,14 +54,17 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 	// Send initial state built from the current runtime snapshot only.
 	// No DB snapshot dependency or in-stream restore.
 	gsh := NewGameStateHandler(s)
-	if upd := gsh.buildGameUpdateFromSnapshot(tableID, playerID); upd != nil {
-		if err := stream.Send(upd); err != nil {
-			return err
-		}
+	upd, err := gsh.buildGameUpdateFromSnapshot(tableID, playerID)
+	if err != nil {
+		return err
+	}
+	if err := stream.Send(upd); err != nil {
+		return err
 	}
 
 	// Wait for stream context to be done (client disconnected)
 	<-stream.Context().Done()
+	// XXX mark player is disconnected?
 	return nil
 }
 

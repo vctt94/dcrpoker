@@ -260,7 +260,11 @@ func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot
 	tableID := snapshot.ID
 	gameStates := make(map[string]*pokerrpc.GameUpdate)
 	for _, playerSnapshot := range snapshot.Players {
-		gameUpdate := gsh.buildGameUpdateFromSnapshot(tableID, playerSnapshot.ID)
+		gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableID, playerSnapshot.ID)
+		if err != nil {
+			gsh.server.log.Errorf("Error building game update for player %s: %v", playerSnapshot.ID, err)
+			continue
+		}
 		if gameUpdate != nil {
 			gameStates[playerSnapshot.ID] = gameUpdate
 		}
@@ -268,11 +272,11 @@ func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot
 	return gameStates
 }
 
-func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, requestingPlayerID string) *pokerrpc.GameUpdate {
+func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, requestingPlayerID string) (*pokerrpc.GameUpdate, error) {
 	// Collect table snapshot internally to avoid passing incomplete snapshots
-	tableSnapshot := gsh.server.collectTableSnapshot(tableID)
-	if tableSnapshot == nil {
-		return nil
+	tableSnapshot, err := gsh.server.collectTableSnapshot(tableID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Early return if no game snapshot - return basic table info without game data
@@ -295,7 +299,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, request
 			Players:         players,
 			PlayersRequired: int32(tableSnapshot.Config.MinPlayers),
 			PlayersJoined:   int32(tableSnapshot.State.PlayerCount),
-		}
+		}, nil
 	}
 
 	// Build players list from snapshot data
@@ -392,7 +396,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, request
 		PlayersJoined:      int32(tableSnapshot.State.PlayerCount),
 		TimeBankSeconds:    tbSec,
 		TurnDeadlineUnixMs: deadlineMs,
-	}
+	}, nil
 }
 
 // toRPCPlayerState maps saved state strings to the protobuf enum.

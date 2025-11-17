@@ -101,10 +101,10 @@ func (s *Server) collectGameSnapshot(gs *poker.GameStateSnapshot) *GameSnapshot 
 
 // collectTableSnapshot collects a complete immutable snapshot of table state
 // Follows lock hierarchy: Table.mu → Game.mu → Player.mu
-func (s *Server) collectTableSnapshot(tableID string) *TableSnapshot {
+func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 	t, ok := s.getTable(tableID)
 	if !ok || t == nil {
-		return nil
+		return nil, fmt.Errorf("table not found: %s", tableID)
 	}
 
 	// Snapshot table data under table lock, then release before calling game methods
@@ -145,7 +145,7 @@ func (s *Server) collectTableSnapshot(tableID string) *TableSnapshot {
 		Config:       config,
 		State:        tableState,
 		Timestamp:    time.Now(),
-	}
+	}, nil
 }
 
 func (s *Server) buildGameEvent(
@@ -193,7 +193,10 @@ func (s *Server) buildGameEvent(
 	}
 
 	// Use the reusable table snapshot collection method
-	tableSnapshot := s.collectTableSnapshot(tableID)
+	tableSnapshot, err := s.collectTableSnapshot(tableID)
+	if err != nil {
+		return nil, err
+	}
 
 	return &GameEvent{
 		Type:          eventType,
