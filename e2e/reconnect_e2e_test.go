@@ -521,27 +521,27 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		return false
 	}, 3*time.Second, 25*time.Millisecond)
 
-		// Extract each player's own hole cards
-		getOwn := func(update *pokerrpc.GameUpdate, pid string) []*pokerrpc.Card {
-			for _, pl := range update.Players {
-				if pl != nil && pl.Id == pid {
-					return pl.Hand
-				}
+	// Extract each player's own hole cards
+	getOwn := func(update *pokerrpc.GameUpdate, pid string) []*pokerrpc.Card {
+		for _, pl := range update.Players {
+			if pl != nil && pl.Id == pid {
+				return pl.Hand
 			}
-			return nil
 		}
-		p1Hole := getOwn(st1, p1)
-		p2Hole := getOwn(st2, p2)
-		require.Len(t, p1Hole, 2)
-		require.Len(t, p2Hole, 2)
+		return nil
+	}
+	p1Hole := getOwn(st1, p1)
+	p2Hole := getOwn(st2, p2)
+	require.Len(t, p1Hole, 2)
+	require.Len(t, p2Hole, 2)
 
-		// Give async persistence a brief window to flush the PRE_FLOP snapshot.
-		time.Sleep(50 * time.Millisecond)
+	// Give async persistence a brief window to flush the PRE_FLOP snapshot.
+	time.Sleep(50 * time.Millisecond)
 
-		// Start second server instance on the same DB without stopping b1 first,
-		// matching the crash-style restart used in server-level snapshot tests.
-		b2 := start(t)
-		defer stop(b2)
+	// Start second server instance on the same DB without stopping b1 first,
+	// matching the crash-style restart used in server-level snapshot tests.
+	b2 := start(t)
+	defer stop(b2)
 
 	// Reattach to trigger restore
 	rs1, err := b2.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p1})
