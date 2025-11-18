@@ -94,6 +94,17 @@ type createPokerTable struct {
 	AutoStartMs     int32 `json:"auto_start_ms"`
 }
 
+type makeBet struct {
+	Amount int64 `json:"amount"`
+}
+
+type evaluateHand struct {
+	Cards []struct {
+		Suit  int32 `json:"suit"`
+		Value int32 `json:"value"`
+	} `json:"cards"`
+}
+
 // JSON returned to Flutter (shape must match Dart LocalWaitingRoom/LocalPlayer)
 type player struct {
 	UID    string `json:"uid"`
@@ -243,25 +254,16 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, fmt.Errorf("failed to create logs directory %s: %v", logsDir, err)
 	}
 
-	// Load configuration with any overrides supplied by the Flutter shell
-	overrides := client.ConfigOverrides{
-		BRClientRPCURL:  args.RPCWebsocketURL,
-		BRClientCert:    args.RPCCertPath,
-		BRClientRPCCert: args.RPCCLientCertPath,
-		BRClientRPCKey:  args.RPCCLientKeyPath,
-		RPCUser:         args.RPCUser,
-		RPCPass:         args.RPCPass,
-		GRPCServerCert:  args.GRPCCertPath,
-		PayoutAddress:   args.PayoutAddress,
-	}
-	cfg, err := client.LoadAppConfig(args.DataDir, overrides)
+	// Load (or create) the poker client configuration. This uses the same
+	// config file as the CLI client so settings are shared.
+	cfg, err := client.LoadClientConfig(args.DataDir, appName+".conf")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %v", err)
+		return nil, fmt.Errorf("failed to load client config: %v", err)
 	}
 
-	// Validate configuration
-	if err := cfg.ValidateConfig(); err != nil {
-		return nil, fmt.Errorf("configuration validation error: %v", err)
+	// If the UI provided a payout address, prefer that over the config file.
+	if args.PayoutAddress != "" {
+		cfg.PayoutAddress = args.PayoutAddress
 	}
 
 	// Initialize notification manager BEFORE creating the client
@@ -276,18 +278,10 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		cancel()
 		return nil, fmt.Errorf("failed to create poker client: %v", err)
 	}
-	var nresp types.PublicIdentity
-	var clientID zkidentity.ShortID
-	var nick string
-	if err := pc.BRClient.Chat.UserPublicIdentity(ctx, &types.PublicIdentityReq{}, &nresp); err == nil && nresp.Nick != "" {
-		nick = nresp.Nick
-		clientID.FromBytes(nresp.Identity)
-	}
-	// XXX Move notification stream to our golib?
-	// if err := pc.StartNotificationStream(ctx); err != nil {
-	// 	cancel()
-	// 	return nil, fmt.Errorf("failed to start notifications: %v", err)
-	// }
+
+	// Without a BR client, derive a simple local identity from the poker client ID.
+	clientID := pc.ID
+	nick := clientID.String()
 
 	cctx := &clientCtx{
 		ID:     pc.ID,
@@ -295,7 +289,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		ctx:    ctx,
 		c:      pc,
 		cancel: cancel,
-		log:    pc.BRClient.LogBackend.Logger("pokerclient"),
+		log:    cfg.LogBackend.Logger(appName),
 	}
 	cs[handle] = cctx
 
@@ -405,6 +399,29 @@ maxbufferlines=1000
 		return fmt.Errorf("failed to write config file: %v", err)
 	}
 
+	// Also create/update the CLI-compatible pokerclient.conf so the UI and
+	// CLI share the same connection settings.
+	host, port, ok := strings.Cut(serverAddr, ":")
+	if !ok || host == "" || port == "" {
+		// Fallback to sensible defaults if parsing fails.
+		host = "127.0.0.1"
+		port = "50051"
+	}
+	pcConf := &client.PokerConf{
+		Datadir:        dataDir,
+		GRPCHost:       host,
+		GRPCPort:       port,
+		GRPCCertPath:   grpcCertPath,
+		PayoutAddress:  "",
+		LogFile:        filepath.Join(dataDir, "logs", appName+".log"),
+		Debug:          debugLevel,
+		MaxLogFiles:    5,
+		MaxBufferLines: 1000,
+	}
+	if err := client.WriteClientConfigFile(pcConf, filepath.Join(dataDir, appName+".conf")); err != nil {
+		return fmt.Errorf("failed to write %s.conf: %v", appName, err)
+	}
+
 	// Create default server certificate if it doesn't exist
 	if _, err := os.Stat(grpcCertPath); os.IsNotExist(err) {
 		if err := createDefaultServerCert(grpcCertPath); err != nil {
@@ -482,7 +499,8 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 		datadir = filepath.Dir(datadir)
 	}
 
-	cfg, err := client.LoadAppConfig(datadir, client.ConfigOverrides{})
+	// Load (or create) the shared poker client config used by both CLI and UI.
+	cfg, err := client.LoadClientConf(datadir, appName+".conf")
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -494,18 +512,13 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 
 	// Build a map compatible with Flutter Config expectations
 	res := map[string]interface{}{
-		"server_addr":          serverAddr,
-		"grpc_cert_path":       cfg.GRPCServerCert,
-		"rpc_websocket_url":    cfg.BRConfig.RPCURL,
-		"rpc_cert_path":        cfg.BRConfig.BRClientCert,
-		"rpc_client_cert_path": cfg.BRConfig.BRClientRPCCert,
-		"rpc_client_key_path":  cfg.BRConfig.BRClientRPCKey,
-		"rpc_user":             cfg.BRConfig.RPCUser,
-		"rpc_pass":             cfg.BRConfig.RPCPass,
-		"debug_level":          cfg.BRConfig.Debug,
-		"wants_log_ntfns":      false,
-		"datadir":              cfg.DataDir,
-		"payout_address":       cfg.PayoutAddress,
+		"server_addr":    serverAddr,
+		"grpc_cert_path": cfg.GRPCCertPath,
+
+		"debug_level":     cfg.Debug,
+		"wants_log_ntfns": false,
+		"datadir":         cfg.Datadir,
+		"payout_address":  cfg.PayoutAddress,
 	}
 
 	return res, nil

@@ -367,6 +367,37 @@ Map<String, dynamic> _$CreatePokerTableArgsToJson(
       'auto_start_ms': instance.autoStartMs,
     };
 
+MakeBetArgs _$MakeBetArgsFromJson(Map<String, dynamic> json) => MakeBetArgs(
+      (json['amount'] as num).toInt(),
+    );
+
+Map<String, dynamic> _$MakeBetArgsToJson(MakeBetArgs instance) =>
+    <String, dynamic>{
+      'amount': instance.amount,
+    };
+
+EvaluateHandArgs _$EvaluateHandArgsFromJson(Map<String, dynamic> json) =>
+    EvaluateHandArgs(
+      (json['cards'] as List<dynamic>)
+          .map((e) => CardArg.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+
+Map<String, dynamic> _$EvaluateHandArgsToJson(EvaluateHandArgs instance) =>
+    <String, dynamic>{
+      'cards': instance.cards,
+    };
+
+CardArg _$CardArgFromJson(Map<String, dynamic> json) => CardArg(
+      (json['suit'] as num).toInt(),
+      (json['value'] as num).toInt(),
+    );
+
+Map<String, dynamic> _$CardArgToJson(CardArg instance) => <String, dynamic>{
+      'suit': instance.suit,
+      'value': instance.value,
+    };
+
 JoinPokerTableArgs _$JoinPokerTableArgsFromJson(Map<String, dynamic> json) =>
     JoinPokerTableArgs(
       json['table_id'] as String,

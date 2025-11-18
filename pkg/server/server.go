@@ -72,6 +72,11 @@ type Server struct {
 	log        slog.Logger
 	logBackend *logging.LogBackend
 	db         Database
+
+	// dbOwned indicates whether this Server instance is responsible for
+	// closing the underlying Database. Production servers created via
+	// NewServer own their DB; test servers created via NewTestServer do not.
+	dbOwned bool
 	// Concurrent registry of tables to avoid coarse-grained server locking.
 	tables sync.Map // key: string (tableID) -> value: *poker.Table
 
@@ -112,11 +117,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %v", err)
 	}
-	defer db.Close()
 
 	// Initialize and start the gRPC poker server
 	grpcServer, grpcLis, err := SetupGRPCServer(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort, db, cfg.LogBackend)
 	if err != nil {
+		// Clean up the DB if we fail to start gRPC.
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to setup gRPC server: %v", err)
 	}
 
@@ -126,13 +132,13 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.LogBackend.Logger("SERVER").Infof("Starting gRPC poker server on %s", cfg.GRPCHost+":"+cfg.GRPCPort)
 		errCh <- grpcServer.Serve(grpcLis)
 	}()
-	defer grpcServer.Stop() // Ensure gRPC server is stopped on exit
 	pokerServer := &Server{
 		grpcServer: grpcServer,
 		grpcLis:    grpcLis,
 		log:        cfg.LogBackend.Logger("SERVER"),
 		logBackend: cfg.LogBackend,
 		db:         db,
+		dbOwned:    true,
 	}
 
 	// Initialize and register the poker server
@@ -257,6 +263,7 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 		log:        logBackend.Logger("SERVER"),
 		logBackend: logBackend,
 		db:         db,
+		dbOwned:    false,
 	}
 
 	// Initialize event processor for deadlock-free architecture
@@ -293,11 +300,18 @@ func (s *Server) Stop() {
 
 	// Wait for any in-flight asynchronous saves to complete before returning.
 	s.saveWg.Wait()
+
+	// Close gRPC components if present.
 	if s.grpcServer != nil {
 		s.grpcServer.Stop()
 	}
 	if s.grpcLis != nil {
 		s.grpcLis.Close()
+	}
+
+	// Close the database only if this Server owns it (production path).
+	if s.dbOwned && s.db != nil {
+		_ = s.db.Close()
 	}
 }
 

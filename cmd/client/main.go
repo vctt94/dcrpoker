@@ -32,31 +32,11 @@ var (
 func main() {
 	flag.Parse()
 
-	cfg, err := client.LoadConfig("pokerclient", *dataDir, client.ConfigOverrides{
-		BRClientRPCURL:  *rpcURL,
-		BRClientCert:    *brClientCert,
-		BRClientRPCCert: *brClientRPCCert,
-		BRClientRPCKey:  *brClientRPCKey,
-		RPCUser:         *rpcUser,
-		RPCPass:         *rpcPass,
-		GRPCHost:        *grpcHost,
-		GRPCPort:        *grpcPort,
-		GRPCServerCert:  *grpcServerCert,
-		PayoutAddress:   *payoutAddress,
-	})
+	cfg, err := client.LoadClientConfig(*dataDir, "pokerclient.conf")
 	if err != nil {
 		fmt.Printf("Configuration error: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Validate configuration
-	if err := cfg.ValidateConfig(); err != nil {
-		fmt.Printf("Configuration validation error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Initialize notification manager BEFORE creating the client
-	cfg.Notifications = client.NewNotificationManager()
 
 	// Create context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -69,7 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer pokerClient.Close()
-	log := pokerClient.BRClient.LogBackend.Logger("pokerclient")
+	log := cfg.LogBackend.Logger("pokerclient")
 
 	// Start the notification stream
 	if err := pokerClient.StartNotificationStream(ctx); err != nil {

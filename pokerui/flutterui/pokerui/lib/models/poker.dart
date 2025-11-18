@@ -1,5 +1,6 @@
 // lib/models/poker_model.dart
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -8,9 +9,15 @@ import 'package:collection/collection.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:golib_plugin/grpc/generated/poker.pbgrpc.dart' as prpc;
 import 'package:golib_plugin/golib_plugin.dart';
-import 'package:golib_plugin/definitions.dart';
+import 'package:golib_plugin/definitions.dart'
+    show
+        MakeBetArgs,
+        EvaluateHandArgs,
+        CardArg,
+        CreatePokerTableArgs,
+        JoinPokerTableArgs,
+        InitClient;
 import 'package:grpc/grpc.dart';
-import 'package:fixnum/fixnum.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/notifications.dart';
 
@@ -18,10 +25,10 @@ import 'package:pokerui/models/notifications.dart';
 enum PokerState {
   idle,
   browsingTables,
-  inLobby,            // seated, waiting / readying
-  handInProgress,     // active betting streets
-  showdown,           // results surfaced
-  tournamentOver,     // SNG complete
+  inLobby, // seated, waiting / readying
+  handInProgress, // active betting streets
+  showdown, // results surfaced
+  tournamentOver, // SNG complete
 }
 
 extension PhaseName on pr.GamePhase {
@@ -42,9 +49,9 @@ extension PhaseName on pr.GamePhase {
 class UiPlayer {
   final String id;
   final String name;
-  final int balance;       // chips (in-game)
+  final int balance; // chips (in-game)
   final List<pr.Card> hand;
-  final int currentBet;    // chips
+  final int currentBet; // chips
   final bool folded;
   final bool isTurn;
   final bool isAllIn;
@@ -52,7 +59,7 @@ class UiPlayer {
   final bool isSmallBlind;
   final bool isBigBlind;
   final bool isReady;
-  final String handDesc;   // only meaningful at showdown
+  final String handDesc; // only meaningful at showdown
 
   const UiPlayer({
     required this.id,
@@ -72,20 +79,20 @@ class UiPlayer {
 
   factory UiPlayer.fromProto(pr.Player p) {
     return UiPlayer(
-        id: p.id,
-        name: p.name,
-        balance: p.balance.toInt(),
-        hand: List.unmodifiable(p.hand),
-        currentBet: p.currentBet.toInt(),
-        folded: p.folded,
-        isTurn: p.isTurn,
-        isAllIn: p.isAllIn,
-        isDealer: p.isDealer,
-        isSmallBlind: p.isSmallBlind,
-        isBigBlind: p.isBigBlind,
-        isReady: p.isReady,
-        handDesc: p.handDescription,
-      );
+      id: p.id,
+      name: p.name,
+      balance: p.balance.toInt(),
+      hand: List.unmodifiable(p.hand),
+      currentBet: p.currentBet.toInt(),
+      folded: p.folded,
+      isTurn: p.isTurn,
+      isAllIn: p.isAllIn,
+      isDealer: p.isDealer,
+      isSmallBlind: p.isSmallBlind,
+      isBigBlind: p.isBigBlind,
+      isReady: p.isReady,
+      handDesc: p.handDescription,
+    );
   }
 }
 
@@ -180,16 +187,17 @@ class UiGameState {
   final String phaseName;
   final List<UiPlayer> players;
   final List<pr.Card> communityCards;
-  final int pot;               // chips
-  final int currentBet;        // chips
+  final int pot; // chips
+  final int currentBet; // chips
   final String currentPlayerId;
-  final int minRaise;          // chips
-  final int maxRaise;          // chips
+  final int minRaise; // chips
+  final int maxRaise; // chips
   final bool gameStarted;
   final int playersRequired;
   final int playersJoined;
-  final int timeBankSeconds;     // configured per-turn timebank (seconds)
-  final int turnDeadlineUnixMs;  // absolute ms deadline for current player (0 if N/A)
+  final int timeBankSeconds; // configured per-turn timebank (seconds)
+  final int
+      turnDeadlineUnixMs; // absolute ms deadline for current player (0 if N/A)
 
   const UiGameState({
     required this.tableId,
@@ -224,15 +232,16 @@ class UiGameState {
         playersRequired: u.playersRequired,
         playersJoined: u.playersJoined,
         timeBankSeconds: u.hasTimeBankSeconds() ? u.timeBankSeconds : 0,
-        turnDeadlineUnixMs: u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
+        turnDeadlineUnixMs:
+            u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
       );
 }
 
 /// -------- The main ChangeNotifier --------
 class PokerModel extends ChangeNotifier {
-  // Injected RPC clients
-  final prpc.LobbyServiceClient lobby;
-  final prpc.PokerServiceClient poker;
+  // Injected RPC clients - kept for streams only (will be removed once streams are handled by golib)
+  prpc.LobbyServiceClient? lobby;
+  prpc.PokerServiceClient? poker;
 
   // Identity
   final String playerId;
@@ -276,13 +285,14 @@ class PokerModel extends ChangeNotifier {
   bool get myCardsShown => playersShowingCards[playerId] ?? false;
 
   PokerModel({
-    required this.lobby,
-    required this.poker,
+    this.lobby,
+    this.poker,
     required this.playerId,
   });
 
   /// Factory method to create PokerModel from Config
-  static Future<PokerModel> fromConfig(Config cfg, NotificationModel notificationModel) async {
+  static Future<PokerModel> fromConfig(
+      Config cfg, NotificationModel notificationModel) async {
     print('DEBUG: fromConfig - starting with cfg: $cfg');
     // Initialize the Go library with configuration
     final initClientArgs = InitClient(
@@ -300,23 +310,24 @@ class PokerModel extends ChangeNotifier {
       cfg.rpcUser,
       cfg.rpcPass,
     );
-    
+
     // Initialize the Go library client
     final localInfo = await Golib.initClient(initClientArgs);
     print("*****************");
     print(localInfo);
-    print('DEBUG: fromConfig - Golib.initClient returned id=${localInfo.id} nick=${localInfo.nick}');
-    
-    // Create gRPC channel
+    print(
+        'DEBUG: fromConfig - Golib.initClient returned id=${localInfo.id} nick=${localInfo.nick}');
+
+    // TODO: Streams (startGameStream, startNotificationStream) still need gRPC clients
+    // For now, create gRPC channel only for streams
+    // Once streams are handled by golib, remove this
     final channel = await _createGrpcChannel(cfg);
-    
-    // Create gRPC clients
     final lobby = prpc.LobbyServiceClient(channel);
     final poker = prpc.PokerServiceClient(channel);
-    
+
     // Use the player ID from the Go library initialization
     final playerId = localInfo.id;
-    
+
     return PokerModel(
       lobby: lobby,
       poker: poker,
@@ -324,15 +335,15 @@ class PokerModel extends ChangeNotifier {
     );
   }
 
-  /// Create gRPC channel from config
+  /// Create gRPC channel from config - only needed for streams until they're handled by golib
   static Future<ClientChannel> _createGrpcChannel(Config cfg) async {
     final serverAddr = cfg.serverAddr;
-    
+
     // Parse host and port
     final parts = serverAddr.split(':');
     final host = parts[0];
     final port = int.tryParse(parts[1]) ?? 50051;
-    
+
     // Create channel options with TLS credentials if cert path is provided
     ChannelOptions options;
     if (cfg.grpcCertPath.isNotEmpty) {
@@ -340,21 +351,21 @@ class PokerModel extends ChangeNotifier {
       final certBytes = await File(cfg.grpcCertPath).readAsBytes();
       final credentials = ChannelCredentials.secure(
         certificates: certBytes,
-        authority: host, // Use the host as the authority for certificate validation
+        authority:
+            host, // Use the host as the authority for certificate validation
       );
       options = ChannelOptions(credentials: credentials);
     } else {
       // Fallback to insecure if no cert path provided
       options = ChannelOptions(credentials: ChannelCredentials.insecure());
     }
-    
+
     return ClientChannel(
       host,
       port: port,
       options: options,
     );
   }
-
 
   // -------- Lifecycle ----------
   Future<void> init() async {
@@ -377,7 +388,7 @@ class PokerModel extends ChangeNotifier {
   Future<void> _startNotificationStream() async {
     await _ntfnSub?.cancel();
     try {
-      final stream = lobby.startNotificationStream(
+      final stream = lobby!.startNotificationStream(
         pr.StartNotificationStreamRequest()..playerId = playerId,
       );
       _ntfnSub = stream.listen(_onNotification,
@@ -389,7 +400,8 @@ class PokerModel extends ChangeNotifier {
   }
 
   void _onNotification(pr.Notification n) {
-    print('DEBUG: Notification received type=${n.type} tableId=${n.tableId} playerId=${n.playerId}');
+    print(
+        'DEBUG: Notification received type=${n.type} tableId=${n.tableId} playerId=${n.playerId}');
     switch (n.type) {
       case pr.NotificationType.TABLE_CREATED:
       case pr.NotificationType.TABLE_REMOVED:
@@ -417,14 +429,20 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.BET_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
           final amt = n.hasAmount() ? n.amount.toInt() : 0;
-          lastBetFx = UiBetFx(playerId: n.playerId, amount: amt, createdMs: DateTime.now().millisecondsSinceEpoch);
+          lastBetFx = UiBetFx(
+              playerId: n.playerId,
+              amount: amt,
+              createdMs: DateTime.now().millisecondsSinceEpoch);
           notifyListeners();
         }
         break;
       case pr.NotificationType.CALL_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
           final amt = n.hasAmount() ? n.amount.toInt() : 0;
-          lastBetFx = UiBetFx(playerId: n.playerId, amount: amt, createdMs: DateTime.now().millisecondsSinceEpoch);
+          lastBetFx = UiBetFx(
+              playerId: n.playerId,
+              amount: amt,
+              createdMs: DateTime.now().millisecondsSinceEpoch);
           notifyListeners();
         }
         break;
@@ -574,7 +592,8 @@ class PokerModel extends ChangeNotifier {
       // Dedup: if we're already seated at this table, just (re)attach streams
       // and refresh state instead of calling server Join again.
       if (_seated && currentTableId == tableId) {
-        print('DEBUG: joinTable dedup - already seated at $tableId; reattaching stream');
+        print(
+            'DEBUG: joinTable dedup - already seated at $tableId; reattaching stream');
         await _attachGameStream();
         // Stream drives UI; fetch winners in background.
         unawaited(_refreshLastWinners());
@@ -661,10 +680,8 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      final resp = await lobby.setPlayerReady(pr.SetPlayerReadyRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      _iAmReady = resp.success;
+      await Golib.setPlayerReady();
+      _iAmReady = true;
       notifyListeners();
     } catch (e) {
       errorMessage = 'Set ready failed: $e';
@@ -676,10 +693,8 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      final resp = await lobby.setPlayerUnready(pr.SetPlayerUnreadyRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      if (resp.success) _iAmReady = false;
+      await Golib.setPlayerUnready();
+      _iAmReady = false;
       notifyListeners();
     } catch (e) {
       errorMessage = 'Set unready failed: $e';
@@ -691,10 +706,9 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      await poker.showCards(pr.ShowCardsRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      playersShowingCards[playerId] = true; // optimistic update; server will confirm via notification
+      await Golib.showCards();
+      playersShowingCards[playerId] =
+          true; // optimistic update; server will confirm via notification
       notifyListeners();
     } catch (e) {
       errorMessage = 'Show cards failed: $e';
@@ -706,9 +720,7 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      await poker.hideCards(pr.HideCardsRequest()
-        ..playerId = playerId
-        ..tableId = tid);
+      await Golib.hideCards();
       playersShowingCards[playerId] = false; // optimistic update
       notifyListeners();
     } catch (e) {
@@ -725,7 +737,7 @@ class PokerModel extends ChangeNotifier {
 
     try {
       print('DEBUG: Attaching game stream - tableId=$tid playerId=$playerId');
-      final stream = poker.startGameStream(pr.StartGameStreamRequest()
+      final stream = poker!.startGameStream(pr.StartGameStreamRequest()
         ..playerId = playerId
         ..tableId = tid);
       _gameSub = stream.listen(_onGameUpdate,
@@ -752,7 +764,8 @@ class PokerModel extends ChangeNotifier {
       return;
     }
 
-    print('DEBUG: Processing game update - phase: ${u.phase}, gameStarted: ${u.gameStarted}, currentPlayer: ${u.currentPlayer}');
+    print(
+        'DEBUG: Processing game update - phase: ${u.phase}, gameStarted: ${u.gameStarted}, currentPlayer: ${u.currentPlayer}');
     final next = UiGameState.fromUpdate(u);
     // Update hero hole cards cache when available
     final heroNow = next.players.firstWhereOrNull((p) => p.id == playerId);
@@ -765,10 +778,12 @@ class PokerModel extends ChangeNotifier {
     final myP = me;
     final handCnt = myP?.hand.length ?? 0;
     final playersCnt = game?.players.length ?? u.players.length;
-    print('DEBUG: GameUpdate snapshot - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${u.currentPlayer}');
+    print(
+        'DEBUG: GameUpdate snapshot - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${u.currentPlayer}');
     if (handCnt > 0) {
       final h = myP!.hand;
-      print('DEBUG: My cards: ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
+      print(
+          'DEBUG: My cards: ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
     }
 
     // Drive coarse UI state from server phase:
@@ -798,7 +813,7 @@ class PokerModel extends ChangeNotifier {
         : null;
 
     print('DEBUG: Updated state to: $_state, isMyTurn: $isMyTurn');
-    
+
     errorMessage = '';
     _resetBackoff();
     notifyListeners();
@@ -829,16 +844,8 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return false;
     try {
-      final r = await poker.makeBet(pr.MakeBetRequest()
-        ..playerId = playerId
-        ..tableId = tid
-        ..amount = Int64(amountChips));
-      if (!r.success) {
-        errorMessage = r.message;
-        notifyListeners();
-        return false;
-      }
-      // r.new_balance is atoms (wallet), not table chips
+      await Golib.makeBet(MakeBetArgs(amountChips));
+      // Refresh balance in background
       unawaited(_refreshBalance());
       return true;
     } catch (e) {
@@ -852,14 +859,8 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return false;
     try {
-      final r = await poker.callBet(pr.CallBetRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      if (!r.success) {
-        errorMessage = r.message;
-        notifyListeners();
-      }
-      return r.success;
+      await Golib.callBet();
+      return true;
     } catch (e) {
       errorMessage = 'Call failed: $e';
       notifyListeners();
@@ -871,14 +872,8 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return false;
     try {
-      final r = await poker.checkBet(pr.CheckBetRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      if (!r.success) {
-        errorMessage = r.message;
-        notifyListeners();
-      }
-      return r.success;
+      await Golib.checkBet();
+      return true;
     } catch (e) {
       errorMessage = 'Check failed: $e';
       notifyListeners();
@@ -890,14 +885,8 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return false;
     try {
-      final r = await poker.foldBet(pr.FoldBetRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      if (!r.success) {
-        errorMessage = r.message;
-        notifyListeners();
-      }
-      return r.success;
+      await Golib.foldBet();
+      return true;
     } catch (e) {
       errorMessage = 'Fold failed: $e';
       notifyListeners();
@@ -910,22 +899,29 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      final resp = await poker.getGameState(pr.GetGameStateRequest()..tableId = tid);
-      print('DEBUG: refreshGameState - phase: ${resp.gameState.phase}, gameStarted: ${resp.gameState.gameStarted}, currentPlayer: ${resp.gameState.currentPlayer}');
-      game = UiGameState.fromUpdate(resp.gameState);
+      final respMap = await Golib.getGameState();
+      // Convert JSON map back to protobuf GameUpdate
+      final gameStateJson = respMap['game_state'] as Map<String, dynamic>;
+      final gameStateJsonStr = jsonEncode(gameStateJson);
+      final gameUpdate = pr.GameUpdate.fromJson(gameStateJsonStr);
+      print(
+          'DEBUG: refreshGameState - phase: ${gameUpdate.phase}, gameStarted: ${gameUpdate.gameStarted}, currentPlayer: ${gameUpdate.currentPlayer}');
+      game = UiGameState.fromUpdate(gameUpdate);
 
       final myP = me;
       final handCnt = myP?.hand.length ?? 0;
       final playersCnt = game?.players.length ?? 0;
-      print('DEBUG: refreshGameState snapshot - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${resp.gameState.currentPlayer}');
+      print(
+          'DEBUG: refreshGameState snapshot - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${gameUpdate.currentPlayer}');
       if (handCnt > 0) {
         final h = myP!.hand;
-        print('DEBUG: My cards (from GetGameState): ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
+        print(
+            'DEBUG: My cards (from GetGameState): ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
       }
       // Keep coarse UI state in sync even when attaching mid-hand.
       // This mirrors the logic in _onGameUpdate so that the UI shows
       // the table (and hole cards) immediately on reconnect/restore.
-      final phase = resp.gameState.phase;
+      final phase = gameUpdate.phase;
       if (phase == pr.GamePhase.SHOWDOWN) {
         _state = PokerState.showdown;
         unawaited(_refreshLastWinners());
@@ -935,8 +931,9 @@ class PokerModel extends ChangeNotifier {
         _state = PokerState.inLobby;
       }
 
-      print('DEBUG: refreshGameState - Updated state to: $_state, isMyTurn: $isMyTurn');
-      
+      print(
+          'DEBUG: refreshGameState - Updated state to: $_state, isMyTurn: $isMyTurn');
+
       notifyListeners();
     } catch (e) {
       errorMessage = 'GetGameState failed: $e';
@@ -948,8 +945,14 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      final resp = await poker.getLastWinners(pr.GetLastWinnersRequest()..tableId = tid);
-      lastWinners = List.unmodifiable(resp.winners.map(UiWinner.fromProto));
+      final respMap = await Golib.getLastWinners();
+      // Convert JSON map back to protobuf GetLastWinnersResponse
+      final winnersJson = respMap['winners'] as List<dynamic>;
+      final winners = winnersJson.map((w) {
+        final winnerJsonStr = jsonEncode(w);
+        return pr.Winner.fromJson(winnerJsonStr);
+      }).toList();
+      lastWinners = List.unmodifiable(winners.map(UiWinner.fromProto));
       notifyListeners();
     } catch (_) {
       // ignore; cache stays as-is
@@ -958,8 +961,37 @@ class PokerModel extends ChangeNotifier {
 
   Future<pr.EvaluateHandResponse?> evaluateCards(List<pr.Card> cards) async {
     try {
-      final resp = await poker.evaluateHand(pr.EvaluateHandRequest()..cards.addAll(cards));
-      return resp;
+      // Convert protobuf cards to CardArg format
+      final cardArgs = cards.map((c) {
+        // Convert suit string to int (Spades=0, Hearts=1, Diamonds=2, Clubs=3)
+        int suitInt = 0;
+        switch (c.suit) {
+          case 'Spades':
+            suitInt = 0;
+            break;
+          case 'Hearts':
+            suitInt = 1;
+            break;
+          case 'Diamonds':
+            suitInt = 2;
+            break;
+          case 'Clubs':
+            suitInt = 3;
+            break;
+        }
+        // Convert value string to int (2-10, J=11, Q=12, K=13, A=14)
+        int valueInt = int.tryParse(c.value) ?? 0;
+        if (c.value == 'J') valueInt = 11;
+        if (c.value == 'Q') valueInt = 12;
+        if (c.value == 'K') valueInt = 13;
+        if (c.value == 'A') valueInt = 14;
+        return CardArg(suitInt, valueInt);
+      }).toList();
+
+      final respMap = await Golib.evaluateHand(EvaluateHandArgs(cardArgs));
+      // Convert JSON map back to protobuf EvaluateHandResponse
+      final respJsonStr = jsonEncode(respMap);
+      return pr.EvaluateHandResponse.fromJson(respJsonStr);
     } catch (e) {
       errorMessage = 'EvaluateHand failed: $e';
       notifyListeners();
@@ -968,13 +1000,11 @@ class PokerModel extends ChangeNotifier {
   }
 
   // -------- Helpers ----------
-  UiPlayer? get me =>
-      game?.players.firstWhereOrNull((p) => p.id == playerId);
+  UiPlayer? get me => game?.players.firstWhereOrNull((p) => p.id == playerId);
 
   bool get iAmReady => _iAmReady;
 
-  bool get isMyTurn =>
-      game != null && game!.currentPlayerId == playerId;
+  bool get isMyTurn => game != null && game!.currentPlayerId == playerId;
 
   bool get canBet {
     final g = game;

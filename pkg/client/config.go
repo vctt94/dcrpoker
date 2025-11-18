@@ -1,298 +1,230 @@
 package client
 
 import (
+	"bufio"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/vctt94/bisonbotkit/config"
-	brconfig "github.com/vctt94/bisonbotkit/config"
-	"github.com/vctt94/bisonbotkit/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
-// ConfigOverrides carries optional CLI/runtime overrides for config values.
-type ConfigOverrides struct {
-	BRClientRPCURL  string
-	BRClientCert    string
-	BRClientRPCCert string
-	BRClientRPCKey  string
-	RPCUser         string
-	RPCPass         string
+// defaultServerCertPEM is written to <datadir>/ca.cert on first run when creating
+// a default config, so the UI has a usable TLS cert path out of the box.
+const defaultServerCertPEM = `-----BEGIN CERTIFICATE-----
+MIIBizCCATKgAwIBAgIQbtFxrgQfuhUSaHsw+tbNoDAKBggqhkjOPQQDAjAmMREw
+DwYDVQQKEwhnZW5jZXJ0czERMA8GA1UEAxMIZ2VuY2VydHMwHhcNMjUxMTA4MTU1
+MjQzWhcNMzUxMTA3MTU1MjQzWjAmMREwDwYDVQQKEwhnZW5jZXJ0czERMA8GA1UE
+AxMIZ2VuY2VydHMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQoLsfKo3eU1B1c
++GuDgatRBnI889XhmVet8aIGlew+A4hsUyduD8LfP1k7aZ3bHNIq+4H5LLg3sVj8
+hNseJ/cFo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
+HQ4EFgQURzfqDTuTTKzRYgMTW1IZiUhFjRIwCgYIKoZIzj0EAwIDRwAwRAIgfTUP
+ufQQaHv0dXYDwWfYgL2ry5vLM7xPy9l2iDxWRDcCIADhyHCj1r+M3p6/5yaJNZxd
+TLq8HnLRGlOPhEKOCgit
+-----END CERTIFICATE-----`
 
-	// Pong-specific (stored under ExtraConfig in the .conf)
-	GRPCHost       string
-	GRPCPort       string
-	GRPCServerCert string
-	PayoutAddress  string
-}
+// PokerConf is the config loaded from our .conf
+type PokerConf struct {
+	// Absolute directory where the config/logs live.
+	Datadir string
 
-// PokerClientConfig is the unified configuration structure that handles all configuration concerns
-type AppConfig struct {
-	// BRConfig holds the brclient configuration options
-	BRConfig *config.ClientConfig
-
-	// Data directory
-	DataDir string
-
-	// Explicit player ID (used in offline/testing mode)
-	PlayerID string
-
-	// gRPC server configuration
-	GRPCHost       string
-	GRPCPort       string
-	GRPCServerCert string
+	// Extracted Poker gRPC settings
+	GRPCHost     string // gRPC server hostname
+	GRPCPort     string // gRPC server port
+	GRPCCertPath string // Path to gRPC server certificate
 
 	PayoutAddress string
-	// Notifications
-	Notifications *NotificationManager
 
-	// Test/dev toggles
-	Insecure bool // use insecure gRPC (no TLS)
-	Offline  bool // do not initialize/connect to BisonRelay
+	LogFile        string
+	Debug          string
+	MaxLogFiles    int
+	MaxBufferLines int
 }
 
-// LoadConfig loads and processes the complete configuration from files only
-func LoadConfig(appName string, datadir string, ov ConfigOverrides) (*AppConfig, error) {
-	// Set up configuration directory
-	if datadir == "" {
-		datadir = utils.AppDataDir(appName, false)
-	}
-	cfg, err := brconfig.LoadClientConfig(datadir, appName+".conf")
+// parseClientConfigFile parses the config file at the given path into a PokerConf struct.
+func parseClientConfigFile(configPath string, appName string) (*PokerConf, error) {
+	file, err := os.Open(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
+		return nil, err
 	}
+	defer file.Close()
 
-	// Apply BR RPC/TLS overrides
-	if ov.BRClientRPCURL != "" {
-		cfg.RPCURL = ov.BRClientRPCURL
-	}
-	if ov.BRClientCert != "" {
-		cfg.BRClientCert = ov.BRClientCert
-	}
-	if ov.BRClientRPCCert != "" {
-		cfg.BRClientRPCCert = ov.BRClientRPCCert
-	}
-	if ov.BRClientRPCKey != "" {
-		cfg.BRClientRPCKey = ov.BRClientRPCKey
-	}
-	if ov.RPCUser != "" {
-		cfg.RPCUser = ov.RPCUser
-	}
-	if ov.RPCPass != "" {
-		cfg.RPCPass = ov.RPCPass
-	}
+	cfg := &PokerConf{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := scanner.Text()
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
 
-	// Pong gRPC settings live in ExtraConfig; let overrides win but persist in cfg
-	grpcHost := cfg.GetString("grpchost")
-	if ov.GRPCHost != "" {
-		grpcHost = ov.GRPCHost
-		cfg.SetString("grpchost", grpcHost)
-	}
-	grpcPort := cfg.GetString("grpcport")
-	if ov.GRPCPort != "" {
-		grpcPort = ov.GRPCPort
-		cfg.SetString("grpcport", grpcPort)
-	}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
 
-	grpcCert := cfg.GetString("grpcservercert")
-	if ov.GRPCServerCert != "" {
-		grpcCert = ov.GRPCServerCert
-		cfg.SetString("grpcservercert", grpcCert)
-	}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
 
-	// Payout address
-	addr := cfg.GetString("address")
-	if ov.PayoutAddress != "" {
-		addr = ov.PayoutAddress
-		cfg.SetString("address", addr)
-	}
-
-	return &AppConfig{
-		BRConfig:       cfg,
-		DataDir:        datadir,
-		GRPCHost:       grpcHost,
-		GRPCPort:       grpcPort,
-		GRPCServerCert: grpcCert,
-		PayoutAddress:  addr,
-	}, nil
-}
-
-// LoadAppConfig loads the pokerui application config with optional overrides.
-func LoadAppConfig(datadir string, ov ConfigOverrides) (*AppConfig, error) {
-	return LoadConfig("pokerui", datadir, ov)
-}
-
-// SetConfigValues allows the main app to override configuration values from flags or other sources
-func (cfg *AppConfig) SetConfigValues(values map[string]interface{}) {
-	for key, value := range values {
 		switch key {
-		case "id", "playerid":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.PlayerID = v
-			}
-		case "brrpcurl":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.RPCURL = v
-			}
-		case "grpcservercert":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.GRPCServerCert = v
-			}
-		case "brclientcert":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.BRClientCert = v
-			}
-		case "brclientrpccert":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.BRClientRPCCert = v
-			}
-		case "brclientrpckey":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.BRClientRPCKey = v
-			}
-		case "rpcuser":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.RPCUser = v
-			}
-		case "rpcpass":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.RPCPass = v
-			}
+		case "datadir":
+			cfg.Datadir = value
 		case "grpchost":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.GRPCHost = v
-			}
+			cfg.GRPCHost = value
 		case "grpcport":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.GRPCPort = v
-			}
+			cfg.GRPCPort = value
+		case "grpccertpath":
+			cfg.GRPCCertPath = value
+		case "payoutaddress":
+			cfg.PayoutAddress = value
 		case "logfile":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.LogFile = v
-			}
-		case "maxlogfiles":
-			if v, ok := value.(int); ok {
-				cfg.BRConfig.MaxLogFiles = v
-			}
-		case "maxbufferlines":
-			if v, ok := value.(int); ok {
-				cfg.BRConfig.MaxBufferLines = v
+			cfg.LogFile = value
+			if cfg.LogFile == "" {
+				cfg.LogFile = filepath.Join(cfg.Datadir, "logs", appName+".log")
 			}
 		case "debug":
-			if v, ok := value.(string); ok && v != "" {
-				cfg.BRConfig.Debug = v
+			cfg.Debug = value
+			if cfg.Debug == "" {
+				cfg.Debug = "info"
 			}
-		case "grpcinsecure":
-			if v, ok := value.(bool); ok {
-				cfg.Insecure = v
+		case "maxlogfiles":
+			fmt.Sscanf(value, "%d", &cfg.MaxLogFiles)
+			if cfg.MaxLogFiles == 0 {
+				cfg.MaxLogFiles = 5
 			}
-		case "offline":
-			if v, ok := value.(bool); ok {
-				cfg.Offline = v
+		case "maxbufferlines":
+			fmt.Sscanf(value, "%d", &cfg.MaxBufferLines)
+			if cfg.MaxBufferLines == 0 {
+				cfg.MaxBufferLines = 1000
 			}
+		default:
+			// Ignore unknown keys to preserve forward-compatibility with older configs.
+			continue
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	var missing []string
+	// Check all required fields after parsing (in case keys were missing entirely)
+	if strings.TrimSpace(cfg.Datadir) == "" {
+		missing = append(missing, "datadir")
+	}
+	if strings.TrimSpace(cfg.GRPCHost) == "" {
+		missing = append(missing, "grpchost")
+	}
+	if strings.TrimSpace(cfg.GRPCPort) == "" {
+		missing = append(missing, "grpcport")
+	}
+	if strings.TrimSpace(cfg.GRPCCertPath) == "" {
+		missing = append(missing, "grpccertpath")
+	}
+
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
+	}
+
+	return cfg, nil
 }
 
-// ValidateConfig checks that all required configuration values are present
-func (cfg *AppConfig) ValidateConfig() error {
-	var missingConfigs []string
-
-	if cfg.GRPCHost == "" {
-		missingConfigs = append(missingConfigs, "GRPCHost")
-	}
-	if cfg.GRPCPort == "" {
-		missingConfigs = append(missingConfigs, "GRPCPort")
-	}
-	if !cfg.Insecure {
-		if cfg.GRPCServerCert == "" {
-			missingConfigs = append(missingConfigs, "GRPCServerCert")
-		}
+// LoadClientConf attempts to load the client config (.conf) from the default locations.
+func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
+	// Check if fileName has .conf extension
+	if !strings.HasSuffix(fileName, ".conf") {
+		return nil, fmt.Errorf("filename must have .conf extension, got: %s", fileName)
 	}
 
-	if !cfg.Offline {
-		if cfg.BRConfig.RPCURL == "" {
-			missingConfigs = append(missingConfigs, "RPCURL")
-		}
-		if cfg.BRConfig.RPCUser == "" {
-			missingConfigs = append(missingConfigs, "RPCUser")
-		}
-		if cfg.BRConfig.RPCPass == "" {
-			missingConfigs = append(missingConfigs, "RPCPass")
-		}
-		if cfg.BRConfig.BRClientCert == "" {
-			missingConfigs = append(missingConfigs, "BRClientCert")
-		}
-		if cfg.BRConfig.BRClientRPCCert == "" {
-			missingConfigs = append(missingConfigs, "BRClientRPCCert")
-		}
-		if cfg.BRConfig.BRClientRPCKey == "" {
-			missingConfigs = append(missingConfigs, "BRClientRPCKey")
-		}
+	// Get app name by removing .conf extension
+	appName := strings.TrimSuffix(fileName, ".conf")
+
+	// Require explicit configPath; callers must provide the sandboxed dir.
+	if strings.TrimSpace(configPath) == "" {
+		return nil, fmt.Errorf("configPath is required")
 	}
 
-	if len(missingConfigs) > 0 {
-		return fmt.Errorf("missing required configuration values: %v", missingConfigs)
+	// Ensure the config directory exists
+	if err := os.MkdirAll(configPath, 0700); err != nil {
+		return nil, err
 	}
 
-	return nil
+	// Try to load existing config
+	fullPath := filepath.Join(configPath, fileName)
+	if _, err := os.Stat(fullPath); err == nil {
+		cfg, err := parseClientConfigFile(fullPath, appName)
+		if err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
+
+	// Create default config pointing at a local pokerbot instance.
+	// The Flutter UI and CLI can both override these values later, but this
+	// keeps first-run fully local without requiring user input.
+	cfg := &PokerConf{
+		Datadir:        configPath,
+		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
+		GRPCHost:       "127.0.0.1",
+		GRPCPort:       "50051",
+		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
+		Debug:          "info",
+		MaxLogFiles:    5,
+		MaxBufferLines: 1000,
+	}
+
+	// Write default config
+	if err := writeClientConfigFile(cfg, fullPath); err != nil {
+		return nil, err
+	}
+
+	// Write default certificate
+	if err := CreateDefaultServerCert(cfg.GRPCCertPath); err != nil {
+		return nil, fmt.Errorf("failed to create default server cert: %w", err)
+	}
+
+	return cfg, nil
 }
 
-// ToBisonRelayConfig converts PokerClientConfig to BisonRelay's ClientConfig
-func (cfg *AppConfig) ToBisonRelayConfig() *config.ClientConfig {
-	brConfig := &config.ClientConfig{
-		DataDir:         cfg.DataDir,
-		RPCURL:          cfg.BRConfig.RPCURL,
-		BRClientCert:    cfg.BRConfig.BRClientCert,
-		BRClientRPCCert: cfg.BRConfig.BRClientRPCCert,
-		BRClientRPCKey:  cfg.BRConfig.BRClientRPCKey,
-		RPCUser:         cfg.BRConfig.RPCUser,
-		RPCPass:         cfg.BRConfig.RPCPass,
-		Debug:           cfg.BRConfig.Debug,
-		LogFile:         cfg.BRConfig.LogFile,
-		MaxLogFiles:     cfg.BRConfig.MaxLogFiles,
-		MaxBufferLines:  cfg.BRConfig.MaxBufferLines,
-		ExtraConfig:     make(map[string]string),
-	}
+// WriteClientConfigFile writes the configuration to a file.
+func WriteClientConfigFile(cfg *PokerConf, configPath string) error {
+	configData := fmt.Sprintf(
+		`datadir=%s
+grpchost=%s
+grpcport=%s
+grpccertpath=%s
+payoutaddress=%s
+logfile=%s
+debug=%s
+maxlogfiles=%d
+maxbufferlines=%d
+`,
+		cfg.Datadir,
+		cfg.GRPCHost,
+		cfg.GRPCPort,
+		cfg.GRPCCertPath,
+		cfg.PayoutAddress,
+		cfg.LogFile,
+		cfg.Debug,
+		cfg.MaxLogFiles,
+		cfg.MaxBufferLines,
+	)
 
-	// Set grpchost and grpcport in ExtraConfig
-	if cfg.GRPCHost != "" {
-		brConfig.SetString("grpchost", cfg.GRPCHost)
-	}
-	if cfg.GRPCPort != "" {
-		brConfig.SetString("grpcport", cfg.GRPCPort)
-	}
-
-	return brConfig
+	return os.WriteFile(configPath, []byte(configData), 0600)
 }
 
-// CreateDefaultServerCert creates a basic server certificate file for testing
-func (cfg *AppConfig) CreateDefaultServerCert() error {
-	return CreateDefaultServerCert(cfg.GRPCServerCert)
+// writeClientConfigFile is a wrapper for backward compatibility.
+func writeClientConfigFile(cfg *PokerConf, configPath string) error {
+	return WriteClientConfigFile(cfg, configPath)
 }
 
 // CreateDefaultServerCert creates a basic server certificate file for testing
 // Note: In production, you should use a proper certificate from your server
 func CreateDefaultServerCert(certPath string) error {
-	// This is a placeholder self-signed certificate for development/testing
-	// In production, you should get this from your actual server
-	defaultCert := `-----BEGIN CERTIFICATE-----
-MIIBzDCCAXGgAwIBAgIRAKzgtkERbGLTLSM3kvtKq4YwCgYIKoZIzj0EAwIwKzER
-MA8GA1UEChMIZ2VuY2VydHMxFjAUBgNVBAMTDTE5Mi4xNjguMC4xMDkwHhcNMjUw
-NTIxMTcwMzEyWhcNMzUwNTIwMTcwMzEyWjArMREwDwYDVQQKEwhnZW5jZXJ0czEW
-MBQGA1UEAxMNMTkyLjE2OC4wLjEwOTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
-BCeYEkUALzxW+deCYqEXk9n5SXpm/0k7cprUzOhyxo3rgFEcXAswmtuTj4aRItsV
-mHWffXRqnTRQmPMjlngoHBijdjB0MA4GA1UdDwEB/wQEAwIChDAPBgNVHRMBAf8E
-BTADAQH/MB0GA1UdDgQWBBQVCe1KJ5IC9UbKr0CxQ8zoc/DcQTAyBgNVHREEKzAp
-gglsb2NhbGhvc3SHBMCoAG2HBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwCgYIKoZI
-zj0EAwIDSQAwRgIhAK2zFZM5R6hjDnSVDZFqgL7Glnc1kYm0WwAyuqQ3u6pSAiEA
-stnyeJa1nliPo5mCKwgl5c2S/knBIm6f0y61CN6IFWw=
------END CERTIFICATE-----`
-
 	// Create directory for cert file if it doesn't exist
 	dir := filepath.Dir(certPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -300,7 +232,7 @@ stnyeJa1nliPo5mCKwgl5c2S/knBIm6f0y61CN6IFWw=
 	}
 
 	// Write the certificate file
-	if err := os.WriteFile(certPath, []byte(defaultCert), 0600); err != nil {
+	if err := os.WriteFile(certPath, []byte(defaultServerCertPEM), 0600); err != nil {
 		return fmt.Errorf("failed to write cert file %s: %v", certPath, err)
 	}
 

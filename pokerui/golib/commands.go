@@ -45,6 +45,17 @@ const (
 	CTGetPokerBalance         CmdType = 0x16
 	CTCreateDefaultConfig     CmdType = 0x17
 	CTCreateDefaultServerCert CmdType = 0x18
+	CTShowCards               CmdType = 0x19
+	CTHideCards               CmdType = 0x1a
+	CTMakeBet                 CmdType = 0x1b
+	CTCallBet                 CmdType = 0x1c
+	CTFoldBet                 CmdType = 0x1d
+	CTCheckBet                CmdType = 0x1e
+	CTGetGameState            CmdType = 0x1f
+	CTGetLastWinners          CmdType = 0x20
+	CTEvaluateHand            CmdType = 0x21
+	CTSetPlayerReady          CmdType = 0x22
+	CTSetPlayerUnready        CmdType = 0x23
 
 	CTCreateLockFile        CmdType = 0x60
 	CTCloseLockFile         CmdType = 0x61

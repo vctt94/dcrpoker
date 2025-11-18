@@ -188,8 +188,8 @@ Future<String> defaultAppDataDir() async {
 
 Future<Config> configFromArgs(List<String> args) async {
   final cfgFilePath = path.join(await defaultAppDataDir(), '$APPNAME.conf');
-  if (!File(cfgFilePath).existsSync()) {
-    throw newConfigNeededException;
-  }
+  // Do not force the user through the interactive "new config" flow on first
+  // start. Instead, let the Go backend auto-create a sane default config based
+  // on the computed data directory when none exists yet.
   return Config.loadConfig(cfgFilePath);
 }
