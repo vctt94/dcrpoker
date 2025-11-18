@@ -255,12 +255,13 @@ func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot
 	if snapshot == nil {
 		return nil
 	}
-
-	// Use tableID to collect fresh snapshot for each player
-	tableID := snapshot.ID
 	gameStates := make(map[string]*pokerrpc.GameUpdate)
 	for _, playerSnapshot := range snapshot.Players {
-		gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableID, playerSnapshot.ID)
+		if playerSnapshot == nil {
+			continue
+		}
+		// Build per-player updates from the provided table snapshot.
+		gameUpdate, err := gsh.buildGameUpdateFromTableSnapshot(snapshot, playerSnapshot.ID)
 		if err != nil {
 			gsh.server.log.Errorf("Error building game update for player %s: %v", playerSnapshot.ID, err)
 			continue
@@ -272,13 +273,16 @@ func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot
 	return gameStates
 }
 
-func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, requestingPlayerID string) (*pokerrpc.GameUpdate, error) {
-	// Collect table snapshot internally to avoid passing incomplete snapshots
-	tableSnapshot, err := gsh.server.collectTableSnapshot(tableID)
-	if err != nil {
-		return nil, err
+func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableSnapshot *TableSnapshot, requestingPlayerID string) (*pokerrpc.GameUpdate, error) {
+	if tableSnapshot == nil {
+		return nil, nil
 	}
+	return gsh.buildGameUpdateFromTableSnapshot(tableSnapshot, requestingPlayerID)
+}
 
+// buildGameUpdateFromTableSnapshot builds a GameUpdate for a single requesting
+// player from an already-collected TableSnapshot.
+func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *TableSnapshot, requestingPlayerID string) (*pokerrpc.GameUpdate, error) {
 	// Early return if no game snapshot - return basic table info without game data
 	if tableSnapshot.GameSnapshot == nil {
 		// Build players list from snapshot data
@@ -323,8 +327,6 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, request
 
 		if ps.ID == requestingPlayerID {
 			// Show own cards during all active game phases
-			gamePhase := tableSnapshot.GameSnapshot.Phase
-
 			if len(ps.Hand) > 0 {
 				player.Hand = make([]*pokerrpc.Card, len(ps.Hand))
 				for i, card := range ps.Hand {
@@ -334,9 +336,6 @@ func (gsh *GameStateHandler) buildGameUpdateFromSnapshot(tableID string, request
 					}
 				}
 				gsh.server.log.Debugf("GameStateHandler: showing %d cards to player %s", len(player.Hand), ps.ID)
-			} else {
-				gsh.server.log.Debugf("GameStateHandler: NOT showing cards to player %s (phase=%v, handSize=%d)",
-					ps.ID, gamePhase, len(ps.Hand))
 			}
 		} else if tableSnapshot.GameSnapshot.Phase == pokerrpc.GamePhase_SHOWDOWN {
 			// Show other players' cards only during showdown

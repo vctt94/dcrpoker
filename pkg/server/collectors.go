@@ -109,17 +109,20 @@ func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 
 	// Snapshot table data under table lock, then release before calling game methods
 	// This follows the policy: release lock before calling into other objects
-	users := t.GetUsers()
-	config := t.GetConfig()
+	// Use GetStateSnapshot() to safely copy User fields (IsReady, IsDisconnected) under lock
+	tableSnapshot := t.GetStateSnapshot()
+
+	config := tableSnapshot.Config
 	gameStarted := t.IsGameStarted()
 	allPlayersReady := t.CheckAllPlayersReady()
-	game := t.GetGame() // Get reference, don't hold lock while using it
+	game := t.GetGame() // Get reference
 
 	// Release table lock before accessing game/player methods (lock hierarchy)
 	// Collect player snapshots (may access game/player locks)
-	players := make([]*PlayerSnapshot, 0, len(users))
-	for _, user := range users {
-		playerSnapshot := s.collectPlayerSnapshot(user, game)
+	// Use the safe User copies from the snapshot to avoid race conditions
+	players := make([]*PlayerSnapshot, 0, len(tableSnapshot.Users))
+	for _, safeUser := range tableSnapshot.Users {
+		playerSnapshot := s.collectPlayerSnapshot(&safeUser, game)
 		players = append(players, playerSnapshot)
 	}
 
@@ -135,7 +138,7 @@ func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 	tableState := TableState{
 		GameStarted:     gameStarted,
 		AllPlayersReady: allPlayersReady,
-		PlayerCount:     len(users),
+		PlayerCount:     len(tableSnapshot.Users),
 	}
 
 	return &TableSnapshot{

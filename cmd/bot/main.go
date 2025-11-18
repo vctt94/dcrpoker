@@ -230,8 +230,9 @@ func realMain() error {
 
 	select {
 	case <-sigCh:
-		// Graceful stop: stop poker internals then gRPC
-		pokerServer.Stop()
+		// Graceful stop: first stop gRPC so that all
+		// active RPC streams are torn down, then stop
+		// poker internals which waits for stream handlers.
 		done := make(chan struct{})
 		go func() { grpcServer.GracefulStop(); close(done) }()
 		select {
@@ -239,6 +240,7 @@ func realMain() error {
 		case <-time.After(10 * time.Second):
 			grpcServer.Stop()
 		}
+		pokerServer.Stop()
 		cancel()
 		log.Infof("Shutdown complete")
 		return nil
@@ -250,8 +252,8 @@ func realMain() error {
 		return err
 	case err := <-runCh:
 		// Bot exited on its own; stop gRPC as well
-		pokerServer.Stop()
 		grpcServer.Stop()
+		pokerServer.Stop()
 		return err
 	}
 }

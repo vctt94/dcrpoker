@@ -992,14 +992,49 @@ func TestBasicBetting(t *testing.T) {
 	// Current bet should be big blind amount (20)
 	assert.Equal(t, int64(20), state.CurrentBet, "current bet should be big blind (20)")
 
+	// Helper: perform a bet with retry on transient turn/phase races.
+	betWithRetry := func(playerID string, amount int64) {
+		deadline := time.Now().Add(1 * time.Second)
+		var err error
+		for {
+			_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
+				PlayerId: playerID,
+				TableId:  tableID,
+				Amount:   amount,
+			})
+			if err == nil {
+				return
+			}
+			// Retry on transient "not your turn / phase changed" errors while within deadline.
+			if !isTransientTurnError(err) || time.Now().After(deadline) {
+				require.NoError(t, err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	// Helper: perform a check with retry on transient turn/phase races.
+	checkWithRetry := func(playerID string) {
+		deadline := time.Now().Add(1 * time.Second)
+		var err error
+		for {
+			_, err = env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
+				PlayerId: playerID,
+				TableId:  tableID,
+			})
+			if err == nil {
+				return
+			}
+			if !isTransientTurnError(err) || time.Now().After(deadline) {
+				require.NoError(t, err)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
 	// First player (dealer) calls the big blind (20)
 	waitForTurnBasic(dealerID, 2*time.Second)
-	_, err := env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: dealerID,
-		TableId:  tableID,
-		Amount:   20,
-	})
-	require.NoError(t, err)
+	betWithRetry(dealerID, 20)
 
 	// Check pot is now 50 (30 from blinds + 20 from dealer's call)
 	state = env.getGameState(ctx, tableID)
@@ -1007,12 +1042,7 @@ func TestBasicBetting(t *testing.T) {
 
 	// Small blind calls by betting 20 total (needs to add 10 more to their existing 10)
 	waitForTurnBasic(sbID, 2*time.Second)
-	_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: sbID,
-		TableId:  tableID,
-		Amount:   20,
-	})
-	require.NoError(t, err)
+	betWithRetry(sbID, 20)
 
 	// Check pot is now 60 (50 + 10 more from SB)
 	state = env.getGameState(ctx, tableID)
@@ -1020,11 +1050,7 @@ func TestBasicBetting(t *testing.T) {
 
 	// Big blind can check (already has 20 bet)
 	waitForTurnBasic(bbID, 2*time.Second)
-	_, err = env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
-		PlayerId: bbID,
-		TableId:  tableID,
-	})
-	require.NoError(t, err)
+	checkWithRetry(bbID)
 
 	// Pot should still be 60 after check
 	state = env.getGameState(ctx, tableID)
@@ -2318,31 +2344,70 @@ func TestThreePlayerAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 		currentPlayer := state.CurrentPlayer
 		currentPhase := state.Phase
 
-		_, err = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-			PlayerId: currentPlayer,
-			TableId:  tableID,
-			Amount:   100,
-		})
+		// Helper: place an all-in bet for the snapshot current player, but only
+		// once their isTurn flag is true in the live game state. This avoids
+		// racing against the player's FSM not having processed StartTurn yet.
+		var betErr error
+		ok := assert.Eventually(t, func() bool {
+			st := env.getGameState(ctx, tableID)
+			// If phase already changed, stop trying in this helper; the outer
+			// logic will detect the phase change and treat it as auto-advance.
+			if st.Phase != currentPhase {
+				return false
+			}
+			if st.CurrentPlayer != currentPlayer {
+				return false
+			}
 
-		if err == nil {
-			allInPlayers = append(allInPlayers, currentPlayer)
-			t.Logf("Player %s went all-in", currentPlayer)
-
-			// Wait for turn to advance or phase to change
-			require.Eventually(t, func() bool {
-				newState := env.getGameState(ctx, tableID)
-				// Stop if phase changed (auto-advance triggered)
-				if newState.Phase != currentPhase {
-					return true
+			// Find the player snapshot and ensure it's actually their turn.
+			var self *pokerrpc.Player
+			for _, p := range st.Players {
+				if p.Id == currentPlayer {
+					self = p
+					break
 				}
-				// Stop if turn advanced to next player
-				return newState.CurrentPlayer != currentPlayer
-			}, 2*time.Second, 10*time.Millisecond, "turn or phase should advance after all-in")
-		} else {
-			// Bet failed - likely phase changed or not player's turn
-			t.Logf("Bet attempt %d failed (expected if phase advanced): %v", i+1, err)
-			break
+			}
+			if self == nil || !self.IsTurn {
+				return false
+			}
+
+			// Now attempt the bet.
+			_, betErr = env.pokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
+				PlayerId: currentPlayer,
+				TableId:  tableID,
+				Amount:   100,
+			})
+			if betErr != nil && isTransientTurnError(betErr) {
+				return false
+			}
+			return betErr == nil
+		}, 2*time.Second, 10*time.Millisecond, "failed to place all-in bet for player %s", currentPlayer)
+
+		if !ok {
+			// If we couldn't place the bet and phase has already advanced, treat
+			// this as the auto-advance being triggered early and stop trying.
+			newState := env.getGameState(ctx, tableID)
+			t.Logf("Bet attempt %d failed; current phase=%v (was %v), error=%v", i+1, newState.Phase, currentPhase, betErr)
+			if newState.Phase != currentPhase {
+				break
+			}
+			// Same phase and non-transient failure: this is a real error.
+			require.NoError(t, betErr)
 		}
+
+		allInPlayers = append(allInPlayers, currentPlayer)
+		t.Logf("Player %s went all-in", currentPlayer)
+
+		// Wait for turn to advance or phase to change
+		require.Eventually(t, func() bool {
+			newState := env.getGameState(ctx, tableID)
+			// Stop if phase changed (auto-advance triggered)
+			if newState.Phase != currentPhase {
+				return true
+			}
+			// Stop if turn advanced to next player
+			return newState.CurrentPlayer != currentPlayer
+		}, 2*time.Second, 10*time.Millisecond, "turn or phase should advance after all-in")
 
 		// Check if phase advanced (all players all-in triggered auto-advance)
 		if env.getGameState(ctx, tableID).Phase != currentPhase {

@@ -65,10 +65,12 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 
 	// 2) Start first server instance
 	boot1 := start(t)
-	defer boot1.grpc.Stop()
-	defer boot1.conn.Close()
-	defer boot1.srv.Stop()
+	// Ensure cleanup order: stop gRPC client/server before stopping the Server,
+	// so stream handlers can exit before Server.Stop waits on them.
 	defer boot1.db.Close()
+	defer boot1.srv.Stop()
+	defer boot1.conn.Close()
+	defer boot1.grpc.Stop()
 
 	// Seed balances
 	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
@@ -311,10 +313,10 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 
 	// 5) Start second server instance (restore from snapshot)
 	boot2 := start(t)
-	defer boot2.grpc.Stop()
-	defer boot2.conn.Close()
-	defer boot2.srv.Stop()
 	defer boot2.db.Close()
+	defer boot2.srv.Stop()
+	defer boot2.conn.Close()
+	defer boot2.grpc.Stop()
 
 	// Reconnect both players (read a single initial snapshot to ensure stream is established)
 	s1r, err := boot2.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p1})

@@ -1175,6 +1175,7 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 			DCRAccountBalance: user.DCRAccountBalance,
 			TableSeat:         user.TableSeat,
 			IsReady:           user.IsReady,
+			IsDisconnected:    user.IsDisconnected,
 			JoinedAt:          user.JoinedAt,
 		}
 		usersCopy = append(usersCopy, userCopy)
@@ -1217,6 +1218,22 @@ func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error 
 	}
 
 	u.DCRAccountBalance = newBalance
+	return nil
+}
+
+// SetUserDisconnected safely updates the IsDisconnected status of a user seated at the table.
+// It acquires the table lock to synchronize concurrent access so that readers (e.g. state snapshots)
+// don't race with writers.
+func (t *Table) SetUserDisconnected(userID string, disconnected bool) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	u, ok := t.users[userID]
+	if !ok {
+		return fmt.Errorf("user not found at table")
+	}
+
+	u.IsDisconnected = disconnected
 	return nil
 }
 

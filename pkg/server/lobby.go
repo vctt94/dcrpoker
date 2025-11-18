@@ -216,20 +216,23 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	isHost := req.PlayerId == config.HostID
 
 	// Check if player has chips in an active game
+	// Snapshot game reference under lock (following locking policy: snapshot pattern)
 	var playerChips int64
-	if table.IsGameStarted() && table.GetGame() != nil {
+	if table.IsGameStarted() {
 		game := table.GetGame()
-		for _, p := range game.GetPlayers() {
-			if p.ID() == req.PlayerId {
-				playerChips = p.Balance()
-				break
+		if game != nil {
+			for _, p := range game.GetPlayers() {
+				if p.ID() == req.PlayerId {
+					playerChips = p.Balance()
+					break
+				}
 			}
 		}
 	}
 
 	// If a hand is in progress AND player still has chips, keep the seat (disconnect)
 	if table.IsGameStarted() && playerChips > 0 {
-		user.IsDisconnected = true
+		_ = table.SetUserDisconnected(req.PlayerId, true)
 		// Optional: if you want to persist lobby readiness, add SetReady to Database interface and call it here.
 		s.saveTableStateAsync(req.TableId, "player disconnected")
 

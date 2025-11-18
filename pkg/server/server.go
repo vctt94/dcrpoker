@@ -60,6 +60,9 @@ type Server struct {
 	// WaitGroup to ensure all async save goroutines complete before Shutdown
 	saveWg sync.WaitGroup
 
+	// WaitGroup to ensure all active stream handlers complete before Shutdown
+	streamHandlersWg sync.WaitGroup
+
 	// Event-driven architecture components
 	eventProcessor *EventProcessor
 }
@@ -72,25 +75,33 @@ func NewServer(db Database, logBackend *logging.LogBackend) *Server {
 		db:         db,
 	}
 
-	// Load persisted tables on startup
-	err := server.loadAllTables()
-	if err != nil {
-		server.log.Errorf("Failed to load persisted tables: %v", err)
-	}
-
 	// Initialize event processor for deadlock-free architecture
 	server.eventProcessor = NewEventProcessor(server, 1000, 3) // queue size: 1000, workers: 3
 	server.eventProcessor.Start()
+
+	// Load persisted tables on startup AFTER the event processor is fully
+	// initialized.
+	if err := server.loadAllTables(); err != nil {
+		server.log.Errorf("Failed to load persisted tables: %v", err)
+	}
+
 	return server
 }
 
 // Stop gracefully stops the server
 func (s *Server) Stop() {
+	// First, wait for all active stream handlers to finish so that no new
+	// disconnect handlers can run concurrently with shutdown.
+	s.streamHandlersWg.Wait()
+
+	// Stop the event processor so workers stop reading from the queue and
+	// publishing new events while tables/games are being closed.
 	if s.eventProcessor != nil {
 		s.eventProcessor.Stop()
 	}
 
-	// Close all tables properly to prevent goroutine leaks
+	// Close all tables properly to prevent goroutine leaks. This cascades
+	// into Game and Player shutdown, including state machine Stop() calls.
 	tables := s.getAllTables()
 	for _, table := range tables {
 		table.Close()
