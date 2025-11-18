@@ -959,15 +959,21 @@ func TestIsTurnFlagOnFold(t *testing.T) {
 	var currentPlayerIndex int
 	var currentPlayer PlayerSnapshot
 
+	// First, wait until the live current player object reports IsTurn=true.
 	require.Eventually(t, func() bool {
-		snap = game.GetStateSnapshot()
-		currentPlayerIndex = game.GetCurrentPlayer()
-		if currentPlayerIndex < 0 || currentPlayerIndex >= len(snap.Players) {
+		cp := game.GetCurrentPlayerObject()
+		if cp == nil {
 			return false
 		}
-		currentPlayer = snap.Players[currentPlayerIndex]
-		return currentPlayer.IsTurn
+		return cp.IsTurn()
 	}, 2*time.Second, 10*time.Millisecond, "Current player should be initialized with isTurn=true")
+
+	// Snapshot after turn is known to be active.
+	snap = game.GetStateSnapshot()
+	currentPlayerIndex = game.GetCurrentPlayer()
+	require.GreaterOrEqual(t, currentPlayerIndex, 0)
+	require.Less(t, currentPlayerIndex, len(snap.Players))
+	currentPlayer = snap.Players[currentPlayerIndex]
 
 	// Verify only current player has isTurn
 	for i, p := range snap.Players {
@@ -985,14 +991,25 @@ func TestIsTurnFlagOnFold(t *testing.T) {
 	// Wait for the new current player to get isTurn
 	var newCurrentPlayerIndex int
 	var newCurrentPlayer PlayerSnapshot
+
 	require.Eventually(t, func() bool {
+		// Check live current player object first.
+		cp := game.GetCurrentPlayerObject()
+		if cp == nil {
+			return false
+		}
+		if cp.ID() == currentPlayer.ID {
+			return false // should have advanced
+		}
+		if !cp.IsTurn() {
+			return false
+		}
+
+		// Mirror into snapshot for assertions below.
 		snap = game.GetStateSnapshot()
 		newCurrentPlayerIndex = game.GetCurrentPlayer()
 		if newCurrentPlayerIndex < 0 || newCurrentPlayerIndex >= len(snap.Players) {
 			return false
-		}
-		if newCurrentPlayerIndex == currentPlayerIndex {
-			return false // Should have advanced
 		}
 		newCurrentPlayer = snap.Players[newCurrentPlayerIndex]
 		return newCurrentPlayer.IsTurn
@@ -1564,6 +1581,12 @@ func TestTimebank_AutoFold_Preflop(t *testing.T) {
 		AutoStartDelay:   10 * time.Millisecond,
 		AutoAdvanceDelay: 10 * time.Millisecond,
 	})
+	defer tbl.Close()
+	// Wire a buffered event channel to avoid global drop metrics noise.
+	// We intentionally do not close this channel; tbl.Close() will stop
+	// publishing and goroutines cleanly.
+	evtChFold := make(chan TableEvent, 16)
+	tbl.SetEventChannel(evtChFold)
 
 	// Seat two users and ready
 	require.NoError(t, tbl.AddUser(NewUser("p1", "P1", 0, 0)))
@@ -1636,6 +1659,9 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 		AutoStartDelay:   10 * time.Millisecond,
 		AutoAdvanceDelay: 10 * time.Millisecond,
 	})
+	defer tbl.Close()
+	evtChCheck := make(chan TableEvent, 16)
+	tbl.SetEventChannel(evtChCheck)
 
 	// Seat two users and ready
 	require.NoError(t, tbl.AddUser(NewUser("p1", "P1", 0, 0)))

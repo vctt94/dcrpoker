@@ -188,14 +188,36 @@ func NewGame(cfg GameConfig) (*Game, error) {
 
 func (g *Game) Start(ctx context.Context) { g.sm.Start(ctx) }
 
-// StartFromRestoredSnapshot starts the FSM in a passive restored state that
-// does not mutate game fields on entry and only processes events. This keeps
-// the restored phase/current bet/community cards intact while still allowing
-// evAdvance / timebank / action events to flow through the FSM.
+// StartFromRestoredSnapshot starts the FSM in the correct state based on the
+// restored phase. This allows the game to continue from where it was saved.
 func (g *Game) StartFromRestoredSnapshot(ctx context.Context) {
 	g.mu.Lock()
-	// Replace the state machine with a restored passive state
-	g.sm = statemachine.New(g, stateRestored, 32)
+	phase := g.phase
+	g.mu.Unlock()
+
+	// Select the correct starting state based on the restored phase
+	var initialState GameStateFn
+	switch phase {
+	case pokerrpc.GamePhase_NEW_HAND_DEALING:
+		initialState = stateNewHandDealing
+	case pokerrpc.GamePhase_PRE_FLOP:
+		initialState = statePreFlop
+	case pokerrpc.GamePhase_FLOP:
+		initialState = stateFlop
+	case pokerrpc.GamePhase_TURN:
+		initialState = stateTurn
+	case pokerrpc.GamePhase_RIVER:
+		initialState = stateRiver
+	case pokerrpc.GamePhase_SHOWDOWN:
+		initialState = stateShowdown
+	default:
+		// Fallback to restored state for unknown phases
+		initialState = stateRestored
+	}
+
+	g.mu.Lock()
+	// Replace the state machine with the correct starting state
+	g.sm = statemachine.New(g, initialState, 32)
 	g.mu.Unlock()
 	g.sm.Start(ctx)
 }
@@ -2504,6 +2526,10 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 // dealFlop adds three community cards. Caller MUST hold g.mu.
 func (g *Game) dealFlop() {
 	mustHeld(&g.mu)
+	// Burn one card before dealing the flop (standard poker rule)
+	if _, ok := g.deck.Draw(); ok {
+		g.log.Debugf("CARDS: Burn before flop")
+	}
 	need := 3 - len(g.communityCards)
 	for i := 0; i < need; i++ {
 		if card, ok := g.deck.Draw(); ok {
@@ -2524,6 +2550,10 @@ func (g *Game) dealFlop() {
 // dealTurn adds one community card. Caller MUST hold g.mu.
 func (g *Game) dealTurn() {
 	mustHeld(&g.mu)
+	// Burn one card before dealing the turn
+	if _, ok := g.deck.Draw(); ok {
+		g.log.Debugf("CARDS: Burn before turn")
+	}
 	if len(g.communityCards) < 4 {
 		if card, ok := g.deck.Draw(); ok {
 			g.communityCards = append(g.communityCards, card)
@@ -2543,6 +2573,10 @@ func (g *Game) dealTurn() {
 // dealRiver adds one community card. Caller MUST hold g.mu.
 func (g *Game) dealRiver() {
 	mustHeld(&g.mu)
+	// Burn one card before dealing the river
+	if _, ok := g.deck.Draw(); ok {
+		g.log.Debugf("CARDS: Burn before river")
+	}
 	if len(g.communityCards) < 5 {
 		if card, ok := g.deck.Draw(); ok {
 			g.communityCards = append(g.communityCards, card)

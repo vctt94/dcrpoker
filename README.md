@@ -38,15 +38,16 @@ go mod tidy
 
 ### Running the Server
 
-Start the poker server:
+The bot hosts the gRPC poker server. Start it with TLS and metrics:
 ```bash
-go run cmd/server/main.go
+go run ./cmd/bot \
+  -datadir=$HOME/.pokerbot \
+  -grpchost=127.0.0.1 -grpcport=50051 \
+  -cert=/path/to/server.cert -key=/path/to/server.key \
+  -metricsaddr=127.0.0.1:9090
 ```
 
-The server will start listening on port 50051 by default. You can change the port and database path using flags:
-```bash
-go run cmd/server/main.go -port :50052 -db custom.db
-```
+Metrics are exposed on `/metrics` in Prometheus text format (see docs/METRICS.md).
 
 ### Running the Client
 
@@ -57,7 +58,7 @@ go run cmd/client/main.go
 
 You can specify the server address and player ID:
 ```bash
-go run cmd/client/main.go -server localhost:50052 -player my-player
+go run ./cmd/client -grpchost=127.0.0.1 -grpcport=50051 -player my-player
 ```
 
 ### Run Tests

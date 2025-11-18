@@ -8,83 +8,6 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
-// collectTableSnapshot collects a complete immutable snapshot of table state
-func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
-	// Fetch table pointer from concurrent registry without coarse locks.
-	table, ok := s.getTable(tableID)
-	if !ok {
-		return nil, fmt.Errorf("table not found: %s", tableID)
-	}
-
-	config := table.GetConfig()
-	users := table.GetUsers()
-	game := table.GetGame()
-
-	// Early return if no game exists
-	if game == nil {
-		// Collect player snapshots without game data
-		playerSnapshots := make([]*PlayerSnapshot, 0, len(users))
-		for _, user := range users {
-			snapshot := s.collectPlayerSnapshot(user, nil)
-			playerSnapshots = append(playerSnapshots, snapshot)
-		}
-
-		// Collect table state
-		tableState := TableState{
-			GameStarted:     table.IsGameStarted(),
-			AllPlayersReady: table.AreAllPlayersReady(),
-			PlayerCount:     len(users),
-		}
-
-		return &TableSnapshot{
-			ID:           tableID,
-			Players:      playerSnapshots,
-			GameSnapshot: nil,
-			Config:       config,
-			State:        tableState,
-			Timestamp:    time.Now(),
-		}, nil
-	}
-
-	// Take a stable game snapshot early to avoid racing with live player mutations
-	snap := game.GetStateSnapshot()
-
-	// Collect player snapshots
-	playerSnapshots := make([]*PlayerSnapshot, 0, len(users))
-	for _, user := range users {
-		snapshot := s.collectPlayerSnapshotFromGameSnapshot(user, &snap)
-		playerSnapshots = append(playerSnapshots, snapshot)
-	}
-
-	// Collect game snapshot
-	gameSnapshot := s.collectGameSnapshot(&snap)
-	// Mirror authoritative winners from table's cached lastShowdown, if any
-	if ls := table.GetLastShowdown(); ls != nil && gameSnapshot != nil {
-		if len(ls.Winners) > 0 {
-			gameSnapshot.Winners = make([]string, len(ls.Winners))
-			copy(gameSnapshot.Winners, ls.Winners)
-		} else {
-			gameSnapshot.Winners = nil
-		}
-	}
-
-	// Collect table state
-	tableState := TableState{
-		GameStarted:     table.IsGameStarted(),
-		AllPlayersReady: table.AreAllPlayersReady(),
-		PlayerCount:     len(users),
-	}
-
-	return &TableSnapshot{
-		ID:           tableID,
-		Players:      playerSnapshots,
-		GameSnapshot: gameSnapshot,
-		Config:       config,
-		State:        tableState,
-		Timestamp:    time.Now(),
-	}, nil
-}
-
 // collectPlayerSnapshot collects an immutable snapshot of player state
 func (s *Server) collectPlayerSnapshot(user *poker.User, game *poker.Game) *PlayerSnapshot {
 	snapshot := &PlayerSnapshot{
@@ -94,7 +17,7 @@ func (s *Server) collectPlayerSnapshot(user *poker.User, game *poker.Game) *Play
 		Hand:              make([]poker.Card, 0),
 		DCRAccountBalance: user.DCRAccountBalance,
 		IsReady:           user.IsReady,
-		IsDisconnected:    false,
+		IsDisconnected:    user.IsDisconnected,
 		HasFolded:         false,
 		IsAllIn:           false,
 		IsDealer:          false,
@@ -142,60 +65,6 @@ func (s *Server) collectPlayerSnapshot(user *poker.User, game *poker.Game) *Play
 	return snapshot
 }
 
-// collectPlayerSnapshotFromGameSnapshot builds a PlayerSnapshot using a stable
-// copy of the game state to avoid races with live player mutations.
-func (s *Server) collectPlayerSnapshotFromGameSnapshot(user *poker.User, gs *poker.GameStateSnapshot) *PlayerSnapshot {
-	snapshot := &PlayerSnapshot{
-		ID:                user.ID,
-		TableSeat:         user.TableSeat,
-		Balance:           0,
-		Hand:              make([]poker.Card, 0),
-		DCRAccountBalance: user.DCRAccountBalance,
-		IsReady:           user.IsReady,
-		IsDisconnected:    false,
-		HasFolded:         false,
-		IsAllIn:           false,
-		IsDealer:          false,
-		IsSmallBlind:      false,
-		IsBigBlind:        false,
-		IsTurn:            false,
-		GameState:         "AT_TABLE",
-		HandDescription:   "",
-		HasBet:            0,
-		StartingBalance:   0,
-	}
-
-	if gs == nil || gs.Players == nil {
-		return snapshot
-	}
-
-	for _, player := range gs.Players {
-		if player.ID != user.ID {
-			continue
-		}
-		snapshot.Balance = player.Balance
-		snapshot.HasFolded = player.StateString == "FOLDED"
-		snapshot.IsAllIn = player.StateString == "ALL_IN"
-		snapshot.IsDealer = player.IsDealer
-		snapshot.IsSmallBlind = player.IsSmallBlind
-		snapshot.IsBigBlind = player.IsBigBlind
-		snapshot.IsTurn = player.IsTurn
-		snapshot.GameState = player.StateString
-		snapshot.HandDescription = player.HandDescription
-		snapshot.HasBet = player.CurrentBet
-		snapshot.StartingBalance = player.StartingBalance
-		snapshot.LastAction = player.LastAction
-
-		if len(player.Hand) > 0 {
-			snapshot.Hand = make([]poker.Card, len(player.Hand))
-			copy(snapshot.Hand, player.Hand)
-		}
-		break
-	}
-
-	return snapshot
-}
-
 // collectGameSnapshotStable builds a GameSnapshot from a stable GameStateSnapshot,
 // without falling back to live getters. All required fields must be present.
 func (s *Server) collectGameSnapshot(gs *poker.GameStateSnapshot) *GameSnapshot {
@@ -230,6 +99,58 @@ func (s *Server) collectGameSnapshot(gs *poker.GameStateSnapshot) *GameSnapshot 
 	return snapshot
 }
 
+// collectTableSnapshot collects a complete immutable snapshot of table state
+// Follows lock hierarchy: Table.mu → Game.mu → Player.mu
+func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
+	t, ok := s.getTable(tableID)
+	if !ok || t == nil {
+		return nil, fmt.Errorf("table not found: %s", tableID)
+	}
+
+	// Snapshot table data under table lock, then release before calling game methods
+	// This follows the policy: release lock before calling into other objects
+	// Use GetStateSnapshot() to safely copy User fields (IsReady, IsDisconnected) under lock
+	tableSnapshot := t.GetStateSnapshot()
+
+	config := tableSnapshot.Config
+	gameStarted := t.IsGameStarted()
+	allPlayersReady := t.CheckAllPlayersReady()
+	game := t.GetGame() // Get reference
+
+	// Release table lock before accessing game/player methods (lock hierarchy)
+	// Collect player snapshots (may access game/player locks)
+	// Use the safe User copies from the snapshot to avoid race conditions
+	players := make([]*PlayerSnapshot, 0, len(tableSnapshot.Users))
+	for _, safeUser := range tableSnapshot.Users {
+		playerSnapshot := s.collectPlayerSnapshot(&safeUser, game)
+		players = append(players, playerSnapshot)
+	}
+
+	// Collect game snapshot if game exists (acquires Game.mu internally)
+	var gameSnapshot *GameSnapshot
+	if game != nil {
+		// Get stable game state snapshot to avoid races
+		gs := game.GetStateSnapshot()
+		gameSnapshot = s.collectGameSnapshot(&gs)
+	}
+
+	// Compute table state (using snapshot values, no locks needed)
+	tableState := TableState{
+		GameStarted:     gameStarted,
+		AllPlayersReady: allPlayersReady,
+		PlayerCount:     len(tableSnapshot.Users),
+	}
+
+	return &TableSnapshot{
+		ID:           tableID,
+		Players:      players,
+		GameSnapshot: gameSnapshot,
+		Config:       config,
+		State:        tableState,
+		Timestamp:    time.Now(),
+	}, nil
+}
+
 func (s *Server) buildGameEvent(
 	eventType pokerrpc.NotificationType,
 	tableID string,
@@ -246,11 +167,6 @@ func (s *Server) buildGameEvent(
 			TableSnapshot: nil,
 			Payload:       nil,
 		}, nil
-	}
-
-	tableSnapshot, err := s.collectTableSnapshot(tableID)
-	if err != nil {
-		return nil, err
 	}
 
 	t, ok := s.getTable(tableID)
@@ -277,6 +193,12 @@ func (s *Server) buildGameEvent(
 			s.log.Warnf("Unknown payload type %T for event %s on table %s", payload, eventType, tableID)
 			serverPayload = nil
 		}
+	}
+
+	// Use the reusable table snapshot collection method
+	tableSnapshot, err := s.collectTableSnapshot(tableID)
+	if err != nil {
+		return nil, err
 	}
 
 	return &GameEvent{

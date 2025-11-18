@@ -43,7 +43,8 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
@@ -228,7 +229,8 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
 		gs := grpc.NewServer()
@@ -410,7 +412,8 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
@@ -532,8 +535,11 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 	require.Len(t, p1Hole, 2)
 	require.Len(t, p2Hole, 2)
 
-	// Restart before any flop is dealt
-	stop(b1)
+	// Give async persistence a brief window to flush the PRE_FLOP snapshot.
+	time.Sleep(50 * time.Millisecond)
+
+	// Start second server instance on the same DB without stopping b1 first,
+	// matching the crash-style restart used in server-level snapshot tests.
 	b2 := start(t)
 	defer stop(b2)
 
@@ -618,7 +624,8 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
@@ -851,7 +858,8 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)

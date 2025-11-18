@@ -169,7 +169,8 @@ func (ep *EventProcessor) PublishEvent(event *GameEvent) {
 	ep.mu.Unlock()
 
 	if !started {
-		ep.log.Warnf("Event processor not started, dropping event: %v", event.Type)
+		ep.log.Errorf("Event processor not started, dropping event: %v", event.Type)
+		GetMetrics().IncEventDrop()
 		return
 	}
 
@@ -178,6 +179,7 @@ func (ep *EventProcessor) PublishEvent(event *GameEvent) {
 		ep.log.Debugf("Published event: %s for table %s", event.Type, event.TableID)
 	default:
 		ep.log.Errorf("Event queue full, dropping event: %s for table %s", event.Type, event.TableID)
+		GetMetrics().IncEventDrop()
 	}
 }
 

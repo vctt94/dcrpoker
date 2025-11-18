@@ -1,163 +1,139 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
 
-	"github.com/companyzero/bisonrelay/clientrpc/types"
-	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/decred/dcrd/dcrutil/v4"
 	_ "github.com/mattn/go-sqlite3" // SQLite3 driver
-	kit "github.com/vctt94/bisonbotkit"
-	"github.com/vctt94/pokerbisonrelay/pkg/bot"
+	"github.com/vctt94/bisonbotkit/utils"
+	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 )
 
+const appName = "pokerbot"
+
 var (
-	dataDir            = flag.String("datadir", "", "Data directory for bot files")
-	url                = flag.String("url", "", "Server URL")
+	datadirFlag        = flag.String("datadir", "", "Data directory for bot files")
 	grpcServerCertPath = flag.String("grpcservercert", "", "Path to gRPC server certificate")
-	certFile           = flag.String("cert", "", "Path to certificate file")
-	keyFile            = flag.String("key", "", "Path to key file")
-	rpcUser            = flag.String("rpcuser", "", "RPC username")
-	rpcPass            = flag.String("rpcpass", "", "RPC password")
 	grpcHost           = flag.String("grpchost", "", "gRPC host address")
 	grpcPort           = flag.String("grpcport", "", "gRPC port")
-	debugLevel         = flag.String("debuglevel", "", "Debug level")
+	debug              = flag.String("debug", "info", "Debug level")
+	metricsAddr        = flag.String("metricsaddr", "0.0.0.0:9091", "Address to serve Prometheus metrics (host:port). Empty to disable.")
 )
 
 func realMain() error {
 	// Parse flags
 	flag.Parse()
 
+	datadir := utils.AppDataDir(appName, false)
+	if datadir == "" {
+		if *datadirFlag != "" {
+			datadir = *datadirFlag
+		} else {
+			return fmt.Errorf("data directory is required")
+		}
+	}
 	// Load configuration
-	cfg, err := bot.LoadBotConfig("pokerbot", *dataDir)
+	cfg, err := server.LoadServerConfig(datadir, appName+".conf")
 	if err != nil {
 		return fmt.Errorf("configuration error: %v", err)
 	}
 
 	// Override config with flags if provided
+	if *datadirFlag != "" {
+		cfg.Datadir = *datadirFlag
+	}
 	if *grpcHost != "" {
-		cfg.Config.ExtraConfig["grpchost"] = *grpcHost
+		cfg.GRPCHost = *grpcHost
 	}
 	if *grpcPort != "" {
-		cfg.Config.ExtraConfig["grpcport"] = *grpcPort
+		cfg.GRPCPort = *grpcPort
 	}
-	if *certFile != "" {
-		cfg.CertFile = *certFile
-	}
-	if *keyFile != "" {
-		cfg.KeyFile = *keyFile
+	if *grpcServerCertPath != "" {
+		cfg.GRPCCertPath = *grpcServerCertPath
 	}
 
-	// Rebuild server address if gRPC host/port were overridden
-	if *grpcHost != "" || *grpcPort != "" {
-		grpcHostVal := cfg.Config.ExtraConfig["grpchost"]
-		grpcPortVal := cfg.Config.ExtraConfig["grpcport"]
-		if grpcHostVal == "" {
-			return fmt.Errorf("GRPCHost is required")
-		}
-		if grpcPortVal == "" {
-			return fmt.Errorf("GRPCPort is required")
-		}
-		cfg.ServerAddress = fmt.Sprintf("%s:%s", grpcHostVal, grpcPortVal)
-	}
+	log := cfg.LogBackend.Logger(appName)
 
-	// Create channels for handling PMs and tips
-	pmChan := make(chan *types.ReceivedPM)
-	tipChan := make(chan *types.ReceivedTip)
-	tipProgressChan := make(chan *types.TipProgressEvent)
-
-	cfg.Config.PMChan = pmChan
-	cfg.Config.TipProgressChan = tipProgressChan
-	cfg.Config.TipReceivedChan = tipChan
-
-	botInstance, err := kit.NewBot(cfg.Config)
+	pokerServer, err := server.NewServer(*cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create bot: %v", err)
-	}
-	log := botInstance.LogBackend.Logger("BOT")
-
-	log.Infof("Starting bot...")
-	// Set up context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	defer botInstance.Close()
-
-	// Initialize database
-	db, err := server.NewDatabase(filepath.Join(cfg.DataDir, "poker.db"))
-	if err != nil {
-		return fmt.Errorf("failed to initialize database: %v", err)
-	}
-	defer db.Close()
-
-	// Initialize and start the gRPC poker server
-	grpcServer, grpcLis, err := bot.SetupGRPCServer(cfg.DataDir, cfg.CertFile, cfg.KeyFile, cfg.ServerAddress, db, botInstance.LogBackend)
-	if err != nil {
-		return fmt.Errorf("failed to setup gRPC server: %v", err)
+		return fmt.Errorf("failed to create poker server: %v", err)
 	}
 
-	// Initialize bot state
-	state := bot.NewState(db)
-	go func() {
-		log.Infof("Starting gRPC poker server on %s", cfg.ServerAddress)
-		if err := grpcServer.Serve(grpcLis); err != nil {
-			log.Errorf("gRPC poker server error: %v", err)
-		}
-	}()
-	defer grpcServer.Stop() // Ensure gRPC server is stopped on exit
-	// Handle PMs
-	go func() {
-		for pm := range pmChan {
-			state.HandlePM(ctx, botInstance, pm)
-		}
-	}()
+	// Optional metrics
+	if *metricsAddr != "" {
+		go func() {
+			mux := http.NewServeMux()
+			// Register simple HTML status UI and metrics endpoint
+			parseTemplatesOnce()
 
-	// Handle received tips
-	go func() {
-		for tip := range tipChan {
-			var userID zkidentity.ShortID
-			userID.FromBytes(tip.Uid)
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/metrics", http.StatusFound)
+			})
+			// Prometheus scraping endpoint
+			mux.HandleFunc("/metrics/prometheus", func(w http.ResponseWriter, r *http.Request) {
+				sstats := Stats(pokerServer)
+				w.Header().Set("Content-Type", "text/plain")
+				fmt.Fprint(w, formatPrometheusMetrics(pokerServer, sstats))
+			})
 
-			log.Infof("Tip received: %.8f DCR from %s",
-				dcrutil.Amount(tip.AmountMatoms/1e3).ToCoin(),
-				userID.String())
+			mux.HandleFunc("/metrics", func(w http.ResponseWriter, r *http.Request) {
+				drops := poker.GetEventMetricsSnapshot().Dropped + server.GetMetrics().EventDropsTotal()
+				// Get online users (notification streams) and categorized in-game users for debugging
+				onlineUsers := pokerServer.GetAllOnlineUsers()
+				_, inGameUsers := pokerServer.GetInLobbyAndInGameUsers()
+				// Debug: log what we're seeing
+				log.Debugf("Metrics collection: onlineUsers=%d, inGameUsers=%d", len(onlineUsers), len(inGameUsers))
+				if len(onlineUsers) == 0 && len(inGameUsers) > 0 {
+					log.Warnf("WARNING: Found %d in-game users but 0 online users - possible notification stream missing!", len(inGameUsers))
+					// Log which players are in-game but not online
+					for playerID := range inGameUsers {
+						if !onlineUsers[playerID] {
+							log.Warnf("Player %s has game stream but NO notification stream", playerID)
+						}
+					}
+				}
+				sstats := Stats(pokerServer)
 
-			// Update player balance
-			err := db.UpdatePlayerBalance(ctx, userID.String(), int64(tip.AmountMatoms/1e3),
-				"tip", "Received tip from user")
-			if err != nil {
-				log.Errorf("Failed to update player balance: %v", err)
-				botInstance.SendPM(ctx, userID.String(),
-					"Error updating your balance. Please contact support.")
-			} else {
-				botInstance.SendPM(ctx, userID.String(),
-					fmt.Sprintf("Thank you for the tip of %.8f DCR! Your balance has been updated.",
-						dcrutil.Amount(tip.AmountMatoms/1e3).ToCoin()))
+				// Serve HTML status page
+				data := statusPageData{
+					GeneratedAt:       time.Now(),
+					QueueDepth:        pokerServer.EventQueueDepth(),
+					QueueCapacity:     pokerServer.EventQueueCapacity(),
+					EventDrops:        drops,
+					GoRoutines:        runtime.NumGoroutine(),
+					Summary:           sstats,
+					PrometheusMetrics: formatPrometheusMetrics(pokerServer, sstats),
+					Metrics:           buildMetricsData(pokerServer, sstats),
+				}
+				if err := statusTmpl.Execute(w, data); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			})
+			srv := &http.Server{Addr: *metricsAddr, Handler: mux}
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Errorf("metrics serve error: %v", err)
 			}
+		}()
+		log.Infof("Metrics endpoint listening on http://%s/metrics", *metricsAddr)
+	}
 
-			botInstance.AckTipReceived(ctx, tip.SequenceId)
-		}
-	}()
+	// Signal handling for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-	// Handle tip progress updates
-	go func() {
-		for progress := range tipProgressChan {
-			log.Infof("Tip progress event (sequence ID: %d)", progress.SequenceId)
-			err := botInstance.AckTipProgress(ctx, progress.SequenceId)
-			if err != nil {
-				log.Errorf("Failed to acknowledge tip progress: %v", err)
-			}
-		}
-	}()
-
-	// Run the bot
-	err = botInstance.Run(ctx)
-	log.Infof("Bot exited: %v", err)
-	return err
+	<-sigCh
+	log.Infof("Shutting down...")
+	pokerServer.Stop()
+	log.Infof("Shutdown complete")
+	return nil
 }
 
 func main() {
