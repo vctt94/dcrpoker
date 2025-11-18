@@ -303,15 +303,17 @@ func TestPokerService(t *testing.T) {
 		logBackend := createTestLogBackend()
 		defer logBackend.Close()
 
+		srv, err := NewTestServer(db, logBackend)
+		require.NoError(t, err)
 		server := &TestServer{
-			Server: NewServer(db, logBackend),
+			Server: srv,
 		}
 
 		ctx := context.Background()
 		playerID := "player1"
 
 		// Test non-existent player
-		_, err := server.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: "non-existent"})
+		_, err = server.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: "non-existent"})
 		require.Error(t, err)
 		st, ok := status.FromError(err)
 		require.True(t, ok)
@@ -340,8 +342,10 @@ func TestPokerService(t *testing.T) {
 		logBackend := createTestLogBackend()
 		defer logBackend.Close()
 
+		srv, err := NewTestServer(db, logBackend)
+		require.NoError(t, err)
 		server := &TestServer{
-			Server: NewServer(db, logBackend),
+			Server: srv,
 		}
 
 		ctx := context.Background()
@@ -374,8 +378,10 @@ func TestPokerService(t *testing.T) {
 		logBackend := createTestLogBackend()
 		defer logBackend.Close()
 
+		srv, err := NewTestServer(db, logBackend)
+		require.NoError(t, err)
 		server := &TestServer{
-			Server: NewServer(db, logBackend),
+			Server: srv,
 		}
 
 		ctx := context.Background()
@@ -383,7 +389,7 @@ func TestPokerService(t *testing.T) {
 		player2ID := "player2"
 
 		// Set up initial balances
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
+		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
 			PlayerId:    player1ID,
 			Amount:      2500,
 			Description: "initial deposit",
@@ -430,14 +436,16 @@ func TestPokerService(t *testing.T) {
 		logBackend := createTestLogBackend()
 		defer logBackend.Close()
 
+		srv, err := NewTestServer(db, logBackend)
+		require.NoError(t, err)
 		server := &TestServer{
-			Server: NewServer(db, logBackend),
+			Server: srv,
 		}
 
 		ctx := context.Background()
 
 		// Test non-existent table
-		_, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{
+		_, err = server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{
 			TableId: "non-existent",
 		})
 		assert.Error(t, err)
@@ -451,8 +459,10 @@ func TestPokerService(t *testing.T) {
 		logBackend := createTestLogBackend()
 		defer logBackend.Close()
 
+		srv, err := NewTestServer(db, logBackend)
+		require.NoError(t, err)
 		server := &TestServer{
-			Server: NewServer(db, logBackend),
+			Server: srv,
 		}
 
 		ctx := context.Background()
@@ -460,7 +470,7 @@ func TestPokerService(t *testing.T) {
 		player2ID := "player2"
 
 		// Set up initial balances
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
+		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
 			PlayerId:    player1ID,
 			Amount:      2500,
 			Description: "initial deposit",
@@ -550,8 +560,10 @@ func TestPokerGameFlow(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
 	server := &TestServer{
-		Server: NewServer(db, logBackend),
+		Server: srv,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -649,8 +661,10 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
 	server := &TestServer{
-		Server: NewServer(db, logBackend),
+		Server: srv,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -715,7 +729,9 @@ func TestHeadsUpPostflopActorIsBB(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
-	server := &TestServer{Server: NewServer(db, logBackend)}
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	server := &TestServer{Server: srv}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -814,7 +830,9 @@ func TestBetValidation_UnderBetRejected(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
-	server := &TestServer{Server: NewServer(db, logBackend)}
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	server := &TestServer{Server: srv}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -890,7 +908,9 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
-	server := &TestServer{Server: NewServer(db, logBackend)}
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	server := &TestServer{Server: srv}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -987,8 +1007,10 @@ func TestLastPlayerLeavesTableClosure(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
 	server := &TestServer{
-		Server: NewServer(db, logBackend),
+		Server: srv,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -997,7 +1019,7 @@ func TestLastPlayerLeavesTableClosure(t *testing.T) {
 	host := "host"
 
 	// Give host initial balance
-	_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
+	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
 		PlayerId:    host,
 		Amount:      5000,
 		Description: "initial balance",
@@ -1046,8 +1068,10 @@ func TestNonHostLeavesTable(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
 	server := &TestServer{
-		Server: NewServer(db, logBackend),
+		Server: srv,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1112,8 +1136,10 @@ func TestLeaveTable(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
 	server := &TestServer{
-		Server: NewServer(db, logBackend),
+		Server: srv,
 	}
 
 	ctx := context.Background()
@@ -1136,8 +1162,10 @@ func TestJoinTable(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
 	server := &TestServer{
-		Server: NewServer(db, logBackend),
+		Server: srv,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1147,7 +1175,7 @@ func TestJoinTable(t *testing.T) {
 	player2ID := "player2"
 
 	// Set up initial balances
-	_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
+	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
 		PlayerId:    player1ID,
 		Amount:      2500,
 		Description: "initial deposit",
@@ -1230,7 +1258,9 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	defer logBackend.Close()
 
 	// First server instance — runs the game and produces a snapshot.
-	srv1 := &TestServer{Server: NewServer(db, logBackend)}
+	srv1Instance, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	srv1 := &TestServer{Server: srv1Instance}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1301,7 +1331,9 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Second server instance — loads the previously saved snapshot.
-	srv2 := &TestServer{Server: NewServer(db, logBackend)}
+	srv2Instance, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	srv2 := &TestServer{Server: srv2Instance}
 
 	// Wait until the table FSM transitions to GAME_ACTIVE and a current player is available.
 	var restoredState *pokerrpc.GameUpdate
@@ -1349,7 +1381,9 @@ func TestBlindPostingAndBalances(t *testing.T) {
 	logBackend := createTestLogBackend()
 	defer logBackend.Close()
 
-	srv := &TestServer{Server: NewServer(db, logBackend)}
+	srvInstance, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	srv := &TestServer{Server: srvInstance}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

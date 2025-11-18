@@ -68,7 +68,8 @@ func newTestEnv(t *testing.T) *testEnv {
 
 	// 2. GRPC SERVER ------------------------------------------------------------
 	logBackend := createTestLogBackend()
-	pokerSrv := server.NewServer(database, logBackend)
+	pokerSrv, err := server.NewTestServer(database, logBackend)
+	require.NoError(t, err)
 	lis, err := net.Listen("tcp", ":0")
 	require.NoError(t, err)
 

@@ -43,7 +43,8 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
@@ -228,7 +229,8 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
 		gs := grpc.NewServer()
@@ -410,7 +412,8 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
@@ -621,7 +624,8 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
@@ -854,7 +858,8 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)

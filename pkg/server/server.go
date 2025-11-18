@@ -1,13 +1,22 @@
 package server
 
 import (
+	"encoding/hex"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 // NotificationStream represents a client's notification stream
@@ -15,6 +24,33 @@ type NotificationStream struct {
 	playerID string
 	stream   pokerrpc.LobbyService_StartNotificationStreamServer
 	done     chan struct{}
+}
+
+type ServerConfig struct {
+	Datadir string
+	// Additional specific fields
+	GRPCHost     string
+	GRPCPort     string
+	GRPCCertPath string
+	GRPCKeyPath  string
+
+	metricsAddr string
+
+	// dcrd connectivity (optional)
+	DcrdHost string
+	DcrdCert string
+	DcrdUser string
+	DcrdPass string
+
+	// Schnorr adaptor secret (32-byte hex string)
+	AdaptorSecret string
+
+	// Network specifies the Decred network: "mainnet" or "testnet" (defaults to "testnet")
+	Network string
+
+	LogBackend *logging.LogBackend
+
+	DB *Database
 }
 
 // bucket manages game stream connections for a specific poker table.
@@ -29,6 +65,8 @@ type bucket struct {
 
 // Server implements both PokerService and LobbyService
 type Server struct {
+	grpcServer *grpc.Server
+	grpcLis    net.Listener
 	pokerrpc.UnimplementedPokerServiceServer
 	pokerrpc.UnimplementedLobbyServiceServer
 	log        slog.Logger
@@ -68,24 +106,170 @@ type Server struct {
 }
 
 // NewServer creates a new poker server
-func NewServer(db Database, logBackend *logging.LogBackend) *Server {
-	server := &Server{
+func NewServer(cfg ServerConfig) (*Server, error) {
+	// Initialize database
+	db, err := NewDatabase(filepath.Join(cfg.Datadir, "poker.db"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	// Initialize and start the gRPC poker server
+	grpcServer, grpcLis, err := SetupGRPCServer(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort, db, cfg.LogBackend)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup gRPC server: %v", err)
+	}
+
+	// Start gRPC server
+	errCh := make(chan error, 1)
+	go func() {
+		cfg.LogBackend.Logger("SERVER").Infof("Starting gRPC poker server on %s", cfg.GRPCHost+":"+cfg.GRPCPort)
+		errCh <- grpcServer.Serve(grpcLis)
+	}()
+	defer grpcServer.Stop() // Ensure gRPC server is stopped on exit
+	pokerServer := &Server{
+		grpcServer: grpcServer,
+		grpcLis:    grpcLis,
+		log:        cfg.LogBackend.Logger("SERVER"),
+		logBackend: cfg.LogBackend,
+		db:         db,
+	}
+
+	// Initialize and register the poker server
+	pokerrpc.RegisterLobbyServiceServer(grpcServer, pokerServer)
+	pokerrpc.RegisterPokerServiceServer(grpcServer, pokerServer)
+	// Initialize event processor for deadlock-free architecture
+	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
+	pokerServer.eventProcessor.Start()
+
+	// Load persisted tables on startup AFTER the event processor is fully
+	// initialized.
+	if err := pokerServer.loadAllTables(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted tables: %v", err)
+	}
+
+	return pokerServer, nil
+}
+
+// Load config function
+func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
+	cfg, err := loadServerConf(datadir, filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load server config: %v", err)
+	}
+	logBackend, err := logging.NewLogBackend(logging.LogConfig{
+		LogFile:        filepath.Join(datadir, "log", "server.log"),
+		DebugLevel:     cfg.Debug,
+		MaxLogFiles:    cfg.MaxLogFiles,
+		MaxBufferLines: cfg.MaxBufferLines,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log backend: %v", err)
+	}
+
+	// Create the combined config
+	serverCfg := &ServerConfig{
+		Datadir:       cfg.Datadir,
+		GRPCHost:      cfg.GRPCHost,
+		GRPCPort:      cfg.GRPCPort,
+		GRPCCertPath:  cfg.GRPCCertPath,
+		GRPCKeyPath:   cfg.GRPCKeyPath,
+		DcrdHost:      cfg.DcrdHost,
+		DcrdCert:      cfg.DcrdCert,
+		DcrdUser:      cfg.DcrdUser,
+		DcrdPass:      cfg.DcrdPass,
+		AdaptorSecret: cfg.AdaptorSecret,
+		Network:       cfg.Network,
+		LogBackend:    logBackend,
+	}
+
+	// Validate adaptor secret: must be present and 32 bytes of hex (64 chars)
+	if cfg.AdaptorSecret == "" {
+		return nil, fmt.Errorf("missing adaptorsecret in server config")
+	}
+	sb, err := hex.DecodeString(cfg.AdaptorSecret)
+	if err != nil || len(sb) != 32 {
+		return nil, fmt.Errorf("invalid adaptorsecret: expected 64 hex chars (32 bytes)")
+	}
+
+	return serverCfg, nil
+}
+
+// SetupGRPCServer sets up and returns a configured GRPC server with TLS
+func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Database, logBackend *logging.LogBackend) (*grpc.Server, net.Listener, error) {
+	// Determine certificate and key file paths
+	grpcCertFile := certFile
+	grpcKeyFile := keyFile
+
+	// If paths are still empty, use defaults
+	if grpcCertFile == "" {
+		grpcCertFile = filepath.Join(datadir, "server.cert")
+	}
+	if grpcKeyFile == "" {
+		grpcKeyFile = filepath.Join(datadir, "server.key")
+	}
+
+	// Check if certificate files exist
+	if _, err := os.Stat(grpcCertFile); os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("certificate file not found: %s", grpcCertFile)
+	}
+	if _, err := os.Stat(grpcKeyFile); os.IsNotExist(err) {
+		return nil, nil, fmt.Errorf("key file not found: %s", grpcKeyFile)
+	}
+
+	// Load TLS credentials
+	creds, err := credentials.NewServerTLSFromFile(grpcCertFile, grpcKeyFile)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load TLS credentials: %v", err)
+	}
+
+	// Create gRPC server with TLS credentials and production-avg keepalives
+	grpcServer := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.MaxConcurrentStreams(1000),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:                  1 * time.Minute,
+			Timeout:               20 * time.Second,
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      2 * time.Hour,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             30 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
+
+	// Create listener
+	grpcLis, err := net.Listen("tcp", serverAddress)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to listen for gRPC poker server: %v", err)
+	}
+
+	return grpcServer, grpcLis, nil
+}
+
+// NewTestServer creates a Server for testing with the provided database and log backend.
+// This is a test helper that constructs a Server without gRPC setup.
+// It can be used by e2e tests that need to set up their own gRPC server.
+func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error) {
+	pokerServer := &Server{
 		log:        logBackend.Logger("SERVER"),
 		logBackend: logBackend,
 		db:         db,
 	}
 
 	// Initialize event processor for deadlock-free architecture
-	server.eventProcessor = NewEventProcessor(server, 1000, 3) // queue size: 1000, workers: 3
-	server.eventProcessor.Start()
+	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
+	pokerServer.eventProcessor.Start()
 
 	// Load persisted tables on startup AFTER the event processor is fully
 	// initialized.
-	if err := server.loadAllTables(); err != nil {
-		server.log.Errorf("Failed to load persisted tables: %v", err)
+	if err := pokerServer.loadAllTables(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted tables: %v", err)
 	}
 
-	return server
+	return pokerServer, nil
 }
 
 // Stop gracefully stops the server
@@ -109,6 +293,12 @@ func (s *Server) Stop() {
 
 	// Wait for any in-flight asynchronous saves to complete before returning.
 	s.saveWg.Wait()
+	if s.grpcServer != nil {
+		s.grpcServer.Stop()
+	}
+	if s.grpcLis != nil {
+		s.grpcLis.Close()
+	}
 }
 
 // getTable retrieves a table by ID from the registry.

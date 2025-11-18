@@ -43,7 +43,8 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		require.NoError(t, err)
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
-		srv := server.NewServer(db, lb)
+		srv, err := server.NewTestServer(db, lb)
+		require.NoError(t, err)
 
 		lis, err := net.Listen("tcp", ":0")
 		require.NoError(t, err)
