@@ -289,16 +289,26 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 					if ntfn.Table != nil {
 						pc.ntfns.notifyTableCreated(ntfn.Table, ts)
 					}
+					// Forward to UI so it can refresh the table list
+					pc.UpdatesCh <- ntfn
+
+				case pokerrpc.NotificationType_TABLE_REMOVED:
+					// Forward to UI so it can refresh the table list
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_PLAYER_JOINED:
 					if ntfn.Table != nil {
 						pc.ntfns.notifyPlayerJoined(ntfn.Table, ntfn.PlayerId, ts)
 					}
+					// Forward to UI so it can refresh table list
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_PLAYER_LEFT:
 					if ntfn.Table != nil {
 						pc.ntfns.notifyPlayerLeft(ntfn.Table, ntfn.PlayerId, ts)
 					}
+					// Forward to UI so it can refresh table list
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_GAME_STARTED:
 					if ntfn.Started {
@@ -313,13 +323,21 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 							pc.ErrorsCh <- fmt.Errorf("failed to start game stream: %w", err)
 							return
 						}
+						// Forward to UI so it can transition from lobby to game view
+						pc.UpdatesCh <- ntfn
+						pc.log.Infof("Game started for table %s", ntfn.TableId)
 					}
 
 				case pokerrpc.NotificationType_NEW_HAND_STARTED:
+					// Forward to UI so it can refresh game state for the new hand
+					pc.UpdatesCh <- ntfn
+					pc.log.Infof("New hand started for table %s", ntfn.TableId)
 
 				case pokerrpc.NotificationType_GAME_ENDED:
 					pc.ntfns.notifyGameEnded(ntfn.TableId, ntfn.Message, ts)
 					pc.log.Info(ntfn.Message)
+					// Forward to UI so it can refresh game state
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_BET_MADE:
 					pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
@@ -337,9 +355,13 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 					} else if strings.Contains(ntfn.Message, "checked") {
 						pc.ntfns.notifyPlayerChecked(ntfn.PlayerId, ts)
 					}
+					// Forward to UI so it can update bet display and refresh game state
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_PLAYER_FOLDED:
 					pc.ntfns.notifyPlayerFolded(ntfn.PlayerId, ts)
+					// Forward to UI so it can refresh game state
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_PLAYER_READY:
 					pc.ntfns.notifyPlayerReady(ntfn.PlayerId, ntfn.Ready, ts)
@@ -367,6 +389,8 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 
 				case pokerrpc.NotificationType_BALANCE_UPDATED:
 					pc.ntfns.notifyBalanceUpdated(ntfn.PlayerId, ntfn.NewBalance, ts)
+					// Forward to UI so it can refresh balance
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_TIP_RECEIVED:
 					// Extract tip details from notification
@@ -378,6 +402,8 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 
 				case pokerrpc.NotificationType_SHOWDOWN_RESULT:
 					pc.ntfns.notifyShowdownResult(ntfn.TableId, ntfn.Winners, ts)
+					// Forward to UI so it can refresh game state and show winners
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_NEW_ROUND:
 					// Forward to UI
@@ -388,12 +414,50 @@ func (pc *PokerClient) StartNotificationStream(ctx context.Context) error {
 						pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
 					}
 					pc.log.Infof("Small blind posted: %d chips by %s", ntfn.Amount, ntfn.PlayerId)
+					// Forward to UI so it can refresh game state
+					pc.UpdatesCh <- ntfn
 
 				case pokerrpc.NotificationType_BIG_BLIND_POSTED:
 					if pc.ntfns != nil {
 						pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
 					}
 					pc.log.Infof("Big blind posted: %d chips by %s", ntfn.Amount, ntfn.PlayerId)
+					// Forward to UI so it can refresh game state
+					pc.UpdatesCh <- ntfn
+
+				case pokerrpc.NotificationType_CALL_MADE:
+					// Use existing notification handlers for call
+					if pc.ntfns != nil {
+						pc.ntfns.notifyPlayerCalled(ntfn.PlayerId, ntfn.Amount, ts)
+						pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
+					}
+					pc.log.Debugf("Player %s called %d", ntfn.PlayerId, ntfn.Amount)
+					// Forward to UI
+					pc.UpdatesCh <- ntfn
+
+				case pokerrpc.NotificationType_CHECK_MADE:
+					// Use existing notification handlers for check
+					if pc.ntfns != nil {
+						pc.ntfns.notifyPlayerChecked(ntfn.PlayerId, ts)
+					}
+					pc.log.Debugf("Player %s checked", ntfn.PlayerId)
+					// Forward to UI
+					pc.UpdatesCh <- ntfn
+
+				case pokerrpc.NotificationType_CARDS_SHOWN:
+					pc.log.Debugf("Player %s showed cards", ntfn.PlayerId)
+					// Forward to UI
+					pc.UpdatesCh <- ntfn
+
+				case pokerrpc.NotificationType_CARDS_HIDDEN:
+					pc.log.Debugf("Player %s hid cards", ntfn.PlayerId)
+					// Forward to UI
+					pc.UpdatesCh <- ntfn
+
+				case pokerrpc.NotificationType_PLAYER_ALL_IN:
+					pc.log.Infof("Player %s is all-in with amount %d", ntfn.PlayerId, ntfn.Amount)
+					// Forward to UI
+					pc.UpdatesCh <- ntfn
 
 				default:
 					pc.log.Debug("received unknown notification type", "type", ntfn.Type)

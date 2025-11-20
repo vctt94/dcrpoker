@@ -18,6 +18,7 @@ dependencies:
   convert: ^3.0.2
   path: ^1.8.0
   grpc: ^4.0.1
+  protobuf: ^5.1.0
 
   # These are only needed for the mocking golib impl.
   # web_socket_channel: ^2.1.0

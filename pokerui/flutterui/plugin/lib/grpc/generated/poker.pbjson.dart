@@ -1,13 +1,14 @@
+// This is a generated file - do not edit.
 //
-//  Generated code. Do not modify.
-//  source: poker.proto
-//
-// @dart = 2.12
+// Generated from poker.proto.
+
+// @dart = 3.3
 
 // ignore_for_file: annotate_overrides, camel_case_types, comment_references
-// ignore_for_file: constant_identifier_names, library_prefixes
-// ignore_for_file: non_constant_identifier_names, prefer_final_fields
-// ignore_for_file: unnecessary_import, unnecessary_this, unused_import
+// ignore_for_file: constant_identifier_names
+// ignore_for_file: curly_braces_in_flow_control_structures
+// ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
+// ignore_for_file: non_constant_identifier_names, unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -129,18 +130,40 @@ const StartGameStreamRequest$json = {
 };
 
 /// Descriptor for `StartGameStreamRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List startGameStreamRequestDescriptor = $convert.base64Decode(
-    'ChZTdGFydEdhbWVTdHJlYW1SZXF1ZXN0EhsKCXBsYXllcl9pZBgBIAEoCVIIcGxheWVySWQSGQ'
-    'oIdGFibGVfaWQYAiABKAlSB3RhYmxlSWQ=');
+final $typed_data.Uint8List startGameStreamRequestDescriptor =
+    $convert.base64Decode(
+        'ChZTdGFydEdhbWVTdHJlYW1SZXF1ZXN0EhsKCXBsYXllcl9pZBgBIAEoCVIIcGxheWVySWQSGQ'
+        'oIdGFibGVfaWQYAiABKAlSB3RhYmxlSWQ=');
 
 @$core.Deprecated('Use gameUpdateDescriptor instead')
 const GameUpdate$json = {
   '1': 'GameUpdate',
   '2': [
     {'1': 'table_id', '3': 1, '4': 1, '5': 9, '10': 'tableId'},
-    {'1': 'phase', '3': 2, '4': 1, '5': 14, '6': '.poker.GamePhase', '10': 'phase'},
-    {'1': 'players', '3': 3, '4': 3, '5': 11, '6': '.poker.Player', '10': 'players'},
-    {'1': 'community_cards', '3': 4, '4': 3, '5': 11, '6': '.poker.Card', '10': 'communityCards'},
+    {
+      '1': 'phase',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.GamePhase',
+      '10': 'phase'
+    },
+    {
+      '1': 'players',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Player',
+      '10': 'players'
+    },
+    {
+      '1': 'community_cards',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Card',
+      '10': 'communityCards'
+    },
     {'1': 'pot', '3': 5, '4': 1, '5': 3, '10': 'pot'},
     {'1': 'current_bet', '3': 6, '4': 1, '5': 3, '10': 'currentBet'},
     {'1': 'current_player', '3': 7, '4': 1, '5': 9, '10': 'currentPlayer'},
@@ -150,8 +173,20 @@ const GameUpdate$json = {
     {'1': 'players_required', '3': 11, '4': 1, '5': 5, '10': 'playersRequired'},
     {'1': 'players_joined', '3': 12, '4': 1, '5': 5, '10': 'playersJoined'},
     {'1': 'phase_name', '3': 13, '4': 1, '5': 9, '10': 'phaseName'},
-    {'1': 'time_bank_seconds', '3': 14, '4': 1, '5': 5, '10': 'timeBankSeconds'},
-    {'1': 'turn_deadline_unix_ms', '3': 15, '4': 1, '5': 3, '10': 'turnDeadlineUnixMs'},
+    {
+      '1': 'time_bank_seconds',
+      '3': 14,
+      '4': 1,
+      '5': 5,
+      '10': 'timeBankSeconds'
+    },
+    {
+      '1': 'turn_deadline_unix_ms',
+      '3': 15,
+      '4': 1,
+      '5': 3,
+      '10': 'turnDeadlineUnixMs'
+    },
   ],
 };
 
@@ -288,18 +323,27 @@ const GetGameStateRequest$json = {
   '1': 'GetGameStateRequest',
   '2': [
     {'1': 'table_id', '3': 1, '4': 1, '5': 9, '10': 'tableId'},
+    {'1': 'player_id', '3': 2, '4': 1, '5': 9, '10': 'playerId'},
   ],
 };
 
 /// Descriptor for `GetGameStateRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List getGameStateRequestDescriptor = $convert.base64Decode(
-    'ChNHZXRHYW1lU3RhdGVSZXF1ZXN0EhkKCHRhYmxlX2lkGAEgASgJUgd0YWJsZUlk');
+    'ChNHZXRHYW1lU3RhdGVSZXF1ZXN0EhkKCHRhYmxlX2lkGAEgASgJUgd0YWJsZUlkEhsKCXBsYX'
+    'llcl9pZBgCIAEoCVIIcGxheWVySWQ=');
 
 @$core.Deprecated('Use getGameStateResponseDescriptor instead')
 const GetGameStateResponse$json = {
   '1': 'GetGameStateResponse',
   '2': [
-    {'1': 'game_state', '3': 1, '4': 1, '5': 11, '6': '.poker.GameUpdate', '10': 'gameState'},
+    {
+      '1': 'game_state',
+      '3': 1,
+      '4': 1,
+      '5': 11,
+      '6': '.poker.GameUpdate',
+      '10': 'gameState'
+    },
   ],
 };
 
@@ -325,9 +369,23 @@ final $typed_data.Uint8List evaluateHandRequestDescriptor = $convert.base64Decod
 const EvaluateHandResponse$json = {
   '1': 'EvaluateHandResponse',
   '2': [
-    {'1': 'rank', '3': 1, '4': 1, '5': 14, '6': '.poker.HandRank', '10': 'rank'},
+    {
+      '1': 'rank',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.HandRank',
+      '10': 'rank'
+    },
     {'1': 'description', '3': 2, '4': 1, '5': 9, '10': 'description'},
-    {'1': 'best_hand', '3': 3, '4': 3, '5': 11, '6': '.poker.Card', '10': 'bestHand'},
+    {
+      '1': 'best_hand',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Card',
+      '10': 'bestHand'
+    },
   ],
 };
 
@@ -346,29 +404,52 @@ const GetLastWinnersRequest$json = {
 };
 
 /// Descriptor for `GetLastWinnersRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getLastWinnersRequestDescriptor = $convert.base64Decode(
-    'ChVHZXRMYXN0V2lubmVyc1JlcXVlc3QSGQoIdGFibGVfaWQYASABKAlSB3RhYmxlSWQ=');
+final $typed_data.Uint8List getLastWinnersRequestDescriptor =
+    $convert.base64Decode(
+        'ChVHZXRMYXN0V2lubmVyc1JlcXVlc3QSGQoIdGFibGVfaWQYASABKAlSB3RhYmxlSWQ=');
 
 @$core.Deprecated('Use getLastWinnersResponseDescriptor instead')
 const GetLastWinnersResponse$json = {
   '1': 'GetLastWinnersResponse',
   '2': [
-    {'1': 'winners', '3': 1, '4': 3, '5': 11, '6': '.poker.Winner', '10': 'winners'},
+    {
+      '1': 'winners',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Winner',
+      '10': 'winners'
+    },
   ],
 };
 
 /// Descriptor for `GetLastWinnersResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getLastWinnersResponseDescriptor = $convert.base64Decode(
-    'ChZHZXRMYXN0V2lubmVyc1Jlc3BvbnNlEicKB3dpbm5lcnMYASADKAsyDS5wb2tlci5XaW5uZX'
-    'JSB3dpbm5lcnM=');
+final $typed_data.Uint8List getLastWinnersResponseDescriptor =
+    $convert.base64Decode(
+        'ChZHZXRMYXN0V2lubmVyc1Jlc3BvbnNlEicKB3dpbm5lcnMYASADKAsyDS5wb2tlci5XaW5uZX'
+        'JSB3dpbm5lcnM=');
 
 @$core.Deprecated('Use winnerDescriptor instead')
 const Winner$json = {
   '1': 'Winner',
   '2': [
     {'1': 'player_id', '3': 1, '4': 1, '5': 9, '10': 'playerId'},
-    {'1': 'hand_rank', '3': 2, '4': 1, '5': 14, '6': '.poker.HandRank', '10': 'handRank'},
-    {'1': 'best_hand', '3': 3, '4': 3, '5': 11, '6': '.poker.Card', '10': 'bestHand'},
+    {
+      '1': 'hand_rank',
+      '3': 2,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.HandRank',
+      '10': 'handRank'
+    },
+    {
+      '1': 'best_hand',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Card',
+      '10': 'bestHand'
+    },
     {'1': 'winnings', '3': 4, '4': 1, '5': 3, '10': 'winnings'},
   ],
 };
@@ -417,8 +498,9 @@ const CreateTableResponse$json = {
 };
 
 /// Descriptor for `CreateTableResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List createTableResponseDescriptor = $convert.base64Decode(
-    'ChNDcmVhdGVUYWJsZVJlc3BvbnNlEhkKCHRhYmxlX2lkGAEgASgJUgd0YWJsZUlk');
+final $typed_data.Uint8List createTableResponseDescriptor =
+    $convert.base64Decode(
+        'ChNDcmVhdGVUYWJsZVJlc3BvbnNlEhkKCHRhYmxlX2lkGAEgASgJUgd0YWJsZUlk');
 
 @$core.Deprecated('Use joinTableRequestDescriptor instead')
 const JoinTableRequest$json = {
@@ -483,14 +565,21 @@ const GetTablesRequest$json = {
 };
 
 /// Descriptor for `GetTablesRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getTablesRequestDescriptor = $convert.base64Decode(
-    'ChBHZXRUYWJsZXNSZXF1ZXN0');
+final $typed_data.Uint8List getTablesRequestDescriptor =
+    $convert.base64Decode('ChBHZXRUYWJsZXNSZXF1ZXN0');
 
 @$core.Deprecated('Use getTablesResponseDescriptor instead')
 const GetTablesResponse$json = {
   '1': 'GetTablesResponse',
   '2': [
-    {'1': 'tables', '3': 1, '4': 3, '5': 11, '6': '.poker.Table', '10': 'tables'},
+    {
+      '1': 'tables',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Table',
+      '10': 'tables'
+    },
   ],
 };
 
@@ -505,7 +594,14 @@ const Table$json = {
   '2': [
     {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
     {'1': 'host_id', '3': 2, '4': 1, '5': 9, '10': 'hostId'},
-    {'1': 'players', '3': 3, '4': 3, '5': 11, '6': '.poker.Player', '10': 'players'},
+    {
+      '1': 'players',
+      '3': 3,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Player',
+      '10': 'players'
+    },
     {'1': 'small_blind', '3': 4, '4': 1, '5': 3, '10': 'smallBlind'},
     {'1': 'big_blind', '3': 5, '4': 1, '5': 3, '10': 'bigBlind'},
     {'1': 'max_players', '3': 6, '4': 1, '5': 5, '10': 'maxPlayers'},
@@ -513,9 +609,22 @@ const Table$json = {
     {'1': 'current_players', '3': 8, '4': 1, '5': 5, '10': 'currentPlayers'},
     {'1': 'min_balance', '3': 9, '4': 1, '5': 3, '10': 'minBalance'},
     {'1': 'buy_in', '3': 10, '4': 1, '5': 3, '10': 'buyIn'},
-    {'1': 'phase', '3': 11, '4': 1, '5': 14, '6': '.poker.GamePhase', '10': 'phase'},
+    {
+      '1': 'phase',
+      '3': 11,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.GamePhase',
+      '10': 'phase'
+    },
     {'1': 'game_started', '3': 12, '4': 1, '5': 8, '10': 'gameStarted'},
-    {'1': 'all_players_ready', '3': 13, '4': 1, '5': 8, '10': 'allPlayersReady'},
+    {
+      '1': 'all_players_ready',
+      '3': 13,
+      '4': 1,
+      '5': 8,
+      '10': 'allPlayersReady'
+    },
   ],
 };
 
@@ -551,8 +660,9 @@ const GetBalanceResponse$json = {
 };
 
 /// Descriptor for `GetBalanceResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getBalanceResponseDescriptor = $convert.base64Decode(
-    'ChJHZXRCYWxhbmNlUmVzcG9uc2USGAoHYmFsYW5jZRgBIAEoA1IHYmFsYW5jZQ==');
+final $typed_data.Uint8List getBalanceResponseDescriptor =
+    $convert.base64Decode(
+        'ChJHZXRCYWxhbmNlUmVzcG9uc2USGAoHYmFsYW5jZRgBIAEoA1IHYmFsYW5jZQ==');
 
 @$core.Deprecated('Use updateBalanceRequestDescriptor instead')
 const UpdateBalanceRequest$json = {
@@ -624,29 +734,64 @@ const StartNotificationStreamRequest$json = {
 };
 
 /// Descriptor for `StartNotificationStreamRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List startNotificationStreamRequestDescriptor = $convert.base64Decode(
-    'Ch5TdGFydE5vdGlmaWNhdGlvblN0cmVhbVJlcXVlc3QSGwoJcGxheWVyX2lkGAEgASgJUghwbG'
-    'F5ZXJJZA==');
+final $typed_data.Uint8List startNotificationStreamRequestDescriptor =
+    $convert.base64Decode(
+        'Ch5TdGFydE5vdGlmaWNhdGlvblN0cmVhbVJlcXVlc3QSGwoJcGxheWVyX2lkGAEgASgJUghwbG'
+        'F5ZXJJZA==');
 
 @$core.Deprecated('Use notificationDescriptor instead')
 const Notification$json = {
   '1': 'Notification',
   '2': [
-    {'1': 'type', '3': 1, '4': 1, '5': 14, '6': '.poker.NotificationType', '10': 'type'},
+    {
+      '1': 'type',
+      '3': 1,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.NotificationType',
+      '10': 'type'
+    },
     {'1': 'message', '3': 2, '4': 1, '5': 9, '10': 'message'},
     {'1': 'table_id', '3': 3, '4': 1, '5': 9, '10': 'tableId'},
     {'1': 'player_id', '3': 4, '4': 1, '5': 9, '10': 'playerId'},
     {'1': 'amount', '3': 5, '4': 1, '5': 3, '10': 'amount'},
     {'1': 'cards', '3': 6, '4': 3, '5': 11, '6': '.poker.Card', '10': 'cards'},
-    {'1': 'hand_rank', '3': 7, '4': 1, '5': 14, '6': '.poker.HandRank', '10': 'handRank'},
+    {
+      '1': 'hand_rank',
+      '3': 7,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.HandRank',
+      '10': 'handRank'
+    },
     {'1': 'new_balance', '3': 8, '4': 1, '5': 3, '10': 'newBalance'},
     {'1': 'table', '3': 9, '4': 1, '5': 11, '6': '.poker.Table', '10': 'table'},
     {'1': 'ready', '3': 10, '4': 1, '5': 8, '10': 'ready'},
     {'1': 'started', '3': 11, '4': 1, '5': 8, '10': 'started'},
-    {'1': 'game_ready_to_play', '3': 12, '4': 1, '5': 8, '10': 'gameReadyToPlay'},
+    {
+      '1': 'game_ready_to_play',
+      '3': 12,
+      '4': 1,
+      '5': 8,
+      '10': 'gameReadyToPlay'
+    },
     {'1': 'countdown', '3': 13, '4': 1, '5': 5, '10': 'countdown'},
-    {'1': 'winners', '3': 14, '4': 3, '5': 11, '6': '.poker.Winner', '10': 'winners'},
-    {'1': 'showdown', '3': 15, '4': 1, '5': 11, '6': '.poker.Showdown', '10': 'showdown'},
+    {
+      '1': 'winners',
+      '3': 14,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Winner',
+      '10': 'winners'
+    },
+    {
+      '1': 'showdown',
+      '3': 15,
+      '4': 1,
+      '5': 11,
+      '6': '.poker.Showdown',
+      '10': 'showdown'
+    },
   ],
 };
 
@@ -667,7 +812,14 @@ final $typed_data.Uint8List notificationDescriptor = $convert.base64Decode(
 const Showdown$json = {
   '1': 'Showdown',
   '2': [
-    {'1': 'winners', '3': 1, '4': 3, '5': 11, '6': '.poker.Winner', '10': 'winners'},
+    {
+      '1': 'winners',
+      '3': 1,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Winner',
+      '10': 'winners'
+    },
     {'1': 'pot', '3': 2, '4': 1, '5': 3, '10': 'pot'},
   ],
 };
@@ -692,7 +844,14 @@ const Player$json = {
     {'1': 'is_dealer', '3': 9, '4': 1, '5': 8, '10': 'isDealer'},
     {'1': 'is_ready', '3': 10, '4': 1, '5': 8, '10': 'isReady'},
     {'1': 'hand_description', '3': 11, '4': 1, '5': 9, '10': 'handDescription'},
-    {'1': 'player_state', '3': 12, '4': 1, '5': 14, '6': '.poker.PlayerState', '10': 'playerState'},
+    {
+      '1': 'player_state',
+      '3': 12,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.PlayerState',
+      '10': 'playerState'
+    },
     {'1': 'is_small_blind', '3': 13, '4': 1, '5': 8, '10': 'isSmallBlind'},
     {'1': 'is_big_blind', '3': 14, '4': 1, '5': 8, '10': 'isBigBlind'},
   ],
@@ -762,9 +921,10 @@ const SetPlayerUnreadyRequest$json = {
 };
 
 /// Descriptor for `SetPlayerUnreadyRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List setPlayerUnreadyRequestDescriptor = $convert.base64Decode(
-    'ChdTZXRQbGF5ZXJVbnJlYWR5UmVxdWVzdBIbCglwbGF5ZXJfaWQYASABKAlSCHBsYXllcklkEh'
-    'kKCHRhYmxlX2lkGAIgASgJUgd0YWJsZUlk');
+final $typed_data.Uint8List setPlayerUnreadyRequestDescriptor =
+    $convert.base64Decode(
+        'ChdTZXRQbGF5ZXJVbnJlYWR5UmVxdWVzdBIbCglwbGF5ZXJfaWQYASABKAlSCHBsYXllcklkEh'
+        'kKCHRhYmxlX2lkGAIgASgJUgd0YWJsZUlk');
 
 @$core.Deprecated('Use setPlayerUnreadyResponseDescriptor instead')
 const SetPlayerUnreadyResponse$json = {
@@ -776,9 +936,10 @@ const SetPlayerUnreadyResponse$json = {
 };
 
 /// Descriptor for `SetPlayerUnreadyResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List setPlayerUnreadyResponseDescriptor = $convert.base64Decode(
-    'ChhTZXRQbGF5ZXJVbnJlYWR5UmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2VzcxIYCg'
-    'dtZXNzYWdlGAIgASgJUgdtZXNzYWdl');
+final $typed_data.Uint8List setPlayerUnreadyResponseDescriptor =
+    $convert.base64Decode(
+        'ChhTZXRQbGF5ZXJVbnJlYWR5UmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2VzcxIYCg'
+        'dtZXNzYWdlGAIgASgJUgdtZXNzYWdl');
 
 @$core.Deprecated('Use getPlayerCurrentTableRequestDescriptor instead')
 const GetPlayerCurrentTableRequest$json = {
@@ -789,9 +950,10 @@ const GetPlayerCurrentTableRequest$json = {
 };
 
 /// Descriptor for `GetPlayerCurrentTableRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getPlayerCurrentTableRequestDescriptor = $convert.base64Decode(
-    'ChxHZXRQbGF5ZXJDdXJyZW50VGFibGVSZXF1ZXN0EhsKCXBsYXllcl9pZBgBIAEoCVIIcGxheW'
-    'VySWQ=');
+final $typed_data.Uint8List getPlayerCurrentTableRequestDescriptor =
+    $convert.base64Decode(
+        'ChxHZXRQbGF5ZXJDdXJyZW50VGFibGVSZXF1ZXN0EhsKCXBsYXllcl9pZBgBIAEoCVIIcGxheW'
+        'VySWQ=');
 
 @$core.Deprecated('Use getPlayerCurrentTableResponseDescriptor instead')
 const GetPlayerCurrentTableResponse$json = {
@@ -802,9 +964,10 @@ const GetPlayerCurrentTableResponse$json = {
 };
 
 /// Descriptor for `GetPlayerCurrentTableResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List getPlayerCurrentTableResponseDescriptor = $convert.base64Decode(
-    'Ch1HZXRQbGF5ZXJDdXJyZW50VGFibGVSZXNwb25zZRIZCgh0YWJsZV9pZBgBIAEoCVIHdGFibG'
-    'VJZA==');
+final $typed_data.Uint8List getPlayerCurrentTableResponseDescriptor =
+    $convert.base64Decode(
+        'Ch1HZXRQbGF5ZXJDdXJyZW50VGFibGVSZXNwb25zZRIZCgh0YWJsZV9pZBgBIAEoCVIHdGFibG'
+        'VJZA==');
 
 @$core.Deprecated('Use showCardsRequestDescriptor instead')
 const ShowCardsRequest$json = {
@@ -861,4 +1024,3 @@ const HideCardsResponse$json = {
 final $typed_data.Uint8List hideCardsResponseDescriptor = $convert.base64Decode(
     'ChFIaWRlQ2FyZHNSZXNwb25zZRIYCgdzdWNjZXNzGAEgASgIUgdzdWNjZXNzEhgKB21lc3NhZ2'
     'UYAiABKAlSB21lc3NhZ2U=');
-

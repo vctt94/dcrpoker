@@ -315,22 +315,16 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, fmt.Errorf("not currently in a table")
 		}
 		resp, err := cc.c.PokerService.GetGameState(cc.ctx, &pokerrpc.GetGameStateRequest{
-			TableId: tableID,
+			PlayerId: cc.c.ID.String(),
+			TableId:  tableID,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get game state: %v", err)
 		}
-		// Convert protobuf to JSON using protojson
-		jsonBytes, err := protojson.Marshal(resp.GameState)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal game state: %v", err)
-		}
-		var gameStateMap map[string]interface{}
-		if err := json.Unmarshal(jsonBytes, &gameStateMap); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal game state JSON: %v", err)
-		}
+		// Convert protobuf to simple DTO for JSON marshaling
+		dto := gameUpdateToDTO(resp.GameState)
 		return map[string]interface{}{
-			"game_state": gameStateMap,
+			"game_state": dto,
 		}, nil
 
 	case CTGetLastWinners:

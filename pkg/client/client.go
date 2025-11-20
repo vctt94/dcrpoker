@@ -25,9 +25,6 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// Message types for UI communication
-type GameUpdateMsg *pokerrpc.GameUpdate
-
 // LoadClientConfig loads the client config and creates ClientConfig with LogBackend
 func LoadClientConfig(datadir, filename string) (*ClientConfig, error) {
 	cfg, err := LoadClientConf(datadir, filename)
@@ -427,9 +424,8 @@ func (pc *PokerClient) handleGameStreamUpdates(ctx context.Context) {
 				return
 			}
 
-			// Convert to UI message type and send to updates channel
 			select {
-			case pc.UpdatesCh <- GameUpdateMsg(update):
+			case pc.UpdatesCh <- update:
 			case <-ctx.Done():
 				return
 			default:

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
 type CmdType = int32
@@ -66,11 +67,13 @@ const (
 	CTZipTimedProfilingLogs CmdType = 0x87
 	CTEnableTimedProfiling  CmdType = 0x89
 
-	NTUINotification CmdType = 0x1001
-	NTClientStopped  CmdType = 0x1002
-	NTLogLine        CmdType = 0x1003
-	NTNOP            CmdType = 0x1004
-	NTWRCreated      CmdType = 0x1005
+	NTUINotification    CmdType = 0x1001
+	NTClientStopped     CmdType = 0x1002
+	NTLogLine           CmdType = 0x1003
+	NTNOP               CmdType = 0x1004
+	NTWRCreated         CmdType = 0x1005
+	NTPokerNotification CmdType = 0x1006
+	NTGameUpdate        CmdType = 0x1007
 )
 
 type cmd struct {
@@ -245,13 +248,72 @@ func AsyncCallStr(typ CmdType, id, clientHandle int32, payload string) {
 	go func() { cmdResultChan <- call(cmd) }()
 }
 
+// notificationDTO is a simple struct for JSON marshaling of protobuf notifications
+type notificationDTO struct {
+	Type            int32  `json:"type"` // enum as int
+	Message         string `json:"message,omitempty"`
+	TableId         string `json:"tableId,omitempty"`
+	PlayerId        string `json:"playerId,omitempty"`
+	Amount          int64  `json:"amount,omitempty"`
+	NewBalance      int64  `json:"newBalance,omitempty"`
+	Ready           bool   `json:"ready,omitempty"`
+	Started         bool   `json:"started,omitempty"`
+	GameReadyToPlay bool   `json:"gameReadyToPlay,omitempty"`
+	Countdown       int32  `json:"countdown,omitempty"`
+}
+
+func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
+	dto := &notificationDTO{
+		Type: int32(n.Type),
+	}
+	if n.Message != "" {
+		dto.Message = n.Message
+	}
+	if n.TableId != "" {
+		dto.TableId = n.TableId
+	}
+	if n.PlayerId != "" {
+		dto.PlayerId = n.PlayerId
+	}
+	if n.Amount != 0 {
+		dto.Amount = n.Amount
+	}
+	if n.NewBalance != 0 {
+		dto.NewBalance = n.NewBalance
+	}
+	if n.Ready {
+		dto.Ready = true
+	}
+	if n.Started {
+		dto.Started = true
+	}
+	if n.GameReadyToPlay {
+		dto.GameReadyToPlay = true
+	}
+	if n.Countdown != 0 {
+		dto.Countdown = n.Countdown
+	}
+	return dto
+}
+
 func notify(typ CmdType, payload interface{}, err error) {
 	var resPayload []byte
-	if err == nil {
-		if b, mErr := json.Marshal(payload); mErr == nil {
-			resPayload = b
+	if err == nil && payload != nil {
+		// Convert protobuf Notification to simple DTO for JSON marshaling
+		if n, ok := payload.(*pokerrpc.Notification); ok {
+			dto := notificationToDTO(n)
+			if b, mErr := json.Marshal(dto); mErr == nil {
+				resPayload = b
+			} else {
+				err = fmt.Errorf("notify json marshal: %w", mErr)
+			}
 		} else {
-			err = fmt.Errorf("notify marshal: %w", mErr)
+			// Use standard JSON for other types
+			if b, mErr := json.Marshal(payload); mErr == nil {
+				resPayload = b
+			} else {
+				err = fmt.Errorf("notify json marshal: %w", mErr)
+			}
 		}
 	}
 	r := &CmdResult{Type: typ, Err: err, Payload: resPayload}

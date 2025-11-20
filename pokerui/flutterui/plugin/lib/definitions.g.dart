@@ -408,6 +408,122 @@ Map<String, dynamic> _$JoinPokerTableArgsToJson(JoinPokerTableArgs instance) =>
       'table_id': instance.tableId,
     };
 
+CardDTO _$CardDTOFromJson(Map<String, dynamic> json) => CardDTO(
+      json['suit'] as String,
+      json['value'] as String,
+    );
+
+Map<String, dynamic> _$CardDTOToJson(CardDTO instance) => <String, dynamic>{
+      'suit': instance.suit,
+      'value': instance.value,
+    };
+
+PlayerDTO _$PlayerDTOFromJson(Map<String, dynamic> json) => PlayerDTO(
+      json['id'] as String,
+      json['name'] as String,
+      (json['balance'] as num).toInt(),
+      (json['hand'] as List<dynamic>)
+          .map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      (json['currentBet'] as num).toInt(),
+      json['folded'] as bool,
+      json['isTurn'] as bool,
+      json['isAllIn'] as bool,
+      json['isDealer'] as bool,
+      json['isReady'] as bool,
+      json['handDescription'] as String,
+      (json['playerState'] as num).toInt(),
+      json['isSmallBlind'] as bool,
+      json['isBigBlind'] as bool,
+    );
+
+Map<String, dynamic> _$PlayerDTOToJson(PlayerDTO instance) => <String, dynamic>{
+      'id': instance.id,
+      'name': instance.name,
+      'balance': instance.balance,
+      'hand': instance.hand,
+      'currentBet': instance.currentBet,
+      'folded': instance.folded,
+      'isTurn': instance.isTurn,
+      'isAllIn': instance.isAllIn,
+      'isDealer': instance.isDealer,
+      'isReady': instance.isReady,
+      'handDescription': instance.handDescription,
+      'playerState': instance.playerState,
+      'isSmallBlind': instance.isSmallBlind,
+      'isBigBlind': instance.isBigBlind,
+    };
+
+GameUpdateDTO _$GameUpdateDTOFromJson(Map<String, dynamic> json) =>
+    GameUpdateDTO(
+      json['tableId'] as String,
+      (json['phase'] as num).toInt(),
+      (json['players'] as List<dynamic>)
+          .map((e) => PlayerDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      (json['communityCards'] as List<dynamic>)
+          .map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      (json['pot'] as num).toInt(),
+      (json['currentBet'] as num).toInt(),
+      json['currentPlayer'] as String,
+      (json['minRaise'] as num).toInt(),
+      (json['maxRaise'] as num).toInt(),
+      json['gameStarted'] as bool,
+      (json['playersRequired'] as num).toInt(),
+      (json['playersJoined'] as num).toInt(),
+      json['phaseName'] as String,
+      (json['timeBankSeconds'] as num).toInt(),
+      (json['turnDeadlineUnixMs'] as num).toInt(),
+    );
+
+Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
+    <String, dynamic>{
+      'tableId': instance.tableId,
+      'phase': instance.phase,
+      'players': instance.players,
+      'communityCards': instance.communityCards,
+      'pot': instance.pot,
+      'currentBet': instance.currentBet,
+      'currentPlayer': instance.currentPlayer,
+      'minRaise': instance.minRaise,
+      'maxRaise': instance.maxRaise,
+      'gameStarted': instance.gameStarted,
+      'playersRequired': instance.playersRequired,
+      'playersJoined': instance.playersJoined,
+      'phaseName': instance.phaseName,
+      'timeBankSeconds': instance.timeBankSeconds,
+      'turnDeadlineUnixMs': instance.turnDeadlineUnixMs,
+    };
+
+NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
+    NotificationDTO(
+      (json['type'] as num).toInt(),
+      message: json['message'] as String?,
+      tableId: json['tableId'] as String?,
+      playerId: json['playerId'] as String?,
+      amount: (json['amount'] as num?)?.toInt(),
+      newBalance: (json['newBalance'] as num?)?.toInt(),
+      ready: json['ready'] as bool?,
+      started: json['started'] as bool?,
+      gameReadyToPlay: json['gameReadyToPlay'] as bool?,
+      countdown: (json['countdown'] as num?)?.toInt(),
+    );
+
+Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
+    <String, dynamic>{
+      'type': instance.type,
+      'message': instance.message,
+      'tableId': instance.tableId,
+      'playerId': instance.playerId,
+      'amount': instance.amount,
+      'newBalance': instance.newBalance,
+      'ready': instance.ready,
+      'started': instance.started,
+      'gameReadyToPlay': instance.gameReadyToPlay,
+      'countdown': instance.countdown,
+    };
+
 RunState _$RunStateFromJson(Map<String, dynamic> json) => RunState(
       dcrlndRunning: json['dcrlnd_running'] as bool,
       clientRunning: json['client_running'] as bool,

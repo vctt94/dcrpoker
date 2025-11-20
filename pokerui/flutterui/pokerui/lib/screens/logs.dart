@@ -48,7 +48,7 @@ class _LogsScreenState extends State<LogsScreen> {
 
     try {
       final appDataDir = await _defaultAppDataDir();
-      _logFilePath = path.join(appDataDir, "logs", "pongui.log");
+      _logFilePath = path.join(appDataDir, "logs", "$APPNAME.log");
       
       final logFile = File(_logFilePath!);
       if (await logFile.exists()) {
@@ -166,21 +166,6 @@ class _LogsScreenState extends State<LogsScreen> {
 
   // Helper method to get default app data directory
   Future<String> _defaultAppDataDir() async {
-    if (Platform.isLinux) {
-      final home = Platform.environment["HOME"];
-      if (home != null && home != "") {
-        return path.join(home, ".pokerui");
-      }
-    } else if (Platform.isWindows &&
-        Platform.environment.containsKey("LOCALAPPDATA")) {
-      return path.join(Platform.environment["LOCALAPPDATA"]!, "pokerui");
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment["HOME"];
-      if (home != null && home != "") {
-        return path.join(home, "Library", "Application Support", "pokerui");
-      }
-    }
-    // Fallback
-    return path.join(Platform.environment["HOME"] ?? "/tmp", ".pokerui");
+    return await defaultAppDataDir();
   }
 }

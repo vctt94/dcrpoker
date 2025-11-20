@@ -1,13 +1,9 @@
 // lib/models/poker_model.dart
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
-import 'dart:math';
-
 import 'package:flutter/foundation.dart';
 import 'package:collection/collection.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
-import 'package:golib_plugin/grpc/generated/poker.pbgrpc.dart' as prpc;
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/definitions.dart'
     show
@@ -16,7 +12,8 @@ import 'package:golib_plugin/definitions.dart'
         CardArg,
         CreatePokerTableArgs,
         JoinPokerTableArgs,
-        InitClient;
+        InitClient,
+        GameUpdateDTO;
 import 'package:grpc/grpc.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/notifications.dart';
@@ -235,14 +232,10 @@ class UiGameState {
         turnDeadlineUnixMs:
             u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
       );
-}
+  }
 
 /// -------- The main ChangeNotifier --------
 class PokerModel extends ChangeNotifier {
-  // Injected RPC clients - kept for streams only (will be removed once streams are handled by golib)
-  prpc.LobbyServiceClient? lobby;
-  prpc.PokerServiceClient? poker;
-
   // Identity
   final String playerId;
 
@@ -264,17 +257,9 @@ class PokerModel extends ChangeNotifier {
   // Lightweight FX hook: last bet/call animation trigger
   UiBetFx? lastBetFx; // set when a player's currentBet increases
 
-  // Streams
-  StreamSubscription<pr.Notification>? _ntfnSub;
-  StreamSubscription<pr.GameUpdate>? _gameSub;
-
   // Timebank tracking (server-provided deadline)
   int timeBankSeconds = 30; // default when unknown
   DateTime? _turnDeadline;
-
-  // Backoff
-  int _retries = 0;
-  Timer? _backoffTimer;
 
   // Cached readiness
   bool _iAmReady = false;
@@ -284,9 +269,12 @@ class PokerModel extends ChangeNotifier {
   final Map<String, bool> playersShowingCards = {};
   bool get myCardsShown => playersShowingCards[playerId] ?? false;
 
+  // Subscription to poker notifications coming from golib.
+  StreamSubscription<pr.Notification>? _pokerNtfnSub;
+  // Subscription to game updates coming from golib.
+  StreamSubscription<pr.GameUpdate>? _gameUpdateSub;
+
   PokerModel({
-    this.lobby,
-    this.poker,
     required this.playerId,
   });
 
@@ -318,59 +306,34 @@ class PokerModel extends ChangeNotifier {
     print(
         'DEBUG: fromConfig - Golib.initClient returned id=${localInfo.id} nick=${localInfo.nick}');
 
-    // TODO: Streams (startGameStream, startNotificationStream) still need gRPC clients
-    // For now, create gRPC channel only for streams
-    // Once streams are handled by golib, remove this
-    final channel = await _createGrpcChannel(cfg);
-    final lobby = prpc.LobbyServiceClient(channel);
-    final poker = prpc.PokerServiceClient(channel);
-
     // Use the player ID from the Go library initialization
     final playerId = localInfo.id;
 
     return PokerModel(
-      lobby: lobby,
-      poker: poker,
       playerId: playerId,
-    );
-  }
-
-  /// Create gRPC channel from config - only needed for streams until they're handled by golib
-  static Future<ClientChannel> _createGrpcChannel(Config cfg) async {
-    final serverAddr = cfg.serverAddr;
-
-    // Parse host and port
-    final parts = serverAddr.split(':');
-    final host = parts[0];
-    final port = int.tryParse(parts[1]) ?? 50051;
-
-    // Create channel options with TLS credentials if cert path is provided
-    ChannelOptions options;
-    if (cfg.grpcCertPath.isNotEmpty) {
-      // Load the server certificate
-      final certBytes = await File(cfg.grpcCertPath).readAsBytes();
-      final credentials = ChannelCredentials.secure(
-        certificates: certBytes,
-        authority:
-            host, // Use the host as the authority for certificate validation
-      );
-      options = ChannelOptions(credentials: credentials);
-    } else {
-      // Fallback to insecure if no cert path provided
-      options = ChannelOptions(credentials: ChannelCredentials.insecure());
-    }
-
-    return ClientChannel(
-      host,
-      port: port,
-      options: options,
     );
   }
 
   // -------- Lifecycle ----------
   Future<void> init() async {
     print('DEBUG: PokerModel.init - begin (playerId=$playerId)');
-    await _startNotificationStream();
+    // Subscribe to poker notifications emitted by golib so we can update the
+    // UI in response to server events without polling.
+    _pokerNtfnSub ??= Golib.pokerNotifications().listen(
+      _onNotification,
+      onError: (e, st) {
+        errorMessage = 'Stream error: $e';
+        notifyListeners();
+      },
+    );
+    // Subscribe to game updates from the game stream
+    _gameUpdateSub ??= Golib.gameUpdates().listen(
+      _onGameUpdate,
+      onError: (e, st) {
+        errorMessage = 'Game update stream error: $e';
+        notifyListeners();
+      },
+    );
     await refreshTables();
     // If server remembers seat, restore:
     await _restoreCurrentTable();
@@ -378,27 +341,12 @@ class PokerModel extends ChangeNotifier {
 
   @override
   void dispose() {
-    _ntfnSub?.cancel();
-    _gameSub?.cancel();
-    _backoffTimer?.cancel();
+    _pokerNtfnSub?.cancel();
+    _gameUpdateSub?.cancel();
     super.dispose();
   }
 
-  // -------- Notifications ----------
-  Future<void> _startNotificationStream() async {
-    await _ntfnSub?.cancel();
-    try {
-      final stream = lobby!.startNotificationStream(
-        pr.StartNotificationStreamRequest()..playerId = playerId,
-      );
-      _ntfnSub = stream.listen(_onNotification,
-          onError: _onStreamError, onDone: _onStreamDone, cancelOnError: false);
-      print('DEBUG: Notification stream attached for playerId=$playerId');
-    } catch (e) {
-      _scheduleBackoff(() => _startNotificationStream());
-    }
-  }
-
+  // -------- Notifications (from Go; no direct gRPC stream) ----------
   void _onNotification(pr.Notification n) {
     print(
         'DEBUG: Notification received type=${n.type} tableId=${n.tableId} playerId=${n.playerId}');
@@ -422,9 +370,19 @@ class PokerModel extends ChangeNotifier {
         _myHoleCardsCache = const [];
         // Clear any stale bet FX at the start of a new hand
         lastBetFx = null;
+        // Don't call refreshGameState here - wait for GameUpdate from stream
+        // The stream will send the game state with hand cards
         notifyListeners();
         break;
       case pr.NotificationType.GAME_STARTED:
+        // Explicitly transition to handInProgress when game starts
+        if (n.tableId == currentTableId || n.tableId.isEmpty || currentTableId == null) {
+          _state = PokerState.handInProgress;
+          notifyListeners();
+        }
+        // Don't call refreshGameState here - wait for GameUpdate from stream
+        // The stream will send the game state with hand cards
+        break;
       case pr.NotificationType.GAME_ENDED:
       case pr.NotificationType.BET_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
@@ -435,6 +393,7 @@ class PokerModel extends ChangeNotifier {
               createdMs: DateTime.now().millisecondsSinceEpoch);
           notifyListeners();
         }
+        // Don't call refreshGameState - stream will send GameUpdate
         break;
       case pr.NotificationType.CALL_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
@@ -445,13 +404,15 @@ class PokerModel extends ChangeNotifier {
               createdMs: DateTime.now().millisecondsSinceEpoch);
           notifyListeners();
         }
+        // Don't call refreshGameState - stream will send GameUpdate
         break;
       case pr.NotificationType.CHECK_MADE:
       case pr.NotificationType.PLAYER_FOLDED:
       case pr.NotificationType.SMALL_BLIND_POSTED:
       case pr.NotificationType.BIG_BLIND_POSTED:
       case pr.NotificationType.SHOWDOWN_RESULT:
-        // Game stream will drive UI; still useful for toasts.
+        // Don't call refreshGameState - stream will send GameUpdate
+        // Only update UI state if needed, but don't poll
         break;
 
       case pr.NotificationType.CARDS_SHOWN:
@@ -473,28 +434,49 @@ class PokerModel extends ChangeNotifier {
     }
   }
 
-  void _onStreamError(Object e, StackTrace st) {
-    errorMessage = 'Stream error: $e';
-    notifyListeners();
-    _scheduleBackoff(() => _startNotificationStream());
-  }
+  // -------- Game Updates (from game stream) ----------
+  void _onGameUpdate(pr.GameUpdate gameUpdate) {
+    print(
+        'DEBUG: GameUpdate received - phase: ${gameUpdate.phase}, gameStarted: ${gameUpdate.gameStarted}, currentPlayer: ${gameUpdate.currentPlayer}');
+    
+    // Update game state from the stream update
+    game = UiGameState.fromUpdate(gameUpdate);
 
-  void _onStreamDone() {
-    _scheduleBackoff(() => _startNotificationStream());
+    final myP = me;
+    final handCnt = myP?.hand.length ?? 0;
+    final playersCnt = game?.players.length ?? 0;
+    print(
+        'DEBUG: _onGameUpdate - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${gameUpdate.currentPlayer}');
+    if (handCnt > 0) {
+      final h = myP!.hand;
+      print(
+          'DEBUG: My cards (from stream): ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
+    }
+
+    // Update UI state based on game phase
+    final phase = gameUpdate.phase;
+    if (phase == pr.GamePhase.SHOWDOWN) {
+      _state = PokerState.showdown;
+      unawaited(_refreshLastWinners());
+    } else if (gameUpdate.gameStarted || phase != pr.GamePhase.WAITING) {
+      // Game is active if gameStarted flag is true OR phase is not WAITING
+      _state = PokerState.handInProgress;
+    } else {
+      _state = PokerState.inLobby;
+    }
+
+    print(
+        'DEBUG: _onGameUpdate - Updated state to: $_state, isMyTurn: $isMyTurn');
+
+    notifyListeners();
   }
 
   void _scheduleBackoff(FutureOr<void> Function() retry) {
-    _backoffTimer?.cancel();
-    final ms = min(15000, 500 * (1 << _retries)); // 0.5s, 1s, 2s, ... cap 15s
-    _backoffTimer = Timer(Duration(milliseconds: ms), () {
-      _retries = min(_retries + 1, 6);
-      retry();
-    });
+    retry();
   }
 
   void _resetBackoff() {
-    _retries = 0;
-    _backoffTimer?.cancel();
+    // No-op now that we do not back off streams locally.
   }
 
   // -------- Lobby / Tables ----------
@@ -594,10 +576,9 @@ class PokerModel extends ChangeNotifier {
       if (_seated && currentTableId == tableId) {
         print(
             'DEBUG: joinTable dedup - already seated at $tableId; reattaching stream');
-        await _attachGameStream();
-        // Stream drives UI; fetch winners in background.
+        // Ensure state is up-to-date via golib.
+        await refreshGameState();
         unawaited(_refreshLastWinners());
-        _resetBackoff();
         notifyListeners();
         return true;
       }
@@ -617,10 +598,9 @@ class PokerModel extends ChangeNotifier {
       _state = PokerState.inLobby;
       print('DEBUG: joinTable ok - tableId=$tableId playerId=$playerId');
       await refreshTables();
-      await _attachGameStream(); // subscribe immediately with this.playerId
-      // Let stream drive UI; fetch winners in background.
+      // Refresh game state and winners via golib instead of a direct gRPC stream.
+      await refreshGameState();
       unawaited(_refreshLastWinners());
-      _resetBackoff();
       notifyListeners();
       return true;
     } catch (e) {
@@ -638,7 +618,6 @@ class PokerModel extends ChangeNotifier {
     } catch (_) {
       // ignore; try to clean local state anyway
     } finally {
-      await _detachGameStream();
       currentTableId = null;
       game = null;
       _iAmReady = false;
@@ -662,7 +641,7 @@ class PokerModel extends ChangeNotifier {
       // If we're already seated on this table, avoid re-joining; ensure stream/state.
       if (_seated && currentTableId == tid) {
         print('DEBUG: _restoreCurrentTable - already at $tid, skipping rejoin');
-        await _attachGameStream();
+        await refreshGameState();
         return;
       }
 
@@ -729,114 +708,13 @@ class PokerModel extends ChangeNotifier {
     }
   }
 
-  // -------- Game stream & state ----------
-  Future<void> _attachGameStream() async {
-    await _gameSub?.cancel();
-    final tid = currentTableId;
-    if (tid == null) return;
-
-    try {
-      print('DEBUG: Attaching game stream - tableId=$tid playerId=$playerId');
-      final stream = poker!.startGameStream(pr.StartGameStreamRequest()
-        ..playerId = playerId
-        ..tableId = tid);
-      _gameSub = stream.listen(_onGameUpdate,
-          onError: _onGameStreamError, onDone: _onGameStreamDone);
-    } catch (e) {
-      _scheduleBackoff(_attachGameStream);
-    }
-  }
-
-  Future<void> _detachGameStream() async {
-    await _gameSub?.cancel();
-    _gameSub = null;
-  }
-
-  void _onGameUpdate(pr.GameUpdate u) {
-    // Ignore updates if not seated or not for the active table
-    if (!_seated) {
-      print('DEBUG: Ignoring game update - not seated');
-      return;
-    }
-    final tid = currentTableId;
-    if (tid != null && u.tableId != tid) {
-      print('DEBUG: Ignoring game update - wrong table: ${u.tableId} vs $tid');
-      return;
-    }
-
-    print(
-        'DEBUG: Processing game update - phase: ${u.phase}, gameStarted: ${u.gameStarted}, currentPlayer: ${u.currentPlayer}');
-    final next = UiGameState.fromUpdate(u);
-    // Update hero hole cards cache when available
-    final heroNow = next.players.firstWhereOrNull((p) => p.id == playerId);
-    if (heroNow != null && heroNow.hand.isNotEmpty) {
-      _myHoleCardsCache = List<pr.Card>.from(heroNow.hand);
-    }
-    // Rely on explicit notifications for bet/call FX; avoid inferring from snapshots
-    game = next;
-
-    final myP = me;
-    final handCnt = myP?.hand.length ?? 0;
-    final playersCnt = game?.players.length ?? u.players.length;
-    print(
-        'DEBUG: GameUpdate snapshot - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${u.currentPlayer}');
-    if (handCnt > 0) {
-      final h = myP!.hand;
-      print(
-          'DEBUG: My cards: ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
-    }
-
-    // Drive coarse UI state from server phase:
-    // - SHOWDOWN -> showdown view
-    // - Any non-WAITING phase -> hand in progress (even NEW_HAND_DEALING)
-    // This avoids relying solely on gameStarted, which can lag in some snapshots.
-    if (u.phase == pr.GamePhase.SHOWDOWN) {
-      _state = PokerState.showdown;
-      unawaited(_refreshLastWinners());
-      _turnDeadline = null;
-      // Clear transient FX; UI follows server phase strictly.
-      lastBetFx = null;
-    } else if (u.phase != pr.GamePhase.WAITING) {
-      _state = PokerState.handInProgress;
-    } else {
-      _state = PokerState.inLobby;
-      _turnDeadline = null;
-      lastBetFx = null;
-    }
-
-    // Server-authoritative timebank: read from GameUpdate
-    if (u.timeBankSeconds > 0) {
-      timeBankSeconds = u.timeBankSeconds;
-    }
-    _turnDeadline = (u.turnDeadlineUnixMs > 0)
-        ? DateTime.fromMillisecondsSinceEpoch(u.turnDeadlineUnixMs.toInt())
-        : null;
-
-    print('DEBUG: Updated state to: $_state, isMyTurn: $isMyTurn');
-
-    errorMessage = '';
-    _resetBackoff();
-    notifyListeners();
-  }
-
-  // Removed local ticker; painter handles repainting via a RenderLoop using the deadline
-
+  // -------- Game state helpers ----------
   double get timebankRemainingSeconds {
     final dl = _turnDeadline;
     if (dl == null) return 0;
     final rem = dl.difference(DateTime.now());
     if (rem.isNegative) return 0;
     return rem.inMilliseconds / 1000.0;
-  }
-
-  void _onGameStreamError(Object e, StackTrace st) {
-    errorMessage = 'Game stream error: $e';
-    notifyListeners();
-    _scheduleBackoff(_attachGameStream);
-  }
-
-  void _onGameStreamDone() {
-    _scheduleBackoff(_attachGameStream);
   }
 
   // -------- Actions (bet/call/check/fold) ----------
@@ -900,10 +778,10 @@ class PokerModel extends ChangeNotifier {
     if (tid == null) return;
     try {
       final respMap = await Golib.getGameState();
-      // Convert JSON map back to protobuf GameUpdate
+      // Parse simple JSON DTO and convert to protobuf GameUpdate
       final gameStateJson = respMap['game_state'] as Map<String, dynamic>;
-      final gameStateJsonStr = jsonEncode(gameStateJson);
-      final gameUpdate = pr.GameUpdate.fromJson(gameStateJsonStr);
+      final dto = GameUpdateDTO.fromJson(gameStateJson);
+      final gameUpdate = dto.toProtobuf();
       print(
           'DEBUG: refreshGameState - phase: ${gameUpdate.phase}, gameStarted: ${gameUpdate.gameStarted}, currentPlayer: ${gameUpdate.currentPlayer}');
       game = UiGameState.fromUpdate(gameUpdate);
@@ -925,7 +803,8 @@ class PokerModel extends ChangeNotifier {
       if (phase == pr.GamePhase.SHOWDOWN) {
         _state = PokerState.showdown;
         unawaited(_refreshLastWinners());
-      } else if (phase != pr.GamePhase.WAITING) {
+      } else if (gameUpdate.gameStarted || phase != pr.GamePhase.WAITING) {
+        // Game is active if gameStarted flag is true OR phase is not WAITING
         _state = PokerState.handInProgress;
       } else {
         _state = PokerState.inLobby;

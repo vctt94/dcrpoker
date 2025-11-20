@@ -166,6 +166,116 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 	}
 }
 
+// cardDTO represents a card for JSON marshaling
+type cardDTO struct {
+	Suit  string `json:"suit"`
+	Value string `json:"value"`
+}
+
+// playerDTO represents a player for JSON marshaling
+type playerDTO struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Balance         int64      `json:"balance"`
+	Hand            []*cardDTO `json:"hand"`
+	CurrentBet      int64      `json:"currentBet"`
+	Folded          bool       `json:"folded"`
+	IsTurn          bool       `json:"isTurn"`
+	IsAllIn         bool       `json:"isAllIn"`
+	IsDealer        bool       `json:"isDealer"`
+	IsReady         bool       `json:"isReady"`
+	HandDescription string     `json:"handDescription"`
+	PlayerState     int32      `json:"playerState"` // enum as int
+	IsSmallBlind    bool       `json:"isSmallBlind"`
+	IsBigBlind      bool       `json:"isBigBlind"`
+}
+
+// gameUpdateDTO represents a game update for JSON marshaling
+type gameUpdateDTO struct {
+	TableId            string       `json:"tableId"`
+	Phase              int32        `json:"phase"` // enum as int
+	Players            []*playerDTO `json:"players"`
+	CommunityCards     []*cardDTO   `json:"communityCards"`
+	Pot                int64        `json:"pot"`
+	CurrentBet         int64        `json:"currentBet"`
+	CurrentPlayer      string       `json:"currentPlayer"`
+	MinRaise           int64        `json:"minRaise"`
+	MaxRaise           int64        `json:"maxRaise"`
+	GameStarted        bool         `json:"gameStarted"`
+	PlayersRequired    int32        `json:"playersRequired"`
+	PlayersJoined      int32        `json:"playersJoined"`
+	PhaseName          string       `json:"phaseName"`
+	TimeBankSeconds    int32        `json:"timeBankSeconds"`
+	TurnDeadlineUnixMs int64        `json:"turnDeadlineUnixMs"`
+}
+
+func cardToDTO(c *pokerrpc.Card) *cardDTO {
+	if c == nil {
+		return nil
+	}
+	return &cardDTO{
+		Suit:  c.Suit,
+		Value: c.Value,
+	}
+}
+
+func playerToDTO(p *pokerrpc.Player) *playerDTO {
+	if p == nil {
+		return nil
+	}
+	hand := make([]*cardDTO, 0, len(p.Hand))
+	for _, c := range p.Hand {
+		hand = append(hand, cardToDTO(c))
+	}
+	return &playerDTO{
+		ID:              p.Id,
+		Name:            p.Name,
+		Balance:         p.Balance,
+		Hand:            hand,
+		CurrentBet:      p.CurrentBet,
+		Folded:          p.Folded,
+		IsTurn:          p.IsTurn,
+		IsAllIn:         p.IsAllIn,
+		IsDealer:        p.IsDealer,
+		IsReady:         p.IsReady,
+		HandDescription: p.HandDescription,
+		PlayerState:     int32(p.PlayerState),
+		IsSmallBlind:    p.IsSmallBlind,
+		IsBigBlind:      p.IsBigBlind,
+	}
+}
+
+func gameUpdateToDTO(gu *pokerrpc.GameUpdate) *gameUpdateDTO {
+	if gu == nil {
+		return nil
+	}
+	players := make([]*playerDTO, 0, len(gu.Players))
+	for _, p := range gu.Players {
+		players = append(players, playerToDTO(p))
+	}
+	communityCards := make([]*cardDTO, 0, len(gu.CommunityCards))
+	for _, c := range gu.CommunityCards {
+		communityCards = append(communityCards, cardToDTO(c))
+	}
+	return &gameUpdateDTO{
+		TableId:            gu.TableId,
+		Phase:              int32(gu.Phase),
+		Players:            players,
+		CommunityCards:     communityCards,
+		Pot:                gu.Pot,
+		CurrentBet:         gu.CurrentBet,
+		CurrentPlayer:      gu.CurrentPlayer,
+		MinRaise:           gu.MinRaise,
+		MaxRaise:           gu.MaxRaise,
+		GameStarted:        gu.GameStarted,
+		PlayersRequired:    gu.PlayersRequired,
+		PlayersJoined:      gu.PlayersJoined,
+		PhaseName:          gu.PhaseName,
+		TimeBankSeconds:    gu.TimeBankSeconds,
+		TurnDeadlineUnixMs: gu.TurnDeadlineUnixMs,
+	}
+}
+
 // localInfo represents local client information
 type localInfo struct {
 	// Full hex-encoded client ID used by the server.
@@ -279,6 +389,12 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, fmt.Errorf("failed to create poker client: %v", err)
 	}
 
+	// Start the notification stream to receive server notifications (TABLE_CREATED, etc.)
+	if err := pc.StartNotificationStream(ctx); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to start notification stream: %v", err)
+	}
+
 	// Without a BR client, derive a simple local identity from the poker client ID.
 	clientID := pc.ID
 	nick := clientID.String()
@@ -305,6 +421,33 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 		// Notify the system that the client stopped
 		notify(NTClientStopped, nil, ctx.Err())
+	}()
+
+	// Bridge poker notifications from the Go client into the generic
+	// plugin notification channel so Flutter can react to game events
+	// without opening its own gRPC streams.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-pc.UpdatesCh:
+				if !ok {
+					return
+				}
+
+				switch v := msg.(type) {
+				case *pokerrpc.Notification:
+					notify(NTPokerNotification, v, nil)
+				case *pokerrpc.GameUpdate:
+					// Convert GameUpdate to DTO and forward to Flutter
+					dto := gameUpdateToDTO(v)
+					notify(NTGameUpdate, dto, nil)
+				default:
+					// Ignore other message types (like tea.Msg wrapper types)
+				}
+			}
+		}
 	}()
 
 	cctx.log.Infof("Poker client initialized with ID: %s", clientID.String())
