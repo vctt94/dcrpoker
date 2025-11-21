@@ -284,6 +284,7 @@ type LoginResponse struct {
 }
 
 // Login logs in a user with a nickname
+// If the user is not registered, it will automatically register them first
 func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginResponse, error) {
 	// Validate nickname
 	if err := validateNickname(nickname); err != nil {
@@ -309,7 +310,23 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 	}
 
 	if !resp.Ok {
-		return nil, fmt.Errorf("login failed: %s", resp.Error)
+		// Check if user needs to register first
+		if strings.Contains(strings.ToLower(resp.Error), "please register first") {
+			// Auto-register the user
+			if err := pc.Register(ctx, nickname); err != nil {
+				return nil, fmt.Errorf("auto-registration failed: %w", err)
+			}
+			// Retry login after registration
+			resp, err = authClient.Login(ctx, req)
+			if err != nil {
+				return nil, err
+			}
+			if !resp.Ok {
+				return nil, fmt.Errorf("login failed after registration: %s", resp.Error)
+			}
+		} else {
+			return nil, fmt.Errorf("login failed: %s", resp.Error)
+		}
 	}
 
 	return &LoginResponse{
