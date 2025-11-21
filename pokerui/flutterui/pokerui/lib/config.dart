@@ -1,10 +1,12 @@
 import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:golib_plugin/golib_plugin.dart';
-import 'package:golib_plugin/definitions.dart';
+import 'package:path_provider/path_provider.dart';
 
-const APPNAME = "pokerui";
-const BRUIGNAME = "bruig";
+// Logical app name (used for .conf and log filenames).
+const APPNAME = "bisonpoker";
+// macOS Application Support directory name (matches bundle identifier).
+const APP_SUPPORT_DIR = "com.bisonpoker";
 String mainConfigFilename = "";
 
 class Config {
@@ -173,23 +175,33 @@ String cleanAndExpandPath(String p) {
   return path.normalize(path.absolute(p));
 }
 
+// Function to get the default app data directory based on the platform
 Future<String> defaultAppDataDir() async {
-  final env = Platform.environment;
-  if (Platform.isWindows) {
-    final base = env['APPDATA'] ?? env['LOCALAPPDATA'] ?? homeDir();
-    return path.join(base, APPNAME);
+  if (Platform.isLinux) {
+    final home = Platform.environment["HOME"];
+    if (home != null && home != "") {
+      return path.join(home, ".$APPNAME");
+    }
+  } else if (Platform.isWindows &&
+      Platform.environment.containsKey("LOCALAPPDATA")) {
+    return path.join(Platform.environment["LOCALAPPDATA"]!, APPNAME);
   } else if (Platform.isMacOS) {
-    return path.join(homeDir(), 'Library', 'Application Support', APPNAME);
-  } else {
-    // Linux and others: use hidden dir in HOME
-    return path.join(homeDir(), '.${APPNAME}');
+    // Use the platform-provided Application Support directory to remain within
+    // writable sandboxed locations. Avoid walking to parent to strip bundle id.
+    final baseDir = (await getApplicationSupportDirectory());
+    print('baseDir: ${baseDir.path}');
+    return path.join(baseDir.path, APPNAME);
   }
+
+  // For other platforms, get the parent directory to avoid bundle identifier paths
+  final dir = await getApplicationSupportDirectory();
+  return path.join(dir.path, APPNAME);
 }
 
 Future<Config> configFromArgs(List<String> args) async {
   final cfgFilePath = path.join(await defaultAppDataDir(), '$APPNAME.conf');
-  if (!File(cfgFilePath).existsSync()) {
-    throw newConfigNeededException;
-  }
+  // Do not force the user through the interactive "new config" flow on first
+  // start. Instead, let the Go backend auto-create a sane default config based
+  // on the computed data directory when none exists yet.
   return Config.loadConfig(cfgFilePath);
 }

@@ -2,6 +2,7 @@ package golib
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -11,10 +12,12 @@ import (
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/lockfile"
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
+	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
-	appName = "pongui"
+	appName = "bisonpoker"
 )
 
 func handleHello(name string) (string, error) {
@@ -191,15 +194,16 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 
 		// Create TableConfig from request
 		config := poker.TableConfig{
-			SmallBlind:     req.SmallBlind,
-			BigBlind:       req.BigBlind,
-			MaxPlayers:     int(req.MaxPlayers),
-			MinPlayers:     int(req.MinPlayers),
-			MinBalance:     req.MinBalance,
-			BuyIn:          req.BuyIn,
-			StartingChips:  req.StartingChips,
-			TimeBank:       time.Duration(req.TimeBankSeconds) * time.Second,
-			AutoStartDelay: time.Duration(req.AutoStartMs) * time.Millisecond,
+			SmallBlind:       req.SmallBlind,
+			BigBlind:         req.BigBlind,
+			MaxPlayers:       int(req.MaxPlayers),
+			MinPlayers:       int(req.MinPlayers),
+			MinBalance:       req.MinBalance,
+			BuyIn:            req.BuyIn,
+			StartingChips:    req.StartingChips,
+			TimeBank:         time.Duration(req.TimeBankSeconds) * time.Second,
+			AutoStartDelay:   time.Duration(req.AutoStartMs) * time.Millisecond,
+			AutoAdvanceDelay: time.Duration(req.AutoAdvanceMs) * time.Millisecond,
 		}
 
 		tableID, err := cc.c.CreateTable(cc.ctx, config)
@@ -237,6 +241,184 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, fmt.Errorf("failed to get current table: %v", err)
 		}
 		return map[string]string{"table_id": tid}, nil
+
+	case CTShowCards:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.ShowCards(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to show cards: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTHideCards:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.HideCards(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to hide cards: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTMakeBet:
+		var req makeBet
+		if err := decodeStrict(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("make bet payload: %w", err)
+		}
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.Bet(cc.ctx, req.Amount)
+		if err != nil {
+			return nil, fmt.Errorf("failed to make bet: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTCallBet:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		// Call doesn't need currentBet parameter - server handles it
+		err := cc.c.Call(cc.ctx, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to call bet: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTFoldBet:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.Fold(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fold: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTCheckBet:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.Check(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTGetGameState:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		tableID := cc.c.GetCurrentTableID()
+		if tableID == "" {
+			return nil, fmt.Errorf("not currently in a table")
+		}
+		resp, err := cc.c.PokerService.GetGameState(cc.ctx, &pokerrpc.GetGameStateRequest{
+			PlayerId: cc.c.ID.String(),
+			TableId:  tableID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get game state: %v", err)
+		}
+		// Convert protobuf to simple DTO for JSON marshaling
+		dto := gameUpdateToDTO(resp.GameState)
+		return map[string]interface{}{
+			"game_state": dto,
+		}, nil
+
+	case CTGetLastWinners:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		tableID := cc.c.GetCurrentTableID()
+		if tableID == "" {
+			return nil, fmt.Errorf("not currently in a table")
+		}
+		resp, err := cc.c.PokerService.GetLastWinners(cc.ctx, &pokerrpc.GetLastWinnersRequest{
+			TableId: tableID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get last winners: %v", err)
+		}
+		// Convert protobuf winners to JSON
+		jsonBytes, err := protojson.Marshal(resp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal winners: %v", err)
+		}
+		var winnersMap map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &winnersMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal winners JSON: %v", err)
+		}
+		return winnersMap, nil
+
+	case CTEvaluateHand:
+		var req evaluateHand
+		if err := decodeStrict(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("evaluate hand payload: %w", err)
+		}
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		// Convert cards to protobuf format - Card uses strings for suit and value
+		cards := make([]*pokerrpc.Card, 0, len(req.Cards))
+		for _, c := range req.Cards {
+			// Convert int32 to string representation
+			// Assuming suit: 0=Spades, 1=Hearts, 2=Diamonds, 3=Clubs
+			// and value: 2-14 (2-10, J, Q, K, A)
+			suitStr := []string{"Spades", "Hearts", "Diamonds", "Clubs"}[c.Suit]
+			valueStr := fmt.Sprintf("%d", c.Value)
+			if c.Value == 11 {
+				valueStr = "J"
+			} else if c.Value == 12 {
+				valueStr = "Q"
+			} else if c.Value == 13 {
+				valueStr = "K"
+			} else if c.Value == 14 {
+				valueStr = "A"
+			}
+			cards = append(cards, &pokerrpc.Card{
+				Suit:  suitStr,
+				Value: valueStr,
+			})
+		}
+		resp, err := cc.c.PokerService.EvaluateHand(cc.ctx, &pokerrpc.EvaluateHandRequest{
+			Cards: cards,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to evaluate hand: %v", err)
+		}
+		// Convert protobuf response to JSON
+		jsonBytes, err := protojson.Marshal(resp)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal evaluate hand response: %v", err)
+		}
+		var evalMap map[string]interface{}
+		if err := json.Unmarshal(jsonBytes, &evalMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal evaluate hand JSON: %v", err)
+		}
+		return evalMap, nil
+
+	case CTSetPlayerReady:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.SetPlayerReady(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set player ready: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
+	case CTSetPlayerUnready:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.SetPlayerUnready(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to set player unready: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown cmd 0x%x", cmd.Type)

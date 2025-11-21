@@ -2,8 +2,10 @@ package client
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -14,9 +16,8 @@ import (
 	"github.com/decred/slog"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/vctt94/bisonbotkit/botclient"
+	"github.com/vctt94/bisonbotkit/config"
 	"github.com/vctt94/bisonbotkit/logging"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	pokerutils "github.com/vctt94/pokerbisonrelay/pkg/utils"
@@ -24,22 +25,68 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-// Message types for UI communication
-type GameUpdateMsg *pokerrpc.GameUpdate
+// LoadClientConfig loads the client config and creates ClientConfig with LogBackend
+func LoadClientConfig(datadir, filename string) (*ClientConfig, error) {
+	cfg, err := LoadClientConf(datadir, filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load client config: %v", err)
+	}
+	logBackend, err := logging.NewLogBackend(logging.LogConfig{
+		LogFile:        cfg.LogFile,
+		DebugLevel:     cfg.Debug,
+		MaxLogFiles:    cfg.MaxLogFiles,
+		MaxBufferLines: cfg.MaxBufferLines,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log backend: %v", err)
+	}
+
+	// Create the combined config
+	clientCfg := &ClientConfig{
+		Datadir:        cfg.Datadir,
+		GRPCHost:       cfg.GRPCHost,
+		GRPCPort:       cfg.GRPCPort,
+		GRPCCertPath:   cfg.GRPCCertPath,
+		PayoutAddress:  cfg.PayoutAddress,
+		LogFile:        cfg.LogFile,
+		Debug:          cfg.Debug,
+		MaxLogFiles:    cfg.MaxLogFiles,
+		MaxBufferLines: cfg.MaxBufferLines,
+		LogBackend:     logBackend,
+		Notifications:  NewNotificationManager(),
+	}
+
+	return clientCfg, nil
+}
+
+// ClientConfig is the client configuration with LogBackend and Notifications
+type ClientConfig struct {
+	Datadir        string
+	GRPCHost       string
+	GRPCPort       string
+	GRPCCertPath   string
+	PayoutAddress  string
+	LogFile        string
+	Debug          string
+	MaxLogFiles    int
+	MaxBufferLines int
+	LogBackend     *logging.LogBackend
+	Notifications  *NotificationManager
+	PlayerID       string
+}
 
 // PokerClient represents a poker client with notification handling
 type PokerClient struct {
 	sync.RWMutex
 	ID           zkidentity.ShortID
 	DataDir      string
-	BRClient     *botclient.BotClient
 	LobbyService pokerrpc.LobbyServiceClient
 	PokerService pokerrpc.PokerServiceClient
 	conn         *grpc.ClientConn
 	IsReady      bool
 	BetAmt       int64 // bet amount in atoms
 	tableID      string
-	cfg          *AppConfig
+	cfg          *ClientConfig
 	ntfns        *NotificationManager
 	log          slog.Logger
 	logBackend   *logging.LogBackend
@@ -62,7 +109,7 @@ type PokerClient struct {
 }
 
 // NewPokerClient creates a new poker client with notification support
-func NewPokerClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
+func NewPokerClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
 	// Validate that notifications are properly initialized
 	if cfg.Notifications == nil {
 		// initialize notification manager with NewNotificationManager
@@ -80,7 +127,6 @@ func NewPokerClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 	pc := &PokerClient{
 		ID:           client.ID,
 		DataDir:      client.DataDir,
-		BRClient:     client.BRClient,
 		LobbyService: client.LobbyService,
 		PokerService: client.PokerService,
 		conn:         client.conn,
@@ -103,62 +149,50 @@ func NewPokerClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 }
 
 // newBaseClient creates a basic client without notification support (internal use)
-func newClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
+func newClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("cfg is nil")
 	}
 	// Ensure datadir exists
-	if err := pokerutils.EnsureDataDirExists(cfg.DataDir); err != nil {
+	if err := pokerutils.EnsureDataDirExists(cfg.Datadir); err != nil {
 		return nil, fmt.Errorf("failed to create datadir: %v", err)
 	}
 
 	// Convert to BisonRelay config (unless offline)
-	var brClient *botclient.BotClient
 	var log slog.Logger
 	var logBackend *logging.LogBackend
 	var clientID zkidentity.ShortID
-	if cfg.Offline {
-		if cfg.PlayerID == "" {
-			return nil, fmt.Errorf("clientID is required when running offline")
-		}
-		// generate a random client ID
 
-		// Minimal logging backend when offline
-		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "info"})
-		log = lb.Logger("PokerClient")
-		logBackend = lb
-	} else {
-		// connect to BisonRelay
-		clientConfig := cfg.ToBisonRelayConfig()
-
-		// Initialize BisonRelay client
-		bc, err := botclient.NewClient(clientConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create bot client: %v", err)
-		}
-		if bc == nil {
-			return nil, fmt.Errorf("bot client is nil")
-		}
-		brClient = bc
-		// Start the RPC client in a goroutine if brClient was created successfully
-		go brClient.RunRPC(ctx)
-		// Get the client ID
-		var publicIdentity types.PublicIdentity
-		err = brClient.Chat.UserPublicIdentity(ctx, &types.PublicIdentityReq{}, &publicIdentity)
-		if err != nil {
-			return nil, fmt.Errorf("Failed to get user public identity: %v", err)
-		}
-
-		clientID.FromBytes(publicIdentity.Identity)
-
-		log = brClient.LogBackend.Logger("PokerClient")
-		logBackend = brClient.LogBackend
+	clientConfig := &config.ClientConfig{
+		DataDir:        cfg.Datadir,
+		LogFile:        cfg.LogFile,
+		Debug:          cfg.Debug,
+		MaxLogFiles:    cfg.MaxLogFiles,
+		MaxBufferLines: cfg.MaxBufferLines,
+		ExtraConfig:    make(map[string]string),
 	}
+	// Set grpchost and grpcport in ExtraConfig for backward compatibility
+	if cfg.GRPCHost != "" {
+		clientConfig.SetString("grpchost", cfg.GRPCHost)
+	}
+	if cfg.GRPCPort != "" {
+		clientConfig.SetString("grpcport", cfg.GRPCPort)
+	}
+
+	// generate random id bytes for now
+	randomBytes := make([]byte, 32)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return nil, fmt.Errorf("failed to generate random id: %v", err)
+	}
+	clientID.FromString(hex.EncodeToString(randomBytes))
+
+	// Use config's log backend for now
+	log = cfg.LogBackend.Logger("PokerClient")
+	logBackend = cfg.LogBackend
 
 	client := &PokerClient{
 		ID:         clientID,
-		DataDir:    cfg.DataDir,
-		BRClient:   brClient,
+		DataDir:    cfg.Datadir,
 		log:        log,
 		logBackend: logBackend,
 		cfg:        cfg,
@@ -167,7 +201,7 @@ func newClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 	log.Debugf("Using client ID: %s", client.ID)
 
 	// Connect to the poker server
-	if err := client.connectToPokerServer(ctx, cfg.GRPCHost); err != nil {
+	if err := client.connectToPokerServer(ctx); err != nil {
 		return nil, fmt.Errorf("failed to connect to poker server: %v", err)
 	}
 
@@ -180,7 +214,7 @@ func newClient(ctx context.Context, cfg *AppConfig) (*PokerClient, error) {
 }
 
 // connectToPokerServer establishes gRPC connection to the poker server
-func (pc *PokerClient) connectToPokerServer(ctx context.Context, grpcHost string) error {
+func (pc *PokerClient) connectToPokerServer(ctx context.Context) error {
 	var dialOpts []grpc.DialOption
 
 	if pc.cfg == nil {
@@ -195,48 +229,42 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context, grpcHost string
 		return fmt.Errorf("GRPCPort is not configured")
 	}
 
-	// TLS or insecure
-	if pc.cfg.Insecure {
-		// Note: WithInsecure is deprecated but fine for tests; we keep local usage to integration paths
-		dialOpts = append(dialOpts, grpc.WithInsecure())
-	} else {
-		// Use TLS
-		grpcServerCertPath := pc.cfg.GRPCServerCert
-		if grpcServerCertPath == "" {
-			return fmt.Errorf("GRPCServerCert not configured and insecure mode disabled")
-		}
-
-		// Require that the server certificate exists; do not auto-create.
-		if _, err := os.Stat(grpcServerCertPath); os.IsNotExist(err) {
-			return fmt.Errorf("server certificate not found at %s", grpcServerCertPath)
-		}
-
-		// Load the server certificate
-		pemServerCA, err := os.ReadFile(grpcServerCertPath)
-		if err != nil {
-			return fmt.Errorf("failed to read server certificate: %v", err)
-		}
-
-		certPool := x509.NewCertPool()
-		if !certPool.AppendCertsFromPEM(pemServerCA) {
-			return fmt.Errorf("failed to add server certificate to pool")
-		}
-
-		// Use GRPCHost for TLS ServerName strictly; do not fallback.
-		serverName := pc.cfg.GRPCHost
-		if serverName == "" {
-			return fmt.Errorf("GRPCHost not configured for TLS ServerName")
-		}
-
-		// Create the TLS credentials with ServerName
-		tlsConfig := &tls.Config{
-			RootCAs:    certPool,
-			ServerName: serverName,
-		}
-
-		creds := credentials.NewTLS(tlsConfig)
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
+	// Use TLS
+	grpcServerCertPath := pc.cfg.GRPCCertPath
+	if grpcServerCertPath == "" {
+		return fmt.Errorf("GRPCCertPath not configured")
 	}
+
+	// Require that the server certificate exists; do not auto-create.
+	if _, err := os.Stat(grpcServerCertPath); os.IsNotExist(err) {
+		return fmt.Errorf("server certificate not found at %s", grpcServerCertPath)
+	}
+
+	// Load the server certificate
+	pemServerCA, err := os.ReadFile(grpcServerCertPath)
+	if err != nil {
+		return fmt.Errorf("failed to read server certificate: %v", err)
+	}
+
+	certPool := x509.NewCertPool()
+	if !certPool.AppendCertsFromPEM(pemServerCA) {
+		return fmt.Errorf("failed to add server certificate to pool")
+	}
+
+	// Use GRPCHost for TLS ServerName strictly; do not fallback.
+	serverName := pc.cfg.GRPCHost
+	if serverName == "" {
+		return fmt.Errorf("GRPCHost not configured for TLS ServerName")
+	}
+
+	// Create the TLS credentials with ServerName
+	tlsConfig := &tls.Config{
+		RootCAs:    certPool,
+		ServerName: serverName,
+	}
+
+	creds := credentials.NewTLS(tlsConfig)
+	dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
 
 	// Construct server address from GRPCHost and GRPCPort
 	serverAddr := fmt.Sprintf("%s:%s", pc.cfg.GRPCHost, pc.cfg.GRPCPort)
@@ -396,9 +424,8 @@ func (pc *PokerClient) handleGameStreamUpdates(ctx context.Context) {
 				return
 			}
 
-			// Convert to UI message type and send to updates channel
 			select {
-			case pc.UpdatesCh <- GameUpdateMsg(update):
+			case pc.UpdatesCh <- update:
 			case <-ctx.Done():
 				return
 			default:

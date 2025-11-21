@@ -179,8 +179,8 @@ func (m *PokerUI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.handleNotification(notif)
 		return m, cmd
 
-	case client.GameUpdateMsg:
-		gameUpdate := (*pokerrpc.GameUpdate)(msg)
+	case *pokerrpc.GameUpdate:
+		gameUpdate := msg
 		// Detect turn change to start/reset timebank window
 		prevCurrent := m.currentPlayerID
 		m.updateGameState(gameUpdate)

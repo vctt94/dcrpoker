@@ -92,6 +92,18 @@ type createPokerTable struct {
 	StartingChips   int64 `json:"starting_chips"`
 	TimeBankSeconds int32 `json:"time_bank_seconds"`
 	AutoStartMs     int32 `json:"auto_start_ms"`
+	AutoAdvanceMs   int32 `json:"auto_advance_ms"`
+}
+
+type makeBet struct {
+	Amount int64 `json:"amount"`
+}
+
+type evaluateHand struct {
+	Cards []struct {
+		Suit  int32 `json:"suit"`
+		Value int32 `json:"value"`
+	} `json:"cards"`
 }
 
 // JSON returned to Flutter (shape must match Dart LocalWaitingRoom/LocalPlayer)
@@ -152,6 +164,116 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 		BuyIn:           t.BuyIn,
 		GameStarted:     t.GameStarted,
 		AllPlayersReady: t.AllPlayersReady,
+	}
+}
+
+// cardDTO represents a card for JSON marshaling
+type cardDTO struct {
+	Suit  string `json:"suit"`
+	Value string `json:"value"`
+}
+
+// playerDTO represents a player for JSON marshaling
+type playerDTO struct {
+	ID              string     `json:"id"`
+	Name            string     `json:"name"`
+	Balance         int64      `json:"balance"`
+	Hand            []*cardDTO `json:"hand"`
+	CurrentBet      int64      `json:"currentBet"`
+	Folded          bool       `json:"folded"`
+	IsTurn          bool       `json:"isTurn"`
+	IsAllIn         bool       `json:"isAllIn"`
+	IsDealer        bool       `json:"isDealer"`
+	IsReady         bool       `json:"isReady"`
+	HandDescription string     `json:"handDescription"`
+	PlayerState     int32      `json:"playerState"` // enum as int
+	IsSmallBlind    bool       `json:"isSmallBlind"`
+	IsBigBlind      bool       `json:"isBigBlind"`
+}
+
+// gameUpdateDTO represents a game update for JSON marshaling
+type gameUpdateDTO struct {
+	TableId            string       `json:"tableId"`
+	Phase              int32        `json:"phase"` // enum as int
+	Players            []*playerDTO `json:"players"`
+	CommunityCards     []*cardDTO   `json:"communityCards"`
+	Pot                int64        `json:"pot"`
+	CurrentBet         int64        `json:"currentBet"`
+	CurrentPlayer      string       `json:"currentPlayer"`
+	MinRaise           int64        `json:"minRaise"`
+	MaxRaise           int64        `json:"maxRaise"`
+	GameStarted        bool         `json:"gameStarted"`
+	PlayersRequired    int32        `json:"playersRequired"`
+	PlayersJoined      int32        `json:"playersJoined"`
+	PhaseName          string       `json:"phaseName"`
+	TimeBankSeconds    int32        `json:"timeBankSeconds"`
+	TurnDeadlineUnixMs int64        `json:"turnDeadlineUnixMs"`
+}
+
+func cardToDTO(c *pokerrpc.Card) *cardDTO {
+	if c == nil {
+		return nil
+	}
+	return &cardDTO{
+		Suit:  c.Suit,
+		Value: c.Value,
+	}
+}
+
+func playerToDTO(p *pokerrpc.Player) *playerDTO {
+	if p == nil {
+		return nil
+	}
+	hand := make([]*cardDTO, 0, len(p.Hand))
+	for _, c := range p.Hand {
+		hand = append(hand, cardToDTO(c))
+	}
+	return &playerDTO{
+		ID:              p.Id,
+		Name:            p.Name,
+		Balance:         p.Balance,
+		Hand:            hand,
+		CurrentBet:      p.CurrentBet,
+		Folded:          p.Folded,
+		IsTurn:          p.IsTurn,
+		IsAllIn:         p.IsAllIn,
+		IsDealer:        p.IsDealer,
+		IsReady:         p.IsReady,
+		HandDescription: p.HandDescription,
+		PlayerState:     int32(p.PlayerState),
+		IsSmallBlind:    p.IsSmallBlind,
+		IsBigBlind:      p.IsBigBlind,
+	}
+}
+
+func gameUpdateToDTO(gu *pokerrpc.GameUpdate) *gameUpdateDTO {
+	if gu == nil {
+		return nil
+	}
+	players := make([]*playerDTO, 0, len(gu.Players))
+	for _, p := range gu.Players {
+		players = append(players, playerToDTO(p))
+	}
+	communityCards := make([]*cardDTO, 0, len(gu.CommunityCards))
+	for _, c := range gu.CommunityCards {
+		communityCards = append(communityCards, cardToDTO(c))
+	}
+	return &gameUpdateDTO{
+		TableId:            gu.TableId,
+		Phase:              int32(gu.Phase),
+		Players:            players,
+		CommunityCards:     communityCards,
+		Pot:                gu.Pot,
+		CurrentBet:         gu.CurrentBet,
+		CurrentPlayer:      gu.CurrentPlayer,
+		MinRaise:           gu.MinRaise,
+		MaxRaise:           gu.MaxRaise,
+		GameStarted:        gu.GameStarted,
+		PlayersRequired:    gu.PlayersRequired,
+		PlayersJoined:      gu.PlayersJoined,
+		PhaseName:          gu.PhaseName,
+		TimeBankSeconds:    gu.TimeBankSeconds,
+		TurnDeadlineUnixMs: gu.TurnDeadlineUnixMs,
 	}
 }
 
@@ -243,25 +365,16 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		return nil, fmt.Errorf("failed to create logs directory %s: %v", logsDir, err)
 	}
 
-	// Load configuration with any overrides supplied by the Flutter shell
-	overrides := client.ConfigOverrides{
-		BRClientRPCURL:  args.RPCWebsocketURL,
-		BRClientCert:    args.RPCCertPath,
-		BRClientRPCCert: args.RPCCLientCertPath,
-		BRClientRPCKey:  args.RPCCLientKeyPath,
-		RPCUser:         args.RPCUser,
-		RPCPass:         args.RPCPass,
-		GRPCServerCert:  args.GRPCCertPath,
-		PayoutAddress:   args.PayoutAddress,
-	}
-	cfg, err := client.LoadAppConfig(args.DataDir, overrides)
+	// Load (or create) the poker client configuration. This uses the same
+	// config file as the CLI client so settings are shared.
+	cfg, err := client.LoadClientConfig(args.DataDir, appName+".conf")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %v", err)
+		return nil, fmt.Errorf("failed to load client config: %v", err)
 	}
 
-	// Validate configuration
-	if err := cfg.ValidateConfig(); err != nil {
-		return nil, fmt.Errorf("configuration validation error: %v", err)
+	// If the UI provided a payout address, prefer that over the config file.
+	if args.PayoutAddress != "" {
+		cfg.PayoutAddress = args.PayoutAddress
 	}
 
 	// Initialize notification manager BEFORE creating the client
@@ -276,18 +389,16 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		cancel()
 		return nil, fmt.Errorf("failed to create poker client: %v", err)
 	}
-	var nresp types.PublicIdentity
-	var clientID zkidentity.ShortID
-	var nick string
-	if err := pc.BRClient.Chat.UserPublicIdentity(ctx, &types.PublicIdentityReq{}, &nresp); err == nil && nresp.Nick != "" {
-		nick = nresp.Nick
-		clientID.FromBytes(nresp.Identity)
+
+	// Start the notification stream to receive server notifications (TABLE_CREATED, etc.)
+	if err := pc.StartNotificationStream(ctx); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to start notification stream: %v", err)
 	}
-	// XXX Move notification stream to our golib?
-	// if err := pc.StartNotificationStream(ctx); err != nil {
-	// 	cancel()
-	// 	return nil, fmt.Errorf("failed to start notifications: %v", err)
-	// }
+
+	// Without a BR client, derive a simple local identity from the poker client ID.
+	clientID := pc.ID
+	nick := clientID.String()
 
 	cctx := &clientCtx{
 		ID:     pc.ID,
@@ -295,7 +406,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		ctx:    ctx,
 		c:      pc,
 		cancel: cancel,
-		log:    pc.BRClient.LogBackend.Logger("pokerclient"),
+		log:    cfg.LogBackend.Logger(appName),
 	}
 	cs[handle] = cctx
 
@@ -311,6 +422,33 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 		// Notify the system that the client stopped
 		notify(NTClientStopped, nil, ctx.Err())
+	}()
+
+	// Bridge poker notifications from the Go client into the generic
+	// plugin notification channel so Flutter can react to game events
+	// without opening its own gRPC streams.
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case msg, ok := <-pc.UpdatesCh:
+				if !ok {
+					return
+				}
+
+				switch v := msg.(type) {
+				case *pokerrpc.Notification:
+					notify(NTPokerNotification, v, nil)
+				case *pokerrpc.GameUpdate:
+					// Convert GameUpdate to DTO and forward to Flutter
+					dto := gameUpdateToDTO(v)
+					notify(NTGameUpdate, dto, nil)
+				default:
+					// Ignore other message types (like tea.Msg wrapper types)
+				}
+			}
+		}
 	}()
 
 	cctx.log.Infof("Poker client initialized with ID: %s", clientID.String())
@@ -405,6 +543,29 @@ maxbufferlines=1000
 		return fmt.Errorf("failed to write config file: %v", err)
 	}
 
+	// Also create/update the CLI-compatible pokerclient.conf so the UI and
+	// CLI share the same connection settings.
+	host, port, ok := strings.Cut(serverAddr, ":")
+	if !ok || host == "" || port == "" {
+		// Fallback to sensible defaults if parsing fails.
+		host = "127.0.0.1"
+		port = "50051"
+	}
+	pcConf := &client.PokerConf{
+		Datadir:        dataDir,
+		GRPCHost:       host,
+		GRPCPort:       port,
+		GRPCCertPath:   grpcCertPath,
+		PayoutAddress:  "",
+		LogFile:        filepath.Join(dataDir, "logs", appName+".log"),
+		Debug:          debugLevel,
+		MaxLogFiles:    5,
+		MaxBufferLines: 1000,
+	}
+	if err := client.WriteClientConfigFile(pcConf, filepath.Join(dataDir, appName+".conf")); err != nil {
+		return fmt.Errorf("failed to write %s.conf: %v", appName, err)
+	}
+
 	// Create default server certificate if it doesn't exist
 	if _, err := os.Stat(grpcCertPath); os.IsNotExist(err) {
 		if err := createDefaultServerCert(grpcCertPath); err != nil {
@@ -482,7 +643,8 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 		datadir = filepath.Dir(datadir)
 	}
 
-	cfg, err := client.LoadAppConfig(datadir, client.ConfigOverrides{})
+	// Load (or create) the shared poker client config used by both CLI and UI.
+	cfg, err := client.LoadClientConf(datadir, appName+".conf")
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -494,18 +656,13 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 
 	// Build a map compatible with Flutter Config expectations
 	res := map[string]interface{}{
-		"server_addr":          serverAddr,
-		"grpc_cert_path":       cfg.GRPCServerCert,
-		"rpc_websocket_url":    cfg.BRConfig.RPCURL,
-		"rpc_cert_path":        cfg.BRConfig.BRClientCert,
-		"rpc_client_cert_path": cfg.BRConfig.BRClientRPCCert,
-		"rpc_client_key_path":  cfg.BRConfig.BRClientRPCKey,
-		"rpc_user":             cfg.BRConfig.RPCUser,
-		"rpc_pass":             cfg.BRConfig.RPCPass,
-		"debug_level":          cfg.BRConfig.Debug,
-		"wants_log_ntfns":      false,
-		"datadir":              cfg.DataDir,
-		"payout_address":       cfg.PayoutAddress,
+		"server_addr":    serverAddr,
+		"grpc_cert_path": cfg.GRPCCertPath,
+
+		"debug_level":     cfg.Debug,
+		"wants_log_ntfns": false,
+		"datadir":         cfg.Datadir,
+		"payout_address":  cfg.PayoutAddress,
 	}
 
 	return res, nil

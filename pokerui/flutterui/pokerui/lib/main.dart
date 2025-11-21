@@ -138,26 +138,6 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       _missingFields = const [];
     });
 
-    final missing = <String>[];
-    if (cfg.rpcWebsocketURL.isEmpty) missing.add('brrpcurl');
-    if (cfg.rpcCertPath.isEmpty) missing.add('brclientcert');
-    if (cfg.rpcClientCertPath.isEmpty) missing.add('brclientrpccert');
-    if (cfg.rpcClientKeyPath.isEmpty) missing.add('brclientrpckey');
-    if (cfg.rpcUser.isEmpty) missing.add('rpcuser');
-    if (cfg.rpcPass.isEmpty) missing.add('rpcpass');
-
-    if (missing.isNotEmpty) {
-      final error = Exception(
-        'Configuration still missing required credentials. Update settings and retry.',
-      );
-      setState(() {
-        _lastError = error;
-        _missingFields = missing;
-        _loading = false;
-      });
-      return;
-    }
-
     final notificationModel = NotificationModel();
     try {
       final pokerModel = await PokerModel.fromConfig(cfg, notificationModel);

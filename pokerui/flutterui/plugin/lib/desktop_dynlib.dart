@@ -56,7 +56,10 @@ String desktopLibPath() {
   if (Platform.isLinux) {
     return path.join(exePath, "lib", "golib.so");
   } else if (Platform.isMacOS) {
-    return "golib.dylib";
+    // On macOS, the library should be in the app bundle's Frameworks directory
+    // The executable is at app.app/Contents/MacOS/app, so we go up to Contents
+    // and then into Frameworks
+    return path.join(exePath, "..", "Frameworks", "golib.dylib");
   } else if (Platform.isWindows) {
     return path.join(exePath, "golib.dll");
   }

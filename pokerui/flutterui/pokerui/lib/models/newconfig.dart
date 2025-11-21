@@ -41,7 +41,7 @@ class NewConfigModel extends ChangeNotifier {
 
   // ─── Helpers ────────────────────────────────────────────────────────────
   Future<void> _initialiseDefaults() async {
-    _appDataDir = await _defaultAppDataDir();
+    _appDataDir = await defaultAppDataDir();
 
     grpcCertPath = p.join(_appDataDir, 'server.cert');
     // Set default paths for BisonRelay certs (these would need to be configured)
@@ -68,23 +68,4 @@ class NewConfigModel extends ChangeNotifier {
   // expose the resolved data directory to the UI for display
   String get dataDir => _appDataDir;
 
-  // Helper method to get default app data directory
-  Future<String> _defaultAppDataDir() async {
-    if (Platform.isLinux) {
-      final home = Platform.environment["HOME"];
-      if (home != null && home != "") {
-        return p.join(home, ".pokerui");
-      }
-    } else if (Platform.isWindows &&
-        Platform.environment.containsKey("LOCALAPPDATA")) {
-      return p.join(Platform.environment["LOCALAPPDATA"]!, "pokerui");
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment["HOME"];
-      if (home != null && home != "") {
-        return p.join(home, "Library", "Application Support", "pokerui");
-      }
-    }
-    // Fallback
-    return p.join(Platform.environment["HOME"] ?? "/tmp", ".pokerui");
-  }
 }

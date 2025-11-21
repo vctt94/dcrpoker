@@ -4,7 +4,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
+import 'package:fixnum/fixnum.dart';
 import 'package:json_annotation/json_annotation.dart';
+import 'grpc/generated/poker.pb.dart' as pr;
 
 part 'definitions.g.dart';
 
@@ -215,12 +217,7 @@ class LocalPlayer {
   @JsonKey(name: 'ready')
   final bool ready;
 
-  LocalPlayer(
-    this.uid,
-    this.nick,
-    this.betAmount, {
-    this.ready = false,
-  });
+  LocalPlayer(this.uid, this.nick, this.betAmount, {this.ready = false});
 
   factory LocalPlayer.fromJson(Map<String, dynamic> json) =>
       _$LocalPlayerFromJson(json);
@@ -331,8 +328,13 @@ class Account {
   @JsonKey(name: "external_key_count")
   final int externalKeyCount;
 
-  Account(this.name, this.unconfirmedBalance, this.confirmedBalance,
-      this.internalKeyCount, this.externalKeyCount);
+  Account(
+    this.name,
+    this.unconfirmedBalance,
+    this.confirmedBalance,
+    this.internalKeyCount,
+    this.externalKeyCount,
+  );
 
   factory Account.fromJson(Map<String, dynamic> json) =>
       _$AccountFromJson(json);
@@ -482,6 +484,8 @@ class CreatePokerTableArgs {
   final int timeBankSeconds;
   @JsonKey(name: 'auto_start_ms')
   final int autoStartMs;
+  @JsonKey(name: 'auto_advance_ms')
+  final int autoAdvanceMs;
 
   CreatePokerTableArgs(
     this.smallBlind,
@@ -493,11 +497,50 @@ class CreatePokerTableArgs {
     this.startingChips,
     this.timeBankSeconds,
     this.autoStartMs,
+    this.autoAdvanceMs,
   );
 
   factory CreatePokerTableArgs.fromJson(Map<String, dynamic> json) =>
       _$CreatePokerTableArgsFromJson(json);
   Map<String, dynamic> toJson() => _$CreatePokerTableArgsToJson(this);
+}
+
+@JsonSerializable()
+class MakeBetArgs {
+  @JsonKey(name: 'amount')
+  final int amount;
+
+  MakeBetArgs(this.amount);
+
+  factory MakeBetArgs.fromJson(Map<String, dynamic> json) =>
+      _$MakeBetArgsFromJson(json);
+  Map<String, dynamic> toJson() => _$MakeBetArgsToJson(this);
+}
+
+@JsonSerializable()
+class EvaluateHandArgs {
+  @JsonKey(name: 'cards')
+  final List<CardArg> cards;
+
+  EvaluateHandArgs(this.cards);
+
+  factory EvaluateHandArgs.fromJson(Map<String, dynamic> json) =>
+      _$EvaluateHandArgsFromJson(json);
+  Map<String, dynamic> toJson() => _$EvaluateHandArgsToJson(this);
+}
+
+@JsonSerializable()
+class CardArg {
+  @JsonKey(name: 'suit')
+  final int suit;
+  @JsonKey(name: 'value')
+  final int value;
+
+  CardArg(this.suit, this.value);
+
+  factory CardArg.fromJson(Map<String, dynamic> json) =>
+      _$CardArgFromJson(json);
+  Map<String, dynamic> toJson() => _$CardArgToJson(this);
 }
 
 @JsonSerializable()
@@ -510,6 +553,228 @@ class JoinPokerTableArgs {
   factory JoinPokerTableArgs.fromJson(Map<String, dynamic> json) =>
       _$JoinPokerTableArgsFromJson(json);
   Map<String, dynamic> toJson() => _$JoinPokerTableArgsToJson(this);
+}
+
+@JsonSerializable()
+class CardDTO {
+  @JsonKey(name: 'suit')
+  final String suit;
+  @JsonKey(name: 'value')
+  final String value;
+
+  CardDTO(this.suit, this.value);
+
+  factory CardDTO.fromJson(Map<String, dynamic> json) =>
+      _$CardDTOFromJson(json);
+  Map<String, dynamic> toJson() => _$CardDTOToJson(this);
+
+  pr.Card toProtobuf() {
+    return pr.Card()
+      ..suit = suit
+      ..value = value;
+  }
+}
+
+@JsonSerializable()
+class PlayerDTO {
+  @JsonKey(name: 'id')
+  final String id;
+  @JsonKey(name: 'name')
+  final String name;
+  @JsonKey(name: 'balance')
+  final int balance;
+  @JsonKey(name: 'hand')
+  final List<CardDTO> hand;
+  @JsonKey(name: 'currentBet')
+  final int currentBet;
+  @JsonKey(name: 'folded')
+  final bool folded;
+  @JsonKey(name: 'isTurn')
+  final bool isTurn;
+  @JsonKey(name: 'isAllIn')
+  final bool isAllIn;
+  @JsonKey(name: 'isDealer')
+  final bool isDealer;
+  @JsonKey(name: 'isReady')
+  final bool isReady;
+  @JsonKey(name: 'handDescription')
+  final String handDescription;
+  @JsonKey(name: 'playerState')
+  final int playerState;
+  @JsonKey(name: 'isSmallBlind')
+  final bool isSmallBlind;
+  @JsonKey(name: 'isBigBlind')
+  final bool isBigBlind;
+
+  PlayerDTO(
+    this.id,
+    this.name,
+    this.balance,
+    this.hand,
+    this.currentBet,
+    this.folded,
+    this.isTurn,
+    this.isAllIn,
+    this.isDealer,
+    this.isReady,
+    this.handDescription,
+    this.playerState,
+    this.isSmallBlind,
+    this.isBigBlind,
+  );
+
+  factory PlayerDTO.fromJson(Map<String, dynamic> json) =>
+      _$PlayerDTOFromJson(json);
+  Map<String, dynamic> toJson() => _$PlayerDTOToJson(this);
+
+  pr.Player toProtobuf() {
+    return pr.Player()
+      ..id = id
+      ..name = name
+      ..balance = Int64(balance)
+      ..hand.addAll(hand.map((c) => c.toProtobuf()))
+      ..currentBet = Int64(currentBet)
+      ..folded = folded
+      ..isTurn = isTurn
+      ..isAllIn = isAllIn
+      ..isDealer = isDealer
+      ..isReady = isReady
+      ..handDescription = handDescription
+      ..playerState = pr.PlayerState.valueOf(playerState) ?? pr.PlayerState.PLAYER_STATE_UNINITIALIZED
+      ..isSmallBlind = isSmallBlind
+      ..isBigBlind = isBigBlind;
+  }
+}
+
+@JsonSerializable()
+class GameUpdateDTO {
+  @JsonKey(name: 'tableId')
+  final String tableId;
+  @JsonKey(name: 'phase')
+  final int phase;
+  @JsonKey(name: 'players')
+  final List<PlayerDTO> players;
+  @JsonKey(name: 'communityCards')
+  final List<CardDTO> communityCards;
+  @JsonKey(name: 'pot')
+  final int pot;
+  @JsonKey(name: 'currentBet')
+  final int currentBet;
+  @JsonKey(name: 'currentPlayer')
+  final String currentPlayer;
+  @JsonKey(name: 'minRaise')
+  final int minRaise;
+  @JsonKey(name: 'maxRaise')
+  final int maxRaise;
+  @JsonKey(name: 'gameStarted')
+  final bool gameStarted;
+  @JsonKey(name: 'playersRequired')
+  final int playersRequired;
+  @JsonKey(name: 'playersJoined')
+  final int playersJoined;
+  @JsonKey(name: 'phaseName')
+  final String phaseName;
+  @JsonKey(name: 'timeBankSeconds')
+  final int timeBankSeconds;
+  @JsonKey(name: 'turnDeadlineUnixMs')
+  final int turnDeadlineUnixMs;
+
+  GameUpdateDTO(
+    this.tableId,
+    this.phase,
+    this.players,
+    this.communityCards,
+    this.pot,
+    this.currentBet,
+    this.currentPlayer,
+    this.minRaise,
+    this.maxRaise,
+    this.gameStarted,
+    this.playersRequired,
+    this.playersJoined,
+    this.phaseName,
+    this.timeBankSeconds,
+    this.turnDeadlineUnixMs,
+  );
+
+  factory GameUpdateDTO.fromJson(Map<String, dynamic> json) =>
+      _$GameUpdateDTOFromJson(json);
+  Map<String, dynamic> toJson() => _$GameUpdateDTOToJson(this);
+
+  pr.GameUpdate toProtobuf() {
+    return pr.GameUpdate()
+      ..tableId = tableId
+      ..phase = pr.GamePhase.valueOf(phase) ?? pr.GamePhase.WAITING
+      ..players.addAll(players.map((p) => p.toProtobuf()))
+      ..communityCards.addAll(communityCards.map((c) => c.toProtobuf()))
+      ..pot = Int64(pot)
+      ..currentBet = Int64(currentBet)
+      ..currentPlayer = currentPlayer
+      ..minRaise = Int64(minRaise)
+      ..maxRaise = Int64(maxRaise)
+      ..gameStarted = gameStarted
+      ..playersRequired = playersRequired
+      ..playersJoined = playersJoined
+      ..phaseName = phaseName
+      ..timeBankSeconds = timeBankSeconds
+      ..turnDeadlineUnixMs = Int64(turnDeadlineUnixMs);
+  }
+}
+
+@JsonSerializable()
+class NotificationDTO {
+  @JsonKey(name: 'type')
+  final int type;
+  @JsonKey(name: 'message')
+  final String? message;
+  @JsonKey(name: 'tableId')
+  final String? tableId;
+  @JsonKey(name: 'playerId')
+  final String? playerId;
+  @JsonKey(name: 'amount')
+  final int? amount;
+  @JsonKey(name: 'newBalance')
+  final int? newBalance;
+  @JsonKey(name: 'ready')
+  final bool? ready;
+  @JsonKey(name: 'started')
+  final bool? started;
+  @JsonKey(name: 'gameReadyToPlay')
+  final bool? gameReadyToPlay;
+  @JsonKey(name: 'countdown')
+  final int? countdown;
+
+  NotificationDTO(
+    this.type, {
+    this.message,
+    this.tableId,
+    this.playerId,
+    this.amount,
+    this.newBalance,
+    this.ready,
+    this.started,
+    this.gameReadyToPlay,
+    this.countdown,
+  });
+
+  factory NotificationDTO.fromJson(Map<String, dynamic> json) =>
+      _$NotificationDTOFromJson(json);
+  Map<String, dynamic> toJson() => _$NotificationDTOToJson(this);
+
+  pr.Notification toProtobuf() {
+    final n = pr.Notification()
+      ..type = pr.NotificationType.valueOf(type) ?? pr.NotificationType.UNKNOWN;
+    if (message != null) n.message = message!;
+    if (tableId != null) n.tableId = tableId!;
+    if (playerId != null) n.playerId = playerId!;
+    if (amount != null) n.amount = Int64(amount!);
+    if (newBalance != null) n.newBalance = Int64(newBalance!);
+    if (ready != null) n.ready = ready!;
+    if (started != null) n.started = started!;
+    if (gameReadyToPlay != null) n.gameReadyToPlay = gameReadyToPlay!;
+    if (countdown != null) n.countdown = countdown!;
+    return n;
+  }
 }
 
 @JsonSerializable()
@@ -536,7 +801,12 @@ class ZipLogsArgs {
   @JsonKey(name: "dest_path")
   final String destPath;
 
-  ZipLogsArgs(this.includeGolib, this.includeLn, this.onlyLastFile, this.destPath);
+  ZipLogsArgs(
+    this.includeGolib,
+    this.includeLn,
+    this.onlyLastFile,
+    this.destPath,
+  );
   Map<String, dynamic> toJson() => _$ZipLogsArgsToJson(this);
 }
 
@@ -599,12 +869,24 @@ mixin NtfStreams {
       StreamController<LocalWaitingRoom>.broadcast();
   Stream<LocalWaitingRoom> waitingRoomCreated() => ntfWaitingRoomCreated.stream;
 
+  // Poker notifications from golib (poker.Notification proto)
+  final StreamController<pr.Notification> ntfPokerNotifications =
+      StreamController<pr.Notification>.broadcast();
+  Stream<pr.Notification> pokerNotifications() =>
+      ntfPokerNotifications.stream;
+
+  final StreamController<pr.GameUpdate> ntfGameUpdates =
+      StreamController<pr.GameUpdate>.broadcast();
+  Stream<pr.GameUpdate> gameUpdates() => ntfGameUpdates.stream;
+
   void disposeNtfStreams() {
     ntfAcceptedInvites.close();
     ntfLogLines.close();
     ntfRescanProgress.close();
     ntfUINotifications.close();
     ntfWaitingRoomCreated.close();
+    ntfPokerNotifications.close();
+    ntfGameUpdates.close();
   }
 
   void handleNotifications(int cmd, bool isError, String jsonPayload) {
@@ -619,11 +901,39 @@ mixin NtfStreams {
         try {
           if (jsonPayload.isNotEmpty) {
             final data = jsonDecode(jsonPayload);
-            final wr = LocalWaitingRoom.fromJson(Map<String, dynamic>.from(data as Map));
+            final wr = LocalWaitingRoom.fromJson(
+              Map<String, dynamic>.from(data as Map),
+            );
             ntfWaitingRoomCreated.add(wr);
           }
         } catch (e) {
           debugPrint("Failed to parse NTWRCreated payload: $e");
+        }
+        break;
+      case NTPokerNotification:
+        try {
+          if (jsonPayload.isNotEmpty) {
+            final data = jsonDecode(jsonPayload) as Map<String, dynamic>;
+            final dto = NotificationDTO.fromJson(data);
+            ntfPokerNotifications.add(dto.toProtobuf());
+          }
+        } catch (e, stackTrace) {
+          debugPrint("Failed to parse NTPokerNotification payload: $e");
+          debugPrint("Stack trace: $stackTrace");
+          debugPrint("Payload was: $jsonPayload");
+        }
+        break;
+      case NTGameUpdate:
+        try {
+          if (jsonPayload.isNotEmpty) {
+            final data = jsonDecode(jsonPayload) as Map<String, dynamic>;
+            final dto = GameUpdateDTO.fromJson(data);
+            ntfGameUpdates.add(dto.toProtobuf());
+          }
+        } catch (e, stackTrace) {
+          debugPrint("Failed to parse NTGameUpdate payload: $e");
+          debugPrint("Stack trace: $stackTrace");
+          debugPrint("Payload was: $jsonPayload");
         }
         break;
       default:
@@ -658,6 +968,8 @@ abstract class PluginPlatform {
 
   // Notification streams (must be provided by platform mixins)
   Stream<LocalWaitingRoom> waitingRoomCreated();
+  Stream<pr.Notification> pokerNotifications();
+  Stream<pr.GameUpdate> gameUpdates();
 
   Future<String> asyncHello(String name) async {
     final r = await asyncCall(CTHello, name);
@@ -671,8 +983,9 @@ abstract class PluginPlatform {
     return LocalInfo.fromJson(_asJsonMap(res));
   }
 
-
-  Future<Map<String, dynamic>> createDefaultConfig(CreateDefaultConfig args) async {
+  Future<Map<String, dynamic>> createDefaultConfig(
+    CreateDefaultConfig args,
+  ) async {
     final res = await asyncCall(CTCreateDefaultConfig, args.toJson());
     return _asJsonMap(res);
   }
@@ -716,7 +1029,10 @@ abstract class PluginPlatform {
     }).toList();
   }
 
-  Future<LocalWaitingRoom> JoinWaitingRoom(String id, {String? escrowId}) async {
+  Future<LocalWaitingRoom> JoinWaitingRoom(
+    String id, {
+    String? escrowId,
+  }) async {
     final payload = <String, dynamic>{
       'room_id': id,
       'escrow_id': escrowId ?? '',
@@ -800,7 +1116,9 @@ abstract class PluginPlatform {
     return _asJsonMap(res);
   }
 
-  Future<Map<String, dynamic>> createPokerTable(CreatePokerTableArgs args) async {
+  Future<Map<String, dynamic>> createPokerTable(
+    CreatePokerTableArgs args,
+  ) async {
     final res = await asyncCall(CTCreatePokerTable, args.toJson());
     return _asJsonMap(res);
   }
@@ -818,11 +1136,55 @@ abstract class PluginPlatform {
 
   Future<String> getPokerCurrentTable() async {
     final res = await asyncCall(CTGetPlayerCurrentTable, "");
-    final map = _asJsonMap(res);
-    if (!map.containsKey('table_id') || map['table_id'] is! String) {
-      throw StateError('CTGetPlayerCurrentTable: missing or invalid table_id');
-    }
-    return map['table_id'] as String;
+    final m = _asJsonMap(res);
+    return m['table_id'] as String? ?? "";
+  }
+
+  Future<void> showCards() async {
+    await asyncCall(CTShowCards, "");
+  }
+
+  Future<void> hideCards() async {
+    await asyncCall(CTHideCards, "");
+  }
+
+  Future<void> makeBet(MakeBetArgs args) async {
+    await asyncCall(CTMakeBet, args.toJson());
+  }
+
+  Future<void> callBet() async {
+    await asyncCall(CTCallBet, "");
+  }
+
+  Future<void> foldBet() async {
+    await asyncCall(CTFoldBet, "");
+  }
+
+  Future<void> checkBet() async {
+    await asyncCall(CTCheckBet, "");
+  }
+
+  Future<void> setPlayerReady() async {
+    await asyncCall(CTSetPlayerReady, "");
+  }
+
+  Future<void> setPlayerUnready() async {
+    await asyncCall(CTSetPlayerUnready, "");
+  }
+
+  Future<Map<String, dynamic>> getGameState() async {
+    final res = await asyncCall(CTGetGameState, "");
+    return _asJsonMap(res);
+  }
+
+  Future<Map<String, dynamic>> getLastWinners() async {
+    final res = await asyncCall(CTGetLastWinners, "");
+    return _asJsonMap(res);
+  }
+
+  Future<Map<String, dynamic>> evaluateHand(EvaluateHandArgs args) async {
+    final res = await asyncCall(CTEvaluateHand, args.toJson());
+    return _asJsonMap(res);
   }
 }
 
@@ -839,25 +1201,39 @@ const int CTJoinWaitingRoom = 0x07;
 const int CTCreateWaitingRoom = 0x08;
 const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
-const int CTOpenEscrow        = 0x0b;
-const int CTStartPreSign      = 0x0c;
+const int CTOpenEscrow = 0x0b;
+const int CTStartPreSign = 0x0c;
 // 0x0d unused
 const int CTArchiveSessionKey = 0x0e;
 
 // Poker-specific commands
 const int CTGetPlayerCurrentTable = 0x10;
-const int CTLoadConfig       = 0x11;
-const int CTGetPokerTables    = 0x12;
-const int CTJoinPokerTable    = 0x13;
-const int CTCreatePokerTable  = 0x14;
-const int CTLeavePokerTable   = 0x15;
-const int CTGetPokerBalance   = 0x16;
+const int CTLoadConfig = 0x11;
+const int CTGetPokerTables = 0x12;
+const int CTJoinPokerTable = 0x13;
+const int CTCreatePokerTable = 0x14;
+const int CTLeavePokerTable = 0x15;
+const int CTGetPokerBalance = 0x16;
 const int CTCreateDefaultConfig = 0x17;
 const int CTCreateDefaultServerCert = 0x18;
+const int CTShowCards = 0x19;
+const int CTHideCards = 0x1a;
+const int CTMakeBet = 0x1b;
+const int CTCallBet = 0x1c;
+const int CTFoldBet = 0x1d;
+const int CTCheckBet = 0x1e;
+const int CTGetGameState = 0x1f;
+const int CTGetLastWinners = 0x20;
+const int CTEvaluateHand = 0x21;
+const int CTSetPlayerReady = 0x22;
+const int CTSetPlayerUnready = 0x23;
 
-const int CTCloseLockFile     = 0x60;
+const int CTCloseLockFile = 0x60;
 
 const int notificationsStartID = 0x1000;
-const int notificationClientStopped = 0x1001; // kept for compatibility; actual client-stopped is 0x1002 in golib
+const int notificationClientStopped =
+    0x1001; // kept for compatibility; actual client-stopped is 0x1002 in golib
 const int NTNOP = 0x1004;
 const int NTWRCreated = 0x1005;
+const int NTPokerNotification = 0x1006;
+const int NTGameUpdate = 0x1007;

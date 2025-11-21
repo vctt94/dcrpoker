@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -72,6 +73,7 @@ type Server struct {
 	log        slog.Logger
 	logBackend *logging.LogBackend
 	db         Database
+
 	// Concurrent registry of tables to avoid coarse-grained server locking.
 	tables sync.Map // key: string (tableID) -> value: *poker.Table
 
@@ -112,11 +114,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %v", err)
 	}
-	defer db.Close()
 
 	// Initialize and start the gRPC poker server
 	grpcServer, grpcLis, err := SetupGRPCServer(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort, db, cfg.LogBackend)
 	if err != nil {
+		// Clean up the DB if we fail to start gRPC.
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to setup gRPC server: %v", err)
 	}
 
@@ -126,7 +129,6 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		cfg.LogBackend.Logger("SERVER").Infof("Starting gRPC poker server on %s", cfg.GRPCHost+":"+cfg.GRPCPort)
 		errCh <- grpcServer.Serve(grpcLis)
 	}()
-	defer grpcServer.Stop() // Ensure gRPC server is stopped on exit
 	pokerServer := &Server{
 		grpcServer: grpcServer,
 		grpcLis:    grpcLis,
@@ -240,8 +242,20 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 		}),
 	)
 
+	// Normalize localhost/127.0.0.1 to :: to listen on all interfaces
+	// This allows connections from other computers on the network
+	normalizedAddress := serverAddress
+	if strings.HasPrefix(serverAddress, "localhost:") || strings.HasPrefix(serverAddress, "127.0.0.1:") {
+		// Extract port and bind to :: (all interfaces)
+		parts := strings.Split(serverAddress, ":")
+		if len(parts) >= 2 {
+			port := parts[len(parts)-1]
+			normalizedAddress = "[::]:" + port
+		}
+	}
+
 	// Create listener
-	grpcLis, err := net.Listen("tcp", serverAddress)
+	grpcLis, err := net.Listen("tcp", normalizedAddress)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to listen for gRPC poker server: %v", err)
 	}
@@ -293,11 +307,18 @@ func (s *Server) Stop() {
 
 	// Wait for any in-flight asynchronous saves to complete before returning.
 	s.saveWg.Wait()
+
+	// Close gRPC components if present.
 	if s.grpcServer != nil {
 		s.grpcServer.Stop()
 	}
 	if s.grpcLis != nil {
 		s.grpcLis.Close()
+	}
+
+	// Close the database
+	if s.db != nil {
+		_ = s.db.Close()
 	}
 }
 

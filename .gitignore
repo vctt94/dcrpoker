@@ -4,3 +4,5 @@ CLAUDE.md
 bin
 AGENTS.md
 grpc/generated
+.gobuildcache
+.gocache
