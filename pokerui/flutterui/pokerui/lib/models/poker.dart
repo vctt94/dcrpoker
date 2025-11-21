@@ -537,7 +537,8 @@ class PokerModel extends ChangeNotifier {
     required int buyInAtoms,
     required int startingChips,
     int timeBankSeconds = 30,
-    int autoStartMs = 0,
+    int autoStartMs = 0, // Default set on server (3 seconds)
+    int autoAdvanceMs = 0, // Default set on server (1 second)
   }) async {
     try {
       final res = await Golib.createPokerTable(CreatePokerTableArgs(
@@ -550,6 +551,7 @@ class PokerModel extends ChangeNotifier {
         startingChips,
         timeBankSeconds,
         autoStartMs,
+        autoAdvanceMs,
       ));
       // Cache timebank seconds locally for countdowns in this session
       this.timeBankSeconds = timeBankSeconds;

@@ -351,6 +351,7 @@ CreatePokerTableArgs _$CreatePokerTableArgsFromJson(
       (json['starting_chips'] as num).toInt(),
       (json['time_bank_seconds'] as num).toInt(),
       (json['auto_start_ms'] as num).toInt(),
+      (json['auto_advance_ms'] as num).toInt(),
     );
 
 Map<String, dynamic> _$CreatePokerTableArgsToJson(
@@ -365,6 +366,7 @@ Map<String, dynamic> _$CreatePokerTableArgsToJson(
       'starting_chips': instance.startingChips,
       'time_bank_seconds': instance.timeBankSeconds,
       'auto_start_ms': instance.autoStartMs,
+      'auto_advance_ms': instance.autoAdvanceMs,
     };
 
 MakeBetArgs _$MakeBetArgsFromJson(Map<String, dynamic> json) => MakeBetArgs(

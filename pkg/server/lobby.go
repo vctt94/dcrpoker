@@ -37,10 +37,14 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	tblLog := s.logBackend.Logger("TABLE")
 	gameLog := s.logBackend.Logger("GAME")
 
-	// Validate AutoAdvanceMs - must be set and > 0
+	// Set defaults for auto-start and auto-advance
+	autoStartDelay := time.Duration(req.AutoStartMs) * time.Millisecond
+	if autoStartDelay == 0 {
+		autoStartDelay = 1 * time.Second // Default 3 seconds for auto-start
+	}
 	autoAdvanceDelay := time.Duration(req.AutoAdvanceMs) * time.Millisecond
 	if autoAdvanceDelay == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "auto_advance_ms must be set to a positive value (e.g., 1000 for 1 second)")
+		autoAdvanceDelay = 3 * time.Second // Default 1 second for auto-advance
 	}
 
 	cfg := poker.TableConfig{
@@ -56,7 +60,7 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 		MinBalance:       req.MinBalance,
 		StartingChips:    startingChips,
 		TimeBank:         timeBank,
-		AutoStartDelay:   time.Duration(req.AutoStartMs) * time.Millisecond,
+		AutoStartDelay:   autoStartDelay,
 		AutoAdvanceDelay: autoAdvanceDelay,
 	}
 

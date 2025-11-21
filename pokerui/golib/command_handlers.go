@@ -194,15 +194,16 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 
 		// Create TableConfig from request
 		config := poker.TableConfig{
-			SmallBlind:     req.SmallBlind,
-			BigBlind:       req.BigBlind,
-			MaxPlayers:     int(req.MaxPlayers),
-			MinPlayers:     int(req.MinPlayers),
-			MinBalance:     req.MinBalance,
-			BuyIn:          req.BuyIn,
-			StartingChips:  req.StartingChips,
-			TimeBank:       time.Duration(req.TimeBankSeconds) * time.Second,
-			AutoStartDelay: time.Duration(req.AutoStartMs) * time.Millisecond,
+			SmallBlind:       req.SmallBlind,
+			BigBlind:         req.BigBlind,
+			MaxPlayers:       int(req.MaxPlayers),
+			MinPlayers:       int(req.MinPlayers),
+			MinBalance:       req.MinBalance,
+			BuyIn:            req.BuyIn,
+			StartingChips:    req.StartingChips,
+			TimeBank:         time.Duration(req.TimeBankSeconds) * time.Second,
+			AutoStartDelay:   time.Duration(req.AutoStartMs) * time.Millisecond,
+			AutoAdvanceDelay: time.Duration(req.AutoAdvanceMs) * time.Millisecond,
 		}
 
 		tableID, err := cc.c.CreateTable(cc.ctx, config)

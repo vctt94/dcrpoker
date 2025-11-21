@@ -484,6 +484,8 @@ class CreatePokerTableArgs {
   final int timeBankSeconds;
   @JsonKey(name: 'auto_start_ms')
   final int autoStartMs;
+  @JsonKey(name: 'auto_advance_ms')
+  final int autoAdvanceMs;
 
   CreatePokerTableArgs(
     this.smallBlind,
@@ -495,6 +497,7 @@ class CreatePokerTableArgs {
     this.startingChips,
     this.timeBankSeconds,
     this.autoStartMs,
+    this.autoAdvanceMs,
   );
 
   factory CreatePokerTableArgs.fromJson(Map<String, dynamic> json) =>

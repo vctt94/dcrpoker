@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -73,10 +74,6 @@ type Server struct {
 	logBackend *logging.LogBackend
 	db         Database
 
-	// dbOwned indicates whether this Server instance is responsible for
-	// closing the underlying Database. Production servers created via
-	// NewServer own their DB; test servers created via NewTestServer do not.
-	dbOwned bool
 	// Concurrent registry of tables to avoid coarse-grained server locking.
 	tables sync.Map // key: string (tableID) -> value: *poker.Table
 
@@ -138,7 +135,6 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		log:        cfg.LogBackend.Logger("SERVER"),
 		logBackend: cfg.LogBackend,
 		db:         db,
-		dbOwned:    true,
 	}
 
 	// Initialize and register the poker server
@@ -246,8 +242,20 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 		}),
 	)
 
+	// Normalize localhost/127.0.0.1 to :: to listen on all interfaces
+	// This allows connections from other computers on the network
+	normalizedAddress := serverAddress
+	if strings.HasPrefix(serverAddress, "localhost:") || strings.HasPrefix(serverAddress, "127.0.0.1:") {
+		// Extract port and bind to :: (all interfaces)
+		parts := strings.Split(serverAddress, ":")
+		if len(parts) >= 2 {
+			port := parts[len(parts)-1]
+			normalizedAddress = "[::]:" + port
+		}
+	}
+
 	// Create listener
-	grpcLis, err := net.Listen("tcp", serverAddress)
+	grpcLis, err := net.Listen("tcp", normalizedAddress)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to listen for gRPC poker server: %v", err)
 	}
@@ -263,7 +271,6 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 		log:        logBackend.Logger("SERVER"),
 		logBackend: logBackend,
 		db:         db,
-		dbOwned:    false,
 	}
 
 	// Initialize event processor for deadlock-free architecture
@@ -309,8 +316,8 @@ func (s *Server) Stop() {
 		s.grpcLis.Close()
 	}
 
-	// Close the database only if this Server owns it (production path).
-	if s.dbOwned && s.db != nil {
+	// Close the database
+	if s.db != nil {
 		_ = s.db.Close()
 	}
 }

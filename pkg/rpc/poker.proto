@@ -179,6 +179,7 @@ message CallBetResponse {
 
 message GetGameStateRequest {
   string table_id = 1;
+  string player_id = 2;
 }
 
 message GetGameStateResponse {

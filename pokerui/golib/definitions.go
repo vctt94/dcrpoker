@@ -92,6 +92,7 @@ type createPokerTable struct {
 	StartingChips   int64 `json:"starting_chips"`
 	TimeBankSeconds int32 `json:"time_bank_seconds"`
 	AutoStartMs     int32 `json:"auto_start_ms"`
+	AutoAdvanceMs   int32 `json:"auto_advance_ms"`
 }
 
 type makeBet struct {

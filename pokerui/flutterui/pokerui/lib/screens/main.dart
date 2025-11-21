@@ -9,6 +9,7 @@ import 'package:pokerui/components/views/browsing_tables.dart';
 import 'package:pokerui/components/views/in_lobby.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
 import 'package:pokerui/components/views/tournament_over.dart';
+import 'package:pokerui/components/dialogs/create_table.dart';
 
 class PokerHomeScreen extends StatefulWidget {
   const PokerHomeScreen({super.key});
@@ -153,12 +154,9 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                                       Row(children: [
                                         const SizedBox(width: 8),
                                         ElevatedButton.icon(
-                                          onPressed: () {
-                                            // TODO: Implement create table functionality
-                                            ScaffoldMessenger.of(context)
-                                                .showSnackBar(const SnackBar(
-                                                    content: Text(
-                                                        'Create table functionality coming soon')));
+                                          onPressed: () async {
+                                            // Quick access create-table from header
+                                            await CreateTableDialog.open(context, pokerModel);
                                           },
                                           icon: const Icon(Icons.add),
                                           label: const Text('Create Table'),
