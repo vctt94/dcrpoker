@@ -141,6 +141,83 @@ func (pc *PokerClient) loadSeedKey() (string, error) {
 	return keyData.SeedHex, nil
 }
 
+// getOrCreateSeedKeyFromDir loads or creates a seed key from the data directory
+// This is a standalone function that doesn't require a PokerClient instance
+func getOrCreateSeedKeyFromDir(dataDir string) (string, error) {
+	path := filepath.Join(dataDir, "user_identity.json")
+	if path == "" {
+		return "", fmt.Errorf("no data directory configured")
+	}
+
+	// Try to load existing seed
+	data, err := os.ReadFile(path)
+	if err == nil {
+		var keyData UserIdentityData
+		if err := json.Unmarshal(data, &keyData); err == nil && keyData.SeedHex != "" {
+			// Validate seed format
+			seedBytes, err := hex.DecodeString(keyData.SeedHex)
+			if err == nil && len(seedBytes) == 32 {
+				return keyData.SeedHex, nil
+			}
+		}
+	}
+
+	// Generate new seed
+	seedPriv, err := secp256k1.GeneratePrivateKey()
+	if err != nil {
+		return "", fmt.Errorf("generate seed: %w", err)
+	}
+	seedHex := hex.EncodeToString(seedPriv.Serialize())
+
+	// Save to disk
+	var keyData UserIdentityData
+	keyData.SeedHex = seedHex
+	blob, err := json.MarshalIndent(keyData, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal seed: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return "", fmt.Errorf("create data dir: %w", err)
+	}
+
+	if err := os.WriteFile(path, blob, 0600); err != nil {
+		return "", fmt.Errorf("save seed: %w", err)
+	}
+
+	return seedHex, nil
+}
+
+// deriveUserIDFromSeed derives a user ID from a seed key
+// This is a standalone function that doesn't require a PokerClient instance
+func deriveUserIDFromSeed(seedHex string) (string, error) {
+	seedBytes, err := hex.DecodeString(seedHex)
+	if err != nil {
+		return "", fmt.Errorf("decode seed: %w", err)
+	}
+	if len(seedBytes) != 32 {
+		return "", fmt.Errorf("invalid seed length: %d", len(seedBytes))
+	}
+
+	// Double hash (double BLAKE-256)
+	userIDBytes := chainhash.HashB(seedBytes)
+
+	var userID zkidentity.ShortID
+	userID.FromBytes(userIDBytes[:])
+
+	return userID.String(), nil
+}
+
+// getUserIDFromDir loads or creates a user ID from the data directory
+// This is a standalone function that doesn't require a PokerClient instance
+func getUserIDFromDir(dataDir string) (string, error) {
+	seedHex, err := getOrCreateSeedKeyFromDir(dataDir)
+	if err != nil {
+		return "", err
+	}
+	return deriveUserIDFromSeed(seedHex)
+}
+
 // validateNickname validates a nickname
 func validateNickname(nickname string) error {
 	nickname = strings.TrimSpace(nickname)

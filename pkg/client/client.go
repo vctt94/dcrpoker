@@ -2,10 +2,8 @@ package client
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -179,12 +177,14 @@ func newClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
 		clientConfig.SetString("grpcport", cfg.GRPCPort)
 	}
 
-	// generate random id bytes for now
-	randomBytes := make([]byte, 32)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random id: %v", err)
+	// Load or create persistent user ID from seed key
+	userIDStr, err := getUserIDFromDir(cfg.Datadir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user ID: %v", err)
 	}
-	clientID.FromString(hex.EncodeToString(randomBytes))
+	if err := clientID.FromString(userIDStr); err != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %v", err)
+	}
 
 	// Use config's log backend for now
 	log = cfg.LogBackend.Logger("PokerClient")
