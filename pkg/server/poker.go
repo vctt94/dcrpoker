@@ -371,7 +371,7 @@ func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateReq
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to collect table snapshot: %v", err))
 	}
-	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, "")
+	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, req.PlayerId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build game state: %v", err))
 	}

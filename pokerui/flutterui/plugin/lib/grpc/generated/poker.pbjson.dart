@@ -1024,3 +1024,116 @@ const HideCardsResponse$json = {
 final $typed_data.Uint8List hideCardsResponseDescriptor = $convert.base64Decode(
     'ChFIaWRlQ2FyZHNSZXNwb25zZRIYCgdzdWNjZXNzGAEgASgIUgdzdWNjZXNzEhgKB21lc3NhZ2'
     'UYAiABKAlSB21lc3NhZ2U=');
+
+@$core.Deprecated('Use registerRequestDescriptor instead')
+const RegisterRequest$json = {
+  '1': 'RegisterRequest',
+  '2': [
+    {'1': 'nickname', '3': 1, '4': 1, '5': 9, '10': 'nickname'},
+    {'1': 'user_id', '3': 2, '4': 1, '5': 9, '10': 'userId'},
+  ],
+};
+
+/// Descriptor for `RegisterRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List registerRequestDescriptor = $convert.base64Decode(
+    'Cg9SZWdpc3RlclJlcXVlc3QSGgoIbmlja25hbWUYASABKAlSCG5pY2tuYW1lEhcKB3VzZXJfaW'
+    'QYAiABKAlSBnVzZXJJZA==');
+
+@$core.Deprecated('Use registerResponseDescriptor instead')
+const RegisterResponse$json = {
+  '1': 'RegisterResponse',
+  '2': [
+    {'1': 'ok', '3': 1, '4': 1, '5': 8, '10': 'ok'},
+    {'1': 'error', '3': 2, '4': 1, '5': 9, '10': 'error'},
+  ],
+};
+
+/// Descriptor for `RegisterResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List registerResponseDescriptor = $convert.base64Decode(
+    'ChBSZWdpc3RlclJlc3BvbnNlEg4KAm9rGAEgASgIUgJvaxIUCgVlcnJvchgCIAEoCVIFZXJyb3'
+    'I=');
+
+@$core.Deprecated('Use loginRequestDescriptor instead')
+const LoginRequest$json = {
+  '1': 'LoginRequest',
+  '2': [
+    {'1': 'nickname', '3': 1, '4': 1, '5': 9, '10': 'nickname'},
+    {'1': 'user_id', '3': 2, '4': 1, '5': 9, '10': 'userId'},
+  ],
+};
+
+/// Descriptor for `LoginRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List loginRequestDescriptor = $convert.base64Decode(
+    'CgxMb2dpblJlcXVlc3QSGgoIbmlja25hbWUYASABKAlSCG5pY2tuYW1lEhcKB3VzZXJfaWQYAi'
+    'ABKAlSBnVzZXJJZA==');
+
+@$core.Deprecated('Use loginResponseDescriptor instead')
+const LoginResponse$json = {
+  '1': 'LoginResponse',
+  '2': [
+    {'1': 'ok', '3': 1, '4': 1, '5': 8, '10': 'ok'},
+    {'1': 'error', '3': 2, '4': 1, '5': 9, '10': 'error'},
+    {'1': 'token', '3': 3, '4': 1, '5': 9, '10': 'token'},
+    {'1': 'user_id', '3': 4, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'nickname', '3': 5, '4': 1, '5': 9, '10': 'nickname'},
+  ],
+};
+
+/// Descriptor for `LoginResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List loginResponseDescriptor = $convert.base64Decode(
+    'Cg1Mb2dpblJlc3BvbnNlEg4KAm9rGAEgASgIUgJvaxIUCgVlcnJvchgCIAEoCVIFZXJyb3ISFA'
+    'oFdG9rZW4YAyABKAlSBXRva2VuEhcKB3VzZXJfaWQYBCABKAlSBnVzZXJJZBIaCghuaWNrbmFt'
+    'ZRgFIAEoCVIIbmlja25hbWU=');
+
+@$core.Deprecated('Use logoutRequestDescriptor instead')
+const LogoutRequest$json = {
+  '1': 'LogoutRequest',
+  '2': [
+    {'1': 'token', '3': 1, '4': 1, '5': 9, '10': 'token'},
+  ],
+};
+
+/// Descriptor for `LogoutRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List logoutRequestDescriptor = $convert
+    .base64Decode('Cg1Mb2dvdXRSZXF1ZXN0EhQKBXRva2VuGAEgASgJUgV0b2tlbg==');
+
+@$core.Deprecated('Use logoutResponseDescriptor instead')
+const LogoutResponse$json = {
+  '1': 'LogoutResponse',
+  '2': [
+    {'1': 'ok', '3': 1, '4': 1, '5': 8, '10': 'ok'},
+  ],
+};
+
+/// Descriptor for `LogoutResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List logoutResponseDescriptor =
+    $convert.base64Decode('Cg5Mb2dvdXRSZXNwb25zZRIOCgJvaxgBIAEoCFICb2s=');
+
+@$core.Deprecated('Use getUserInfoRequestDescriptor instead')
+const GetUserInfoRequest$json = {
+  '1': 'GetUserInfoRequest',
+  '2': [
+    {'1': 'token', '3': 1, '4': 1, '5': 9, '10': 'token'},
+  ],
+};
+
+/// Descriptor for `GetUserInfoRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getUserInfoRequestDescriptor = $convert
+    .base64Decode('ChJHZXRVc2VySW5mb1JlcXVlc3QSFAoFdG9rZW4YASABKAlSBXRva2Vu');
+
+@$core.Deprecated('Use getUserInfoResponseDescriptor instead')
+const GetUserInfoResponse$json = {
+  '1': 'GetUserInfoResponse',
+  '2': [
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'nickname', '3': 2, '4': 1, '5': 9, '10': 'nickname'},
+    {'1': 'created', '3': 3, '4': 1, '5': 3, '10': 'created'},
+    {'1': 'last_login', '3': 4, '4': 1, '5': 3, '10': 'lastLogin'},
+  ],
+};
+
+/// Descriptor for `GetUserInfoResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List getUserInfoResponseDescriptor = $convert.base64Decode(
+    'ChNHZXRVc2VySW5mb1Jlc3BvbnNlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBIaCghuaWNrbm'
+    'FtZRgCIAEoCVIIbmlja25hbWUSGAoHY3JlYXRlZBgDIAEoA1IHY3JlYXRlZBIdCgpsYXN0X2xv'
+    'Z2luGAQgASgDUglsYXN0TG9naW4=');

@@ -93,6 +93,41 @@ func (m *metricsDB) UnseatPlayer(ctx context.Context, tableID, playerID string) 
 	return err
 }
 
+func (m *metricsDB) UpsertAuthUser(ctx context.Context, nickname, userID string) error {
+	start := time.Now()
+	err := m.inner.UpsertAuthUser(ctx, nickname, userID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) GetAuthUserByNickname(ctx context.Context, nickname string) (*db.AuthUser, error) {
+	start := time.Now()
+	user, err := m.inner.GetAuthUserByNickname(ctx, nickname)
+	m.observe(start, err)
+	return user, err
+}
+
+func (m *metricsDB) GetAuthUserByUserID(ctx context.Context, userID string) (*db.AuthUser, error) {
+	start := time.Now()
+	user, err := m.inner.GetAuthUserByUserID(ctx, userID)
+	m.observe(start, err)
+	return user, err
+}
+
+func (m *metricsDB) UpdateAuthUserLastLogin(ctx context.Context, userID string) error {
+	start := time.Now()
+	err := m.inner.UpdateAuthUserLastLogin(ctx, userID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error) {
+	start := time.Now()
+	users, err := m.inner.ListAllAuthUsers(ctx)
+	m.observe(start, err)
+	return users, err
+}
+
 func (m *metricsDB) observe(start time.Time, err error) {
 	GetMetrics().ObserveDBOp(time.Since(start))
 	if err == nil {

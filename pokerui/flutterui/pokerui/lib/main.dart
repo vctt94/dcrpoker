@@ -17,6 +17,7 @@ import 'package:pokerui/screens/main.dart';
 import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
 import 'package:pokerui/screens/startup_error.dart';
+import 'package:pokerui/screens/login.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
   final newConfig = NewConfigModel(args);
@@ -95,6 +96,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   NotificationModel? _notificationModel;
   PokerModel? _pokerModel;
   bool _loading = true;
+  bool _needsLogin = true;
+  String? _nickname;
   Object? _lastError;
   List<String> _missingFields = const [];
   StreamSubscription<LocalWaitingRoom>? _wrCreatedSub;
@@ -125,9 +128,23 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     _notificationModel = null;
   }
 
-  Future<void> _bootstrap() async {
+  Future<void> _bootstrap({String? nickname}) async {
     final cfg = _config;
     if (cfg == null) {
+      return;
+    }
+
+    // If nickname is provided, proceed with initialization
+    if (nickname != null) {
+      _nickname = nickname;
+      _needsLogin = false;
+    }
+
+    // If we still need login, show login screen
+    if (_needsLogin) {
+      setState(() {
+        _loading = false;
+      });
       return;
     }
 
@@ -140,7 +157,11 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 
     final notificationModel = NotificationModel();
     try {
+      // Note: Client is already initialized in LoginScreen, so PokerModel.fromConfig
+      // will reuse the existing client handle
       final pokerModel = await PokerModel.fromConfig(cfg, notificationModel);
+      
+      // Authentication already happened in LoginScreen, so we can proceed
       await pokerModel.init();
       if (!mounted) {
         pokerModel.dispose();
@@ -230,6 +251,20 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   Widget build(BuildContext context) {
     final cfg = _config;
 
+    // Show login screen if needed
+    if (_needsLogin && !_loading && _lastError == null) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: _theme,
+        home: LoginScreen(
+          config: cfg!,
+          onLoginSuccess: (nickname) {
+            _bootstrap(nickname: nickname);
+          },
+        ),
+      );
+    }
+
     if (_pokerModel != null &&
         _notificationModel != null &&
         cfg != null &&
@@ -252,7 +287,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
           message: _lastError.toString(),
           missingFields: _missingFields,
           dataDir: cfg?.dataDir ?? '',
-          onRetry: _bootstrap,
+          onRetry: () => _bootstrap(nickname: _nickname),
           onOpenConfig: _openConfig,
         ),
       );
@@ -275,7 +310,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         message: 'Poker UI failed to start',
         missingFields: _missingFields,
         dataDir: cfg?.dataDir ?? '',
-        onRetry: _bootstrap,
+        onRetry: () => _bootstrap(nickname: _nickname),
         onOpenConfig: _openConfig,
       ),
     );

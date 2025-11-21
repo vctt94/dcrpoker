@@ -40,11 +40,11 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	// Set defaults for auto-start and auto-advance
 	autoStartDelay := time.Duration(req.AutoStartMs) * time.Millisecond
 	if autoStartDelay == 0 {
-		autoStartDelay = 1 * time.Second // Default 3 seconds for auto-start
+		autoStartDelay = 2 * time.Second // Default 2 seconds for auto-start
 	}
 	autoAdvanceDelay := time.Duration(req.AutoAdvanceMs) * time.Millisecond
 	if autoAdvanceDelay == 0 {
-		autoAdvanceDelay = 3 * time.Second // Default 1 second for auto-advance
+		autoAdvanceDelay = 2 * time.Second // Default 2 second for auto-advance
 	}
 
 	cfg := poker.TableConfig{

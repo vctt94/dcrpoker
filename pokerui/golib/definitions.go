@@ -99,6 +99,20 @@ type makeBet struct {
 	Amount int64 `json:"amount"`
 }
 
+type registerReq struct {
+	Nickname string `json:"nickname"`
+}
+
+type loginReq struct {
+	Nickname string `json:"nickname"`
+}
+
+type loginResp struct {
+	Token    string `json:"token"`
+	UserID   string `json:"user_id"`
+	Nickname string `json:"nickname"`
+}
+
 type evaluateHand struct {
 	Cards []struct {
 		Suit  int32 `json:"suit"`

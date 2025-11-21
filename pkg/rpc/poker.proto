@@ -50,6 +50,14 @@ service LobbyService {
   rpc StartNotificationStream(StartNotificationStreamRequest) returns (stream Notification) {}
 }
 
+// AuthService handles user authentication and identity management
+service AuthService {
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc Login (LoginRequest) returns (LoginResponse);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
+  rpc GetUserInfo (GetUserInfoRequest) returns (GetUserInfoResponse);
+}
+
 // Enums
 enum GamePhase {
   WAITING = 0;
@@ -402,4 +410,47 @@ message HideCardsRequest {
 message HideCardsResponse {
   bool success = 1;
   string message = 2;
-} 
+}
+
+// Auth Messages
+message RegisterRequest {
+  string nickname = 1;
+  string user_id = 2;  // Derived from seed key
+}
+
+message RegisterResponse {
+  bool ok = 1;
+  string error = 2;  // Empty if ok == true
+}
+
+message LoginRequest {
+  string nickname = 1;
+  string user_id = 2;  // Derived from seed key
+}
+
+message LoginResponse {
+  bool ok = 1;
+  string error = 2;
+  string token = 3;     // Session token
+  string user_id = 4;
+  string nickname = 5;
+}
+
+message LogoutRequest {
+  string token = 1;
+}
+
+message LogoutResponse {
+  bool ok = 1;
+}
+
+message GetUserInfoRequest {
+  string token = 1;
+}
+
+message GetUserInfoResponse {
+  string user_id = 1;
+  string nickname = 2;
+  int64 created = 3;
+  int64 last_login = 4;
+}

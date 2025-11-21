@@ -258,6 +258,38 @@ class LocalInfo {
 }
 
 @JsonSerializable()
+class RegisterRequest {
+  final String nickname;
+  RegisterRequest(this.nickname);
+  factory RegisterRequest.fromJson(Map<String, dynamic> json) =>
+      _$RegisterRequestFromJson(json);
+  Map<String, dynamic> toJson() => _$RegisterRequestToJson(this);
+}
+
+@JsonSerializable()
+class LoginRequest {
+  final String nickname;
+  LoginRequest(this.nickname);
+  factory LoginRequest.fromJson(Map<String, dynamic> json) =>
+      _$LoginRequestFromJson(json);
+  Map<String, dynamic> toJson() => _$LoginRequestToJson(this);
+}
+
+@JsonSerializable()
+class LoginResponse {
+  @JsonKey(name: 'token')
+  final String token;
+  @JsonKey(name: 'user_id')
+  final String userId;
+  @JsonKey(name: 'nickname')
+  final String nickname;
+  LoginResponse(this.token, this.userId, this.nickname);
+  factory LoginResponse.fromJson(Map<String, dynamic> json) =>
+      _$LoginResponseFromJson(json);
+  Map<String, dynamic> toJson() => _$LoginResponseToJson(this);
+}
+
+@JsonSerializable()
 class ServerCert {
   @JsonKey(name: "inner_fingerprint")
   final String innerFingerprint;
@@ -977,6 +1009,22 @@ abstract class PluginPlatform {
     // If platform returns non-string, this will throw; that’s desirable.
   }
 
+  Future<void> register(RegisterRequest req) async {
+    const cmdType = 0x24; // CTRegister
+    await asyncCall(cmdType, req.toJson());
+  }
+
+  Future<LoginResponse> login(LoginRequest req) async {
+    const cmdType = 0x25; // CTLogin
+    final result = await asyncCall(cmdType, req.toJson());
+    return LoginResponse.fromJson(result as Map<String, dynamic>);
+  }
+
+  Future<void> logout() async {
+    const cmdType = 0x26; // CTLogout
+    await asyncCall(cmdType, {});
+  }
+
   Future<LocalInfo> initClient(InitClient args) async {
     final res = await asyncCall(CTInitClient, args.toJson());
     print("DEBUG: InitClient response: $res");
@@ -1186,6 +1234,10 @@ abstract class PluginPlatform {
     final res = await asyncCall(CTEvaluateHand, args.toJson());
     return _asJsonMap(res);
   }
+
+  Future<void> startGameStream() async {
+    await asyncCall(CTStartGameStream, "");
+  }
 }
 
 /// -------------------- Commands & Notifications --------------------
@@ -1227,8 +1279,13 @@ const int CTGetLastWinners = 0x20;
 const int CTEvaluateHand = 0x21;
 const int CTSetPlayerReady = 0x22;
 const int CTSetPlayerUnready = 0x23;
+const int CTStartGameStream = 0x27;
 
 const int CTCloseLockFile = 0x60;
+// Auth commands
+const int CTRegister = 0x24;
+const int CTLogin = 0x25;
+const int CTLogout = 0x26;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =

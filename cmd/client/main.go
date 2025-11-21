@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/client"
 	"github.com/vctt94/pokerbisonrelay/pkg/ui"
@@ -27,6 +28,7 @@ var (
 	maxLogFiles     = flag.Int("maxlogfiles", 10, "Maximum number of log files")
 	maxBufferLines  = flag.Int("maxbufferlines", 1000, "Maximum number of buffer lines")
 	debug           = flag.String("debug", "", "Debug level for logging")
+	nickname        = flag.String("nickname", "", "Nickname to use for authentication (required)")
 )
 
 func main() {
@@ -51,6 +53,39 @@ func main() {
 	defer pokerClient.Close()
 	log := cfg.LogBackend.Logger("pokerclient")
 
+	// Authenticate user
+	if *nickname == "" {
+		fmt.Printf("Error: nickname is required. Use -nickname flag to specify your nickname.\n")
+		os.Exit(1)
+	}
+
+	// Try to login first
+	loginResp, err := pokerClient.Login(ctx, *nickname)
+	if err != nil {
+		// Check if error is "nickname not found" - if so, try to register
+		errMsg := err.Error()
+		if contains(errMsg, "nickname not found") {
+			log.Infof("Nickname not found. Attempting registration...\n")
+			if err := pokerClient.Register(ctx, *nickname); err != nil {
+				fmt.Printf("Registration failed: %v\n", err)
+				os.Exit(1)
+			}
+			// After successful registration, try login again
+			loginResp, err = pokerClient.Login(ctx, *nickname)
+			if err != nil {
+				fmt.Printf("Login after registration failed: %v\n", err)
+				os.Exit(1)
+			}
+			log.Infof("Successfully registered and logged in as %s (User ID: %s)\n", loginResp.Nickname, loginResp.UserID)
+		} else {
+			// Other login errors (user ID mismatch, network errors, etc.)
+			fmt.Printf("Login failed: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		log.Infof("Successfully logged in as %s (User ID: %s)\n", loginResp.Nickname, loginResp.UserID)
+	}
+
 	// Start the notification stream
 	if err := pokerClient.StartNotificationStream(ctx); err != nil {
 		log.Infof("Failed to start notifications: %v\n", err)
@@ -71,4 +106,9 @@ func main() {
 
 	// Start the UI with the client's components
 	ui.Run(ctx, pokerClient)
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }

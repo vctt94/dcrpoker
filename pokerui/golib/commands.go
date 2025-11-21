@@ -57,6 +57,12 @@ const (
 	CTEvaluateHand            CmdType = 0x21
 	CTSetPlayerReady          CmdType = 0x22
 	CTSetPlayerUnready        CmdType = 0x23
+	CTStartGameStream         CmdType = 0x27
+
+	// Auth commands
+	CTRegister CmdType = 0x24
+	CTLogin    CmdType = 0x25
+	CTLogout   CmdType = 0x26
 
 	CTCreateLockFile        CmdType = 0x60
 	CTCloseLockFile         CmdType = 0x61
@@ -202,6 +208,21 @@ func call(cmd *cmd) *CmdResult {
 		if decode(&dest) {
 			err = globalProfiler.zipLogs(dest)
 		}
+
+	case CTRegister:
+		var req registerReq
+		if decode(&req) {
+			v, err = handleRegister(uint32(cmd.ClientHandle), req)
+		}
+
+	case CTLogin:
+		var req loginReq
+		if decode(&req) {
+			v, err = handleLogin(uint32(cmd.ClientHandle), req)
+		}
+
+	case CTLogout:
+		v, err = handleLogout(uint32(cmd.ClientHandle))
 
 	default:
 		// Calls that need a client. Figure out the client.

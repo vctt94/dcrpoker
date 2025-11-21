@@ -644,6 +644,15 @@ class PokerModel extends ChangeNotifier {
       if (_seated && currentTableId == tid) {
         print('DEBUG: _restoreCurrentTable - already at $tid, skipping rejoin');
         await refreshGameState();
+        // If game is already started, ensure game stream is active
+        if (game != null && (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
+          print('DEBUG: _restoreCurrentTable - game already started, starting game stream');
+          try {
+            await Golib.startGameStream();
+          } catch (e) {
+            print('DEBUG: _restoreCurrentTable - failed to start game stream: $e');
+          }
+        }
         return;
       }
 

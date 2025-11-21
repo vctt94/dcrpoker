@@ -353,6 +353,16 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 		}
 		return winnersMap, nil
 
+	case CTStartGameStream:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.StartGameStream(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start game stream: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
 	case CTEvaluateHand:
 		var req evaluateHand
 		if err := decodeStrict(cmd.Payload, &req); err != nil {
@@ -423,6 +433,91 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 	default:
 		return nil, fmt.Errorf("unknown cmd 0x%x", cmd.Type)
 	}
+}
+
+// handleRegister handles the CTRegister command
+func handleRegister(handle uint32, req registerReq) (interface{}, error) {
+	cmtx.Lock()
+	var cc *clientCtx
+	if cs != nil {
+		cc = cs[handle]
+	}
+	cmtx.Unlock()
+
+	if cc == nil {
+		return nil, fmt.Errorf("unknown client handle %d", handle)
+	}
+	if cc.c == nil {
+		return nil, fmt.Errorf("poker client not initialized")
+	}
+
+	err := cc.c.Register(cc.ctx, req.Nickname)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register: %v", err)
+	}
+
+	// Update nickname in client context
+	cmtx.Lock()
+	cc.Nick = req.Nickname
+	cmtx.Unlock()
+
+	return map[string]string{"status": "ok"}, nil
+}
+
+// handleLogin handles the CTLogin command
+func handleLogin(handle uint32, req loginReq) (interface{}, error) {
+	cmtx.Lock()
+	var cc *clientCtx
+	if cs != nil {
+		cc = cs[handle]
+	}
+	cmtx.Unlock()
+
+	if cc == nil {
+		return nil, fmt.Errorf("unknown client handle %d", handle)
+	}
+	if cc.c == nil {
+		return nil, fmt.Errorf("poker client not initialized")
+	}
+
+	clientLoginResp, err := cc.c.Login(cc.ctx, req.Nickname)
+	if err != nil {
+		return nil, fmt.Errorf("failed to login: %v", err)
+	}
+
+	// Update nickname in client context
+	cmtx.Lock()
+	cc.Nick = clientLoginResp.Nickname
+	cmtx.Unlock()
+
+	// Return loginResp struct (will be JSON marshaled automatically)
+	return loginResp{
+		Token:    clientLoginResp.Token,
+		UserID:   clientLoginResp.UserID,
+		Nickname: clientLoginResp.Nickname,
+	}, nil
+}
+
+// handleLogout handles the CTLogout command
+func handleLogout(handle uint32) (interface{}, error) {
+	cmtx.Lock()
+	var cc *clientCtx
+	if cs != nil {
+		cc = cs[handle]
+	}
+	cmtx.Unlock()
+
+	if cc == nil {
+		return nil, fmt.Errorf("unknown client handle %d", handle)
+	}
+	if cc.c == nil {
+		return nil, fmt.Errorf("poker client not initialized")
+	}
+
+	// Note: We don't store the token in clientCtx, so logout would need
+	// the token passed in. For now, just return success.
+	// TODO: Store token in clientCtx and implement proper logout
+	return map[string]string{"status": "ok"}, nil
 }
 
 func handleCreateLockFile(rootDir string) error {

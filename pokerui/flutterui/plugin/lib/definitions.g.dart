@@ -158,6 +158,39 @@ Map<String, dynamic> _$LocalInfoToJson(LocalInfo instance) => <String, dynamic>{
       'nick': instance.nick,
     };
 
+RegisterRequest _$RegisterRequestFromJson(Map<String, dynamic> json) =>
+    RegisterRequest(
+      json['nickname'] as String,
+    );
+
+Map<String, dynamic> _$RegisterRequestToJson(RegisterRequest instance) =>
+    <String, dynamic>{
+      'nickname': instance.nickname,
+    };
+
+LoginRequest _$LoginRequestFromJson(Map<String, dynamic> json) => LoginRequest(
+      json['nickname'] as String,
+    );
+
+Map<String, dynamic> _$LoginRequestToJson(LoginRequest instance) =>
+    <String, dynamic>{
+      'nickname': instance.nickname,
+    };
+
+LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
+    LoginResponse(
+      json['token'] as String,
+      json['user_id'] as String,
+      json['nickname'] as String,
+    );
+
+Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
+    <String, dynamic>{
+      'token': instance.token,
+      'user_id': instance.userId,
+      'nickname': instance.nickname,
+    };
+
 ServerCert _$ServerCertFromJson(Map<String, dynamic> json) => ServerCert(
       json['inner_fingerprint'] as String,
       json['outer_fingerprint'] as String,
