@@ -2523,6 +2523,7 @@ type Player struct {
 	PlayerState     PlayerState            `protobuf:"varint,12,opt,name=player_state,json=playerState,proto3,enum=poker.PlayerState" json:"player_state,omitempty"` // Canonical player state (enum)
 	IsSmallBlind    bool                   `protobuf:"varint,13,opt,name=is_small_blind,json=isSmallBlind,proto3" json:"is_small_blind,omitempty"`                   // True if this player is the small blind for current hand
 	IsBigBlind      bool                   `protobuf:"varint,14,opt,name=is_big_blind,json=isBigBlind,proto3" json:"is_big_blind,omitempty"`                         // True if this player is the big blind for current hand
+	IsDisconnected  bool                   `protobuf:"varint,15,opt,name=is_disconnected,json=isDisconnected,proto3" json:"is_disconnected,omitempty"`               // True if the player is disconnected but seat is reserved
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2651,6 +2652,13 @@ func (x *Player) GetIsSmallBlind() bool {
 func (x *Player) GetIsBigBlind() bool {
 	if x != nil {
 		return x.IsBigBlind
+	}
+	return false
+}
+
+func (x *Player) GetIsDisconnected() bool {
+	if x != nil {
+		return x.IsDisconnected
 	}
 	return false
 }
@@ -3828,7 +3836,7 @@ const file_poker_proto_rawDesc = "" +
 	"\bshowdown\x18\x0f \x01(\v2\x0f.poker.ShowdownR\bshowdown\"E\n" +
 	"\bShowdown\x12'\n" +
 	"\awinners\x18\x01 \x03(\v2\r.poker.WinnerR\awinners\x12\x10\n" +
-	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xb7\x03\n" +
+	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xe0\x03\n" +
 	"\x06Player\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -3846,7 +3854,8 @@ const file_poker_proto_rawDesc = "" +
 	"\fplayer_state\x18\f \x01(\x0e2\x12.poker.PlayerStateR\vplayerState\x12$\n" +
 	"\x0eis_small_blind\x18\r \x01(\bR\fisSmallBlind\x12 \n" +
 	"\fis_big_blind\x18\x0e \x01(\bR\n" +
-	"isBigBlind\"0\n" +
+	"isBigBlind\x12'\n" +
+	"\x0fis_disconnected\x18\x0f \x01(\bR\x0eisDisconnected\"0\n" +
 	"\x04Card\x12\x12\n" +
 	"\x04suit\x18\x01 \x01(\tR\x04suit\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"O\n" +

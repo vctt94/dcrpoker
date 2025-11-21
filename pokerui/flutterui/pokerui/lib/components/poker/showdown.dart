@@ -40,6 +40,7 @@ class ShowdownView extends StatelessWidget {
             isBigBlind: false,
             isReady: false,
             handDesc: '',
+            isDisconnected: true,
           ));
       return pl.name.isNotEmpty ? pl.name : _pLabel(pid);
     }
@@ -59,6 +60,7 @@ class ShowdownView extends StatelessWidget {
             isBigBlind: false,
             isReady: false,
             handDesc: '',
+            isDisconnected: true,
           ));
       if (pl.handDesc.isNotEmpty) return pl.handDesc;
       switch (rank) {

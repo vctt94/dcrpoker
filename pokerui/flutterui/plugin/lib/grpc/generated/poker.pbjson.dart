@@ -854,6 +854,7 @@ const Player$json = {
     },
     {'1': 'is_small_blind', '3': 13, '4': 1, '5': 8, '10': 'isSmallBlind'},
     {'1': 'is_big_blind', '3': 14, '4': 1, '5': 8, '10': 'isBigBlind'},
+    {'1': 'is_disconnected', '3': 15, '4': 1, '5': 8, '10': 'isDisconnected'},
   ],
 };
 
@@ -866,7 +867,8 @@ final $typed_data.Uint8List playerDescriptor = $convert.base64Decode(
     'YWxlchgJIAEoCFIIaXNEZWFsZXISGQoIaXNfcmVhZHkYCiABKAhSB2lzUmVhZHkSKQoQaGFuZF'
     '9kZXNjcmlwdGlvbhgLIAEoCVIPaGFuZERlc2NyaXB0aW9uEjUKDHBsYXllcl9zdGF0ZRgMIAEo'
     'DjISLnBva2VyLlBsYXllclN0YXRlUgtwbGF5ZXJTdGF0ZRIkCg5pc19zbWFsbF9ibGluZBgNIA'
-    'EoCFIMaXNTbWFsbEJsaW5kEiAKDGlzX2JpZ19ibGluZBgOIAEoCFIKaXNCaWdCbGluZA==');
+    'EoCFIMaXNTbWFsbEJsaW5kEiAKDGlzX2JpZ19ibGluZBgOIAEoCFIKaXNCaWdCbGluZBInCg9p'
+    'c19kaXNjb25uZWN0ZWQYDyABKAhSDmlzRGlzY29ubmVjdGVk');
 
 @$core.Deprecated('Use cardDescriptor instead')
 const Card$json = {

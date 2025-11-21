@@ -144,7 +144,9 @@ void drawPlayer(
   
   // Player circle
   final playerPaint = Paint()
-    ..color = isHero ? heroColor : otherColor
+    ..color = player.isDisconnected
+        ? Colors.red.shade700
+        : (isHero ? heroColor : otherColor)
     ..style = PaintingStyle.fill;
 
   canvas.drawCircle(Offset(x, y), radius, playerPaint);
@@ -160,7 +162,9 @@ void drawPlayer(
   
   // Player border
   final borderPaint = Paint()
-    ..color = isCurrent ? Colors.yellowAccent : Colors.white24
+    ..color = player.isDisconnected
+        ? Colors.orangeAccent
+        : (isCurrent ? Colors.yellowAccent : Colors.white24)
     ..style = PaintingStyle.stroke
     ..strokeWidth = isCurrent ? 2.5 : 1.5;
   
@@ -434,4 +438,3 @@ Map<String, Offset> seatPositionsFor(List<UiPlayer> ps, String heroId, Offset ce
   }
   return map;
 }
-

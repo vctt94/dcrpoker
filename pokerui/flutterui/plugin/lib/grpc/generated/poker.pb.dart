@@ -2844,6 +2844,7 @@ class Player extends $pb.GeneratedMessage {
     PlayerState? playerState,
     $core.bool? isSmallBlind,
     $core.bool? isBigBlind,
+    $core.bool? isDisconnected,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -2860,6 +2861,7 @@ class Player extends $pb.GeneratedMessage {
     if (playerState != null) result.playerState = playerState;
     if (isSmallBlind != null) result.isSmallBlind = isSmallBlind;
     if (isBigBlind != null) result.isBigBlind = isBigBlind;
+    if (isDisconnected != null) result.isDisconnected = isDisconnected;
     return result;
   }
 
@@ -2891,6 +2893,7 @@ class Player extends $pb.GeneratedMessage {
         enumValues: PlayerState.values)
     ..aOB(13, _omitFieldNames ? '' : 'isSmallBlind')
     ..aOB(14, _omitFieldNames ? '' : 'isBigBlind')
+    ..aOB(15, _omitFieldNames ? '' : 'isDisconnected')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3030,6 +3033,15 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasIsBigBlind() => $_has(13);
   @$pb.TagNumber(14)
   void clearIsBigBlind() => $_clearField(14);
+
+  @$pb.TagNumber(15)
+  $core.bool get isDisconnected => $_getBF(14);
+  @$pb.TagNumber(15)
+  set isDisconnected($core.bool value) => $_setBool(14, value);
+  @$pb.TagNumber(15)
+  $core.bool hasIsDisconnected() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearIsDisconnected() => $_clearField(15);
 }
 
 class Card extends $pb.GeneratedMessage {

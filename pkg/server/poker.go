@@ -107,6 +107,14 @@ func (s *Server) handlePlayerDisconnect(tableID, playerID string) {
 		return
 	}
 
+	// Broadcast updated game state so remaining players see the disconnect flag.
+	if tableSnapshot, err := s.collectTableSnapshot(tableID); err == nil && tableSnapshot != nil {
+		gsh := NewGameStateHandler(s)
+		if updates := gsh.buildGameStatesFromSnapshot(tableSnapshot); len(updates) > 0 {
+			s.sendGameStateUpdates(tableID, updates)
+		}
+	}
+
 	// Send disconnect event to player's state machine if in active game
 	// Verify game is still started before sending (defensive check for shutdown races)
 	if gamePlayer != nil && table.IsGameStarted() {

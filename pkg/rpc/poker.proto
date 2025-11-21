@@ -356,6 +356,7 @@ message Player {
   PlayerState player_state = 12; // Canonical player state (enum)
   bool is_small_blind = 13; // True if this player is the small blind for current hand
   bool is_big_blind = 14;   // True if this player is the big blind for current hand
+  bool is_disconnected = 15; // True if the player is disconnected but seat is reserved
 }
 
 message Card {

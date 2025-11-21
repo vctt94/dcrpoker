@@ -186,14 +186,18 @@ func (r *Renderer) RenderGameLobby() string {
 			} else {
 				readyStatus = " ⏳"
 			}
+			disconnected := ""
+			if player.IsDisconnected {
+				disconnected = " [DC]"
+			}
 
 			currentPlayerIndicator := ""
 			if player.Id == r.ui.clientID {
 				currentPlayerIndicator = " (You)"
 			}
 
-			s += fmt.Sprintf("  %s: %d chips%s%s\n",
-				player.Id, player.Balance, readyStatus, currentPlayerIndicator)
+			s += fmt.Sprintf("  %s%s: %d chips%s%s\n",
+				player.Id, disconnected, player.Balance, readyStatus, currentPlayerIndicator)
 		}
 		s += "\n"
 	} else {
@@ -532,6 +536,10 @@ func (r *Renderer) formatPlayerInfo(player *pokerrpc.Player) string {
 	// Status indicators - clean and clear
 	var status []string
 
+	if player.IsDisconnected {
+		status = append(status, "DISCONNECTED")
+	}
+
 	// Check if player is you
 	if player.Id == r.ui.clientID {
 		status = append(status, "YOU")
@@ -545,7 +553,7 @@ func (r *Renderer) formatPlayerInfo(player *pokerrpc.Player) string {
 	// Only show folded if player has actually folded
 	if player.Folded {
 		status = append(status, "FOLDED")
-	} else {
+	} else if !player.IsDisconnected {
 		// Player is active in the game
 		if r.ui.gamePhase != pokerrpc.GamePhase_WAITING && r.ui.gamePhase != pokerrpc.GamePhase_NEW_HAND_DEALING {
 			status = append(status, "ACTIVE")
@@ -741,7 +749,13 @@ func (r *Renderer) renderPlayersCompact() string {
 		var line string
 		var style lipgloss.Style
 
-		if player.Id == r.ui.clientID {
+		if player.IsDisconnected {
+			style = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("214")).
+				Background(lipgloss.Color("52")).
+				Bold(true)
+			line = fmt.Sprintf(" ⚠ DISCONNECTED: %s - Chips: %d", playerName, player.Balance)
+		} else if player.Id == r.ui.clientID {
 			// This is YOU - make it very clear
 			style = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("39")).

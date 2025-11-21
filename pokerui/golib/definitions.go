@@ -199,6 +199,7 @@ type playerDTO struct {
 	IsAllIn         bool       `json:"isAllIn"`
 	IsDealer        bool       `json:"isDealer"`
 	IsReady         bool       `json:"isReady"`
+	Disconnected    bool       `json:"disconnected"`
 	HandDescription string     `json:"handDescription"`
 	PlayerState     int32      `json:"playerState"` // enum as int
 	IsSmallBlind    bool       `json:"isSmallBlind"`
@@ -253,6 +254,7 @@ func playerToDTO(p *pokerrpc.Player) *playerDTO {
 		IsAllIn:         p.IsAllIn,
 		IsDealer:        p.IsDealer,
 		IsReady:         p.IsReady,
+		Disconnected:    p.IsDisconnected,
 		HandDescription: p.HandDescription,
 		PlayerState:     int32(p.PlayerState),
 		IsSmallBlind:    p.IsSmallBlind,

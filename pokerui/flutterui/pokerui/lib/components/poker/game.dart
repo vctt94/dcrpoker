@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
 import 'table.dart';
 import 'cards.dart';
+import 'disconnected_badges.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
@@ -137,13 +138,16 @@ class PokerGame {
                                   )
                                 // Otherwise render non-interactive to avoid stealing input
                                 : IgnorePointer(
-                                    child: _HeroCardsOverlay(
-                                      players: gameState.players,
-                                      heroId: playerId,
-                                      cache: pokerModel.myHoleCardsCache,
-                                      model: pokerModel,
-                                    ),
-                                  )),
+                                  child: _HeroCardsOverlay(
+                                    players: gameState.players,
+                                    heroId: playerId,
+                                    cache: pokerModel.myHoleCardsCache,
+                                    model: pokerModel,
+                                  ),
+                                )),
+
+                          // Hover hints for disconnected players
+                          DisconnectedBadgesOverlay(players: gameState.players, heroId: playerId),
 
                           // Pot and betting info overlay
                           IgnorePointer(
@@ -691,7 +695,7 @@ class _HeroCardsOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hero = players.firstWhere((p) => p.id == heroId, orElse: () => const UiPlayer(
-      id: '', name: '', balance: 0, hand: [], currentBet: 0, folded: false, isTurn: false, isAllIn: false, isDealer: false, isSmallBlind: false, isBigBlind: false, isReady: false, handDesc: '',
+      id: '', name: '', balance: 0, hand: [], currentBet: 0, folded: false, isTurn: false, isAllIn: false, isDealer: false, isSmallBlind: false, isBigBlind: false, isReady: false, isDisconnected: false, handDesc: '',
     ));
     if (hero.id.isEmpty) return const SizedBox.shrink();
     // Prefer live hero.hand; fall back to cached hole cards when snapshots omit them (e.g., during showdown).

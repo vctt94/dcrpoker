@@ -629,6 +629,8 @@ class PlayerDTO {
   final bool isDealer;
   @JsonKey(name: 'isReady')
   final bool isReady;
+  @JsonKey(name: 'disconnected')
+  final bool disconnected;
   @JsonKey(name: 'handDescription')
   final String handDescription;
   @JsonKey(name: 'playerState')
@@ -649,6 +651,7 @@ class PlayerDTO {
     this.isAllIn,
     this.isDealer,
     this.isReady,
+    this.disconnected,
     this.handDescription,
     this.playerState,
     this.isSmallBlind,
@@ -671,6 +674,7 @@ class PlayerDTO {
       ..isAllIn = isAllIn
       ..isDealer = isDealer
       ..isReady = isReady
+      ..isDisconnected = disconnected
       ..handDescription = handDescription
       ..playerState = pr.PlayerState.valueOf(playerState) ?? pr.PlayerState.PLAYER_STATE_UNINITIALIZED
       ..isSmallBlind = isSmallBlind

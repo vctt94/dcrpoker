@@ -289,9 +289,10 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		var players []*pokerrpc.Player
 		for _, ps := range tableSnapshot.Players {
 			player := &pokerrpc.Player{
-				Id:          ps.ID,
-				IsReady:     ps.IsReady,
-				PlayerState: pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
+				Id:             ps.ID,
+				IsReady:        ps.IsReady,
+				PlayerState:    pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
+				IsDisconnected: ps.IsDisconnected,
 			}
 			players = append(players, player)
 		}
@@ -310,16 +311,17 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 	var players []*pokerrpc.Player
 	for _, ps := range tableSnapshot.Players {
 		player := &pokerrpc.Player{
-			Id:           ps.ID,
-			Balance:      ps.Balance,
-			IsReady:      ps.IsReady,
-			Folded:       ps.HasFolded,
-			IsAllIn:      ps.IsAllIn,
-			CurrentBet:   ps.HasBet,
-			PlayerState:  toRPCPlayerState(ps.GameState),
-			IsDealer:     ps.IsDealer,
-			IsSmallBlind: ps.IsSmallBlind,
-			IsBigBlind:   ps.IsBigBlind,
+			Id:             ps.ID,
+			Balance:        ps.Balance,
+			IsReady:        ps.IsReady,
+			Folded:         ps.HasFolded,
+			IsAllIn:        ps.IsAllIn,
+			CurrentBet:     ps.HasBet,
+			PlayerState:    toRPCPlayerState(ps.GameState),
+			IsDealer:       ps.IsDealer,
+			IsSmallBlind:   ps.IsSmallBlind,
+			IsBigBlind:     ps.IsBigBlind,
+			IsDisconnected: ps.IsDisconnected,
 			// Use FSM-derived snapshot value. UIs should prefer
 			// GameUpdate.CurrentPlayer for highlighting.
 			IsTurn: ps.IsTurn,

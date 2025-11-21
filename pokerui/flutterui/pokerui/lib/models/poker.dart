@@ -56,6 +56,7 @@ class UiPlayer {
   final bool isSmallBlind;
   final bool isBigBlind;
   final bool isReady;
+  final bool isDisconnected;
   final String handDesc; // only meaningful at showdown
 
   const UiPlayer({
@@ -71,6 +72,7 @@ class UiPlayer {
     required this.isSmallBlind,
     required this.isBigBlind,
     required this.isReady,
+    required this.isDisconnected,
     required this.handDesc,
   });
 
@@ -88,6 +90,7 @@ class UiPlayer {
       isSmallBlind: p.isSmallBlind,
       isBigBlind: p.isBigBlind,
       isReady: p.isReady,
+      isDisconnected: p.isDisconnected,
       handDesc: p.handDescription,
     );
   }
