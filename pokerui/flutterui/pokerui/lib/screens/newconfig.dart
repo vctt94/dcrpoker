@@ -28,13 +28,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   late final _serverAddr    = TextEditingController(text: widget.model.serverAddr);
   late final _grpcCert      = TextEditingController(text: widget.model.grpcCertPath);
   late final _address       = TextEditingController(text: widget.model.address);
-  late final _brRpcUrl      = TextEditingController(text: widget.model.brRpcUrl);
-  late final _brClientCert  = TextEditingController(text: widget.model.brClientCert);
-  late final _brClientRpcCert = TextEditingController(text: widget.model.brClientRpcCert);
-  late final _brClientRpcKey = TextEditingController(text: widget.model.brClientRpcKey);
   late final _debugLvl      = TextEditingController(text: widget.model.debugLevel);
-  late final _user          = TextEditingController(text: widget.model.rpcUser);
-  late final _pass          = TextEditingController(text: widget.model.rpcPass);
 
   bool _wantsLogNtfns = false;
   String _cfgPath = '', _dataDir = '';
@@ -72,12 +66,6 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.serverAddr,
         widget.model.grpcCertPath,
         widget.model.debugLevel,
-        widget.model.brRpcUrl,
-        widget.model.brClientCert,
-        widget.model.brClientRpcCert,
-        widget.model.brClientRpcKey,
-        widget.model.rpcUser,
-        widget.model.rpcPass,
       );
       
       // Call the native plugin command
@@ -117,13 +105,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ..serverAddr        = _serverAddr.text
         ..grpcCertPath      = _grpcCert.text
         ..address           = _address.text
-        ..brRpcUrl          = _brRpcUrl.text
-        ..brClientCert      = _brClientCert.text
-        ..brClientRpcCert   = _brClientRpcCert.text
-        ..brClientRpcKey    = _brClientRpcKey.text
         ..debugLevel        = _debugLvl.text
-        ..rpcUser           = _user.text
-        ..rpcPass           = _pass.text
         ..wantsLogNtfns     = _wantsLogNtfns;
 
       await _prepareDataDir();
@@ -162,16 +144,6 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                 _field(_serverAddr, 'Server Address', required: true),
                 _field(_grpcCert, 'gRPC Server Cert Path'),
                 _field(_address, 'Payout Address or PubKey (33/65B hex)'),
-                const SizedBox(height: 12),
-                const Text('BisonRelay Configuration', 
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                _field(_brRpcUrl, 'BR RPC WebSocket URL', required: true),
-                _field(_brClientCert, 'BR Client Cert Path', required: true),
-                _field(_brClientRpcCert, 'BR Client RPC Cert Path', required: true),
-                _field(_brClientRpcKey, 'BR Client RPC Key Path', required: true),
-                _field(_user, 'RPC User', required: true),
-                _field(_pass, 'RPC Password', required: true, obscure: true),
                 const SizedBox(height: 12),
                 const Text('Logging Configuration', 
                     style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),

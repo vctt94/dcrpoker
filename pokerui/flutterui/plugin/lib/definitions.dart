@@ -66,19 +66,19 @@ class InitClient {
   @JsonKey(name: 'wants_log_ntfns')
   final bool wantsLogNtfns;
 
-  // RPC fields
-  @JsonKey(name: 'rpc_websocket_url')
-  final String rpcWebsockeURL;
-  @JsonKey(name: 'rpc_cert_path')
-  final String rpcCertPath;
-  @JsonKey(name: 'rpc_client_cert_path')
-  final String rpcClientCertpath;
-  @JsonKey(name: 'rpc_client_key_path')
-  final String rpcClientKeypath;
-  @JsonKey(name: 'rpc_user')
-  final String rpcUser;
-  @JsonKey(name: 'rpc_pass')
-  final String rpcPass;
+  // RPC fields (optional, no longer used)
+  @JsonKey(name: 'rpc_websocket_url', includeIfNull: false)
+  final String? rpcWebsockeURL;
+  @JsonKey(name: 'rpc_cert_path', includeIfNull: false)
+  final String? rpcCertPath;
+  @JsonKey(name: 'rpc_client_cert_path', includeIfNull: false)
+  final String? rpcClientCertpath;
+  @JsonKey(name: 'rpc_client_key_path', includeIfNull: false)
+  final String? rpcClientKeypath;
+  @JsonKey(name: 'rpc_user', includeIfNull: false)
+  final String? rpcUser;
+  @JsonKey(name: 'rpc_pass', includeIfNull: false)
+  final String? rpcPass;
 
   InitClient(
     this.serverAddr,
@@ -87,14 +87,14 @@ class InitClient {
     this.payoutAddress,
     this.logFile,
     this.debugLevel,
-    this.wantsLogNtfns,
+    this.wantsLogNtfns, [
     this.rpcWebsockeURL,
     this.rpcCertPath,
     this.rpcClientCertpath,
     this.rpcClientKeypath,
     this.rpcUser,
     this.rpcPass,
-  );
+  ]);
 
   factory InitClient.fromJson(Map<String, dynamic> json) =>
       _$InitClientFromJson(json);
@@ -149,30 +149,12 @@ class CreateDefaultConfig {
   final String grpcCertPath;
   @JsonKey(name: 'debug_level')
   final String debugLevel;
-  @JsonKey(name: 'br_rpc_url')
-  final String brRpcUrl;
-  @JsonKey(name: 'br_client_cert')
-  final String brClientCert;
-  @JsonKey(name: 'br_client_rpc_cert')
-  final String brClientRpcCert;
-  @JsonKey(name: 'br_client_rpc_key')
-  final String brClientRpcKey;
-  @JsonKey(name: 'rpc_user')
-  final String rpcUser;
-  @JsonKey(name: 'rpc_pass')
-  final String rpcPass;
 
   CreateDefaultConfig(
     this.dataDir,
     this.serverAddr,
     this.grpcCertPath,
     this.debugLevel,
-    this.brRpcUrl,
-    this.brClientCert,
-    this.brClientRpcCert,
-    this.brClientRpcKey,
-    this.rpcUser,
-    this.rpcPass,
   );
 
   factory CreateDefaultConfig.fromJson(Map<String, dynamic> json) =>
