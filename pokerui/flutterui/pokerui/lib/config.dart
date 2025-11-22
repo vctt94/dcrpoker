@@ -57,8 +57,6 @@ class Config {
         address: '',
       );
 
-  
-
   // Synchronous fallback for UI prefill when async is not possible.
   factory Config.filled() => Config.empty();
 
@@ -69,9 +67,10 @@ class Config {
       if (v.isEmpty) return v;
       return cleanAndExpandPath(v);
     }
+
     final serverAddr = pick('server_addr');
     return Config(
-      serverAddr: serverAddr.isNotEmpty ? serverAddr : '127.0.0.1:50051',
+      serverAddr: serverAddr.isNotEmpty ? serverAddr : '127.0.0.1:50050',
       grpcCertPath: pickPath('grpc_cert_path'),
       payoutAddress: pick('payout_address'),
       rpcCertPath: pickPath('rpc_cert_path'),
@@ -117,33 +116,6 @@ class Config {
       dataDir: dataDir ?? this.dataDir,
       address: address ?? this.address,
     );
-  }
-
-  Future<void> saveNewConfig(String filepath) async {
-    final buffer = StringBuffer();
-    buffer.writeln('[default]');
-    if (serverAddr.isNotEmpty) buffer.writeln('serveraddr=$serverAddr');
-    if (grpcCertPath.isNotEmpty) buffer.writeln('grpcservercert=$grpcCertPath');
-    if (address.isNotEmpty) buffer.writeln('address=$address');
-    if (rpcWebsocketURL.isNotEmpty) buffer.writeln('brrpcurl=$rpcWebsocketURL');
-    if (rpcCertPath.isNotEmpty) buffer.writeln('brclientcert=$rpcCertPath');
-    if (rpcClientCertPath.isNotEmpty) {
-      buffer.writeln('brclientrpccert=$rpcClientCertPath');
-    }
-    if (rpcClientKeyPath.isNotEmpty) {
-      buffer.writeln('brclientrpckey=$rpcClientKeyPath');
-    }
-    if (rpcUser.isNotEmpty) buffer.writeln('rpcuser=$rpcUser');
-    if (rpcPass.isNotEmpty) buffer.writeln('rpcpass=$rpcPass');
-    buffer.writeln();
-    buffer.writeln('[clientrpc]');
-    buffer.writeln('wantsLogNtfns=${wantsLogNtfns ? '1' : '0'}');
-    buffer.writeln();
-    buffer.writeln('[log]');
-    if (debugLevel.isNotEmpty) buffer.writeln('debuglevel=$debugLevel');
-
-    await File(filepath).parent.create(recursive: true);
-    await File(filepath).writeAsString(buffer.toString());
   }
 
   static Future<Config> loadConfig(String filepath) async {

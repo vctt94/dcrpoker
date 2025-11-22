@@ -39,18 +39,6 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   bool _wantsLogNtfns = false;
   String _cfgPath = '', _dataDir = '';
 
-  // Placeholder certificate content
-  static const String placeholderCertContent = '''-----BEGIN CERTIFICATE-----
-MIIBkzCCATmgAwIBAgIRAOCyLu1U/ZKyD33nXFPgJOQwCgYIKoZIzj0EAwIwFjEU
-MBIGA1UEChMLUG9uZyBTZXJ2ZXIwHhcNMjUwMTMxMTg0NzQwWhcNMjYwMTMxMTg0
-NzQwWjAWMRQwEgYDVQQKEwtQb25nIFNlcnZlcjBZMBMGByqGSM49AgEGCCqGSM49
-AwEHA0IABLpaje+KDrdAe77RwOaxYAkxRmlDg1cbLspf1riFhskIUyfILM1r8zPd
-Ql10MGxeKipbE3LCPOn5BV0KVGxfb2mjaDBmMA4GA1UdDwEB/wQEAwICpDATBgNV
-HSUEDDAKBggrBgEFBQcDATAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQLw3WW
-CxxXpNfuuDgGuZ3c8IX0rDAPBgNVHREECDAGhwRog7QdMAoGCCqGSM49BAMCA0gA
-MEUCIEWR7Iw7ua6WAQuIf8Yf0lNzP6s2NczAR0W4uP8zuVK0AiEA6ruxkMcv4CHw
-Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
------END CERTIFICATE-----''';
   @override
   void initState() {
     super.initState();
@@ -116,11 +104,8 @@ Aq6RDElOTqAlDbNAuV8b/joQjIDLwqA=
         throw Exception('Failed to create server certificate: ${result['error']}');
       }
     } catch (e) {
-      // Fall back to the old method if native plugin fails
-      debugPrint('Native plugin failed, falling back to old method: $e');
-      final grpcCertFile = File(widget.model.grpcCertPath);
-      await grpcCertFile.parent.create(recursive: true);
-      await grpcCertFile.writeAsString(placeholderCertContent);
+      debugPrint('Native plugin createDefaultServerCert failed: $e');
+      rethrow;
     }
   }
 

@@ -241,7 +241,7 @@ class UiGameState {
         turnDeadlineUnixMs:
             u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
       );
-  }
+}
 
 /// -------- The main ChangeNotifier --------
 class PokerModel extends ChangeNotifier {
@@ -291,7 +291,6 @@ class PokerModel extends ChangeNotifier {
   /// Factory method to create PokerModel from Config
   static Future<PokerModel> fromConfig(
       Config cfg, NotificationModel notificationModel) async {
-    print('DEBUG: fromConfig - starting with cfg: $cfg');
     // Initialize the Go library with configuration
     final initClientArgs = InitClient(
       cfg.serverAddr,
@@ -311,10 +310,6 @@ class PokerModel extends ChangeNotifier {
 
     // Initialize the Go library client
     final localInfo = await Golib.initClient(initClientArgs);
-    print("*****************");
-    print(localInfo);
-    print(
-        'DEBUG: fromConfig - Golib.initClient returned id=${localInfo.id} nick=${localInfo.nick}');
 
     // Use the player ID from the Go library initialization
     final playerId = localInfo.id;
@@ -326,7 +321,6 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Lifecycle ----------
   Future<void> init() async {
-    print('DEBUG: PokerModel.init - begin (playerId=$playerId)');
     // Subscribe to poker notifications emitted by golib so we can update the
     // UI in response to server events without polling.
     _pokerNtfnSub ??= Golib.pokerNotifications().listen(
@@ -358,8 +352,6 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Notifications (from Go; no direct gRPC stream) ----------
   void _onNotification(pr.Notification n) {
-    print(
-        'DEBUG: Notification received type=${n.type} tableId=${n.tableId} playerId=${n.playerId}');
     switch (n.type) {
       case pr.NotificationType.TABLE_CREATED:
       case pr.NotificationType.TABLE_REMOVED:
@@ -386,7 +378,9 @@ class PokerModel extends ChangeNotifier {
         break;
       case pr.NotificationType.GAME_STARTED:
         // Explicitly transition to handInProgress when game starts
-        if (n.tableId == currentTableId || n.tableId.isEmpty || currentTableId == null) {
+        if (n.tableId == currentTableId ||
+            n.tableId.isEmpty ||
+            currentTableId == null) {
           _state = PokerState.handInProgress;
           notifyListeners();
         }
@@ -446,23 +440,8 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Game Updates (from game stream) ----------
   void _onGameUpdate(pr.GameUpdate gameUpdate) {
-    print(
-        'DEBUG: GameUpdate received - phase: ${gameUpdate.phase}, gameStarted: ${gameUpdate.gameStarted}, currentPlayer: ${gameUpdate.currentPlayer}');
-    
     // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
-
-    final myP = me;
-    final handCnt = myP?.hand.length ?? 0;
-    final playersCnt = game?.players.length ?? 0;
-    print(
-        'DEBUG: _onGameUpdate - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${gameUpdate.currentPlayer}');
-    if (handCnt > 0) {
-      final h = myP!.hand;
-      print(
-          'DEBUG: My cards (from stream): ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
-    }
-
     // Update UI state based on game phase
     final phase = gameUpdate.phase;
     if (phase == pr.GamePhase.SHOWDOWN) {
@@ -476,14 +455,6 @@ class PokerModel extends ChangeNotifier {
     }
 
     notifyListeners();
-  }
-
-  void _scheduleBackoff(FutureOr<void> Function() retry) {
-    retry();
-  }
-
-  void _resetBackoff() {
-    // No-op now that we do not back off streams locally.
   }
 
   // -------- Lobby / Tables ----------
@@ -583,8 +554,6 @@ class PokerModel extends ChangeNotifier {
       // Dedup: if we're already seated at this table, just (re)attach streams
       // and refresh state instead of calling server Join again.
       if (_seated && currentTableId == tableId) {
-        print(
-            'DEBUG: joinTable dedup - already seated at $tableId; reattaching stream');
         // Ensure state is up-to-date via golib.
         await refreshGameState();
         unawaited(_refreshLastWinners());
@@ -608,7 +577,8 @@ class PokerModel extends ChangeNotifier {
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
       // If game is already started, ensure game stream is active
-      if (game != null && (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
+      if (game != null &&
+          (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
         try {
           await Golib.startGameStream();
         } catch (e) {
@@ -650,20 +620,18 @@ class PokerModel extends ChangeNotifier {
       if (_restoring) return;
       _restoring = true;
       final tid = await Golib.getPokerCurrentTable();
-      print('DEBUG: _restoreCurrentTable - tid=$tid');
       if (tid.isEmpty) return;
 
       // If we're already seated on this table, avoid re-joining; ensure stream/state.
       if (_seated && currentTableId == tid) {
-        print('DEBUG: _restoreCurrentTable - already at $tid, skipping rejoin');
         await refreshGameState();
         // If game is already started, ensure game stream is active
-        if (game != null && (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
-          print('DEBUG: _restoreCurrentTable - game already started, starting game stream');
+        if (game != null &&
+            (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
           try {
             await Golib.startGameStream();
           } catch (e) {
-            print('DEBUG: _restoreCurrentTable - failed to start game stream: $e');
+            rethrow;
           }
         }
         return;
@@ -806,20 +774,8 @@ class PokerModel extends ChangeNotifier {
       final gameStateJson = respMap['game_state'] as Map<String, dynamic>;
       final dto = GameUpdateDTO.fromJson(gameStateJson);
       final gameUpdate = dto.toProtobuf();
-      print(
-          'DEBUG: refreshGameState - phase: ${gameUpdate.phase}, gameStarted: ${gameUpdate.gameStarted}, currentPlayer: ${gameUpdate.currentPlayer}');
       game = UiGameState.fromUpdate(gameUpdate);
 
-      final myP = me;
-      final handCnt = myP?.hand.length ?? 0;
-      final playersCnt = game?.players.length ?? 0;
-      print(
-          'DEBUG: refreshGameState snapshot - players=$playersCnt myHandCnt=$handCnt myId=$playerId curr=${gameUpdate.currentPlayer}');
-      if (handCnt > 0) {
-        final h = myP!.hand;
-        print(
-            'DEBUG: My cards (from GetGameState): ${h.map((c) => '${c.value} of ${c.suit}').join(', ')}');
-      }
       // Keep coarse UI state in sync even when attaching mid-hand.
       // This mirrors the logic in _onGameUpdate so that the UI shows
       // the table (and hole cards) immediately on reconnect/restore.
@@ -834,9 +790,6 @@ class PokerModel extends ChangeNotifier {
         _state = PokerState.inLobby;
       }
 
-      print(
-          'DEBUG: refreshGameState - Updated state to: $_state, isMyTurn: $isMyTurn');
-
       notifyListeners();
     } catch (e) {
       errorMessage = 'GetGameState failed: $e';
@@ -848,11 +801,11 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      print('DEBUG: _refreshLastWinners start for table=$tid');
       final respMap = await Golib.getLastWinners();
       // Convert JSON map back to protobuf GetLastWinnersResponse
       final winnersJson = respMap['winners'] as List<dynamic>;
-      final winners = winnersJson.map(_winnerFromDynamic).whereType<UiWinner>().toList();
+      final winners =
+          winnersJson.map(_winnerFromDynamic).whereType<UiWinner>().toList();
       lastWinners = List.unmodifiable(winners);
       lastShowdownFxMs = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
@@ -870,13 +823,19 @@ class PokerModel extends ChangeNotifier {
       if (w is Map<String, dynamic>) {
         final pid = (w['playerId'] ?? w['player_id'] ?? '').toString();
         final winningsRaw = w['winnings'];
-        final winnings = winningsRaw is num ? winningsRaw.toInt() : int.tryParse('$winningsRaw') ?? 0;
+        final winnings = winningsRaw is num
+            ? winningsRaw.toInt()
+            : int.tryParse('$winningsRaw') ?? 0;
         final hrRaw = w['handRank'] ?? w['hand_rank'] ?? w['rank'];
         pr.HandRank handRank = pr.HandRank.HIGH_CARD;
-        if (hrRaw is int) handRank = pr.HandRank.valueOf(hrRaw) ?? pr.HandRank.HIGH_CARD;
+        if (hrRaw is int) {
+          handRank = pr.HandRank.valueOf(hrRaw) ?? pr.HandRank.HIGH_CARD;
+        }
         if (hrRaw is String) {
           final parsed = int.tryParse(hrRaw);
-          if (parsed != null) handRank = pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
+          if (parsed != null) {
+            handRank = pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
+          }
         }
         final bestHandRaw = w['bestHand'] ?? w['best_hand'] ?? [];
         final List<pr.Card> bestHand = [];

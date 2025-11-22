@@ -1023,21 +1023,7 @@ func (g *Game) dealHoleCards() error {
 			}
 		}
 	}
-
 	g.log.Debugf("DealHoleCards: Dealt 2 cards to %d players", len(g.players))
-
-	// Log each player's hole cards for verification
-	for _, p := range g.players {
-		if p == nil {
-			continue
-		}
-		cards := g.currentHand.GetPlayerCards(p.ID(), p.ID())
-		cardStrs := make([]string, len(cards))
-		for i, c := range cards {
-			cardStrs[i] = c.String()
-		}
-		g.log.Debugf("CARDS: Player %s hole cards: %v", p.ID(), cardStrs)
-	}
 
 	return nil
 }

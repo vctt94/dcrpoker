@@ -16,15 +16,15 @@ import (
 // defaultServerCertPEM is written to <datadir>/ca.cert on first run when creating
 // a default config, so the UI has a usable TLS cert path out of the box.
 const defaultServerCertPEM = `-----BEGIN CERTIFICATE-----
-MIIBizCCATKgAwIBAgIQbtFxrgQfuhUSaHsw+tbNoDAKBggqhkjOPQQDAjAmMREw
-DwYDVQQKEwhnZW5jZXJ0czERMA8GA1UEAxMIZ2VuY2VydHMwHhcNMjUxMTA4MTU1
-MjQzWhcNMzUxMTA3MTU1MjQzWjAmMREwDwYDVQQKEwhnZW5jZXJ0czERMA8GA1UE
-AxMIZ2VuY2VydHMwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQoLsfKo3eU1B1c
-+GuDgatRBnI889XhmVet8aIGlew+A4hsUyduD8LfP1k7aZ3bHNIq+4H5LLg3sVj8
-hNseJ/cFo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNV
-HQ4EFgQURzfqDTuTTKzRYgMTW1IZiUhFjRIwCgYIKoZIzj0EAwIDRwAwRAIgfTUP
-ufQQaHv0dXYDwWfYgL2ry5vLM7xPy9l2iDxWRDcCIADhyHCj1r+M3p6/5yaJNZxd
-TLq8HnLRGlOPhEKOCgit
+MIIBiTCCAS+gAwIBAgIRAMS59RdukJ0c41QV6H1KdoUwCgYIKoZIzj0EAwIwJDEQ
+MA4GA1UEChMHUG9rZXJDQTEQMA4GA1UEAxMHUG9rZXJDQTAeFw0yNTExMjExNzUw
+NTZaFw0zNTExMjAxNzUwNTZaMCQxEDAOBgNVBAoTB1Bva2VyQ0ExEDAOBgNVBAMT
+B1Bva2VyQ0EwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAR2Ac7OAXooOpL3GezW
+eJsGnGjqBlmIXrajh+c7cmF2cW5HsiPqeMdb8o0FQ6z7QBLIJJAsTax1Gwbqdjv1
+QYopo0IwQDAOBgNVHQ8BAf8EBAMCAoQwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4E
+FgQU3RgmPKabIQLOqV2UPbS+7pNTH2YwCgYIKoZIzj0EAwIDSAAwRQIhAJRVw7od
+EZgyT95h5FRiDyhEmgH/1HsZUnuiwjHPxNWKAiAb6fGY30A/HVX6jPWpzC/hNJfI
+WXPGJtBI+49aqzOyJQ==
 -----END CERTIFICATE-----`
 
 // PokerConf is the config loaded from our .conf
@@ -170,7 +170,7 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 		Datadir:        configPath,
 		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
 		GRPCHost:       "127.0.0.1",
-		GRPCPort:       "50051",
+		GRPCPort:       "50050",
 		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
 		Debug:          "info",
 		MaxLogFiles:    5,

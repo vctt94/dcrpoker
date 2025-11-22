@@ -26,42 +26,44 @@ class ShowdownView extends StatelessWidget {
     }
 
     String winnerName(String pid) {
-      final pl = players.firstWhere((p) => p.id == pid, orElse: () => const UiPlayer(
-            id: '',
-            name: '',
-            balance: 0,
-            hand: [],
-            currentBet: 0,
-            folded: false,
-            isTurn: false,
-            isAllIn: false,
-            isDealer: false,
-            isSmallBlind: false,
-            isBigBlind: false,
-            isReady: false,
-            handDesc: '',
-            isDisconnected: true,
-          ));
+      final pl = players.firstWhere((p) => p.id == pid,
+          orElse: () => const UiPlayer(
+                id: '',
+                name: '',
+                balance: 0,
+                hand: [],
+                currentBet: 0,
+                folded: false,
+                isTurn: false,
+                isAllIn: false,
+                isDealer: false,
+                isSmallBlind: false,
+                isBigBlind: false,
+                isReady: false,
+                handDesc: '',
+                isDisconnected: true,
+              ));
       return pl.name.isNotEmpty ? pl.name : _pLabel(pid);
     }
 
     String winnerDesc(String pid, pr.HandRank rank) {
-      final pl = players.firstWhere((p) => p.id == pid, orElse: () => const UiPlayer(
-            id: '',
-            name: '',
-            balance: 0,
-            hand: [],
-            currentBet: 0,
-            folded: false,
-            isTurn: false,
-            isAllIn: false,
-            isDealer: false,
-            isSmallBlind: false,
-            isBigBlind: false,
-            isReady: false,
-            handDesc: '',
-            isDisconnected: true,
-          ));
+      final pl = players.firstWhere((p) => p.id == pid,
+          orElse: () => const UiPlayer(
+                id: '',
+                name: '',
+                balance: 0,
+                hand: [],
+                currentBet: 0,
+                folded: false,
+                isTurn: false,
+                isAllIn: false,
+                isDealer: false,
+                isSmallBlind: false,
+                isBigBlind: false,
+                isReady: false,
+                handDesc: '',
+                isDisconnected: true,
+              ));
       if (pl.handDesc.isNotEmpty) return pl.handDesc;
       switch (rank) {
         case pr.HandRank.HIGH_CARD:
@@ -105,7 +107,8 @@ class ShowdownView extends StatelessWidget {
             right: 0,
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.78),
                   borderRadius: BorderRadius.circular(12),
@@ -117,7 +120,10 @@ class ShowdownView extends StatelessWidget {
                   children: [
                     const Text(
                       'Showdown',
-                      style: TextStyle(color: Colors.amber, fontSize: 16, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                          color: Colors.amber,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 6),
                     for (final w in winners)
@@ -129,12 +135,18 @@ class ShowdownView extends StatelessWidget {
                           children: [
                             Text(
                               winnerName(w.playerId),
-                              style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700),
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
                               winnerDesc(w.playerId, w.handRank),
-                              style: const TextStyle(color: Colors.white70, fontSize: 12, fontStyle: FontStyle.italic),
+                              style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                  fontStyle: FontStyle.italic),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],
@@ -156,7 +168,8 @@ class ShowdownView extends StatelessWidget {
               child: ElevatedButton.icon(
                 onPressed: model.leaveTable,
                 icon: const Icon(Icons.logout),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                style:
+                    ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
                 label: const Text('Leave Table'),
               ),
             ),
@@ -183,7 +196,8 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
   @override
   void initState() {
     super.initState();
-    _chipCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    _chipCtrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 900));
     _maybeRestartFx();
   }
 
@@ -203,19 +217,14 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     final winners = widget.model.lastWinners;
     final fxMs = widget.model.lastShowdownFxMs;
     // ignore: avoid_print
-    print('DEBUG: ShowdownFx check winners=${winners.length} fxMs=$fxMs lastFxMs=$_lastFxMs');
     if (winners.isEmpty || fxMs == 0) return;
     if (fxMs != _lastFxMs) {
       // Debug visibility to trace animation triggers
       // ignore: avoid_print
-      print('DEBUG: ShowdownFx restart winners=${winners.length} fxMs=$fxMs');
       _lastFxMs = fxMs;
       _chipCtrl
         ..reset()
         ..forward();
-    } else {
-      // ignore: avoid_print
-      print('DEBUG: ShowdownFx no-op winners=${winners.length} fxMs=$fxMs lastFxMs=$_lastFxMs');
     }
   }
 
@@ -233,13 +242,16 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
 
       final chipWidgets = <Widget>[];
       if (winners.isNotEmpty && game.players.isNotEmpty) {
-        final targets = seatPositionsFor(game.players, widget.model.playerId, center, tableRadius + 50);
+        final targets = seatPositionsFor(
+            game.players, widget.model.playerId, center, tableRadius + 50);
         final potOrigin = _potLabelCenterInBox(box);
 
         for (int i = 0; i < winners.length; i++) {
           final w = winners[i];
           final target = targets[w.playerId] ?? center;
-          final curved = CurvedAnimation(parent: _chipCtrl, curve: const Interval(0.0, 1.0, curve: Curves.easeOut));
+          final curved = CurvedAnimation(
+              parent: _chipCtrl,
+              curve: const Interval(0.0, 1.0, curve: Curves.easeOut));
           final t = Tween<double>(begin: 0, end: 1).animate(curved);
           for (int j = 0; j < 3; j++) {
             final delay = j * 0.06 + i * 0.12;
@@ -261,7 +273,11 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
 }
 
 class _AnimatedChip extends StatelessWidget {
-  const _AnimatedChip({required this.t, required this.delay, required this.from, required this.to});
+  const _AnimatedChip(
+      {required this.t,
+      required this.delay,
+      required this.from,
+      required this.to});
   final Animation<double> t;
   final double delay;
   final Offset from;
@@ -290,7 +306,10 @@ class _AnimatedChip extends StatelessWidget {
               border: Border.all(color: Colors.orange.shade900, width: 1.5),
               shape: BoxShape.circle,
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 4, spreadRadius: 0.5),
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 4,
+                    spreadRadius: 0.5),
               ],
             ),
           ),
@@ -303,5 +322,6 @@ class _AnimatedChip extends StatelessWidget {
 Offset _potLabelCenterInBox(Rect box) {
   const double top = 20.0;
   const double labelHeightApprox = 40.0;
-  return Offset(box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
+  return Offset(
+      box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
 }

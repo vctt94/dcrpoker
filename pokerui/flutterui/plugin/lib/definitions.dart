@@ -676,7 +676,8 @@ class PlayerDTO {
       ..isReady = isReady
       ..isDisconnected = disconnected
       ..handDescription = handDescription
-      ..playerState = pr.PlayerState.valueOf(playerState) ?? pr.PlayerState.PLAYER_STATE_UNINITIALIZED
+      ..playerState = pr.PlayerState.valueOf(playerState) ??
+          pr.PlayerState.PLAYER_STATE_UNINITIALIZED
       ..isSmallBlind = isSmallBlind
       ..isBigBlind = isBigBlind;
   }
@@ -916,8 +917,7 @@ mixin NtfStreams {
   // Poker notifications from golib (poker.Notification proto)
   final StreamController<pr.Notification> ntfPokerNotifications =
       StreamController<pr.Notification>.broadcast();
-  Stream<pr.Notification> pokerNotifications() =>
-      ntfPokerNotifications.stream;
+  Stream<pr.Notification> pokerNotifications() => ntfPokerNotifications.stream;
 
   final StreamController<pr.GameUpdate> ntfGameUpdates =
       StreamController<pr.GameUpdate>.broadcast();
@@ -1046,7 +1046,6 @@ abstract class PluginPlatform {
 
   Future<LocalInfo> initClient(InitClient args) async {
     final res = await asyncCall(CTInitClient, args.toJson());
-    print("DEBUG: InitClient response: $res");
     return LocalInfo.fromJson(_asJsonMap(res));
   }
 
@@ -1166,7 +1165,6 @@ abstract class PluginPlatform {
     if (res == null) return [];
 
     final list = _asJsonListOrWrap(res);
-    print("DEBUG: GetPokerTables response: $list");
 
     return list.map((v) {
       final item = _decodeIfString(v);
