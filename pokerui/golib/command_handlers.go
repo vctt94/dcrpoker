@@ -180,7 +180,6 @@ func handleClientCmd(cc *clientCtx, cmd *cmd) (interface{}, error) {
 			return nil, fmt.Errorf("failed to join table: %v", err)
 		}
 
-		notify(NTLogLine, fmt.Sprintf("CTJoinPokerTable ok: player=%s table=%s", cc.ID.String(), req.TableID), nil)
 		return map[string]string{"status": "joined", "table_id": req.TableID}, nil
 
 	case CTCreatePokerTable:
@@ -498,6 +497,41 @@ func handleLogin(handle uint32, req loginReq) (interface{}, error) {
 	}, nil
 }
 
+// handleResumeSession tries to reuse an existing server session.
+func handleResumeSession(handle uint32) (interface{}, error) {
+	cmtx.Lock()
+	var cc *clientCtx
+	if cs != nil {
+		cc = cs[handle]
+	}
+	cmtx.Unlock()
+
+	if cc == nil {
+		return nil, fmt.Errorf("unknown client handle %d", handle)
+	}
+	if cc.c == nil {
+		return nil, fmt.Errorf("poker client not initialized")
+	}
+
+	session, err := cc.c.ResumeSession(cc.ctx)
+	if err != nil {
+		return nil, err
+	}
+	if session == nil {
+		return nil, nil
+	}
+
+	cmtx.Lock()
+	cc.Nick = session.Nickname
+	cmtx.Unlock()
+
+	return loginResp{
+		Token:    session.Token,
+		UserID:   session.UserID,
+		Nickname: session.Nickname,
+	}, nil
+}
+
 // handleLogout handles the CTLogout command
 func handleLogout(handle uint32) (interface{}, error) {
 	cmtx.Lock()
@@ -514,9 +548,10 @@ func handleLogout(handle uint32) (interface{}, error) {
 		return nil, fmt.Errorf("poker client not initialized")
 	}
 
-	// Note: We don't store the token in clientCtx, so logout would need
-	// the token passed in. For now, just return success.
-	// TODO: Store token in clientCtx and implement proper logout
+	// Clear any persisted session token so the next launch requires re-auth.
+	if err := cc.c.ClearSession(); err != nil {
+		cc.log.Warnf("failed to clear session on logout: %v", err)
+	}
 	return map[string]string{"status": "ok"}, nil
 }
 

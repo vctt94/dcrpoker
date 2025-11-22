@@ -600,11 +600,17 @@ class PokerModel extends ChangeNotifier {
       currentTableId = tableId;
       _iAmReady = false;
       _seated = true;
-      _state = PokerState.inLobby;
-      print('DEBUG: joinTable ok - tableId=$tableId playerId=$playerId');
       await refreshTables();
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
+      // If game is already started, ensure game stream is active
+      if (game != null && (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
+        try {
+          await Golib.startGameStream();
+        } catch (e) {
+          rethrow;
+        }
+      }
       unawaited(_refreshLastWinners());
       notifyListeners();
       return true;

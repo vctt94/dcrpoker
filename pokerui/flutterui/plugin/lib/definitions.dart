@@ -1024,6 +1024,13 @@ abstract class PluginPlatform {
     return LoginResponse.fromJson(result as Map<String, dynamic>);
   }
 
+  Future<LoginResponse?> resumeSession() async {
+    const cmdType = CTResumeSession;
+    final result = await asyncCall(cmdType, {});
+    if (result == null) return null;
+    return LoginResponse.fromJson(_asJsonMap(result));
+  }
+
   Future<void> logout() async {
     const cmdType = 0x26; // CTLogout
     await asyncCall(cmdType, {});
@@ -1290,6 +1297,7 @@ const int CTCloseLockFile = 0x60;
 const int CTRegister = 0x24;
 const int CTLogin = 0x25;
 const int CTLogout = 0x26;
+const int CTResumeSession = 0x28;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =

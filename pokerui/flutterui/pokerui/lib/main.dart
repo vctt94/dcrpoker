@@ -18,6 +18,7 @@ import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
 import 'package:pokerui/screens/startup_error.dart';
 import 'package:pokerui/screens/login.dart';
+import 'package:pokerui/client_init.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
   final newConfig = NewConfigModel(args);
@@ -101,6 +102,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   Object? _lastError;
   List<String> _missingFields = const [];
   StreamSubscription<LocalWaitingRoom>? _wrCreatedSub;
+  bool _attemptedSessionRestore = false;
 
   ThemeData get _theme => ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color.fromARGB(255, 25, 23, 44),
@@ -138,6 +140,15 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     if (nickname != null) {
       _nickname = nickname;
       _needsLogin = false;
+    }
+
+    // Attempt to reuse an existing session before showing the login screen.
+    if (_needsLogin) {
+      final restored = await _tryRestoreSession(cfg);
+      if (restored != null) {
+        _nickname = restored;
+        _needsLogin = false;
+      }
     }
 
     // If we still need login, show login screen
@@ -207,6 +218,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       if (!mounted) return false;
       setState(() {
         _config = updated;
+        _attemptedSessionRestore = false;
       });
       await _bootstrap();
       return _pokerModel != null && !_loading;
@@ -245,6 +257,32 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         ),
       ),
     );
+  }
+
+  Future<String?> _tryRestoreSession(Config cfg) async {
+    if (_attemptedSessionRestore) {
+      return null;
+    }
+    _attemptedSessionRestore = true;
+
+    try {
+      await initializePokerClient(cfg);
+      final resp = await Golib.resumeSession();
+      if (resp == null) {
+        return null;
+      }
+      if (resp.nickname.isEmpty) {
+        return null;
+      }
+      return resp.nickname;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Auto session restore failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   @override

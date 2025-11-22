@@ -21,6 +21,13 @@ type UserIdentityData struct {
 	SeedHex string `json:"seed_hex,omitempty"` // User seed key (persistent)
 }
 
+// SessionData stores persisted session info to avoid re-logins across restarts.
+type SessionData struct {
+	Token    string `json:"token"`
+	UserID   string `json:"user_id"`
+	Nickname string `json:"nickname"`
+}
+
 // GetOrCreateSeedKey generates or loads the seed key
 func (pc *PokerClient) GetOrCreateSeedKey() (string, error) {
 	// Try to load existing seed
@@ -77,6 +84,14 @@ func (pc *PokerClient) userIdentityFilePath() string {
 		return ""
 	}
 	return filepath.Join(pc.DataDir, "user_identity.json")
+}
+
+// sessionFilePath returns the path to the persisted session file.
+func (pc *PokerClient) sessionFilePath() string {
+	if pc.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(pc.DataDir, "session.json")
 }
 
 // saveSeedKey saves the seed key to disk
@@ -329,9 +344,136 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 		}
 	}
 
+	// Persist session for future resumes. Do not fail login if persistence fails.
+	session := &SessionData{
+		Token:    resp.Token,
+		UserID:   resp.UserId,
+		Nickname: resp.Nickname,
+	}
+	if err := pc.SaveSession(session); err != nil {
+		pc.log.Warnf("failed to persist session for %s: %v", nickname, err)
+	}
+
 	return &LoginResponse{
 		Token:    resp.Token,
 		UserID:   resp.UserId,
 		Nickname: resp.Nickname,
 	}, nil
+}
+
+// SaveSession persists the session details to disk so we can resume without a new login.
+func (pc *PokerClient) SaveSession(session *SessionData) error {
+	if session == nil {
+		return fmt.Errorf("session cannot be nil")
+	}
+
+	path := pc.sessionFilePath()
+	if path == "" {
+		return fmt.Errorf("no data directory configured")
+	}
+
+	blob, err := json.MarshalIndent(session, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, blob, 0600)
+}
+
+// LoadSession loads a persisted session from disk.
+func (pc *PokerClient) LoadSession() (*SessionData, error) {
+	path := pc.sessionFilePath()
+	if path == "" {
+		return nil, fmt.Errorf("no data directory configured")
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var session SessionData
+	if err := json.Unmarshal(data, &session); err != nil {
+		return nil, err
+	}
+
+	if session.Token == "" {
+		return nil, nil
+	}
+
+	return &session, nil
+}
+
+// ClearSession removes any persisted session token.
+func (pc *PokerClient) ClearSession() error {
+	path := pc.sessionFilePath()
+	if path == "" {
+		return nil
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
+// ResumeSession verifies a persisted session against the server.
+// Returns nil if no valid session is available.
+func (pc *PokerClient) ResumeSession(ctx context.Context) (*SessionData, error) {
+	session, err := pc.LoadSession()
+	if err != nil || session == nil {
+		return session, err
+	}
+
+	expectedUserID, err := pc.GetUserID()
+	if err != nil {
+		return nil, err
+	}
+	if session.UserID != "" && session.UserID != expectedUserID {
+		if err := pc.ClearSession(); err != nil {
+			pc.log.Warnf("failed clearing mismatched session: %v", err)
+		}
+		return nil, nil
+	}
+
+	authClient := pokerrpc.NewAuthServiceClient(pc.conn)
+	resp, err := authClient.GetUserInfo(ctx, &pokerrpc.GetUserInfoRequest{
+		Token: session.Token,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Empty response indicates expired or unknown session.
+	if resp.GetUserId() == "" {
+		if err := pc.ClearSession(); err != nil {
+			pc.log.Warnf("failed clearing expired session: %v", err)
+		}
+		return nil, nil
+	}
+
+	if resp.UserId != expectedUserID {
+		if err := pc.ClearSession(); err != nil {
+			pc.log.Warnf("failed clearing mismatched session: %v", err)
+		}
+		return nil, nil
+	}
+
+	// Refresh nickname from server in case it changed.
+	session.UserID = resp.UserId
+	if resp.Nickname != "" {
+		session.Nickname = resp.Nickname
+	}
+
+	if err := pc.SaveSession(session); err != nil {
+		pc.log.Warnf("failed to persist session refresh: %v", err)
+	}
+
+	return session, nil
 }

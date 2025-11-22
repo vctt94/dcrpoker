@@ -1,9 +1,8 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'package:pokerui/config.dart';
+import 'package:pokerui/client_init.dart';
 
 class LoginScreen extends StatefulWidget {
   final Config config;
@@ -44,25 +43,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final cfg = widget.config;
-      final initClientArgs = InitClient(
-        cfg.serverAddr,
-        cfg.grpcCertPath,
-        cfg.dataDir,
-        '${cfg.dataDir}/logs/pokerui.log',
-        cfg.payoutAddress,
-        cfg.debugLevel,
-        cfg.wantsLogNtfns,
-        cfg.rpcWebsocketURL,
-        cfg.rpcCertPath,
-        cfg.rpcClientCertPath,
-        cfg.rpcClientKeyPath,
-        cfg.rpcUser,
-        cfg.rpcPass,
-      );
-
-      print('DEBUG: initClientArgs: ${jsonEncode(initClientArgs.toJson())}');
-      await Golib.initClient(initClientArgs);
+      await initializePokerClient(widget.config);
       setState(() {
         _clientInitialized = true;
         _isLoading = false;
