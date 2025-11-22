@@ -146,16 +146,19 @@ class ShowdownView extends StatelessWidget {
             ),
           ),
 
-        // Leave table control
+        // Leave table control anchored away from action buttons to avoid accidental taps
         Positioned(
-          bottom: 20,
+          bottom: 0,
           left: 0,
-          right: 0,
-          child: Center(
-            child: ElevatedButton(
-              onPressed: model.leaveTable,
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-              child: const Text('Leave Table'),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: ElevatedButton.icon(
+                onPressed: model.leaveTable,
+                icon: const Icon(Icons.logout),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                label: const Text('Leave Table'),
+              ),
             ),
           ),
         ),
@@ -175,18 +178,45 @@ class _ShowdownFxOverlay extends StatefulWidget {
 class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _chipCtrl;
+  int _lastFxMs = 0;
 
   @override
   void initState() {
     super.initState();
-    _chipCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
-      ..forward();
+    _chipCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+    _maybeRestartFx();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ShowdownFxOverlay oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _maybeRestartFx();
   }
 
   @override
   void dispose() {
     _chipCtrl.dispose();
     super.dispose();
+  }
+
+  void _maybeRestartFx() {
+    final winners = widget.model.lastWinners;
+    final fxMs = widget.model.lastShowdownFxMs;
+    // ignore: avoid_print
+    print('DEBUG: ShowdownFx check winners=${winners.length} fxMs=$fxMs lastFxMs=$_lastFxMs');
+    if (winners.isEmpty || fxMs == 0) return;
+    if (fxMs != _lastFxMs) {
+      // Debug visibility to trace animation triggers
+      // ignore: avoid_print
+      print('DEBUG: ShowdownFx restart winners=${winners.length} fxMs=$fxMs');
+      _lastFxMs = fxMs;
+      _chipCtrl
+        ..reset()
+        ..forward();
+    } else {
+      // ignore: avoid_print
+      print('DEBUG: ShowdownFx no-op winners=${winners.length} fxMs=$fxMs lastFxMs=$_lastFxMs');
+    }
   }
 
   @override
@@ -275,5 +305,3 @@ Offset _potLabelCenterInBox(Rect box) {
   const double labelHeightApprox = 40.0;
   return Offset(box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
 }
-
-

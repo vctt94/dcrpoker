@@ -32,6 +32,7 @@ void drawPlayers(
   double centerY,
   double tableRadius,
   int showdownStartMs,
+  Size size,
 ) {
   const playerRadius = 30.0;
   final count = players.length;
@@ -67,8 +68,13 @@ void drawPlayers(
       }
     }
     
-    final playerX = centerX + (tableRadius + 50) * math.cos(angle);
-    final playerY = centerY + (tableRadius + 50) * math.sin(angle);
+    // Clamp player positions to stay within viewport bounds
+    final rawX = centerX + (tableRadius + 50) * math.cos(angle);
+    final rawY = centerY + (tableRadius + 50) * math.sin(angle);
+    // Ensure players don't get cut off at edges (with padding for badges/cards)
+    final padding = playerRadius + 60.0; // Extra space for badges and cards
+    final playerX = rawX.clamp(padding, size.width - padding);
+    final playerY = rawY.clamp(padding, size.height - padding);
 
     drawPlayer(
       canvas,
@@ -207,7 +213,6 @@ void drawPlayer(
   if (player.isAllIn) {
     badges.add(const SeatBadge('ALL-IN', Colors.redAccent));
   }
-  drawRoleBadges(canvas, x, y, radius, badges, isHero, angle);
 
   // Player chips (styled like a badge)
   if (player.balance > 0) {
@@ -227,10 +232,11 @@ void drawPlayer(
     // Draw chip badge background
     final chipBadgeWidth = chipText.width + 12;
     const chipBadgeHeight = 16.0;
+    final chipBadgeY = y + radius + 8;
     final chipBadgeRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         x - chipBadgeWidth / 2,
-        y + radius + 8,
+        chipBadgeY,
         chipBadgeWidth,
         chipBadgeHeight,
       ),
@@ -241,9 +247,12 @@ void drawPlayer(
     
     chipText.paint(
       canvas,
-      Offset(x - chipText.width / 2, y + radius + 10),
+      Offset(x - chipText.width / 2, chipBadgeY + 2),
     );
   }
+  
+  // Draw role badges to the left of the player circle
+  drawRoleBadges(canvas, x, y, radius, badges, isHero, angle);
 }
 
 void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<SeatBadge> badges, bool isHero, double angle) {
@@ -270,13 +279,17 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
     totalWidth += width + gap;
   }
 
-  // Use less spacing for hero at bottom to avoid overlap with hole cards
-  // Hero is at angle ≈ pi/2 (90 degrees = bottom)
-  final isAtBottom = (angle - math.pi / 2).abs() < 0.1;
-  final verticalOffset = (isHero && isAtBottom) ? 12.0 : 30.0;
+  // Position badges to the right of the player circle, 30 degrees south (downward)
+  const spacingFromCircle = 8.0; // Gap between player circle and badges
+  // 30 degrees south from right = 0° + 30° = 30° = π/6 radians
+  const angleRadians = math.pi / 6; // 30 degrees
+  final distanceFromCenter = radius + spacingFromCircle;
+  // Position the leftmost badge edge at the calculated angle
+  final badgeLeftEdgeX = centerX + distanceFromCenter * math.cos(angleRadians);
+  final badgeLeftEdgeY = centerY + distanceFromCenter * math.sin(angleRadians);
+  double drawX = badgeLeftEdgeX; // Position badges extending rightward
+  final drawY = badgeLeftEdgeY - badgeHeight / 2; // Vertically centered at the angle
   
-  double drawX = centerX - totalWidth / 2;
-  final drawY = centerY - radius - badgeHeight - verticalOffset;
   for (final layout in layouts) {
     final rect = RRect.fromRectAndRadius(
       Rect.fromLTWH(drawX, drawY, layout.width, badgeHeight),

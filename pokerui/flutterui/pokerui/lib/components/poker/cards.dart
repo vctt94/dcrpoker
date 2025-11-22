@@ -34,12 +34,17 @@ class CardFace extends StatelessWidget {
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, c) {
-          final w = c.maxWidth.clamp(1.0, double.infinity);
-          final rankFs = (w * 0.30).clamp(12.0, 28.0).toDouble();
-          final suitFs = (w * 0.26).clamp(10.0, 24.0).toDouble();
-          final centerFs = (w * 0.60).clamp(18.0, 56.0).toDouble();
+          final w = c.maxWidth.clamp(20.0, double.infinity);
+          final h = c.maxHeight.clamp(28.0, double.infinity);
+          final rankFs = (w * 0.30).clamp(10.0, 28.0).toDouble();
+          final suitFs = (w * 0.26).clamp(8.0, 24.0).toDouble();
+          final centerFs = (math.min(w, h) * 0.35).clamp(12.0, 40.0).toDouble();
           final textColor = isRed ? Colors.red : Colors.black;
           return Container(
+            constraints: const BoxConstraints(
+              minWidth: 20.0,
+              minHeight: 28.0,
+            ),
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
@@ -58,6 +63,7 @@ class CardFace extends StatelessWidget {
                       alignment: Alignment.topLeft,
                       fit: BoxFit.scaleDown,
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(value, style: TextStyle(color: textColor, fontSize: rankFs, fontWeight: FontWeight.w900)),
@@ -74,6 +80,7 @@ class CardFace extends StatelessWidget {
                         alignment: Alignment.topLeft,
                         fit: BoxFit.scaleDown,
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(value, style: TextStyle(color: textColor, fontSize: rankFs, fontWeight: FontWeight.w900)),
@@ -84,9 +91,12 @@ class CardFace extends StatelessWidget {
                     ),
                   ),
                   Center(
-                    child: Text(
-                      suitSymbol,
-                      style: TextStyle(color: textColor, fontSize: centerFs, fontWeight: FontWeight.w600),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        suitSymbol,
+                        style: TextStyle(color: textColor, fontSize: centerFs, fontWeight: FontWeight.w600),
+                      ),
                     ),
                   ),
                 ],
@@ -177,12 +187,44 @@ class HeroCardFlipOverlay extends StatelessWidget {
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
       final box = _viewport16by9(size);
-      final cw = math.min(box.width * 0.06, 54.0);
+      final cw = math.max(math.min(box.width * 0.06, 54.0), 40.0);
       final ch = cw * 1.4;
       final gap = cw * 0.12;
       final centerX = box.left + box.width / 2;
-      const marginBottom = 80.0;
-      final y = box.bottom - ch - marginBottom;
+      final centerY = box.top + box.height / 2;
+      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
+      
+      // Position hero cards directly above the hero player (who is at bottom center)
+      // Hero is at angle pi/2 (90 degrees = bottom)
+      const playerRadius = 30.0;
+      const playerOffset = 50.0; // Offset from table edge to player center (matches painter)
+      final ringRadius = tableRadius + playerOffset;
+      // Clamp hero seat so cards track the rendered player when the viewport is tight.
+      const seatPadding = playerRadius + 60.0;
+      final heroY = (centerY + ringRadius).clamp(box.top + seatPadding, box.bottom - seatPadding);
+      
+      // Lightly scale spacing so cards stay tethered to the hero as width grows.
+      const minSpacingAbovePlayer = 40.0;
+      const maxSpacingAbovePlayer = 60.0;
+      final spacingAbovePlayer = (ringRadius * 0.18).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
+      
+      // Calculate primary position: above player with damped spacing
+      var y = heroY - playerRadius - spacingAbovePlayer - ch;
+      
+      // Soft constraint: ensure reasonable gap from community cards if they would be too close
+      // Scale the minimum gap proportionally with table radius to maintain relative spacing
+      final communityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
+      final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
+      // Minimum gap scales with table radius to maintain relative spacing
+      final minGapFromCommunity = math.max(24.0, tableRadius * 0.24);
+      final minSafeY = communityCardsBottom + minGapFromCommunity;
+      final maxAllowedY = heroY - playerRadius - ch - 6.0; // avoid overlapping the seat
+      // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.
+      if (minSafeY > maxAllowedY) {
+        y = maxAllowedY;
+      } else {
+        y = y.clamp(minSafeY, maxAllowedY);
+      }
       final x1 = centerX - cw - gap / 2;
       final x2 = centerX + gap / 2;
 
@@ -375,4 +417,3 @@ Color getSuitColor(String suit) {
       return Colors.black;
   }
 }
-

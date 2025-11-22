@@ -154,6 +154,34 @@ class PokerGame {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
+                                // Balance display at top left
+                                Positioned(
+                                  top: 8,
+                                  left: 8,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.8),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.amber, width: 1.5),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(Icons.account_balance_wallet, color: Colors.amber, size: 18),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          '${(pokerModel.myAtomsBalance / 1e8).toStringAsFixed(4)} DCR',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                                 // Pot display (show final pot at showdown if gameState.pot was reset)
                                 Positioned(
                                   top: 20,
@@ -200,8 +228,8 @@ class PokerGame {
                                           ),
                                         ),
                                       ),
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -543,7 +571,7 @@ class PokerPainter extends CustomPainter {
     drawPokerTable(canvas, centerX, centerY, tableRadius);
     
     // Draw players
-    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadius, showdownStartMs);
+    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadius, showdownStartMs, size);
 
     _drawHeroHoleCards(canvas, size);
 
@@ -575,7 +603,7 @@ class _CommunityCardsOverlay extends StatelessWidget {
       final size = c.biggest;
       final box = pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final cw = (box.width * 0.05).clamp(24.0, 48.0).toDouble();
+      final cw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
       final ch = cw * 1.4;
       final gap = cw * 0.10;
       final totalW = (cards.length * cw) + ((cards.length - 1) * gap);
@@ -646,7 +674,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
       final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
       final seats = seatPositionsFor(widget.players, widget.heroId, center, tableRadius + 50);
 
-      final cw = (box.width * 0.032).clamp(16.0, 28.0).toDouble();
+      final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
       final ch = cw * 1.4;
       const gap = 4.0;
 
@@ -656,13 +684,13 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
         final pos = seats[p.id];
         if (pos == null) continue;
         final pairW = (cw * 2) + gap;
-        final minLeft = box.left + 2.0;
-        final maxLeft = box.right - pairW - 2.0;
+        final minLeft = box.left + 8.0;
+        final maxLeft = box.right - pairW - 8.0;
         final baseLeft = pos.dx - pairW / 2;
         final left = baseLeft.clamp(minLeft, maxLeft).toDouble();
 
-        final minTop = box.top + 2.0;
-        final maxTop = box.bottom - ch - 2.0;
+        final minTop = box.top + 8.0;
+        final maxTop = box.bottom - ch - 8.0;
         final baseTop = pos.dy - ch - 6.0;
         final top = baseTop.clamp(minTop, maxTop).toDouble();
 

@@ -147,3 +147,39 @@ func TestCollectTableSnapshotMissingTable(t *testing.T) {
 		t.Fatalf("expected error when table is missing, got nil")
 	}
 }
+
+// TestCollectTableSnapshotIncludesLastAction ensures player last-action timestamps are captured
+// so downstream game updates can compute timebank deadlines.
+func TestCollectTableSnapshotIncludesLastAction(t *testing.T) {
+	s := newBareServer()
+	table := buildActiveHeadsUpTable(t, "timebank-snap")
+	s.tables.Store(table.GetConfig().ID, table)
+
+	var snap *TableSnapshot
+	require.Eventually(t, func() bool {
+		snapShot, err := s.collectTableSnapshot(table.GetConfig().ID)
+		if err != nil || snapShot == nil || snapShot.GameSnapshot == nil {
+			return false
+		}
+		if snapShot.GameSnapshot.CurrentPlayer == "" {
+			return false
+		}
+		for _, ps := range snapShot.Players {
+			if ps != nil && ps.ID == snapShot.GameSnapshot.CurrentPlayer && !ps.LastAction.IsZero() {
+				snap = snapShot
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 10*time.Millisecond, "current player lastAction should be captured")
+	require.NotNil(t, snap)
+
+	gsh := NewGameStateHandler(s)
+	updates := gsh.buildGameStatesFromSnapshot(snap)
+
+	curID := snap.GameSnapshot.CurrentPlayer
+	upd := updates[curID]
+	require.NotNil(t, upd)
+	require.EqualValues(t, table.GetConfig().TimeBank.Seconds(), upd.TimeBankSeconds)
+	require.Greater(t, upd.TurnDeadlineUnixMs, time.Now().UnixMilli())
+}

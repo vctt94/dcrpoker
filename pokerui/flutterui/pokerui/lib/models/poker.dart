@@ -250,6 +250,7 @@ class PokerModel extends ChangeNotifier {
   UiGameState? game;
   List<UiTable> tables = const [];
   List<UiWinner> lastWinners = const [];
+  int lastShowdownFxMs = 0; // monotonic trigger for showdown chip animation
   String errorMessage = '';
   int myAtomsBalance = 0; // DCR atoms (wallet balance for buy-in requirements)
 
@@ -467,9 +468,6 @@ class PokerModel extends ChangeNotifier {
     } else {
       _state = PokerState.inLobby;
     }
-
-    print(
-        'DEBUG: _onGameUpdate - Updated state to: $_state, isMyTurn: $isMyTurn');
 
     notifyListeners();
   }
@@ -844,18 +842,59 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
+      print('DEBUG: _refreshLastWinners start for table=$tid');
       final respMap = await Golib.getLastWinners();
       // Convert JSON map back to protobuf GetLastWinnersResponse
       final winnersJson = respMap['winners'] as List<dynamic>;
-      final winners = winnersJson.map((w) {
-        final winnerJsonStr = jsonEncode(w);
-        return pr.Winner.fromJson(winnerJsonStr);
-      }).toList();
-      lastWinners = List.unmodifiable(winners.map(UiWinner.fromProto));
+      final winners = winnersJson.map(_winnerFromDynamic).whereType<UiWinner>().toList();
+      lastWinners = List.unmodifiable(winners);
+      lastShowdownFxMs = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
-    } catch (_) {
+    } catch (e, st) {
       // ignore; cache stays as-is
     }
+  }
+
+  UiWinner? _winnerFromDynamic(dynamic w) {
+    try {
+      final winnerJsonStr = jsonEncode(w);
+      final parsed = pr.Winner.fromJson(winnerJsonStr);
+      return UiWinner.fromProto(parsed);
+    } catch (e) {
+      if (w is Map<String, dynamic>) {
+        final pid = (w['playerId'] ?? w['player_id'] ?? '').toString();
+        final winningsRaw = w['winnings'];
+        final winnings = winningsRaw is num ? winningsRaw.toInt() : int.tryParse('$winningsRaw') ?? 0;
+        final hrRaw = w['handRank'] ?? w['hand_rank'] ?? w['rank'];
+        pr.HandRank handRank = pr.HandRank.HIGH_CARD;
+        if (hrRaw is int) handRank = pr.HandRank.valueOf(hrRaw) ?? pr.HandRank.HIGH_CARD;
+        if (hrRaw is String) {
+          final parsed = int.tryParse(hrRaw);
+          if (parsed != null) handRank = pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
+        }
+        final bestHandRaw = w['bestHand'] ?? w['best_hand'] ?? [];
+        final List<pr.Card> bestHand = [];
+        if (bestHandRaw is List) {
+          for (final c in bestHandRaw) {
+            if (c is Map<String, dynamic>) {
+              final suit = c['suit']?.toString() ?? '';
+              final value = c['value']?.toString() ?? '';
+              final card = pr.Card()
+                ..suit = suit
+                ..value = value;
+              bestHand.add(card);
+            }
+          }
+        }
+        return UiWinner(
+          playerId: pid,
+          handRank: handRank,
+          bestHand: List.unmodifiable(bestHand),
+          winnings: winnings,
+        );
+      }
+    }
+    return null;
   }
 
   Future<pr.EvaluateHandResponse?> evaluateCards(List<pr.Card> cards) async {

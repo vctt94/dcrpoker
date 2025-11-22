@@ -14,6 +14,30 @@ class HandInProgressView extends StatefulWidget {
 class _HandInProgressViewState extends State<HandInProgressView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
+  Future<void> _confirmLeave() async {
+    final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Leave table?'),
+            content: const Text('You\'ll sit out and leave this table. Are you sure?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                child: const Text('Leave'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (shouldLeave) {
+      widget.model.leaveTable();
+    }
+  }
 
   @override
   void dispose() {
@@ -39,22 +63,46 @@ class _HandInProgressViewState extends State<HandInProgressView> {
         // Bet/call FX overlay
         _BetFxOverlay(model: widget.model),
         
-        // Action buttons overlay
+        // Leave table control anchored away from action buttons to avoid accidental taps
         Positioned(
-          bottom: 20,
+          bottom: 0,
           left: 0,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: ElevatedButton.icon(
+                onPressed: _confirmLeave,
+                icon: const Icon(Icons.logout),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                label: const Text('Leave Table'),
+              ),
+            ),
+          ),
+        ),
+
+        // Action buttons overlay - positioned at bottom right
+        Positioned(
+          bottom: 0,
           right: 0,
-          child: Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Always offer a way to leave the table, even when it's not your turn
-                ElevatedButton(
-                  onPressed: widget.model.leaveTable,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                  child: const Text('Leave Table'),
+          child: SafeArea(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.8),
+                  ],
                 ),
-                const SizedBox(width: 12),
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                 if (widget.model.isMyTurn) ...[
                   // Fold is always available on your turn
                   ElevatedButton(
@@ -219,18 +267,20 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                   }),
                 ] else ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      'Waiting for your turn...',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      'Waiting...',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                     ),
                   ),
                 ],
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),
