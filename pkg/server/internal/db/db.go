@@ -860,3 +860,93 @@ func (db *DB) DeleteSnapshot(ctx context.Context, tableID string) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM table_snapshots WHERE table_id = ?`, tableID)
 	return err
 }
+
+// ==============================
+// ===== Auth API =====
+// ==============================
+
+// AuthUser represents a registered user
+type AuthUser struct {
+	Nickname  string
+	UserID    string
+	CreatedAt time.Time
+	LastLogin sql.NullTime
+}
+
+// UpsertAuthUser creates or updates a user registration
+func (db *DB) UpsertAuthUser(ctx context.Context, nickname, userID string) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO auth_users (user_id, nickname)
+		VALUES (?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET
+			nickname = excluded.nickname
+	`, userID, nickname)
+	return err
+}
+
+// GetAuthUserByNickname retrieves a user by nickname
+func (db *DB) GetAuthUserByNickname(ctx context.Context, nickname string) (*AuthUser, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT nickname, user_id, created_at, last_login
+		FROM auth_users
+		WHERE nickname = ?
+	`, nickname)
+	var u AuthUser
+	if err := row.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// GetAuthUserByUserID retrieves a user by user ID
+func (db *DB) GetAuthUserByUserID(ctx context.Context, userID string) (*AuthUser, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT nickname, user_id, created_at, last_login
+		FROM auth_users
+		WHERE user_id = ?
+	`, userID)
+	var u AuthUser
+	if err := row.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("user not found")
+		}
+		return nil, err
+	}
+	return &u, nil
+}
+
+// UpdateAuthUserLastLogin updates the last login timestamp
+func (db *DB) UpdateAuthUserLastLogin(ctx context.Context, userID string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE auth_users
+		SET last_login = CURRENT_TIMESTAMP
+		WHERE user_id = ?
+	`, userID)
+	return err
+}
+
+// ListAllAuthUsers returns all registered users (for loading on startup)
+func (db *DB) ListAllAuthUsers(ctx context.Context) ([]AuthUser, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT nickname, user_id, created_at, last_login
+		FROM auth_users
+		ORDER BY created_at ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []AuthUser
+	for rows.Next() {
+		var u AuthUser
+		if err := rows.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+	return users, rows.Err()
+}

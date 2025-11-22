@@ -152,15 +152,26 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 }
 
 func (nh *NotificationHandler) handlePlayerReady(event *GameEvent) {
-	pl, ok := event.Payload.(PlayerReadyPayload)
-	if !ok {
+	var (
+		playerID string
+		ready    = true
+	)
+
+	switch pl := event.Payload.(type) {
+	case PlayerReadyPayload:
+		playerID = pl.PlayerID
+	case PlayerMarkedReadyPayload:
+		playerID = pl.PlayerID
+		ready = pl.Ready
+	default:
 		nh.server.log.Warnf("PLAYER_READY without PlayerReadyPayload; skipping (table=%s)", event.TableID)
 		return
 	}
 	notification := &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_PLAYER_READY,
-		PlayerId: pl.PlayerID,
+		PlayerId: playerID,
 		TableId:  event.TableID,
+		Ready:    ready,
 	}
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }
@@ -289,9 +300,10 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		var players []*pokerrpc.Player
 		for _, ps := range tableSnapshot.Players {
 			player := &pokerrpc.Player{
-				Id:          ps.ID,
-				IsReady:     ps.IsReady,
-				PlayerState: pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
+				Id:             ps.ID,
+				IsReady:        ps.IsReady,
+				PlayerState:    pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
+				IsDisconnected: ps.IsDisconnected,
 			}
 			players = append(players, player)
 		}
@@ -303,6 +315,8 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 			Players:         players,
 			PlayersRequired: int32(tableSnapshot.Config.MinPlayers),
 			PlayersJoined:   int32(tableSnapshot.State.PlayerCount),
+			SmallBlind:      tableSnapshot.Config.SmallBlind,
+			BigBlind:        tableSnapshot.Config.BigBlind,
 		}, nil
 	}
 
@@ -310,16 +324,17 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 	var players []*pokerrpc.Player
 	for _, ps := range tableSnapshot.Players {
 		player := &pokerrpc.Player{
-			Id:           ps.ID,
-			Balance:      ps.Balance,
-			IsReady:      ps.IsReady,
-			Folded:       ps.HasFolded,
-			IsAllIn:      ps.IsAllIn,
-			CurrentBet:   ps.HasBet,
-			PlayerState:  toRPCPlayerState(ps.GameState),
-			IsDealer:     ps.IsDealer,
-			IsSmallBlind: ps.IsSmallBlind,
-			IsBigBlind:   ps.IsBigBlind,
+			Id:             ps.ID,
+			Balance:        ps.Balance,
+			IsReady:        ps.IsReady,
+			Folded:         ps.HasFolded,
+			IsAllIn:        ps.IsAllIn,
+			CurrentBet:     ps.HasBet,
+			PlayerState:    toRPCPlayerState(ps.GameState),
+			IsDealer:       ps.IsDealer,
+			IsSmallBlind:   ps.IsSmallBlind,
+			IsBigBlind:     ps.IsBigBlind,
+			IsDisconnected: ps.IsDisconnected,
 			// Use FSM-derived snapshot value. UIs should prefer
 			// GameUpdate.CurrentPlayer for highlighting.
 			IsTurn: ps.IsTurn,
@@ -395,6 +410,8 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		PlayersJoined:      int32(tableSnapshot.State.PlayerCount),
 		TimeBankSeconds:    tbSec,
 		TurnDeadlineUnixMs: deadlineMs,
+		SmallBlind:         tableSnapshot.Config.SmallBlind,
+		BigBlind:           tableSnapshot.Config.BigBlind,
 	}, nil
 }
 

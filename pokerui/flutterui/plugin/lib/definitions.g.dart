@@ -158,6 +158,39 @@ Map<String, dynamic> _$LocalInfoToJson(LocalInfo instance) => <String, dynamic>{
       'nick': instance.nick,
     };
 
+RegisterRequest _$RegisterRequestFromJson(Map<String, dynamic> json) =>
+    RegisterRequest(
+      json['nickname'] as String,
+    );
+
+Map<String, dynamic> _$RegisterRequestToJson(RegisterRequest instance) =>
+    <String, dynamic>{
+      'nickname': instance.nickname,
+    };
+
+LoginRequest _$LoginRequestFromJson(Map<String, dynamic> json) => LoginRequest(
+      json['nickname'] as String,
+    );
+
+Map<String, dynamic> _$LoginRequestToJson(LoginRequest instance) =>
+    <String, dynamic>{
+      'nickname': instance.nickname,
+    };
+
+LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
+    LoginResponse(
+      json['token'] as String,
+      json['user_id'] as String,
+      json['nickname'] as String,
+    );
+
+Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
+    <String, dynamic>{
+      'token': instance.token,
+      'user_id': instance.userId,
+      'nickname': instance.nickname,
+    };
+
 ServerCert _$ServerCertFromJson(Map<String, dynamic> json) => ServerCert(
       json['inner_fingerprint'] as String,
       json['outer_fingerprint'] as String,
@@ -433,6 +466,7 @@ PlayerDTO _$PlayerDTOFromJson(Map<String, dynamic> json) => PlayerDTO(
       json['isAllIn'] as bool,
       json['isDealer'] as bool,
       json['isReady'] as bool,
+      json['disconnected'] as bool,
       json['handDescription'] as String,
       (json['playerState'] as num).toInt(),
       json['isSmallBlind'] as bool,
@@ -450,6 +484,7 @@ Map<String, dynamic> _$PlayerDTOToJson(PlayerDTO instance) => <String, dynamic>{
       'isAllIn': instance.isAllIn,
       'isDealer': instance.isDealer,
       'isReady': instance.isReady,
+      'disconnected': instance.disconnected,
       'handDescription': instance.handDescription,
       'playerState': instance.playerState,
       'isSmallBlind': instance.isSmallBlind,
@@ -477,6 +512,8 @@ GameUpdateDTO _$GameUpdateDTOFromJson(Map<String, dynamic> json) =>
       json['phaseName'] as String,
       (json['timeBankSeconds'] as num).toInt(),
       (json['turnDeadlineUnixMs'] as num).toInt(),
+      (json['smallBlind'] as num?)?.toInt() ?? 0,
+      (json['bigBlind'] as num?)?.toInt() ?? 0,
     );
 
 Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
@@ -496,6 +533,8 @@ Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
       'phaseName': instance.phaseName,
       'timeBankSeconds': instance.timeBankSeconds,
       'turnDeadlineUnixMs': instance.turnDeadlineUnixMs,
+      'smallBlind': instance.smallBlind,
+      'bigBlind': instance.bigBlind,
     };
 
 NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>

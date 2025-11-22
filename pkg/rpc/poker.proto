@@ -50,6 +50,14 @@ service LobbyService {
   rpc StartNotificationStream(StartNotificationStreamRequest) returns (stream Notification) {}
 }
 
+// AuthService handles user authentication and identity management
+service AuthService {
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc Login (LoginRequest) returns (LoginResponse);
+  rpc Logout (LogoutRequest) returns (LogoutResponse);
+  rpc GetUserInfo (GetUserInfoRequest) returns (GetUserInfoResponse);
+}
+
 // Enums
 enum GamePhase {
   WAITING = 0;
@@ -133,6 +141,8 @@ message GameUpdate {
   string phase_name = 13;  // Human-readable name of the current phase
   int32 time_bank_seconds = 14;       // Timebank per player (seconds)
   int64 turn_deadline_unix_ms = 15;   // Absolute deadline for current turn (Unix ms). 0 if N/A
+  int64 small_blind = 16;   // Current table small blind (chips)
+  int64 big_blind = 17;     // Current table big blind (chips)
 }
 
 message MakeBetRequest {
@@ -228,6 +238,7 @@ message CreateTableRequest {
 
 message CreateTableResponse {
   string table_id = 1;
+  string message = 2;
 }
 
 message JoinTableRequest {
@@ -238,7 +249,6 @@ message JoinTableRequest {
 message JoinTableResponse {
   bool success = 1;
   string message = 2;
-  int64 new_balance = 3;
 }
 
 message LeaveTableRequest {
@@ -348,6 +358,7 @@ message Player {
   PlayerState player_state = 12; // Canonical player state (enum)
   bool is_small_blind = 13; // True if this player is the small blind for current hand
   bool is_big_blind = 14;   // True if this player is the big blind for current hand
+  bool is_disconnected = 15; // True if the player is disconnected but seat is reserved
 }
 
 message Card {
@@ -402,4 +413,47 @@ message HideCardsRequest {
 message HideCardsResponse {
   bool success = 1;
   string message = 2;
-} 
+}
+
+// Auth Messages
+message RegisterRequest {
+  string nickname = 1;
+  string user_id = 2;  // Derived from seed key
+}
+
+message RegisterResponse {
+  bool ok = 1;
+  string error = 2;  // Empty if ok == true
+}
+
+message LoginRequest {
+  string nickname = 1;
+  string user_id = 2;  // Derived from seed key
+}
+
+message LoginResponse {
+  bool ok = 1;
+  string error = 2;
+  string token = 3;     // Session token
+  string user_id = 4;
+  string nickname = 5;
+}
+
+message LogoutRequest {
+  string token = 1;
+}
+
+message LogoutResponse {
+  bool ok = 1;
+}
+
+message GetUserInfoRequest {
+  string token = 1;
+}
+
+message GetUserInfoResponse {
+  string user_id = 1;
+  string nickname = 2;
+  int64 created = 3;
+  int64 last_login = 4;
+}

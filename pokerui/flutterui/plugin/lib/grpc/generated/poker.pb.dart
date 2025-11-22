@@ -106,6 +106,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     $core.String? phaseName,
     $core.int? timeBankSeconds,
     $fixnum.Int64? turnDeadlineUnixMs,
+    $fixnum.Int64? smallBlind,
+    $fixnum.Int64? bigBlind,
   }) {
     final result = create();
     if (tableId != null) result.tableId = tableId;
@@ -124,6 +126,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     if (timeBankSeconds != null) result.timeBankSeconds = timeBankSeconds;
     if (turnDeadlineUnixMs != null)
       result.turnDeadlineUnixMs = turnDeadlineUnixMs;
+    if (smallBlind != null) result.smallBlind = smallBlind;
+    if (bigBlind != null) result.bigBlind = bigBlind;
     return result;
   }
 
@@ -158,6 +162,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     ..aOS(13, _omitFieldNames ? '' : 'phaseName')
     ..aI(14, _omitFieldNames ? '' : 'timeBankSeconds')
     ..aInt64(15, _omitFieldNames ? '' : 'turnDeadlineUnixMs')
+    ..aInt64(16, _omitFieldNames ? '' : 'smallBlind')
+    ..aInt64(17, _omitFieldNames ? '' : 'bigBlind')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -300,6 +306,24 @@ class GameUpdate extends $pb.GeneratedMessage {
   $core.bool hasTurnDeadlineUnixMs() => $_has(14);
   @$pb.TagNumber(15)
   void clearTurnDeadlineUnixMs() => $_clearField(15);
+
+  @$pb.TagNumber(16)
+  $fixnum.Int64 get smallBlind => $_getI64(15);
+  @$pb.TagNumber(16)
+  set smallBlind($fixnum.Int64 value) => $_setInt64(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasSmallBlind() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearSmallBlind() => $_clearField(16);
+
+  @$pb.TagNumber(17)
+  $fixnum.Int64 get bigBlind => $_getI64(16);
+  @$pb.TagNumber(17)
+  set bigBlind($fixnum.Int64 value) => $_setInt64(16, value);
+  @$pb.TagNumber(17)
+  $core.bool hasBigBlind() => $_has(16);
+  @$pb.TagNumber(17)
+  void clearBigBlind() => $_clearField(17);
 }
 
 class MakeBetRequest extends $pb.GeneratedMessage {
@@ -1465,9 +1489,11 @@ class CreateTableRequest extends $pb.GeneratedMessage {
 class CreateTableResponse extends $pb.GeneratedMessage {
   factory CreateTableResponse({
     $core.String? tableId,
+    $core.String? message,
   }) {
     final result = create();
     if (tableId != null) result.tableId = tableId;
+    if (message != null) result.message = message;
     return result;
   }
 
@@ -1485,6 +1511,7 @@ class CreateTableResponse extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'tableId')
+    ..aOS(2, _omitFieldNames ? '' : 'message')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1514,6 +1541,15 @@ class CreateTableResponse extends $pb.GeneratedMessage {
   $core.bool hasTableId() => $_has(0);
   @$pb.TagNumber(1)
   void clearTableId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get message => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set message($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMessage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMessage() => $_clearField(2);
 }
 
 class JoinTableRequest extends $pb.GeneratedMessage {
@@ -1586,12 +1622,10 @@ class JoinTableResponse extends $pb.GeneratedMessage {
   factory JoinTableResponse({
     $core.bool? success,
     $core.String? message,
-    $fixnum.Int64? newBalance,
   }) {
     final result = create();
     if (success != null) result.success = success;
     if (message != null) result.message = message;
-    if (newBalance != null) result.newBalance = newBalance;
     return result;
   }
 
@@ -1610,7 +1644,6 @@ class JoinTableResponse extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOB(1, _omitFieldNames ? '' : 'success')
     ..aOS(2, _omitFieldNames ? '' : 'message')
-    ..aInt64(3, _omitFieldNames ? '' : 'newBalance')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1649,15 +1682,6 @@ class JoinTableResponse extends $pb.GeneratedMessage {
   $core.bool hasMessage() => $_has(1);
   @$pb.TagNumber(2)
   void clearMessage() => $_clearField(2);
-
-  @$pb.TagNumber(3)
-  $fixnum.Int64 get newBalance => $_getI64(2);
-  @$pb.TagNumber(3)
-  set newBalance($fixnum.Int64 value) => $_setInt64(2, value);
-  @$pb.TagNumber(3)
-  $core.bool hasNewBalance() => $_has(2);
-  @$pb.TagNumber(3)
-  void clearNewBalance() => $_clearField(3);
 }
 
 class LeaveTableRequest extends $pb.GeneratedMessage {
@@ -2844,6 +2868,7 @@ class Player extends $pb.GeneratedMessage {
     PlayerState? playerState,
     $core.bool? isSmallBlind,
     $core.bool? isBigBlind,
+    $core.bool? isDisconnected,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -2860,6 +2885,7 @@ class Player extends $pb.GeneratedMessage {
     if (playerState != null) result.playerState = playerState;
     if (isSmallBlind != null) result.isSmallBlind = isSmallBlind;
     if (isBigBlind != null) result.isBigBlind = isBigBlind;
+    if (isDisconnected != null) result.isDisconnected = isDisconnected;
     return result;
   }
 
@@ -2891,6 +2917,7 @@ class Player extends $pb.GeneratedMessage {
         enumValues: PlayerState.values)
     ..aOB(13, _omitFieldNames ? '' : 'isSmallBlind')
     ..aOB(14, _omitFieldNames ? '' : 'isBigBlind')
+    ..aOB(15, _omitFieldNames ? '' : 'isDisconnected')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3030,6 +3057,15 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasIsBigBlind() => $_has(13);
   @$pb.TagNumber(14)
   void clearIsBigBlind() => $_clearField(14);
+
+  @$pb.TagNumber(15)
+  $core.bool get isDisconnected => $_getBF(14);
+  @$pb.TagNumber(15)
+  set isDisconnected($core.bool value) => $_setBool(14, value);
+  @$pb.TagNumber(15)
+  $core.bool hasIsDisconnected() => $_has(14);
+  @$pb.TagNumber(15)
+  void clearIsDisconnected() => $_clearField(15);
 }
 
 class Card extends $pb.GeneratedMessage {
@@ -3753,6 +3789,559 @@ class HideCardsResponse extends $pb.GeneratedMessage {
   $core.bool hasMessage() => $_has(1);
   @$pb.TagNumber(2)
   void clearMessage() => $_clearField(2);
+}
+
+/// Auth Messages
+class RegisterRequest extends $pb.GeneratedMessage {
+  factory RegisterRequest({
+    $core.String? nickname,
+    $core.String? userId,
+  }) {
+    final result = create();
+    if (nickname != null) result.nickname = nickname;
+    if (userId != null) result.userId = userId;
+    return result;
+  }
+
+  RegisterRequest._();
+
+  factory RegisterRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory RegisterRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RegisterRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'nickname')
+    ..aOS(2, _omitFieldNames ? '' : 'userId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RegisterRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RegisterRequest copyWith(void Function(RegisterRequest) updates) =>
+      super.copyWith((message) => updates(message as RegisterRequest))
+          as RegisterRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RegisterRequest create() => RegisterRequest._();
+  @$core.override
+  RegisterRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static RegisterRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RegisterRequest>(create);
+  static RegisterRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get nickname => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set nickname($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasNickname() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearNickname() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get userId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set userId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasUserId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearUserId() => $_clearField(2);
+}
+
+class RegisterResponse extends $pb.GeneratedMessage {
+  factory RegisterResponse({
+    $core.bool? ok,
+    $core.String? error,
+  }) {
+    final result = create();
+    if (ok != null) result.ok = ok;
+    if (error != null) result.error = error;
+    return result;
+  }
+
+  RegisterResponse._();
+
+  factory RegisterResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory RegisterResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RegisterResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'ok')
+    ..aOS(2, _omitFieldNames ? '' : 'error')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RegisterResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RegisterResponse copyWith(void Function(RegisterResponse) updates) =>
+      super.copyWith((message) => updates(message as RegisterResponse))
+          as RegisterResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RegisterResponse create() => RegisterResponse._();
+  @$core.override
+  RegisterResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static RegisterResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RegisterResponse>(create);
+  static RegisterResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get ok => $_getBF(0);
+  @$pb.TagNumber(1)
+  set ok($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasOk() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOk() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get error => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set error($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasError() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearError() => $_clearField(2);
+}
+
+class LoginRequest extends $pb.GeneratedMessage {
+  factory LoginRequest({
+    $core.String? nickname,
+    $core.String? userId,
+  }) {
+    final result = create();
+    if (nickname != null) result.nickname = nickname;
+    if (userId != null) result.userId = userId;
+    return result;
+  }
+
+  LoginRequest._();
+
+  factory LoginRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory LoginRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'LoginRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'nickname')
+    ..aOS(2, _omitFieldNames ? '' : 'userId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LoginRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LoginRequest copyWith(void Function(LoginRequest) updates) =>
+      super.copyWith((message) => updates(message as LoginRequest))
+          as LoginRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static LoginRequest create() => LoginRequest._();
+  @$core.override
+  LoginRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static LoginRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<LoginRequest>(create);
+  static LoginRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get nickname => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set nickname($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasNickname() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearNickname() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get userId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set userId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasUserId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearUserId() => $_clearField(2);
+}
+
+class LoginResponse extends $pb.GeneratedMessage {
+  factory LoginResponse({
+    $core.bool? ok,
+    $core.String? error,
+    $core.String? token,
+    $core.String? userId,
+    $core.String? nickname,
+  }) {
+    final result = create();
+    if (ok != null) result.ok = ok;
+    if (error != null) result.error = error;
+    if (token != null) result.token = token;
+    if (userId != null) result.userId = userId;
+    if (nickname != null) result.nickname = nickname;
+    return result;
+  }
+
+  LoginResponse._();
+
+  factory LoginResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory LoginResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'LoginResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'ok')
+    ..aOS(2, _omitFieldNames ? '' : 'error')
+    ..aOS(3, _omitFieldNames ? '' : 'token')
+    ..aOS(4, _omitFieldNames ? '' : 'userId')
+    ..aOS(5, _omitFieldNames ? '' : 'nickname')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LoginResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LoginResponse copyWith(void Function(LoginResponse) updates) =>
+      super.copyWith((message) => updates(message as LoginResponse))
+          as LoginResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static LoginResponse create() => LoginResponse._();
+  @$core.override
+  LoginResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static LoginResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<LoginResponse>(create);
+  static LoginResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get ok => $_getBF(0);
+  @$pb.TagNumber(1)
+  set ok($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasOk() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOk() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get error => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set error($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasError() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearError() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get token => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set token($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasToken() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearToken() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get userId => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set userId($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasUserId() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearUserId() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get nickname => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set nickname($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasNickname() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearNickname() => $_clearField(5);
+}
+
+class LogoutRequest extends $pb.GeneratedMessage {
+  factory LogoutRequest({
+    $core.String? token,
+  }) {
+    final result = create();
+    if (token != null) result.token = token;
+    return result;
+  }
+
+  LogoutRequest._();
+
+  factory LogoutRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory LogoutRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'LogoutRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'token')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LogoutRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LogoutRequest copyWith(void Function(LogoutRequest) updates) =>
+      super.copyWith((message) => updates(message as LogoutRequest))
+          as LogoutRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static LogoutRequest create() => LogoutRequest._();
+  @$core.override
+  LogoutRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static LogoutRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<LogoutRequest>(create);
+  static LogoutRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get token => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set token($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasToken() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearToken() => $_clearField(1);
+}
+
+class LogoutResponse extends $pb.GeneratedMessage {
+  factory LogoutResponse({
+    $core.bool? ok,
+  }) {
+    final result = create();
+    if (ok != null) result.ok = ok;
+    return result;
+  }
+
+  LogoutResponse._();
+
+  factory LogoutResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory LogoutResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'LogoutResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'ok')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LogoutResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  LogoutResponse copyWith(void Function(LogoutResponse) updates) =>
+      super.copyWith((message) => updates(message as LogoutResponse))
+          as LogoutResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static LogoutResponse create() => LogoutResponse._();
+  @$core.override
+  LogoutResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static LogoutResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<LogoutResponse>(create);
+  static LogoutResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get ok => $_getBF(0);
+  @$pb.TagNumber(1)
+  set ok($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasOk() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOk() => $_clearField(1);
+}
+
+class GetUserInfoRequest extends $pb.GeneratedMessage {
+  factory GetUserInfoRequest({
+    $core.String? token,
+  }) {
+    final result = create();
+    if (token != null) result.token = token;
+    return result;
+  }
+
+  GetUserInfoRequest._();
+
+  factory GetUserInfoRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory GetUserInfoRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetUserInfoRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'token')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetUserInfoRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetUserInfoRequest copyWith(void Function(GetUserInfoRequest) updates) =>
+      super.copyWith((message) => updates(message as GetUserInfoRequest))
+          as GetUserInfoRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GetUserInfoRequest create() => GetUserInfoRequest._();
+  @$core.override
+  GetUserInfoRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static GetUserInfoRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetUserInfoRequest>(create);
+  static GetUserInfoRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get token => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set token($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasToken() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearToken() => $_clearField(1);
+}
+
+class GetUserInfoResponse extends $pb.GeneratedMessage {
+  factory GetUserInfoResponse({
+    $core.String? userId,
+    $core.String? nickname,
+    $fixnum.Int64? created,
+    $fixnum.Int64? lastLogin,
+  }) {
+    final result = create();
+    if (userId != null) result.userId = userId;
+    if (nickname != null) result.nickname = nickname;
+    if (created != null) result.created = created;
+    if (lastLogin != null) result.lastLogin = lastLogin;
+    return result;
+  }
+
+  GetUserInfoResponse._();
+
+  factory GetUserInfoResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory GetUserInfoResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'GetUserInfoResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'userId')
+    ..aOS(2, _omitFieldNames ? '' : 'nickname')
+    ..aInt64(3, _omitFieldNames ? '' : 'created')
+    ..aInt64(4, _omitFieldNames ? '' : 'lastLogin')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetUserInfoResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  GetUserInfoResponse copyWith(void Function(GetUserInfoResponse) updates) =>
+      super.copyWith((message) => updates(message as GetUserInfoResponse))
+          as GetUserInfoResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static GetUserInfoResponse create() => GetUserInfoResponse._();
+  @$core.override
+  GetUserInfoResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static GetUserInfoResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<GetUserInfoResponse>(create);
+  static GetUserInfoResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get userId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set userId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUserId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUserId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get nickname => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set nickname($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasNickname() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearNickname() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $fixnum.Int64 get created => $_getI64(2);
+  @$pb.TagNumber(3)
+  set created($fixnum.Int64 value) => $_setInt64(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasCreated() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearCreated() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $fixnum.Int64 get lastLogin => $_getI64(3);
+  @$pb.TagNumber(4)
+  set lastLogin($fixnum.Int64 value) => $_setInt64(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasLastLogin() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearLastLogin() => $_clearField(4);
 }
 
 const $core.bool _omitFieldNames =

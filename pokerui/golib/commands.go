@@ -57,6 +57,13 @@ const (
 	CTEvaluateHand            CmdType = 0x21
 	CTSetPlayerReady          CmdType = 0x22
 	CTSetPlayerUnready        CmdType = 0x23
+	CTStartGameStream         CmdType = 0x27
+
+	// Auth commands
+	CTRegister      CmdType = 0x24
+	CTLogin         CmdType = 0x25
+	CTLogout        CmdType = 0x26
+	CTResumeSession CmdType = 0x28
 
 	CTCreateLockFile        CmdType = 0x60
 	CTCloseLockFile         CmdType = 0x61
@@ -203,6 +210,24 @@ func call(cmd *cmd) *CmdResult {
 			err = globalProfiler.zipLogs(dest)
 		}
 
+	case CTRegister:
+		var req registerReq
+		if decode(&req) {
+			v, err = handleRegister(uint32(cmd.ClientHandle), req)
+		}
+
+	case CTLogin:
+		var req loginReq
+		if decode(&req) {
+			v, err = handleLogin(uint32(cmd.ClientHandle), req)
+		}
+
+	case CTResumeSession:
+		v, err = handleResumeSession(uint32(cmd.ClientHandle))
+
+	case CTLogout:
+		v, err = handleLogout(uint32(cmd.ClientHandle))
+
 	default:
 		// Calls that need a client. Figure out the client.
 		cmtx.Lock()
@@ -256,9 +281,9 @@ type notificationDTO struct {
 	PlayerId        string `json:"playerId,omitempty"`
 	Amount          int64  `json:"amount,omitempty"`
 	NewBalance      int64  `json:"newBalance,omitempty"`
-	Ready           bool   `json:"ready,omitempty"`
-	Started         bool   `json:"started,omitempty"`
-	GameReadyToPlay bool   `json:"gameReadyToPlay,omitempty"`
+	Ready           bool   `json:"ready"`
+	Started         bool   `json:"started"`
+	GameReadyToPlay bool   `json:"gameReadyToPlay"`
 	Countdown       int32  `json:"countdown,omitempty"`
 }
 
@@ -281,15 +306,9 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 	if n.NewBalance != 0 {
 		dto.NewBalance = n.NewBalance
 	}
-	if n.Ready {
-		dto.Ready = true
-	}
-	if n.Started {
-		dto.Started = true
-	}
-	if n.GameReadyToPlay {
-		dto.GameReadyToPlay = true
-	}
+	dto.Ready = n.Ready
+	dto.Started = n.Started
+	dto.GameReadyToPlay = n.GameReadyToPlay
 	if n.Countdown != 0 {
 		dto.Countdown = n.Countdown
 	}

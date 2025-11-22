@@ -19,6 +19,10 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 		return nil, err
 	}
 
+	// Prevent joining a different table while still seated in an active game.
+	if activeTableID, found := s.findActiveTableForPlayer(req.PlayerId); found {
+		return nil, status.Errorf(codes.FailedPrecondition, "player already in active game at table %s", activeTableID)
+	}
 	s.log.Debugf("Creating table with buy-in %d", req.BuyIn)
 	if creatorBalance < req.BuyIn {
 		return nil, fmt.Errorf("insufficient DCR balance for buy-in: need %d, have %d", req.BuyIn, creatorBalance)
@@ -40,11 +44,11 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	// Set defaults for auto-start and auto-advance
 	autoStartDelay := time.Duration(req.AutoStartMs) * time.Millisecond
 	if autoStartDelay == 0 {
-		autoStartDelay = 1 * time.Second // Default 3 seconds for auto-start
+		autoStartDelay = 2 * time.Second // Default 2 seconds for auto-start
 	}
 	autoAdvanceDelay := time.Duration(req.AutoAdvanceMs) * time.Millisecond
 	if autoAdvanceDelay == 0 {
-		autoAdvanceDelay = 3 * time.Second // Default 1 second for auto-advance
+		autoAdvanceDelay = 2 * time.Second // Default 2 second for auto-advance
 	}
 
 	cfg := poker.TableConfig{
@@ -119,6 +123,14 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 		return &pokerrpc.JoinTableResponse{Success: false, Message: "Table not found"}, nil
 	}
 
+	// Prevent joining a different table while still seated in an active game.
+	if activeTableID, found := s.findActiveTableForPlayer(req.PlayerId); found && activeTableID != req.TableId {
+		return &pokerrpc.JoinTableResponse{
+			Success: false,
+			Message: fmt.Sprintf("player already in active game at table %s", activeTableID),
+		}, nil
+	}
+
 	s.log.Debugf("Joining table %s", req.TableId)
 	config := table.GetConfig()
 
@@ -128,9 +140,8 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 		// feedback loops. The reconnecting client will immediately attach a
 		// game stream and receive the initial snapshot.
 		return &pokerrpc.JoinTableResponse{
-			Success:    true,
-			Message:    fmt.Sprintf("Reconnected. You have %d DCR balance.", existingUser.DCRAccountBalance),
-			NewBalance: existingUser.DCRAccountBalance,
+			Success: true,
+			Message: fmt.Sprintf("Reconnected. You have %d DCR balance.", existingUser.DCRAccountBalance),
 		}, nil
 	}
 
@@ -170,8 +181,8 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 		}
 	}
 
-	// Add to in-memory table.
-	newUser, err := table.AddNewUser(req.PlayerId, req.PlayerId, dcrBalance, seat)
+	// Seat player in-memory
+	_, err = table.AddNewUser(req.PlayerId, req.PlayerId, dcrBalance, seat)
 	if err != nil {
 		rollbackSeat()
 		return &pokerrpc.JoinTableResponse{Success: false, Message: err.Error()}, nil
@@ -198,9 +209,8 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	s.eventProcessor.PublishEvent(evt)
 
 	return &pokerrpc.JoinTableResponse{
-		Success:    true,
-		Message:    "Successfully joined table",
-		NewBalance: newUser.DCRAccountBalance,
+		Success: true,
+		Message: "Successfully joined table",
 	}, nil
 }
 
@@ -222,12 +232,14 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	// Check if player has chips in an active game
 	// Snapshot game reference under lock (following locking policy: snapshot pattern)
 	var playerChips int64
+	var gamePlayer *poker.Player
 	if table.IsGameStarted() {
 		game := table.GetGame()
 		if game != nil {
 			for _, p := range game.GetPlayers() {
 				if p.ID() == req.PlayerId {
 					playerChips = p.Balance()
+					gamePlayer = p
 					break
 				}
 			}
@@ -236,8 +248,12 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 
 	// If a hand is in progress AND player still has chips, keep the seat (disconnect)
 	if table.IsGameStarted() && playerChips > 0 {
-		_ = table.SetUserDisconnected(req.PlayerId, true)
-		// Optional: if you want to persist lobby readiness, add SetReady to Database interface and call it here.
+		if gamePlayer != nil {
+			gamePlayer.SendDisconnect()
+		}
+		if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
+			s.publishTableSnapshotEvent(req.TableId, snap)
+		}
 		s.saveTableStateAsync(req.TableId, "player disconnected")
 
 		return &pokerrpc.LeaveTableResponse{
@@ -284,6 +300,9 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 					return &pokerrpc.LeaveTableResponse{Success: false, Message: err.Error()}, nil
 				}
 				s.saveTableStateAsync(req.TableId, "host transferred")
+				if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
+					s.publishTableSnapshotEvent(req.TableId, snap)
+				}
 				return &pokerrpc.LeaveTableResponse{
 					Success: true,
 					Message: fmt.Sprintf("Successfully left table. Host transferred to %s", newHostID),
@@ -323,6 +342,9 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 
 	// Save updated snapshot (optional fast-restore)
 	s.saveTableStateAsync(req.TableId, "player left")
+	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
+		s.publishTableSnapshotEvent(req.TableId, snap)
+	}
 
 	return &pokerrpc.LeaveTableResponse{
 		Success: true,
@@ -395,6 +417,20 @@ func (s *Server) GetPlayerCurrentTable(ctx context.Context, req *pokerrpc.GetPla
 	return &pokerrpc.GetPlayerCurrentTableResponse{TableId: ""}, nil
 }
 
+// findActiveTableForPlayer returns the table ID where the player is seated in an active game.
+func (s *Server) findActiveTableForPlayer(playerID string) (string, bool) {
+	tableRefs := s.getAllTables()
+	for _, table := range tableRefs {
+		if table.GetUser(playerID) == nil {
+			continue
+		}
+		if table.IsGameStarted() || table.GetGame() != nil {
+			return table.GetConfig().ID, true
+		}
+	}
+	return "", false
+}
+
 func (s *Server) GetBalance(ctx context.Context, req *pokerrpc.GetBalanceRequest) (*pokerrpc.GetBalanceResponse, error) {
 	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
 	if err != nil {
@@ -454,11 +490,24 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	// Use table method to set player ready - table handles its own locking
-	// Following lock hierarchy: Server → Table (no server lock held during table operation)
-	err := table.SetPlayerReady(req.PlayerId, true)
-	if err != nil {
+	if err := table.SetPlayerReady(req.PlayerId, true); err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	// Inform player FSM (if active) so snapshots reflect readiness via player marshal.
+	if table.IsGameStarted() {
+		if game := table.GetGame(); game != nil {
+			for _, p := range game.GetPlayers() {
+				if p.ID() == req.PlayerId {
+					p.SendReady()
+					break
+				}
+			}
+		}
+	}
+
+	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
+		s.publishTableSnapshotEvent(req.TableId, snap)
 	}
 
 	allReady := table.CheckAllPlayersReady()
@@ -517,11 +566,23 @@ func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUn
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	// Use table method to set player unready - table handles its own locking
-	// Following lock hierarchy: Server → Table (no server lock held during table operation)
-	err := table.SetPlayerReady(req.PlayerId, false)
-	if err != nil {
+	if err := table.SetPlayerReady(req.PlayerId, false); err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
+	}
+
+	if table.IsGameStarted() {
+		if game := table.GetGame(); game != nil {
+			for _, p := range game.GetPlayers() {
+				if p.ID() == req.PlayerId {
+					p.SendUnready()
+					break
+				}
+			}
+		}
+	}
+
+	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
+		s.publishTableSnapshotEvent(req.TableId, snap)
 	}
 
 	// Publish typed PLAYER_READY event (with ready=false)

@@ -37,6 +37,13 @@ type Database interface {
 	SeatPlayer(ctx context.Context, tableID, playerID string, seat int) error
 	UnseatPlayer(ctx context.Context, tableID, playerID string) error
 
+	// ---- Auth ----
+	UpsertAuthUser(ctx context.Context, nickname, userID string) error
+	GetAuthUserByNickname(ctx context.Context, nickname string) (*db.AuthUser, error)
+	GetAuthUserByUserID(ctx context.Context, userID string) (*db.AuthUser, error)
+	UpdateAuthUserLastLogin(ctx context.Context, userID string) error
+	ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error)
+
 	// ---- Close ----
 	Close() error
 }

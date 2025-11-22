@@ -1,11 +1,11 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
 import 'table.dart';
 import 'cards.dart';
+import 'disconnected_badges.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
@@ -137,13 +137,16 @@ class PokerGame {
                                   )
                                 // Otherwise render non-interactive to avoid stealing input
                                 : IgnorePointer(
-                                    child: _HeroCardsOverlay(
-                                      players: gameState.players,
-                                      heroId: playerId,
-                                      cache: pokerModel.myHoleCardsCache,
-                                      model: pokerModel,
-                                    ),
-                                  )),
+                                  child: _HeroCardsOverlay(
+                                    players: gameState.players,
+                                    heroId: playerId,
+                                    cache: pokerModel.myHoleCardsCache,
+                                    model: pokerModel,
+                                  ),
+                                )),
+
+                          // Hover hints for disconnected players
+                          DisconnectedBadgesOverlay(players: gameState.players, heroId: playerId),
 
                           // Pot and betting info overlay
                           IgnorePointer(
@@ -196,8 +199,8 @@ class PokerGame {
                                           ),
                                         ),
                                       ),
+                                    ),
                                   ),
-                                ),
                               ],
                             ),
                           ),
@@ -489,10 +492,10 @@ class PokerGame {
           await pokerModel.check();
           break;
         case 'B':
-          // Smart default: bet/raise to 3x current bet when available.
+          // Smart default: bet/raise to 3x big blind, or 3x current bet if higher.
           final g = pokerModel.game;
-          int currentBet = g?.currentBet ?? 0;
-          // Find current table to get blinds
+          final currentBet = g?.currentBet ?? 0;
+          // Prefer blinds from the authoritative game snapshot; fall back to lobby table if needed
           final tid = pokerModel.currentTableId;
           final table = tid == null
               ? null
@@ -500,8 +503,9 @@ class PokerGame {
                     (t) => t != null,
                     orElse: () => null,
                   );
-          final bb = table?.bigBlind ?? 0;
-          final targetTotal = math.max(currentBet, bb * 3);
+          final bb = g?.bigBlind ?? table?.bigBlind ?? 0;
+          final threeBB = bb * 3;
+          final targetTotal = currentBet > threeBB ? (currentBet * 3) : threeBB;
           // Send total bet amount to server
           if (targetTotal > 0) {
             await pokerModel.makeBet(targetTotal);
@@ -539,7 +543,7 @@ class PokerPainter extends CustomPainter {
     drawPokerTable(canvas, centerX, centerY, tableRadius);
     
     // Draw players
-    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadius, showdownStartMs);
+    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadius, showdownStartMs, size);
 
     _drawHeroHoleCards(canvas, size);
 
@@ -571,7 +575,7 @@ class _CommunityCardsOverlay extends StatelessWidget {
       final size = c.biggest;
       final box = pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final cw = (box.width * 0.05).clamp(24.0, 48.0).toDouble();
+      final cw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
       final ch = cw * 1.4;
       final gap = cw * 0.10;
       final totalW = (cards.length * cw) + ((cards.length - 1) * gap);
@@ -642,7 +646,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
       final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
       final seats = seatPositionsFor(widget.players, widget.heroId, center, tableRadius + 50);
 
-      final cw = (box.width * 0.032).clamp(16.0, 28.0).toDouble();
+      final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
       final ch = cw * 1.4;
       const gap = 4.0;
 
@@ -652,13 +656,13 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
         final pos = seats[p.id];
         if (pos == null) continue;
         final pairW = (cw * 2) + gap;
-        final minLeft = box.left + 2.0;
-        final maxLeft = box.right - pairW - 2.0;
+        final minLeft = box.left + 8.0;
+        final maxLeft = box.right - pairW - 8.0;
         final baseLeft = pos.dx - pairW / 2;
         final left = baseLeft.clamp(minLeft, maxLeft).toDouble();
 
-        final minTop = box.top + 2.0;
-        final maxTop = box.bottom - ch - 2.0;
+        final minTop = box.top + 8.0;
+        final maxTop = box.bottom - ch - 8.0;
         final baseTop = pos.dy - ch - 6.0;
         final top = baseTop.clamp(minTop, maxTop).toDouble();
 
@@ -691,7 +695,7 @@ class _HeroCardsOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hero = players.firstWhere((p) => p.id == heroId, orElse: () => const UiPlayer(
-      id: '', name: '', balance: 0, hand: [], currentBet: 0, folded: false, isTurn: false, isAllIn: false, isDealer: false, isSmallBlind: false, isBigBlind: false, isReady: false, handDesc: '',
+      id: '', name: '', balance: 0, hand: [], currentBet: 0, folded: false, isTurn: false, isAllIn: false, isDealer: false, isSmallBlind: false, isBigBlind: false, isReady: false, isDisconnected: false, handDesc: '',
     ));
     if (hero.id.isEmpty) return const SizedBox.shrink();
     // Prefer live hero.hand; fall back to cached hole cards when snapshots omit them (e.g., during showdown).

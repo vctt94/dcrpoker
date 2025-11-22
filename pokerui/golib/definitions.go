@@ -99,6 +99,20 @@ type makeBet struct {
 	Amount int64 `json:"amount"`
 }
 
+type registerReq struct {
+	Nickname string `json:"nickname"`
+}
+
+type loginReq struct {
+	Nickname string `json:"nickname"`
+}
+
+type loginResp struct {
+	Token    string `json:"token"`
+	UserID   string `json:"user_id"`
+	Nickname string `json:"nickname"`
+}
+
 type evaluateHand struct {
 	Cards []struct {
 		Suit  int32 `json:"suit"`
@@ -185,6 +199,7 @@ type playerDTO struct {
 	IsAllIn         bool       `json:"isAllIn"`
 	IsDealer        bool       `json:"isDealer"`
 	IsReady         bool       `json:"isReady"`
+	Disconnected    bool       `json:"disconnected"`
 	HandDescription string     `json:"handDescription"`
 	PlayerState     int32      `json:"playerState"` // enum as int
 	IsSmallBlind    bool       `json:"isSmallBlind"`
@@ -239,6 +254,7 @@ func playerToDTO(p *pokerrpc.Player) *playerDTO {
 		IsAllIn:         p.IsAllIn,
 		IsDealer:        p.IsDealer,
 		IsReady:         p.IsReady,
+		Disconnected:    p.IsDisconnected,
 		HandDescription: p.HandDescription,
 		PlayerState:     int32(p.PlayerState),
 		IsSmallBlind:    p.IsSmallBlind,

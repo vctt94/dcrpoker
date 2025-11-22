@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
@@ -17,26 +18,27 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 
 	tableID, playerID := req.TableId, req.PlayerId
 
+	// Ensure the table exists and the player is currently seated before wiring the stream.
+	table, ok := s.getTable(tableID)
+	if !ok {
+		return status.Error(codes.NotFound, "table not found")
+	}
+	if table.GetUser(playerID) == nil {
+		return status.Error(codes.NotFound, "player not at table (join first)")
+	}
+
 	// Get or create the table bucket (single step).
 	bAny, _ := s.gameStreams.LoadOrStore(tableID, &bucket{})
 	b := bAny.(*bucket)
-
-	// Mark user as connected when stream is established (for game logic)
-	// Note: Metrics determine online status from active streams via HasActiveStream()
-	if table, ok := s.getTable(tableID); ok {
-		_ = table.SetUserDisconnected(playerID, false)
-	}
 
 	// Register player stream. If a stream already exists for this player,
 	// replace it with the newest one without incrementing the count. This
 	// ensures the most recent attachment (e.g., Flutter UI) receives updates
 	// and avoids starving newer clients when multiple components attach.
-	if _, loaded := b.streams.Load(playerID); loaded {
-		b.streams.Store(playerID, stream)
-	} else {
-		b.streams.Store(playerID, stream)
+	if _, loaded := b.streams.Load(playerID); !loaded {
 		b.count.Add(1)
 	}
+	b.streams.Store(playerID, stream)
 
 	// Unregister on exit only if this goroutine still owns the stored stream.
 	// This prevents a replaced (older) stream from deleting the newer mapping.
@@ -47,19 +49,34 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 				// Remove this bucket iff it's still the same one we used.
 				s.gameStreams.CompareAndDelete(tableID, b)
 			}
-		}
 
-		// Handle player disconnect when stream closes (safe to call - checks conditions internally)
-		s.handlePlayerDisconnect(tableID, playerID)
+			// Handle player disconnect when stream closes (safe to call - checks conditions internally)
+			s.handlePlayerDisconnect(tableID, playerID)
+		}
 	}()
 
-	// Send initial state built from the current runtime snapshot only.
-	// No DB snapshot dependency or in-stream restore.
+	// Notify player FSM of reconnection so timers/state machines resume.
+	if table.IsGameStarted() {
+		if game := table.GetGame(); game != nil {
+			for _, p := range game.GetPlayers() {
+				if p.ID() == playerID {
+					p.SendReconnection()
+					break
+				}
+			}
+		}
+	}
+
+	// Build a fresh snapshot to broadcast the reconnection and seed this stream.
 	gsh := NewGameStateHandler(s)
 	tableSnapshot, err := s.collectTableSnapshot(tableID)
 	if err != nil {
 		return err
 	}
+
+	// Broadcast connection state to other players via event pipeline
+	s.publishTableSnapshotEvent(tableID, tableSnapshot)
+
 	upd, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, playerID)
 	if err != nil {
 		return err
@@ -99,15 +116,12 @@ func (s *Server) handlePlayerDisconnect(tableID, playerID string) {
 		}
 	}
 
-	// Mark user as disconnected when their stream closes
-	// If a hand is in progress AND player still has chips, keep the seat (disconnect)
-	// Otherwise, they're still marked disconnected but may be removed later if needed
-	if err := table.SetUserDisconnected(playerID, true); err != nil {
-		// Player not at table, nothing to do
-		return
+	// Broadcast updated game state so remaining players see the disconnect flag.
+	if tableSnapshot, err := s.collectTableSnapshot(tableID); err == nil && tableSnapshot != nil {
+		s.publishTableSnapshotEvent(tableID, tableSnapshot)
 	}
 
-	// Send disconnect event to player's state machine if in active game
+	// Send disconnect event to player's FSM to drive state (chips, timers, etc).
 	// Verify game is still started before sending (defensive check for shutdown races)
 	if gamePlayer != nil && table.IsGameStarted() {
 		gamePlayer.SendDisconnect()
@@ -121,6 +135,20 @@ func (s *Server) handlePlayerDisconnect(tableID, playerID string) {
 	} else {
 		s.log.Debugf("Player %s disconnected from table %s (no active game or no chips)", playerID, tableID)
 	}
+}
+
+func (s *Server) publishTableSnapshotEvent(tableID string, snapshot *TableSnapshot) {
+	if snapshot == nil || s.eventProcessor == nil {
+		return
+	}
+
+	s.eventProcessor.PublishEvent(&GameEvent{
+		Type:          pokerrpc.NotificationType_UNKNOWN,
+		TableID:       tableID,
+		PlayerIDs:     snapshot.playerIDs(),
+		Timestamp:     time.Now(),
+		TableSnapshot: snapshot,
+	})
 }
 
 func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*pokerrpc.MakeBetResponse, error) {
@@ -371,7 +399,7 @@ func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateReq
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to collect table snapshot: %v", err))
 	}
-	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, "")
+	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, req.PlayerId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build game state: %v", err))
 	}

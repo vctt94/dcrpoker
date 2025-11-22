@@ -2,16 +2,15 @@ package client
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/decred/slog"
 
@@ -98,14 +97,27 @@ type PokerClient struct {
 	NotificationsCh chan *pokerrpc.Notification
 
 	// Game streaming
-	gameStream   pokerrpc.PokerService_StartGameStreamClient
-	gameStreamMu sync.Mutex
+	gameStream       pokerrpc.PokerService_StartGameStreamClient
+	gameStreamMu     sync.Mutex
+	gameStreamCtx    context.Context
+	gameStreamCancel context.CancelFunc
+	gameStreamTable  string
 
 	// For reconnection handling
 	ctx          context.Context
 	cancelFunc   context.CancelFunc
 	reconnecting bool
 	reconnectMu  sync.Mutex
+
+	// Connection state tracking
+	isConnected         bool
+	gameStreamConnected bool
+	lastConnectTime     time.Time
+	lastDisconnectTime  time.Time
+
+	// Loop coordination
+	ntfnLoopMu      sync.Mutex
+	ntfnLoopRunning bool
 }
 
 // NewPokerClient creates a new poker client with notification support
@@ -179,12 +191,14 @@ func newClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
 		clientConfig.SetString("grpcport", cfg.GRPCPort)
 	}
 
-	// generate random id bytes for now
-	randomBytes := make([]byte, 32)
-	if _, err := rand.Read(randomBytes); err != nil {
-		return nil, fmt.Errorf("failed to generate random id: %v", err)
+	// Load or create persistent user ID from seed key
+	userIDStr, err := getUserIDFromDir(cfg.Datadir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user ID: %v", err)
 	}
-	clientID.FromString(hex.EncodeToString(randomBytes))
+	if err := clientID.FromString(userIDStr); err != nil {
+		return nil, fmt.Errorf("failed to parse user ID: %v", err)
+	}
 
 	// Use config's log backend for now
 	log = cfg.LogBackend.Logger("PokerClient")
@@ -383,56 +397,52 @@ func (pc *PokerClient) stopGameStream() {
 	pc.gameStreamMu.Lock()
 	defer pc.gameStreamMu.Unlock()
 
+	if pc.gameStreamCancel != nil {
+		pc.gameStreamCancel()
+		pc.gameStreamCancel = nil
+	}
+
 	if pc.gameStream != nil {
 		pc.gameStream.CloseSend()
 		pc.gameStream = nil
-		pc.log.Info("Stopped game stream")
 	}
+
+	pc.gameStreamCtx = nil
+	pc.gameStreamTable = ""
+	pc.setGameStreamConnectionState(false, nil)
+	pc.log.Info("Stopped game stream")
 }
 
-// handleGameStreamUpdates processes incoming game updates from the stream
-func (pc *PokerClient) handleGameStreamUpdates(ctx context.Context) {
-	defer func() {
-		pc.gameStreamMu.Lock()
-		pc.gameStream = nil
-		pc.gameStreamMu.Unlock()
-	}()
-
+// consumeGameStream processes incoming game updates from a stream until error or cancellation.
+func (pc *PokerClient) consumeGameStream(ctx context.Context, stream pokerrpc.PokerService_StartGameStreamClient, tableID string) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		default:
-			pc.gameStreamMu.Lock()
-			stream := pc.gameStream
-			pc.gameStreamMu.Unlock()
-
-			if stream == nil {
-				return
-			}
-
-			update, err := stream.Recv()
-			if err != nil {
-				if errors.Is(err, io.EOF) || strings.Contains(err.Error(), "transport is closing") ||
-					strings.Contains(err.Error(), "connection is being forcefully terminated") {
-					pc.log.Info("Game stream closed")
-					return
-				}
-
-				pc.log.Errorf("Game stream error: %v", err)
-				pc.ErrorsCh <- fmt.Errorf("game stream error: %v", err)
-				return
-			}
-
-			select {
-			case pc.UpdatesCh <- update:
-			case <-ctx.Done():
-				return
-			default:
-				// Channel is full, drop the update
-				pc.log.Warn("Updates channel full, dropping game update")
-			}
 		}
+
+		if current := pc.GetCurrentTableID(); current != "" && tableID != "" && current != tableID {
+			return fmt.Errorf("game stream table changed from %s to %s", tableID, current)
+		}
+
+		update, err := stream.Recv()
+		if err != nil {
+			if isTransportClosing(err) {
+				pc.log.Info("Game stream closed")
+				return err
+			}
+
+			pc.log.Errorf("Game stream error: %v", err)
+			pc.enqueueError(fmt.Errorf("game stream error: %v", err))
+			return err
+		}
+
+		if update == nil {
+			continue
+		}
+
+		pc.enqueueUpdate(update)
 	}
 }
 
@@ -466,4 +476,122 @@ func (pc *PokerClient) validate() error {
 		return fmt.Errorf("errors channel is not initialized")
 	}
 	return nil
+}
+
+// enqueueUpdate sends a message to the updates channel without blocking.
+func (pc *PokerClient) enqueueUpdate(msg tea.Msg) {
+	select {
+	case pc.UpdatesCh <- msg:
+	case <-pc.ctx.Done():
+	default:
+		pc.log.Warn("Updates channel full, dropping update")
+	}
+}
+
+// enqueueError sends an error to the error channel without blocking.
+func (pc *PokerClient) enqueueError(err error) {
+	select {
+	case pc.ErrorsCh <- err:
+	case <-pc.ctx.Done():
+	default:
+		pc.log.Warnf("Errors channel full, dropping error: %v", err)
+	}
+}
+
+// isTransportClosing detects transient transport errors from gRPC streams.
+func isTransportClosing(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return errors.Is(err, io.EOF) ||
+		strings.Contains(err.Error(), "transport is closing") ||
+		strings.Contains(err.Error(), "connection is being forcefully terminated")
+}
+
+// setConnectionState updates connection flags and emits a synthetic notification for UI layers.
+func (pc *PokerClient) setConnectionState(connected bool, reason error) {
+	pc.Lock()
+	if pc.isConnected == connected {
+		pc.Unlock()
+		return
+	}
+
+	pc.isConnected = connected
+	now := time.Now()
+	if connected {
+		pc.lastConnectTime = now
+	} else {
+		pc.lastDisconnectTime = now
+	}
+	pc.Unlock()
+
+	var msg string
+	if connected {
+		msg = "connection restored"
+		pc.log.Infof("notification stream connected at %s", now.Format(time.RFC3339))
+	} else {
+		msg = "connection lost"
+		if reason != nil {
+			msg = fmt.Sprintf("connection lost: %v", reason)
+		}
+		pc.log.Warnf("notification stream disconnected: %v", reason)
+	}
+
+	pc.enqueueUpdate(&pokerrpc.Notification{
+		Type:    pokerrpc.NotificationType_UNKNOWN,
+		Message: msg,
+	})
+}
+
+func (pc *PokerClient) setGameStreamConnectionState(connected bool, reason error) {
+	pc.Lock()
+	if pc.gameStreamConnected == connected {
+		pc.Unlock()
+		return
+	}
+
+	pc.gameStreamConnected = connected
+	pc.Unlock()
+
+	var msg string
+	if connected {
+		msg = "game stream restored"
+		pc.log.Infof("game stream connected")
+	} else {
+		msg = "game stream disconnected"
+		if reason != nil {
+			msg = fmt.Sprintf("game stream disconnected: %v", reason)
+		}
+		pc.log.Warnf("game stream disconnected: %v", reason)
+	}
+
+	pc.enqueueUpdate(&pokerrpc.Notification{
+		Type:    pokerrpc.NotificationType_UNKNOWN,
+		Message: msg,
+	})
+}
+
+func capBackoff(current, max time.Duration) time.Duration {
+	if current >= max {
+		return max
+	}
+
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
+}
+
+func waitWithBackoff(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }

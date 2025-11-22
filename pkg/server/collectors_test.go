@@ -45,6 +45,17 @@ func (stubDB) UnseatPlayer(ctx context.Context, _ string, _ string) error      {
 func (stubDB) UpsertSnapshot(ctx context.Context, _ db.Snapshot) error   { return nil }
 func (stubDB) UpsertTable(_ context.Context, _ *poker.TableConfig) error { return nil }
 
+// --- Auth ---
+func (stubDB) UpsertAuthUser(ctx context.Context, _, _ string) error { return nil }
+func (stubDB) GetAuthUserByNickname(ctx context.Context, _ string) (*db.AuthUser, error) {
+	return nil, nil
+}
+func (stubDB) GetAuthUserByUserID(ctx context.Context, _ string) (*db.AuthUser, error) {
+	return nil, nil
+}
+func (stubDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error { return nil }
+func (stubDB) ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error) { return nil, nil }
+
 // --- Close ---
 func (stubDB) Close() error { return nil }
 
@@ -98,8 +109,8 @@ func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 
 // ---------- Tests ---------- //
 
-// TestGameSnapshotCurrentBet confirms CurrentBet in snapshot equals table BigBlind right after blinds.
-func TestGameSnapshotCurrentBet(t *testing.T) {
+// TestTableSnapshotCurrentBet confirms CurrentBet in snapshot equals table BigBlind right after blinds.
+func TestTableSnapshotCurrentBet(t *testing.T) {
 	s := newBareServer()
 	table := buildActiveHeadsUpTable(t, "table_test")
 	s.tables.Store(table.GetConfig().ID, table)
@@ -135,4 +146,40 @@ func TestCollectTableSnapshotMissingTable(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when table is missing, got nil")
 	}
+}
+
+// TestCollectTableSnapshotIncludesLastAction ensures player last-action timestamps are captured
+// so downstream game updates can compute timebank deadlines.
+func TestCollectTableSnapshotIncludesLastAction(t *testing.T) {
+	s := newBareServer()
+	table := buildActiveHeadsUpTable(t, "timebank-snap")
+	s.tables.Store(table.GetConfig().ID, table)
+
+	var snap *TableSnapshot
+	require.Eventually(t, func() bool {
+		snapShot, err := s.collectTableSnapshot(table.GetConfig().ID)
+		if err != nil || snapShot == nil || snapShot.GameSnapshot == nil {
+			return false
+		}
+		if snapShot.GameSnapshot.CurrentPlayer == "" {
+			return false
+		}
+		for _, ps := range snapShot.Players {
+			if ps != nil && ps.ID == snapShot.GameSnapshot.CurrentPlayer && !ps.LastAction.IsZero() {
+				snap = snapShot
+				return true
+			}
+		}
+		return false
+	}, 3*time.Second, 10*time.Millisecond, "current player lastAction should be captured")
+	require.NotNil(t, snap)
+
+	gsh := NewGameStateHandler(s)
+	updates := gsh.buildGameStatesFromSnapshot(snap)
+
+	curID := snap.GameSnapshot.CurrentPlayer
+	upd := updates[curID]
+	require.NotNil(t, upd)
+	require.EqualValues(t, table.GetConfig().TimeBank.Seconds(), upd.TimeBankSeconds)
+	require.Greater(t, upd.TurnDeadlineUnixMs, time.Now().UnixMilli())
 }

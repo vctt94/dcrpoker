@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -64,12 +65,13 @@ type bucket struct {
 	count   atomic.Int32 // active players in this table
 }
 
-// Server implements both PokerService and LobbyService
+// Server implements both PokerService, LobbyService, and AuthService
 type Server struct {
 	grpcServer *grpc.Server
 	grpcLis    net.Listener
 	pokerrpc.UnimplementedPokerServiceServer
 	pokerrpc.UnimplementedLobbyServiceServer
+	pokerrpc.UnimplementedAuthServiceServer
 	log        slog.Logger
 	logBackend *logging.LogBackend
 	db         Database
@@ -105,6 +107,9 @@ type Server struct {
 
 	// Event-driven architecture components
 	eventProcessor *EventProcessor
+
+	// Authentication state
+	auth *authState
 }
 
 // NewServer creates a new poker server
@@ -137,12 +142,24 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		db:         db,
 	}
 
+	// Initialize auth state
+	pokerServer.auth = newAuthState(db)
+
 	// Initialize and register the poker server
 	pokerrpc.RegisterLobbyServiceServer(grpcServer, pokerServer)
 	pokerrpc.RegisterPokerServiceServer(grpcServer, pokerServer)
+	pokerrpc.RegisterAuthServiceServer(grpcServer, pokerServer)
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
+
+	// Load persisted auth state from database
+	ctx := context.Background()
+	if err := pokerServer.auth.loadAuthStateFromDB(ctx); err != nil {
+		pokerServer.log.Errorf("Failed to load auth state: %v", err)
+	} else {
+		pokerServer.log.Infof("Loaded auth state from database")
+	}
 
 	// Load persisted tables on startup AFTER the event processor is fully
 	// initialized.
@@ -273,6 +290,9 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 		db:         db,
 	}
 
+	// Initialize auth state
+	pokerServer.auth = newAuthState(db)
+
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
@@ -288,8 +308,14 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 
 // Stop gracefully stops the server
 func (s *Server) Stop() {
-	// First, wait for all active stream handlers to finish so that no new
-	// disconnect handlers can run concurrently with shutdown.
+	// Stop gRPC server first to cancel all stream contexts and prevent new RPC calls.
+	// This ensures that no new game actions can be triggered via RPC after shutdown starts.
+	if s.grpcServer != nil {
+		s.grpcServer.Stop()
+	}
+
+	// Wait for all active stream handlers to finish. Stream contexts are now cancelled,
+	// so handlers should exit promptly when they detect context cancellation.
 	s.streamHandlersWg.Wait()
 
 	// Stop the event processor so workers stop reading from the queue and
@@ -308,10 +334,7 @@ func (s *Server) Stop() {
 	// Wait for any in-flight asynchronous saves to complete before returning.
 	s.saveWg.Wait()
 
-	// Close gRPC components if present.
-	if s.grpcServer != nil {
-		s.grpcServer.Stop()
-	}
+	// Close gRPC listener
 	if s.grpcLis != nil {
 		s.grpcLis.Close()
 	}

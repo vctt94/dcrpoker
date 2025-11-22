@@ -56,6 +56,7 @@ class UiPlayer {
   final bool isSmallBlind;
   final bool isBigBlind;
   final bool isReady;
+  final bool isDisconnected;
   final String handDesc; // only meaningful at showdown
 
   const UiPlayer({
@@ -71,6 +72,7 @@ class UiPlayer {
     required this.isSmallBlind,
     required this.isBigBlind,
     required this.isReady,
+    required this.isDisconnected,
     required this.handDesc,
   });
 
@@ -88,6 +90,7 @@ class UiPlayer {
       isSmallBlind: p.isSmallBlind,
       isBigBlind: p.isBigBlind,
       isReady: p.isReady,
+      isDisconnected: p.isDisconnected,
       handDesc: p.handDescription,
     );
   }
@@ -189,6 +192,8 @@ class UiGameState {
   final String currentPlayerId;
   final int minRaise; // chips
   final int maxRaise; // chips
+  final int smallBlind; // chips
+  final int bigBlind; // chips
   final bool gameStarted;
   final int playersRequired;
   final int playersJoined;
@@ -207,6 +212,8 @@ class UiGameState {
     required this.currentPlayerId,
     required this.minRaise,
     required this.maxRaise,
+    required this.smallBlind,
+    required this.bigBlind,
     required this.gameStarted,
     required this.playersRequired,
     required this.playersJoined,
@@ -225,6 +232,8 @@ class UiGameState {
         currentPlayerId: u.currentPlayer,
         minRaise: u.minRaise.toInt(),
         maxRaise: u.maxRaise.toInt(),
+        smallBlind: u.hasSmallBlind() ? u.smallBlind.toInt() : 0,
+        bigBlind: u.hasBigBlind() ? u.bigBlind.toInt() : 0,
         gameStarted: u.gameStarted,
         playersRequired: u.playersRequired,
         playersJoined: u.playersJoined,
@@ -247,6 +256,7 @@ class PokerModel extends ChangeNotifier {
   UiGameState? game;
   List<UiTable> tables = const [];
   List<UiWinner> lastWinners = const [];
+  int lastShowdownFxMs = 0; // monotonic trigger for showdown chip animation
   String errorMessage = '';
   int myAtomsBalance = 0; // DCR atoms (wallet balance for buy-in requirements)
 
@@ -465,9 +475,6 @@ class PokerModel extends ChangeNotifier {
       _state = PokerState.inLobby;
     }
 
-    print(
-        'DEBUG: _onGameUpdate - Updated state to: $_state, isMyTurn: $isMyTurn');
-
     notifyListeners();
   }
 
@@ -597,11 +604,17 @@ class PokerModel extends ChangeNotifier {
       currentTableId = tableId;
       _iAmReady = false;
       _seated = true;
-      _state = PokerState.inLobby;
-      print('DEBUG: joinTable ok - tableId=$tableId playerId=$playerId');
       await refreshTables();
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
+      // If game is already started, ensure game stream is active
+      if (game != null && (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
+        try {
+          await Golib.startGameStream();
+        } catch (e) {
+          rethrow;
+        }
+      }
       unawaited(_refreshLastWinners());
       notifyListeners();
       return true;
@@ -644,6 +657,15 @@ class PokerModel extends ChangeNotifier {
       if (_seated && currentTableId == tid) {
         print('DEBUG: _restoreCurrentTable - already at $tid, skipping rejoin');
         await refreshGameState();
+        // If game is already started, ensure game stream is active
+        if (game != null && (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
+          print('DEBUG: _restoreCurrentTable - game already started, starting game stream');
+          try {
+            await Golib.startGameStream();
+          } catch (e) {
+            print('DEBUG: _restoreCurrentTable - failed to start game stream: $e');
+          }
+        }
         return;
       }
 
@@ -826,18 +848,59 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
+      print('DEBUG: _refreshLastWinners start for table=$tid');
       final respMap = await Golib.getLastWinners();
       // Convert JSON map back to protobuf GetLastWinnersResponse
       final winnersJson = respMap['winners'] as List<dynamic>;
-      final winners = winnersJson.map((w) {
-        final winnerJsonStr = jsonEncode(w);
-        return pr.Winner.fromJson(winnerJsonStr);
-      }).toList();
-      lastWinners = List.unmodifiable(winners.map(UiWinner.fromProto));
+      final winners = winnersJson.map(_winnerFromDynamic).whereType<UiWinner>().toList();
+      lastWinners = List.unmodifiable(winners);
+      lastShowdownFxMs = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
-    } catch (_) {
+    } catch (e, st) {
       // ignore; cache stays as-is
     }
+  }
+
+  UiWinner? _winnerFromDynamic(dynamic w) {
+    try {
+      final winnerJsonStr = jsonEncode(w);
+      final parsed = pr.Winner.fromJson(winnerJsonStr);
+      return UiWinner.fromProto(parsed);
+    } catch (e) {
+      if (w is Map<String, dynamic>) {
+        final pid = (w['playerId'] ?? w['player_id'] ?? '').toString();
+        final winningsRaw = w['winnings'];
+        final winnings = winningsRaw is num ? winningsRaw.toInt() : int.tryParse('$winningsRaw') ?? 0;
+        final hrRaw = w['handRank'] ?? w['hand_rank'] ?? w['rank'];
+        pr.HandRank handRank = pr.HandRank.HIGH_CARD;
+        if (hrRaw is int) handRank = pr.HandRank.valueOf(hrRaw) ?? pr.HandRank.HIGH_CARD;
+        if (hrRaw is String) {
+          final parsed = int.tryParse(hrRaw);
+          if (parsed != null) handRank = pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
+        }
+        final bestHandRaw = w['bestHand'] ?? w['best_hand'] ?? [];
+        final List<pr.Card> bestHand = [];
+        if (bestHandRaw is List) {
+          for (final c in bestHandRaw) {
+            if (c is Map<String, dynamic>) {
+              final suit = c['suit']?.toString() ?? '';
+              final value = c['value']?.toString() ?? '';
+              final card = pr.Card()
+                ..suit = suit
+                ..value = value;
+              bestHand.add(card);
+            }
+          }
+        }
+        return UiWinner(
+          playerId: pid,
+          handRank: handRank,
+          bestHand: List.unmodifiable(bestHand),
+          winnings: winnings,
+        );
+      }
+    }
+    return null;
   }
 
   Future<pr.EvaluateHandResponse?> evaluateCards(List<pr.Card> cards) async {

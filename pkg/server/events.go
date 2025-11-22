@@ -27,10 +27,23 @@ type GameEvent struct {
 type TableSnapshot struct {
 	ID           string
 	Players      []*PlayerSnapshot
-	GameSnapshot *GameSnapshot
+	GameSnapshot *poker.GameStateSnapshot
 	Config       poker.TableConfig
 	State        TableState
 	Timestamp    time.Time
+}
+
+func (ts *TableSnapshot) playerIDs() []string {
+	if ts == nil {
+		return nil
+	}
+	ids := make([]string, 0, len(ts.Players))
+	for _, ps := range ts.Players {
+		if ps != nil && ps.ID != "" {
+			ids = append(ids, ps.ID)
+		}
+	}
+	return ids
 }
 
 // PlayerSnapshot represents an immutable snapshot of player state
@@ -53,20 +66,6 @@ type PlayerSnapshot struct {
 	HasBet            int64
 	StartingBalance   int64
 	LastAction        time.Time
-}
-
-// GameSnapshot represents an immutable snapshot of game state
-type GameSnapshot struct {
-	Phase          pokerrpc.GamePhase
-	CurrentPlayer  string
-	Pot            int64
-	CurrentBet     int64
-	CommunityCards []poker.Card
-	Dealer         int
-	Round          int
-	BetRound       int
-	DeckState      []poker.Card
-	Winners        []string
 }
 
 // TableState represents table-level state

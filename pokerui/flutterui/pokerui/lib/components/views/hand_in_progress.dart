@@ -14,6 +14,30 @@ class HandInProgressView extends StatefulWidget {
 class _HandInProgressViewState extends State<HandInProgressView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
+  Future<void> _confirmLeave() async {
+    final shouldLeave = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Leave table?'),
+            content: const Text('You\'ll sit out and leave this table. Are you sure?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                child: const Text('Leave'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (shouldLeave) {
+      widget.model.leaveTable();
+    }
+  }
 
   @override
   void dispose() {
@@ -39,22 +63,46 @@ class _HandInProgressViewState extends State<HandInProgressView> {
         // Bet/call FX overlay
         _BetFxOverlay(model: widget.model),
         
-        // Action buttons overlay
+        // Leave table control anchored away from action buttons to avoid accidental taps
         Positioned(
-          bottom: 20,
+          bottom: 0,
           left: 0,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: ElevatedButton.icon(
+                onPressed: _confirmLeave,
+                icon: const Icon(Icons.logout),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                label: const Text('Leave Table'),
+              ),
+            ),
+          ),
+        ),
+
+        // Action buttons overlay - positioned at bottom right
+        Positioned(
+          bottom: 0,
           right: 0,
-          child: Center(
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Always offer a way to leave the table, even when it's not your turn
-                ElevatedButton(
-                  onPressed: widget.model.leaveTable,
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                  child: const Text('Leave Table'),
+          child: SafeArea(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.transparent,
+                    Colors.black.withOpacity(0.8),
+                  ],
                 ),
-                const SizedBox(width: 12),
+              ),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                reverse: true,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                 if (widget.model.isMyTurn) ...[
                   // Fold is always available on your turn
                   ElevatedButton(
@@ -96,18 +144,18 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                   final matches = widget.model.tables.where((t) => t.id == tid).toList();
                                   return matches.isNotEmpty ? matches.first : null;
                                 })();
-                          final bb = table?.bigBlind ?? 0;
+                          // Prefer big blind from the live game snapshot, fall back to lobby table list
+                          final bb = (widget.model.game?.bigBlind ?? 0) > 0
+                              ? widget.model.game!.bigBlind
+                              : (table?.bigBlind ?? 0);
                           final isRaise = currentBet > 0 && myBet < currentBet;
 
                           void seedDefault() {
-                            // Pre-fill with amount to ADD (not total)
-                            // Default: raise to 3x BB or minimum raise if facing a bet
-                            final defaultBet = (bb * 3);
-                            final targetTotal = (defaultBet > currentBet) ? defaultBet : currentBet;
-                            final amountToAdd = targetTotal - myBet;
-                            if (amountToAdd > 0) {
-                              _betCtrl.text = amountToAdd.toString();
-                            }
+                            // Pre-fill with 3x BB or 3x current bet, whichever is higher
+                            // Use 3x current bet if currentBet is greater than or equal to 3x BB
+                            final threeBB = bb * 3;
+                            final targetTotal = (bb > 0 && currentBet >= threeBB) ? (currentBet * 3) : threeBB;
+                            _betCtrl.text = targetTotal.toString();
                           }
 
                           Future<void> submitBet() async {
@@ -120,10 +168,11 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               return;
                             }
                             
-                            // Calculate total bet: user enters amount to ADD, server expects TOTAL
-                            // If raising, minimum raise is currentBet + (currentBet - myBet)
-                            // If opening bet, minimum is typically BB
-                            final totalBet = myBet + amt;
+                            // Calculate total bet: if amount is >= 3x BB or >= current bet (when facing a bet),
+                            // treat as total bet amount. Otherwise, treat as amount to ADD.
+                            final threeBB = bb * 3;
+                            final isTotalBet = amt >= threeBB || (currentBet > 0 && amt >= currentBet);
+                            final totalBet = isTotalBet ? amt : (myBet + amt);
                             
                             // Pre-check: when facing a bet, total must be at least currentBet
                             if (currentBet > 0 && totalBet < currentBet) {
@@ -149,11 +198,11 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                           }
 
                           void setTo3xBB() {
-                            // Set amount to ADD to reach 3x BB total
-                            final defaultBet = (bb * 3);
-                            final targetTotal = (defaultBet > currentBet) ? defaultBet : currentBet;
-                            final amountToAdd = targetTotal - myBet;
-                            _betCtrl.text = amountToAdd.toString();
+                            // Set to 3x BB or 3x current bet, whichever is higher
+                            // Use 3x current bet if currentBet is greater than or equal to 3x BB
+                            final threeBB = bb * 3;
+                            final targetTotal = (bb > 0 && currentBet >= threeBB) ? (currentBet * 3) : threeBB;
+                            _betCtrl.text = targetTotal.toString();
                           }
 
                           if (!_showBetInput) {
@@ -195,7 +244,17 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                 ),
                               ),
                               const SizedBox(width: 6),
-                              ElevatedButton(onPressed: bb > 0 ? setTo3xBB : null, child: const Text('3x BB')),
+                              Builder(
+                                builder: (context) {
+                                  final threeBB = bb * 3;
+                                  // Show "3x Bet" if currentBet is greater than or equal to 3x BB
+                                  final buttonText = (bb > 0 && currentBet >= threeBB) ? '3x Bet' : '3x BB';
+                                  return ElevatedButton(
+                                    onPressed: bb > 0 ? setTo3xBB : null,
+                                    child: Text(buttonText),
+                                  );
+                                },
+                              ),
                               const SizedBox(width: 6),
                               ElevatedButton(
                                 onPressed: submitBet,
@@ -219,18 +278,20 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                   }),
                 ] else ...[
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.7),
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      'Waiting for your turn...',
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                      'Waiting...',
+                      style: const TextStyle(color: Colors.white, fontSize: 14),
                     ),
                   ),
                 ],
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
         ),

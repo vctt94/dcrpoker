@@ -258,6 +258,38 @@ class LocalInfo {
 }
 
 @JsonSerializable()
+class RegisterRequest {
+  final String nickname;
+  RegisterRequest(this.nickname);
+  factory RegisterRequest.fromJson(Map<String, dynamic> json) =>
+      _$RegisterRequestFromJson(json);
+  Map<String, dynamic> toJson() => _$RegisterRequestToJson(this);
+}
+
+@JsonSerializable()
+class LoginRequest {
+  final String nickname;
+  LoginRequest(this.nickname);
+  factory LoginRequest.fromJson(Map<String, dynamic> json) =>
+      _$LoginRequestFromJson(json);
+  Map<String, dynamic> toJson() => _$LoginRequestToJson(this);
+}
+
+@JsonSerializable()
+class LoginResponse {
+  @JsonKey(name: 'token')
+  final String token;
+  @JsonKey(name: 'user_id')
+  final String userId;
+  @JsonKey(name: 'nickname')
+  final String nickname;
+  LoginResponse(this.token, this.userId, this.nickname);
+  factory LoginResponse.fromJson(Map<String, dynamic> json) =>
+      _$LoginResponseFromJson(json);
+  Map<String, dynamic> toJson() => _$LoginResponseToJson(this);
+}
+
+@JsonSerializable()
 class ServerCert {
   @JsonKey(name: "inner_fingerprint")
   final String innerFingerprint;
@@ -597,6 +629,8 @@ class PlayerDTO {
   final bool isDealer;
   @JsonKey(name: 'isReady')
   final bool isReady;
+  @JsonKey(name: 'disconnected')
+  final bool disconnected;
   @JsonKey(name: 'handDescription')
   final String handDescription;
   @JsonKey(name: 'playerState')
@@ -617,6 +651,7 @@ class PlayerDTO {
     this.isAllIn,
     this.isDealer,
     this.isReady,
+    this.disconnected,
     this.handDescription,
     this.playerState,
     this.isSmallBlind,
@@ -639,6 +674,7 @@ class PlayerDTO {
       ..isAllIn = isAllIn
       ..isDealer = isDealer
       ..isReady = isReady
+      ..isDisconnected = disconnected
       ..handDescription = handDescription
       ..playerState = pr.PlayerState.valueOf(playerState) ?? pr.PlayerState.PLAYER_STATE_UNINITIALIZED
       ..isSmallBlind = isSmallBlind
@@ -678,6 +714,10 @@ class GameUpdateDTO {
   final int timeBankSeconds;
   @JsonKey(name: 'turnDeadlineUnixMs')
   final int turnDeadlineUnixMs;
+  @JsonKey(name: 'smallBlind', defaultValue: 0)
+  final int smallBlind;
+  @JsonKey(name: 'bigBlind', defaultValue: 0)
+  final int bigBlind;
 
   GameUpdateDTO(
     this.tableId,
@@ -695,6 +735,8 @@ class GameUpdateDTO {
     this.phaseName,
     this.timeBankSeconds,
     this.turnDeadlineUnixMs,
+    this.smallBlind,
+    this.bigBlind,
   );
 
   factory GameUpdateDTO.fromJson(Map<String, dynamic> json) =>
@@ -717,7 +759,9 @@ class GameUpdateDTO {
       ..playersJoined = playersJoined
       ..phaseName = phaseName
       ..timeBankSeconds = timeBankSeconds
-      ..turnDeadlineUnixMs = Int64(turnDeadlineUnixMs);
+      ..turnDeadlineUnixMs = Int64(turnDeadlineUnixMs)
+      ..smallBlind = Int64(smallBlind)
+      ..bigBlind = Int64(bigBlind);
   }
 }
 
@@ -977,6 +1021,29 @@ abstract class PluginPlatform {
     // If platform returns non-string, this will throw; that’s desirable.
   }
 
+  Future<void> register(RegisterRequest req) async {
+    const cmdType = 0x24; // CTRegister
+    await asyncCall(cmdType, req.toJson());
+  }
+
+  Future<LoginResponse> login(LoginRequest req) async {
+    const cmdType = 0x25; // CTLogin
+    final result = await asyncCall(cmdType, req.toJson());
+    return LoginResponse.fromJson(result as Map<String, dynamic>);
+  }
+
+  Future<LoginResponse?> resumeSession() async {
+    const cmdType = CTResumeSession;
+    final result = await asyncCall(cmdType, {});
+    if (result == null) return null;
+    return LoginResponse.fromJson(_asJsonMap(result));
+  }
+
+  Future<void> logout() async {
+    const cmdType = 0x26; // CTLogout
+    await asyncCall(cmdType, {});
+  }
+
   Future<LocalInfo> initClient(InitClient args) async {
     final res = await asyncCall(CTInitClient, args.toJson());
     print("DEBUG: InitClient response: $res");
@@ -1186,6 +1253,10 @@ abstract class PluginPlatform {
     final res = await asyncCall(CTEvaluateHand, args.toJson());
     return _asJsonMap(res);
   }
+
+  Future<void> startGameStream() async {
+    await asyncCall(CTStartGameStream, "");
+  }
 }
 
 /// -------------------- Commands & Notifications --------------------
@@ -1227,8 +1298,14 @@ const int CTGetLastWinners = 0x20;
 const int CTEvaluateHand = 0x21;
 const int CTSetPlayerReady = 0x22;
 const int CTSetPlayerUnready = 0x23;
+const int CTStartGameStream = 0x27;
 
 const int CTCloseLockFile = 0x60;
+// Auth commands
+const int CTRegister = 0x24;
+const int CTLogin = 0x25;
+const int CTLogout = 0x26;
+const int CTResumeSession = 0x28;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =

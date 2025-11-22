@@ -27,6 +27,7 @@ var (
 	maxLogFiles     = flag.Int("maxlogfiles", 10, "Maximum number of log files")
 	maxBufferLines  = flag.Int("maxbufferlines", 1000, "Maximum number of buffer lines")
 	debug           = flag.String("debug", "", "Debug level for logging")
+	nickname        = flag.String("nickname", "", "Nickname to use for authentication (required)")
 )
 
 func main() {
@@ -50,6 +51,20 @@ func main() {
 	}
 	defer pokerClient.Close()
 	log := cfg.LogBackend.Logger("pokerclient")
+
+	// Authenticate user
+	if *nickname == "" {
+		fmt.Printf("Error: nickname is required. Use -nickname flag to specify your nickname.\n")
+		os.Exit(1)
+	}
+
+	// Login (will auto-register if user doesn't exist)
+	loginResp, err := pokerClient.Login(ctx, *nickname)
+	if err != nil {
+		fmt.Printf("Login failed: %v\n", err)
+		os.Exit(1)
+	}
+	log.Infof("Successfully logged in as %s (User ID: %s)\n", loginResp.Nickname, loginResp.UserID)
 
 	// Start the notification stream
 	if err := pokerClient.StartNotificationStream(ctx); err != nil {
