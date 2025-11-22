@@ -481,33 +481,7 @@ func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel, brRpcUrl
 
 	// Set default values
 	if serverAddr == "" {
-		serverAddr = "127.0.0.1:50050" // Default server
-	}
-	if grpcCertPath == "" {
-		grpcCertPath = filepath.Join(dataDir, "server.cert")
-	}
-	if debugLevel == "" {
-		debugLevel = "debug"
-	}
-	if brRpcUrl == "" {
-		brRpcUrl = "wss://127.0.0.1:7777/ws"
-	}
-	// XXX add default br config values?
-
-	// if brClientCert == "" {
-	// 	brClientCert = filepath.Join(brDataDir, "client.cert")
-	// }
-	// if brClientRpcCert == "" {
-	// 	brClientRpcCert = filepath.Join(dataDir, "client.rpc.cert")
-	// }
-	// if brClientRpcKey == "" {
-	// 	brClientRpcKey = filepath.Join(dataDir, "client.rpc.key")
-	// }
-	if rpcUser == "" {
-		rpcUser = "rpcuser"
-	}
-	if rpcPass == "" {
-		rpcPass = "rpcpass"
+		serverAddr = "178.156.178.191:50050" // Default server
 	}
 
 	// Validate required BR config values before writing the file. These are

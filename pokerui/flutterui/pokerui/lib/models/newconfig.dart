@@ -4,15 +4,9 @@ import 'package:pokerui/config.dart';
 
 class NewConfigModel extends ChangeNotifier {
   // ─── Editable fields ────────────────────────────────────────────────────
-  String serverAddr = '127.0.0.1:50050';
+  String serverAddr = '';
   String grpcCertPath = '';
   String address = '';
-  String brRpcUrl = 'wss://127.0.0.1:7777/ws';
-  String brClientCert = '';
-  String brClientRpcCert = '';
-  String brClientRpcKey = '';
-  String rpcUser = 'rpcuser';
-  String rpcPass = 'rpcpass';
   String debugLevel = 'debug';
   bool wantsLogNtfns = false;
 
@@ -26,14 +20,11 @@ class NewConfigModel extends ChangeNotifier {
   }
 
   factory NewConfigModel.fromConfig(Config c) => NewConfigModel([])
-    ..serverAddr = c.serverAddr
-    ..grpcCertPath = c.grpcCertPath
-    ..address = c.address
-    ..brRpcUrl = c.rpcWebsocketURL.isNotEmpty
-        ? c.rpcWebsocketURL
-        : 'wss://127.0.0.1:7777/ws'
-    ..debugLevel = c.debugLevel
-    ..wantsLogNtfns = c.wantsLogNtfns;
+    ..serverAddr         = c.serverAddr
+    ..grpcCertPath       = c.grpcCertPath
+    ..address            = c.address
+    ..debugLevel         = c.debugLevel
+    ..wantsLogNtfns      = c.wantsLogNtfns;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
   Future<void> _initialiseDefaults() async {

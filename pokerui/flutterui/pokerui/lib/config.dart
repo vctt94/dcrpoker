@@ -13,14 +13,7 @@ class Config {
   final String serverAddr;
   final String grpcCertPath;
   final String payoutAddress;
-
-  final String rpcCertPath;
-  final String rpcClientCertPath;
-  final String rpcClientKeyPath;
-  final String rpcWebsocketURL;
   final String debugLevel;
-  final String rpcUser;
-  final String rpcPass;
   final bool wantsLogNtfns;
   final String dataDir;
   final String address;
@@ -29,13 +22,7 @@ class Config {
     required this.serverAddr,
     required this.grpcCertPath,
     required this.payoutAddress,
-    required this.rpcCertPath,
-    required this.rpcClientCertPath,
-    required this.rpcClientKeyPath,
-    required this.rpcWebsocketURL,
     required this.debugLevel,
-    required this.rpcUser,
-    required this.rpcPass,
     required this.wantsLogNtfns,
     required this.dataDir,
     required this.address,
@@ -45,13 +32,7 @@ class Config {
         serverAddr: '',
         grpcCertPath: '',
         payoutAddress: '',
-        rpcCertPath: '',
-        rpcClientCertPath: '',
-        rpcClientKeyPath: '',
-        rpcWebsocketURL: '',
         debugLevel: 'info',
-        rpcUser: '',
-        rpcPass: '',
         wantsLogNtfns: false,
         dataDir: '',
         address: '',
@@ -69,17 +50,15 @@ class Config {
     }
 
     final serverAddr = pick('server_addr');
+    if (serverAddr.isEmpty) {
+      throw Exception('Server address is required');
+    }
     return Config(
-      serverAddr: serverAddr.isNotEmpty ? serverAddr : '127.0.0.1:50050',
+      serverAddr: serverAddr,
       grpcCertPath: pickPath('grpc_cert_path'),
       payoutAddress: pick('payout_address'),
-      rpcCertPath: pickPath('rpc_cert_path'),
-      rpcClientCertPath: pickPath('rpc_client_cert_path'),
-      rpcClientKeyPath: pickPath('rpc_client_key_path'),
-      rpcWebsocketURL: pick('rpc_websocket_url'),
       debugLevel: pick('debug_level').isNotEmpty ? pick('debug_level') : 'info',
-      rpcUser: pick('rpc_user'),
-      rpcPass: pick('rpc_pass'),
+
       wantsLogNtfns: (m['wants_log_ntfns'] ?? false) == true,
       dataDir: pickPath('datadir'),
       address: pick('address'),
@@ -105,13 +84,7 @@ class Config {
       serverAddr: serverAddr ?? this.serverAddr,
       grpcCertPath: grpcCertPath ?? this.grpcCertPath,
       payoutAddress: payoutAddress ?? this.payoutAddress,
-      rpcCertPath: rpcCertPath ?? this.rpcCertPath,
-      rpcClientCertPath: rpcClientCertPath ?? this.rpcClientCertPath,
-      rpcClientKeyPath: rpcClientKeyPath ?? this.rpcClientKeyPath,
-      rpcWebsocketURL: rpcWebsocketURL ?? this.rpcWebsocketURL,
       debugLevel: debugLevel ?? this.debugLevel,
-      rpcUser: rpcUser ?? this.rpcUser,
-      rpcPass: rpcPass ?? this.rpcPass,
       wantsLogNtfns: wantsLogNtfns ?? this.wantsLogNtfns,
       dataDir: dataDir ?? this.dataDir,
       address: address ?? this.address,
