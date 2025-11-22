@@ -10,16 +10,10 @@ Future<void> initializePokerClient(Config cfg) async {
     cfg.serverAddr,
     cfg.grpcCertPath,
     cfg.dataDir,
-    '${cfg.dataDir}/logs/pokerui.log',
     cfg.payoutAddress,
+    '${cfg.dataDir}/logs/pokerui.log',
     cfg.debugLevel,
     cfg.wantsLogNtfns,
-    cfg.rpcWebsocketURL,
-    cfg.rpcCertPath,
-    cfg.rpcClientCertPath,
-    cfg.rpcClientKeyPath,
-    cfg.rpcUser,
-    cfg.rpcPass,
   );
 
   developer.log(

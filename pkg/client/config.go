@@ -169,7 +169,7 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 	cfg := &PokerConf{
 		Datadir:        configPath,
 		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
-		GRPCHost:       "127.0.0.1",
+		GRPCHost:       "178.156.178.191",
 		GRPCPort:       "50050",
 		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
 		Debug:          "info",

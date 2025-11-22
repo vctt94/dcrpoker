@@ -14,30 +14,39 @@ InitClient _$InitClientFromJson(Map<String, dynamic> json) => InitClient(
       json['log_file'] as String,
       json['debug_level'] as String,
       json['wants_log_ntfns'] as bool,
-      json['rpc_websocket_url'] as String,
-      json['rpc_cert_path'] as String,
-      json['rpc_client_cert_path'] as String,
-      json['rpc_client_key_path'] as String,
-      json['rpc_user'] as String,
-      json['rpc_pass'] as String,
+      json['rpc_websocket_url'] as String?,
+      json['rpc_cert_path'] as String?,
+      json['rpc_client_cert_path'] as String?,
+      json['rpc_client_key_path'] as String?,
+      json['rpc_user'] as String?,
+      json['rpc_pass'] as String?,
     );
 
-Map<String, dynamic> _$InitClientToJson(InitClient instance) =>
-    <String, dynamic>{
-      'server_addr': instance.serverAddr,
-      'grpc_cert_path': instance.grpcCertPath,
-      'datadir': instance.dataDir,
-      'payout_address': instance.payoutAddress,
-      'log_file': instance.logFile,
-      'debug_level': instance.debugLevel,
-      'wants_log_ntfns': instance.wantsLogNtfns,
-      'rpc_websocket_url': instance.rpcWebsockeURL,
-      'rpc_cert_path': instance.rpcCertPath,
-      'rpc_client_cert_path': instance.rpcClientCertpath,
-      'rpc_client_key_path': instance.rpcClientKeypath,
-      'rpc_user': instance.rpcUser,
-      'rpc_pass': instance.rpcPass,
-    };
+Map<String, dynamic> _$InitClientToJson(InitClient instance) {
+  final val = <String, dynamic>{
+    'server_addr': instance.serverAddr,
+    'grpc_cert_path': instance.grpcCertPath,
+    'datadir': instance.dataDir,
+    'payout_address': instance.payoutAddress,
+    'log_file': instance.logFile,
+    'debug_level': instance.debugLevel,
+    'wants_log_ntfns': instance.wantsLogNtfns,
+  };
+
+  void writeNotNull(String key, dynamic value) {
+    if (value != null) {
+      val[key] = value;
+    }
+  }
+
+  writeNotNull('rpc_websocket_url', instance.rpcWebsockeURL);
+  writeNotNull('rpc_cert_path', instance.rpcCertPath);
+  writeNotNull('rpc_client_cert_path', instance.rpcClientCertpath);
+  writeNotNull('rpc_client_key_path', instance.rpcClientKeypath);
+  writeNotNull('rpc_user', instance.rpcUser);
+  writeNotNull('rpc_pass', instance.rpcPass);
+  return val;
+}
 
 InitPokerClient _$InitPokerClientFromJson(Map<String, dynamic> json) =>
     InitPokerClient(
@@ -71,12 +80,6 @@ CreateDefaultConfig _$CreateDefaultConfigFromJson(Map<String, dynamic> json) =>
       json['server_addr'] as String,
       json['grpc_cert_path'] as String,
       json['debug_level'] as String,
-      json['br_rpc_url'] as String,
-      json['br_client_cert'] as String,
-      json['br_client_rpc_cert'] as String,
-      json['br_client_rpc_key'] as String,
-      json['rpc_user'] as String,
-      json['rpc_pass'] as String,
     );
 
 Map<String, dynamic> _$CreateDefaultConfigToJson(
@@ -86,12 +89,6 @@ Map<String, dynamic> _$CreateDefaultConfigToJson(
       'server_addr': instance.serverAddr,
       'grpc_cert_path': instance.grpcCertPath,
       'debug_level': instance.debugLevel,
-      'br_rpc_url': instance.brRpcUrl,
-      'br_client_cert': instance.brClientCert,
-      'br_client_rpc_cert': instance.brClientRpcCert,
-      'br_client_rpc_key': instance.brClientRpcKey,
-      'rpc_user': instance.rpcUser,
-      'rpc_pass': instance.rpcPass,
     };
 
 IDInit _$IDInitFromJson(Map<String, dynamic> json) => IDInit(
