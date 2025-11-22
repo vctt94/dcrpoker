@@ -106,6 +106,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     $core.String? phaseName,
     $core.int? timeBankSeconds,
     $fixnum.Int64? turnDeadlineUnixMs,
+    $fixnum.Int64? smallBlind,
+    $fixnum.Int64? bigBlind,
   }) {
     final result = create();
     if (tableId != null) result.tableId = tableId;
@@ -124,6 +126,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     if (timeBankSeconds != null) result.timeBankSeconds = timeBankSeconds;
     if (turnDeadlineUnixMs != null)
       result.turnDeadlineUnixMs = turnDeadlineUnixMs;
+    if (smallBlind != null) result.smallBlind = smallBlind;
+    if (bigBlind != null) result.bigBlind = bigBlind;
     return result;
   }
 
@@ -158,6 +162,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     ..aOS(13, _omitFieldNames ? '' : 'phaseName')
     ..aI(14, _omitFieldNames ? '' : 'timeBankSeconds')
     ..aInt64(15, _omitFieldNames ? '' : 'turnDeadlineUnixMs')
+    ..aInt64(16, _omitFieldNames ? '' : 'smallBlind')
+    ..aInt64(17, _omitFieldNames ? '' : 'bigBlind')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -300,6 +306,24 @@ class GameUpdate extends $pb.GeneratedMessage {
   $core.bool hasTurnDeadlineUnixMs() => $_has(14);
   @$pb.TagNumber(15)
   void clearTurnDeadlineUnixMs() => $_clearField(15);
+
+  @$pb.TagNumber(16)
+  $fixnum.Int64 get smallBlind => $_getI64(15);
+  @$pb.TagNumber(16)
+  set smallBlind($fixnum.Int64 value) => $_setInt64(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasSmallBlind() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearSmallBlind() => $_clearField(16);
+
+  @$pb.TagNumber(17)
+  $fixnum.Int64 get bigBlind => $_getI64(16);
+  @$pb.TagNumber(17)
+  set bigBlind($fixnum.Int64 value) => $_setInt64(16, value);
+  @$pb.TagNumber(17)
+  $core.bool hasBigBlind() => $_has(16);
+  @$pb.TagNumber(17)
+  void clearBigBlind() => $_clearField(17);
 }
 
 class MakeBetRequest extends $pb.GeneratedMessage {

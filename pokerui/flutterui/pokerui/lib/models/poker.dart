@@ -192,6 +192,8 @@ class UiGameState {
   final String currentPlayerId;
   final int minRaise; // chips
   final int maxRaise; // chips
+  final int smallBlind; // chips
+  final int bigBlind; // chips
   final bool gameStarted;
   final int playersRequired;
   final int playersJoined;
@@ -210,6 +212,8 @@ class UiGameState {
     required this.currentPlayerId,
     required this.minRaise,
     required this.maxRaise,
+    required this.smallBlind,
+    required this.bigBlind,
     required this.gameStarted,
     required this.playersRequired,
     required this.playersJoined,
@@ -228,6 +232,8 @@ class UiGameState {
         currentPlayerId: u.currentPlayer,
         minRaise: u.minRaise.toInt(),
         maxRaise: u.maxRaise.toInt(),
+        smallBlind: u.hasSmallBlind() ? u.smallBlind.toInt() : 0,
+        bigBlind: u.hasBigBlind() ? u.bigBlind.toInt() : 0,
         gameStarted: u.gameStarted,
         playersRequired: u.playersRequired,
         playersJoined: u.playersJoined,

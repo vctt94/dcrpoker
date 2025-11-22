@@ -144,18 +144,18 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                   final matches = widget.model.tables.where((t) => t.id == tid).toList();
                                   return matches.isNotEmpty ? matches.first : null;
                                 })();
-                          final bb = table?.bigBlind ?? 0;
+                          // Prefer big blind from the live game snapshot, fall back to lobby table list
+                          final bb = (widget.model.game?.bigBlind ?? 0) > 0
+                              ? widget.model.game!.bigBlind
+                              : (table?.bigBlind ?? 0);
                           final isRaise = currentBet > 0 && myBet < currentBet;
 
                           void seedDefault() {
-                            // Pre-fill with amount to ADD (not total)
-                            // Default: raise to 3x BB or minimum raise if facing a bet
-                            final defaultBet = (bb * 3);
-                            final targetTotal = (defaultBet > currentBet) ? defaultBet : currentBet;
-                            final amountToAdd = targetTotal - myBet;
-                            if (amountToAdd > 0) {
-                              _betCtrl.text = amountToAdd.toString();
-                            }
+                            // Pre-fill with 3x BB or 3x current bet, whichever is higher
+                            // Only use 3x current bet if currentBet is strictly greater than 3x BB
+                            final threeBB = bb * 3;
+                            final targetTotal = (bb > 0 && currentBet > threeBB) ? (currentBet * 3) : threeBB;
+                            _betCtrl.text = targetTotal.toString();
                           }
 
                           Future<void> submitBet() async {
@@ -168,10 +168,11 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               return;
                             }
                             
-                            // Calculate total bet: user enters amount to ADD, server expects TOTAL
-                            // If raising, minimum raise is currentBet + (currentBet - myBet)
-                            // If opening bet, minimum is typically BB
-                            final totalBet = myBet + amt;
+                            // Calculate total bet: if amount is >= 3x BB or >= current bet (when facing a bet),
+                            // treat as total bet amount. Otherwise, treat as amount to ADD.
+                            final threeBB = bb * 3;
+                            final isTotalBet = amt >= threeBB || (currentBet > 0 && amt >= currentBet);
+                            final totalBet = isTotalBet ? amt : (myBet + amt);
                             
                             // Pre-check: when facing a bet, total must be at least currentBet
                             if (currentBet > 0 && totalBet < currentBet) {
@@ -197,11 +198,11 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                           }
 
                           void setTo3xBB() {
-                            // Set amount to ADD to reach 3x BB total
-                            final defaultBet = (bb * 3);
-                            final targetTotal = (defaultBet > currentBet) ? defaultBet : currentBet;
-                            final amountToAdd = targetTotal - myBet;
-                            _betCtrl.text = amountToAdd.toString();
+                            // Set to 3x BB or 3x current bet, whichever is higher
+                            // Only use 3x current bet if currentBet is strictly greater than 3x BB
+                            final threeBB = bb * 3;
+                            final targetTotal = (bb > 0 && currentBet > threeBB) ? (currentBet * 3) : threeBB;
+                            _betCtrl.text = targetTotal.toString();
                           }
 
                           if (!_showBetInput) {
@@ -243,7 +244,17 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                 ),
                               ),
                               const SizedBox(width: 6),
-                              ElevatedButton(onPressed: bb > 0 ? setTo3xBB : null, child: const Text('3x BB')),
+                              Builder(
+                                builder: (context) {
+                                  final threeBB = bb * 3;
+                                  // Show "3x Bet" only if currentBet is strictly greater than 3x BB
+                                  final buttonText = (bb > 0 && currentBet > threeBB) ? '3x Bet' : '3x BB';
+                                  return ElevatedButton(
+                                    onPressed: bb > 0 ? setTo3xBB : null,
+                                    child: Text(buttonText),
+                                  );
+                                },
+                              ),
                               const SizedBox(width: 6),
                               ElevatedButton(
                                 onPressed: submitBet,

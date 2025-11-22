@@ -714,6 +714,10 @@ class GameUpdateDTO {
   final int timeBankSeconds;
   @JsonKey(name: 'turnDeadlineUnixMs')
   final int turnDeadlineUnixMs;
+  @JsonKey(name: 'smallBlind', defaultValue: 0)
+  final int smallBlind;
+  @JsonKey(name: 'bigBlind', defaultValue: 0)
+  final int bigBlind;
 
   GameUpdateDTO(
     this.tableId,
@@ -731,6 +735,8 @@ class GameUpdateDTO {
     this.phaseName,
     this.timeBankSeconds,
     this.turnDeadlineUnixMs,
+    this.smallBlind,
+    this.bigBlind,
   );
 
   factory GameUpdateDTO.fromJson(Map<String, dynamic> json) =>
@@ -753,7 +759,9 @@ class GameUpdateDTO {
       ..playersJoined = playersJoined
       ..phaseName = phaseName
       ..timeBankSeconds = timeBankSeconds
-      ..turnDeadlineUnixMs = Int64(turnDeadlineUnixMs);
+      ..turnDeadlineUnixMs = Int64(turnDeadlineUnixMs)
+      ..smallBlind = Int64(smallBlind)
+      ..bigBlind = Int64(bigBlind);
   }
 }
 

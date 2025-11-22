@@ -141,6 +141,8 @@ message GameUpdate {
   string phase_name = 13;  // Human-readable name of the current phase
   int32 time_bank_seconds = 14;       // Timebank per player (seconds)
   int64 turn_deadline_unix_ms = 15;   // Absolute deadline for current turn (Unix ms). 0 if N/A
+  int64 small_blind = 16;   // Current table small blind (chips)
+  int64 big_blind = 17;     // Current table big blind (chips)
 }
 
 message MakeBetRequest {

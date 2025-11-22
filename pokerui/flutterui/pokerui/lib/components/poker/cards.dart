@@ -406,7 +406,16 @@ String getSuitSymbol(String suit) {
 }
 
 Color getSuitColor(String suit) {
-  switch (suit.toLowerCase()) {
+  final s = suit.toLowerCase();
+  // Check for Unicode symbols first
+  if (suit == '♥' || suit == '\u2665' || suit == '♦' || suit == '\u2666') {
+    return Colors.red;
+  }
+  if (suit == '♣' || suit == '\u2663' || suit == '♠' || suit == '\u2660') {
+    return Colors.black;
+  }
+  // Then check lowercase strings
+  switch (s) {
     case 'hearts':
     case 'diamonds':
       return Colors.red;

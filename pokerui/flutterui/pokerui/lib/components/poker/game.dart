@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -154,34 +153,6 @@ class PokerGame {
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                // Balance display at top left
-                                Positioned(
-                                  top: 8,
-                                  left: 8,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.8),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.amber, width: 1.5),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.account_balance_wallet, color: Colors.amber, size: 18),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          '${(pokerModel.myAtomsBalance / 1e8).toStringAsFixed(4)} DCR',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
                                 // Pot display (show final pot at showdown if gameState.pot was reset)
                                 Positioned(
                                   top: 20,
@@ -521,10 +492,10 @@ class PokerGame {
           await pokerModel.check();
           break;
         case 'B':
-          // Smart default: bet/raise to 3x current bet when available.
+          // Smart default: bet/raise to 3x big blind, or 3x current bet if higher.
           final g = pokerModel.game;
-          int currentBet = g?.currentBet ?? 0;
-          // Find current table to get blinds
+          final currentBet = g?.currentBet ?? 0;
+          // Prefer blinds from the authoritative game snapshot; fall back to lobby table if needed
           final tid = pokerModel.currentTableId;
           final table = tid == null
               ? null
@@ -532,8 +503,9 @@ class PokerGame {
                     (t) => t != null,
                     orElse: () => null,
                   );
-          final bb = table?.bigBlind ?? 0;
-          final targetTotal = math.max(currentBet, bb * 3);
+          final bb = g?.bigBlind ?? table?.bigBlind ?? 0;
+          final threeBB = bb * 3;
+          final targetTotal = currentBet > threeBB ? (currentBet * 3) : threeBB;
           // Send total bet amount to server
           if (targetTotal > 0) {
             await pokerModel.makeBet(targetTotal);

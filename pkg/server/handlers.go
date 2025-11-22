@@ -315,6 +315,8 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 			Players:         players,
 			PlayersRequired: int32(tableSnapshot.Config.MinPlayers),
 			PlayersJoined:   int32(tableSnapshot.State.PlayerCount),
+			SmallBlind:      tableSnapshot.Config.SmallBlind,
+			BigBlind:        tableSnapshot.Config.BigBlind,
 		}, nil
 	}
 
@@ -408,6 +410,8 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		PlayersJoined:      int32(tableSnapshot.State.PlayerCount),
 		TimeBankSeconds:    tbSec,
 		TurnDeadlineUnixMs: deadlineMs,
+		SmallBlind:         tableSnapshot.Config.SmallBlind,
+		BigBlind:           tableSnapshot.Config.BigBlind,
 	}, nil
 }
 

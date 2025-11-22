@@ -394,6 +394,8 @@ type GameUpdate struct {
 	PhaseName          string                 `protobuf:"bytes,13,opt,name=phase_name,json=phaseName,proto3" json:"phase_name,omitempty"`                                 // Human-readable name of the current phase
 	TimeBankSeconds    int32                  `protobuf:"varint,14,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"`            // Timebank per player (seconds)
 	TurnDeadlineUnixMs int64                  `protobuf:"varint,15,opt,name=turn_deadline_unix_ms,json=turnDeadlineUnixMs,proto3" json:"turn_deadline_unix_ms,omitempty"` // Absolute deadline for current turn (Unix ms). 0 if N/A
+	SmallBlind         int64                  `protobuf:"varint,16,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"`                             // Current table small blind (chips)
+	BigBlind           int64                  `protobuf:"varint,17,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`                                   // Current table big blind (chips)
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -529,6 +531,20 @@ func (x *GameUpdate) GetTimeBankSeconds() int32 {
 func (x *GameUpdate) GetTurnDeadlineUnixMs() int64 {
 	if x != nil {
 		return x.TurnDeadlineUnixMs
+	}
+	return 0
+}
+
+func (x *GameUpdate) GetSmallBlind() int64 {
+	if x != nil {
+		return x.SmallBlind
+	}
+	return 0
+}
+
+func (x *GameUpdate) GetBigBlind() int64 {
+	if x != nil {
+		return x.BigBlind
 	}
 	return 0
 }
@@ -3667,7 +3683,7 @@ const file_poker_proto_rawDesc = "" +
 	"\vpoker.proto\x12\x05poker\"P\n" +
 	"\x16StartGameStreamRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
-	"\btable_id\x18\x02 \x01(\tR\atableId\"\xb5\x04\n" +
+	"\btable_id\x18\x02 \x01(\tR\atableId\"\xf3\x04\n" +
 	"\n" +
 	"GameUpdate\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12&\n" +
@@ -3687,7 +3703,10 @@ const file_poker_proto_rawDesc = "" +
 	"\n" +
 	"phase_name\x18\r \x01(\tR\tphaseName\x12*\n" +
 	"\x11time_bank_seconds\x18\x0e \x01(\x05R\x0ftimeBankSeconds\x121\n" +
-	"\x15turn_deadline_unix_ms\x18\x0f \x01(\x03R\x12turnDeadlineUnixMs\"`\n" +
+	"\x15turn_deadline_unix_ms\x18\x0f \x01(\x03R\x12turnDeadlineUnixMs\x12\x1f\n" +
+	"\vsmall_blind\x18\x10 \x01(\x03R\n" +
+	"smallBlind\x12\x1b\n" +
+	"\tbig_blind\x18\x11 \x01(\x03R\bbigBlind\"`\n" +
 	"\x0eMakeBetRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
 	"\btable_id\x18\x02 \x01(\tR\atableId\x12\x16\n" +

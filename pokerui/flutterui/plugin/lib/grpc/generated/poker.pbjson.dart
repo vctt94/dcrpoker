@@ -187,6 +187,8 @@ const GameUpdate$json = {
       '5': 3,
       '10': 'turnDeadlineUnixMs'
     },
+    {'1': 'small_blind', '3': 16, '4': 1, '5': 3, '10': 'smallBlind'},
+    {'1': 'big_blind', '3': 17, '4': 1, '5': 3, '10': 'bigBlind'},
   ],
 };
 
@@ -202,7 +204,8 @@ final $typed_data.Uint8List gameUpdateDescriptor = $convert.base64Decode(
     'llcnNSZXF1aXJlZBIlCg5wbGF5ZXJzX2pvaW5lZBgMIAEoBVINcGxheWVyc0pvaW5lZBIdCgpw'
     'aGFzZV9uYW1lGA0gASgJUglwaGFzZU5hbWUSKgoRdGltZV9iYW5rX3NlY29uZHMYDiABKAVSD3'
     'RpbWVCYW5rU2Vjb25kcxIxChV0dXJuX2RlYWRsaW5lX3VuaXhfbXMYDyABKANSEnR1cm5EZWFk'
-    'bGluZVVuaXhNcw==');
+    'bGluZVVuaXhNcxIfCgtzbWFsbF9ibGluZBgQIAEoA1IKc21hbGxCbGluZBIbCgliaWdfYmxpbm'
+    'QYESABKANSCGJpZ0JsaW5k');
 
 @$core.Deprecated('Use makeBetRequestDescriptor instead')
 const MakeBetRequest$json = {
