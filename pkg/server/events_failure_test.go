@@ -46,6 +46,17 @@ func (f failingDB) GetSnapshot(ctx context.Context, tableID string) (*sdb.Snapsh
 	return nil, fmt.Errorf("snapshot not found")
 }
 
+// Auth
+func (f failingDB) UpsertAuthUser(ctx context.Context, _, _ string) error { return nil }
+func (f failingDB) GetAuthUserByNickname(ctx context.Context, _ string) (*sdb.AuthUser, error) {
+	return nil, fmt.Errorf("user not found")
+}
+func (f failingDB) GetAuthUserByUserID(ctx context.Context, _ string) (*sdb.AuthUser, error) {
+	return nil, fmt.Errorf("user not found")
+}
+func (f failingDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error  { return nil }
+func (f failingDB) ListAllAuthUsers(ctx context.Context) ([]sdb.AuthUser, error) { return nil, nil }
+
 func (f failingDB) Close() error { return nil }
 
 func TestEventProcessorQueueFullDrop(t *testing.T) {

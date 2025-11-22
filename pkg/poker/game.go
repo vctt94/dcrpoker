@@ -2355,6 +2355,8 @@ type PlayerSnapshot struct {
 	LastAction      time.Time
 	Balance         int64
 	StartingBalance int64
+	Folded          bool
+	IsAllIn         bool
 	Hand            []Card
 	CurrentBet      int64
 	IsDealer        bool
@@ -2401,6 +2403,8 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			Name:            player.name,
 			TableSeat:       player.tableSeat,
 			IsReady:         player.isReady,
+			Folded:          player.hasFolded,
+			IsAllIn:         player.isAllIn,
 			Balance:         player.balance,
 			StartingBalance: player.startingBalance,
 			CurrentBet:      player.currentBet,

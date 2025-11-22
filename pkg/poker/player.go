@@ -169,6 +169,18 @@ func (p *Player) SendDisconnect() {
 	tp.Send(evDisconnect{})
 }
 
+func (p *Player) SendReconnection() {
+	p.mu.RLock()
+	tp := p.tablePresence
+	p.mu.RUnlock()
+
+	if tp == nil {
+		return
+	}
+
+	tp.Send(evReconnect{})
+}
+
 // -------------------------- State functions --------------------------
 
 func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
@@ -192,6 +204,10 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 			case evReady:
 				p.mu.Lock()
 				p.isReady = true
+				p.mu.Unlock()
+			case evUnready:
+				p.mu.Lock()
+				p.isReady = false
 				p.mu.Unlock()
 
 			case evDeductBlind:
@@ -280,6 +296,10 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 			case evDisconnect:
 				p.mu.Lock()
 				p.isDisconnected = true
+				p.mu.Unlock()
+			case evReconnect:
+				p.mu.Lock()
+				p.isDisconnected = false
 				p.mu.Unlock()
 			case evLeave:
 				return stateLeft
@@ -387,6 +407,18 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			p.mu.Lock()
 			p.isDisconnected = true
 			p.mu.Unlock()
+		case evReconnect:
+			p.mu.Lock()
+			p.isDisconnected = false
+			p.mu.Unlock()
+		case evReady:
+			p.mu.Lock()
+			p.isReady = true
+			p.mu.Unlock()
+		case evUnready:
+			p.mu.Lock()
+			p.isReady = false
+			p.mu.Unlock()
 
 		case evLeave:
 			return stateLeft
@@ -431,6 +463,7 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 	p.mu.Lock()
 	p.isTurn = false
+	p.isAllIn = true
 	p.mu.Unlock()
 
 	for ev := range in {
@@ -565,6 +598,10 @@ func stateTableSeated(p *Player, in <-chan any) TablePresenceStateFn {
 			case evDisconnect:
 				p.mu.Lock()
 				p.isDisconnected = true
+				p.mu.Unlock()
+			case evReconnect:
+				p.mu.Lock()
+				p.isDisconnected = false
 				p.mu.Unlock()
 
 			case evLeave:
@@ -721,6 +758,7 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 func stateHandAllIn(p *Player, in <-chan any) HandParticipationStateFn {
 	p.mu.Lock()
 	p.isTurn = false
+	p.isAllIn = true
 	p.mu.Unlock()
 
 	for ev := range in {
@@ -907,6 +945,9 @@ func (p *Player) HandDescription() string {
 }
 
 func (p *Player) ID() string {
+	if p == nil {
+		return ""
+	}
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.id
@@ -1108,6 +1149,7 @@ type evDeductBlind struct {
 }
 
 type evReady struct{}
+type evUnready struct{}
 
 type evStartHand struct{}
 
@@ -1143,8 +1185,29 @@ type evFoldReq struct{ Reply chan<- error }
 type evEndHand struct{}
 
 type evDisconnect struct{}
-
+type evReconnect struct{}
 type evLeave struct{}
+
+// Ready/unready helpers for table presence FSM.
+func (p *Player) SendReady() {
+	p.mu.RLock()
+	tp := p.tablePresence
+	p.mu.RUnlock()
+	if tp == nil {
+		return
+	}
+	tp.Send(evReady{})
+}
+
+func (p *Player) SendUnready() {
+	p.mu.RLock()
+	tp := p.tablePresence
+	p.mu.RUnlock()
+	if tp == nil {
+		return
+	}
+	tp.Send(evUnready{})
+}
 
 type PlayerStateFn = statemachine.StateFn[Player]
 

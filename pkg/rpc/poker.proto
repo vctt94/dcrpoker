@@ -236,6 +236,7 @@ message CreateTableRequest {
 
 message CreateTableResponse {
   string table_id = 1;
+  string message = 2;
 }
 
 message JoinTableRequest {
@@ -246,7 +247,6 @@ message JoinTableRequest {
 message JoinTableResponse {
   bool success = 1;
   string message = 2;
-  int64 new_balance = 3;
 }
 
 message LeaveTableRequest {

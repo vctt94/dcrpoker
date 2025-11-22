@@ -1449,6 +1449,7 @@ func (x *CreateTableRequest) GetAutoAdvanceMs() int32 {
 type CreateTableResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	TableId       string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1486,6 +1487,13 @@ func (*CreateTableResponse) Descriptor() ([]byte, []int) {
 func (x *CreateTableResponse) GetTableId() string {
 	if x != nil {
 		return x.TableId
+	}
+	return ""
+}
+
+func (x *CreateTableResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
 	}
 	return ""
 }
@@ -1546,7 +1554,6 @@ type JoinTableResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
 	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	NewBalance    int64                  `protobuf:"varint,3,opt,name=new_balance,json=newBalance,proto3" json:"new_balance,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1593,13 +1600,6 @@ func (x *JoinTableResponse) GetMessage() string {
 		return x.Message
 	}
 	return ""
-}
-
-func (x *JoinTableResponse) GetNewBalance() int64 {
-	if x != nil {
-		return x.NewBalance
-	}
-	return 0
 }
 
 type LeaveTableRequest struct {
@@ -3752,17 +3752,16 @@ const file_poker_proto_rawDesc = "" +
 	"\x11time_bank_seconds\x18\t \x01(\x05R\x0ftimeBankSeconds\x12\"\n" +
 	"\rauto_start_ms\x18\n" +
 	" \x01(\x05R\vautoStartMs\x12&\n" +
-	"\x0fauto_advance_ms\x18\v \x01(\x05R\rautoAdvanceMs\"0\n" +
+	"\x0fauto_advance_ms\x18\v \x01(\x05R\rautoAdvanceMs\"J\n" +
 	"\x13CreateTableResponse\x12\x19\n" +
-	"\btable_id\x18\x01 \x01(\tR\atableId\"J\n" +
+	"\btable_id\x18\x01 \x01(\tR\atableId\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
 	"\x10JoinTableRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
-	"\btable_id\x18\x02 \x01(\tR\atableId\"h\n" +
+	"\btable_id\x18\x02 \x01(\tR\atableId\"G\n" +
 	"\x11JoinTableResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1f\n" +
-	"\vnew_balance\x18\x03 \x01(\x03R\n" +
-	"newBalance\"K\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"K\n" +
 	"\x11LeaveTableRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
 	"\btable_id\x18\x02 \x01(\tR\atableId\"H\n" +

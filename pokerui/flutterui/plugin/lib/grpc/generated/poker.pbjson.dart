@@ -494,13 +494,14 @@ const CreateTableResponse$json = {
   '1': 'CreateTableResponse',
   '2': [
     {'1': 'table_id', '3': 1, '4': 1, '5': 9, '10': 'tableId'},
+    {'1': 'message', '3': 2, '4': 1, '5': 9, '10': 'message'},
   ],
 };
 
 /// Descriptor for `CreateTableResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List createTableResponseDescriptor =
-    $convert.base64Decode(
-        'ChNDcmVhdGVUYWJsZVJlc3BvbnNlEhkKCHRhYmxlX2lkGAEgASgJUgd0YWJsZUlk');
+final $typed_data.Uint8List createTableResponseDescriptor = $convert.base64Decode(
+    'ChNDcmVhdGVUYWJsZVJlc3BvbnNlEhkKCHRhYmxlX2lkGAEgASgJUgd0YWJsZUlkEhgKB21lc3'
+    'NhZ2UYAiABKAlSB21lc3NhZ2U=');
 
 @$core.Deprecated('Use joinTableRequestDescriptor instead')
 const JoinTableRequest$json = {
@@ -522,14 +523,13 @@ const JoinTableResponse$json = {
   '2': [
     {'1': 'success', '3': 1, '4': 1, '5': 8, '10': 'success'},
     {'1': 'message', '3': 2, '4': 1, '5': 9, '10': 'message'},
-    {'1': 'new_balance', '3': 3, '4': 1, '5': 3, '10': 'newBalance'},
   ],
 };
 
 /// Descriptor for `JoinTableResponse`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List joinTableResponseDescriptor = $convert.base64Decode(
     'ChFKb2luVGFibGVSZXNwb25zZRIYCgdzdWNjZXNzGAEgASgIUgdzdWNjZXNzEhgKB21lc3NhZ2'
-    'UYAiABKAlSB21lc3NhZ2USHwoLbmV3X2JhbGFuY2UYAyABKANSCm5ld0JhbGFuY2U=');
+    'UYAiABKAlSB21lc3NhZ2U=');
 
 @$core.Deprecated('Use leaveTableRequestDescriptor instead')
 const LeaveTableRequest$json = {

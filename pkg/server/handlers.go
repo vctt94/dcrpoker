@@ -152,15 +152,26 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 }
 
 func (nh *NotificationHandler) handlePlayerReady(event *GameEvent) {
-	pl, ok := event.Payload.(PlayerReadyPayload)
-	if !ok {
+	var (
+		playerID string
+		ready    = true
+	)
+
+	switch pl := event.Payload.(type) {
+	case PlayerReadyPayload:
+		playerID = pl.PlayerID
+	case PlayerMarkedReadyPayload:
+		playerID = pl.PlayerID
+		ready = pl.Ready
+	default:
 		nh.server.log.Warnf("PLAYER_READY without PlayerReadyPayload; skipping (table=%s)", event.TableID)
 		return
 	}
 	notification := &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_PLAYER_READY,
-		PlayerId: pl.PlayerID,
+		PlayerId: playerID,
 		TableId:  event.TableID,
+		Ready:    ready,
 	}
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }

@@ -45,6 +45,17 @@ func (stubDB) UnseatPlayer(ctx context.Context, _ string, _ string) error      {
 func (stubDB) UpsertSnapshot(ctx context.Context, _ db.Snapshot) error   { return nil }
 func (stubDB) UpsertTable(_ context.Context, _ *poker.TableConfig) error { return nil }
 
+// --- Auth ---
+func (stubDB) UpsertAuthUser(ctx context.Context, _, _ string) error { return nil }
+func (stubDB) GetAuthUserByNickname(ctx context.Context, _ string) (*db.AuthUser, error) {
+	return nil, nil
+}
+func (stubDB) GetAuthUserByUserID(ctx context.Context, _ string) (*db.AuthUser, error) {
+	return nil, nil
+}
+func (stubDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error { return nil }
+func (stubDB) ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error) { return nil, nil }
+
 // --- Close ---
 func (stubDB) Close() error { return nil }
 
@@ -98,8 +109,8 @@ func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 
 // ---------- Tests ---------- //
 
-// TestGameSnapshotCurrentBet confirms CurrentBet in snapshot equals table BigBlind right after blinds.
-func TestGameSnapshotCurrentBet(t *testing.T) {
+// TestTableSnapshotCurrentBet confirms CurrentBet in snapshot equals table BigBlind right after blinds.
+func TestTableSnapshotCurrentBet(t *testing.T) {
 	s := newBareServer()
 	table := buildActiveHeadsUpTable(t, "table_test")
 	s.tables.Store(table.GetConfig().ID, table)

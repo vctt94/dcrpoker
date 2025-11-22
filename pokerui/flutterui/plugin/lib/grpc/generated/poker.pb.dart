@@ -1465,9 +1465,11 @@ class CreateTableRequest extends $pb.GeneratedMessage {
 class CreateTableResponse extends $pb.GeneratedMessage {
   factory CreateTableResponse({
     $core.String? tableId,
+    $core.String? message,
   }) {
     final result = create();
     if (tableId != null) result.tableId = tableId;
+    if (message != null) result.message = message;
     return result;
   }
 
@@ -1485,6 +1487,7 @@ class CreateTableResponse extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'tableId')
+    ..aOS(2, _omitFieldNames ? '' : 'message')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1514,6 +1517,15 @@ class CreateTableResponse extends $pb.GeneratedMessage {
   $core.bool hasTableId() => $_has(0);
   @$pb.TagNumber(1)
   void clearTableId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get message => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set message($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMessage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMessage() => $_clearField(2);
 }
 
 class JoinTableRequest extends $pb.GeneratedMessage {
@@ -1586,12 +1598,10 @@ class JoinTableResponse extends $pb.GeneratedMessage {
   factory JoinTableResponse({
     $core.bool? success,
     $core.String? message,
-    $fixnum.Int64? newBalance,
   }) {
     final result = create();
     if (success != null) result.success = success;
     if (message != null) result.message = message;
-    if (newBalance != null) result.newBalance = newBalance;
     return result;
   }
 
@@ -1610,7 +1620,6 @@ class JoinTableResponse extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOB(1, _omitFieldNames ? '' : 'success')
     ..aOS(2, _omitFieldNames ? '' : 'message')
-    ..aInt64(3, _omitFieldNames ? '' : 'newBalance')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1649,15 +1658,6 @@ class JoinTableResponse extends $pb.GeneratedMessage {
   $core.bool hasMessage() => $_has(1);
   @$pb.TagNumber(2)
   void clearMessage() => $_clearField(2);
-
-  @$pb.TagNumber(3)
-  $fixnum.Int64 get newBalance => $_getI64(2);
-  @$pb.TagNumber(3)
-  set newBalance($fixnum.Int64 value) => $_setInt64(2, value);
-  @$pb.TagNumber(3)
-  $core.bool hasNewBalance() => $_has(2);
-  @$pb.TagNumber(3)
-  void clearNewBalance() => $_clearField(3);
 }
 
 class LeaveTableRequest extends $pb.GeneratedMessage {

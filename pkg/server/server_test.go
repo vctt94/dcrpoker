@@ -48,6 +48,9 @@ type InMemoryDB struct {
 
 	// optional fast-restore snapshots
 	snapshots map[string]db.Snapshot // tableID -> snapshot
+
+	// auth
+	authUsers map[string]*db.AuthUser // userID -> AuthUser
 }
 
 // NewInMemoryDB creates a new in-memory database for testing.
@@ -59,6 +62,7 @@ func NewInMemoryDB() *InMemoryDB {
 		participants: make(map[string]map[string]*db.Participant),
 		seatIndex:    make(map[string]map[int]string),
 		snapshots:    make(map[string]db.Snapshot),
+		authUsers:    make(map[string]*db.AuthUser),
 	}
 }
 
@@ -273,6 +277,81 @@ func (m *InMemoryDB) GetSnapshot(_ context.Context, tableID string) (*db.Snapsho
 	}
 	cp := s
 	return &cp, nil
+}
+
+// -------- Auth --------
+
+func (m *InMemoryDB) UpsertAuthUser(_ context.Context, nickname, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	if existing, ok := m.authUsers[userID]; ok {
+		// Update existing user
+		existing.Nickname = nickname
+	} else {
+		// Create new user
+		m.authUsers[userID] = &db.AuthUser{
+			Nickname:  nickname,
+			UserID:    userID,
+			CreatedAt: now,
+			LastLogin: sql.NullTime{Valid: false},
+		}
+	}
+	return nil
+}
+
+func (m *InMemoryDB) GetAuthUserByNickname(_ context.Context, nickname string) (*db.AuthUser, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, user := range m.authUsers {
+		if user.Nickname == nickname {
+			cp := *user
+			return &cp, nil
+		}
+	}
+	return nil, fmt.Errorf("user not found")
+}
+
+func (m *InMemoryDB) GetAuthUserByUserID(_ context.Context, userID string) (*db.AuthUser, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	user, ok := m.authUsers[userID]
+	if !ok {
+		return nil, fmt.Errorf("user not found")
+	}
+	cp := *user
+	return &cp, nil
+}
+
+func (m *InMemoryDB) UpdateAuthUserLastLogin(_ context.Context, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user, ok := m.authUsers[userID]
+	if !ok {
+		return fmt.Errorf("user not found")
+	}
+	user.LastLogin = sql.NullTime{Time: time.Now(), Valid: true}
+	return nil
+}
+
+func (m *InMemoryDB) ListAllAuthUsers(_ context.Context) ([]db.AuthUser, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	users := make([]db.AuthUser, 0, len(m.authUsers))
+	for _, user := range m.authUsers {
+		cp := *user
+		users = append(users, cp)
+	}
+	// Sort by CreatedAt for consistency
+	sort.Slice(users, func(i, j int) bool {
+		return users[i].CreatedAt.Before(users[j].CreatedAt)
+	})
+	return users, nil
 }
 
 // -------- Close --------
@@ -1546,6 +1625,27 @@ func waitForUpdate(t *testing.T, ms *mockGameStream, timeout time.Duration) *pok
 	}
 }
 
+// waitForTurnAdvance waits for a GameUpdate whose current player differs from
+// prevPlayerID, skipping any stale updates already buffered on the stream.
+func waitForTurnAdvance(t *testing.T, ms *mockGameStream, timeout time.Duration, prevPlayerID string) *pokerrpc.GameUpdate {
+	t.Helper()
+	deadline := time.After(timeout)
+	for {
+		select {
+		case upd := <-ms.sentCh:
+			if upd == nil {
+				continue
+			}
+			if upd.CurrentPlayer != prevPlayerID {
+				return upd
+			}
+		case <-deadline:
+			t.Fatalf("timeout waiting for GameUpdate with current player different from %q", prevPlayerID)
+			return nil
+		}
+	}
+}
+
 // TestTimebankExpiryBroadcast ensures a GameUpdate is broadcast after an auto-action
 // due to timebank expiry and that the current player changes accordingly.
 func TestTimebankExpiryBroadcast(t *testing.T) {
@@ -1602,8 +1702,8 @@ func TestTimebankExpiryBroadcast(t *testing.T) {
 
 	// Expect a broadcast with the current player changed on both streams
 	// (allow a short window for the server to process and push updates)
-	got1 := waitForUpdate(t, ms1, 2*time.Second)
-	got2 := waitForUpdate(t, ms2, 2*time.Second)
+	got1 := waitForTurnAdvance(t, ms1, 2*time.Second, curID)
+	got2 := waitForTurnAdvance(t, ms2, 2*time.Second, curID)
 
 	require.NotNil(t, got1)
 	require.NotNil(t, got2)

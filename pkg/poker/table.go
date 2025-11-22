@@ -17,6 +17,13 @@ import (
 // fired when users join/leave or toggle ready; state may move to/from PLAYERS_READY
 type evUsersChanged struct{}
 
+// ready/unready requests routed through the table FSM
+type evSetUserReady struct {
+	userID string
+	ready  bool
+	reply  chan<- error
+}
+
 // request to enter GAME_ACTIVE (StartGame / startNewHand)
 type evStartGameReq struct{}
 
@@ -28,6 +35,12 @@ type TableEvent struct {
 	Type    pokerrpc.NotificationType
 	TableID string
 	Payload interface{}
+}
+
+// ActionPayload is a simple payload used by the poker package to pass player IDs
+// for auto action events (fold, check).
+type ActionPayload struct {
+	PlayerID string
 }
 
 // TableStateFn represents a table state function following Rob Pike's pattern
@@ -289,9 +302,9 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		// then trigger a game state broadcast via the event pipeline.
 		switch event.Action {
 		case "check":
-			t.PublishEvent(pokerrpc.NotificationType_CHECK_MADE, t.config.ID, nil)
+			t.PublishEvent(pokerrpc.NotificationType_CHECK_MADE, t.config.ID, ActionPayload{PlayerID: event.ActorID})
 		case "fold":
-			t.PublishEvent(pokerrpc.NotificationType_PLAYER_FOLDED, t.config.ID, nil)
+			t.PublishEvent(pokerrpc.NotificationType_PLAYER_FOLDED, t.config.ID, ActionPayload{PlayerID: event.ActorID})
 		default:
 			t.PublishEvent(pokerrpc.NotificationType_UNKNOWN, t.config.ID, nil)
 		}
@@ -381,6 +394,15 @@ func (t *Table) allPlayersReady() bool {
 func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
 		switch ev.(type) {
+		case evSetUserReady:
+			e := ev.(evSetUserReady)
+			err := t.applyUserReady(e.userID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
+			if err == nil && t.allPlayersReady() {
+				return tableStatePlayersReady
+			}
 		case evUsersChanged:
 			if t.allPlayersReady() {
 				return tableStatePlayersReady
@@ -404,6 +426,15 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
 		switch ev.(type) {
+		case evSetUserReady:
+			e := ev.(evSetUserReady)
+			err := t.applyUserReady(e.userID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
+			if err == nil && !t.allPlayersReady() {
+				return tableStateWaitingForPlayers
+			}
 		case evUsersChanged:
 			if !t.allPlayersReady() {
 				return tableStateWaitingForPlayers
@@ -424,6 +455,12 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
 		switch ev.(type) {
+		case evSetUserReady:
+			e := ev.(evSetUserReady)
+			err := t.applyUserReady(e.userID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
 		case evGameEnded:
 			return tableStateWaitingForPlayers
 		default:
@@ -568,8 +605,7 @@ func (t *Table) StartGame() error {
 func (t *Table) IsGameStarted() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	state := t.GetTableStateString()
-	return state == "GAME_ACTIVE"
+	return t.isGameActive()
 }
 
 // AreAllPlayersReady returns whether all players are ready
@@ -582,8 +618,7 @@ func (t *Table) AreAllPlayersReady() bool {
 
 // isGameActive returns true if the game is currently active
 func (t *Table) isGameActive() bool {
-	state := t.GetTableStateString()
-	return state == "GAME_ACTIVE"
+	return t.game != nil
 }
 
 // handleShowdownComplete stores the showdown result received from the game FSM
@@ -1136,8 +1171,25 @@ func (t *Table) SetHost(newHostID string) error {
 	return nil
 }
 
-// SetPlayerReady sets the ready status for a player
-func (t *Table) SetPlayerReady(userID string, ready bool) error {
+func (t *Table) sendTableEvent(ev any) (err error) {
+	t.mu.RLock()
+	closed := t.closed
+	sm := t.sm
+	t.mu.RUnlock()
+	if closed || sm == nil {
+		return fmt.Errorf("table closed")
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("table closed")
+		}
+	}()
+	sm.Send(ev)
+	return nil
+}
+
+// applyUserReady mutates readiness under lock; caller must trigger FSM transitions.
+func (t *Table) applyUserReady(userID string, ready bool) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -1147,11 +1199,22 @@ func (t *Table) SetPlayerReady(userID string, ready bool) error {
 	}
 
 	user.IsReady = ready
-
-	// Trigger state machine update to check if we should transition to PLAYERS_READY
-	t.sm.Send(evUsersChanged{})
-
+	t.lastAction = time.Now()
 	return nil
+}
+
+// SetPlayerReady sets the ready status for a player via the table FSM.
+func (t *Table) SetPlayerReady(userID string, ready bool) error {
+	reply := make(chan error, 1)
+	if err := t.sendTableEvent(evSetUserReady{
+		userID: userID,
+		ready:  ready,
+		reply:  reply,
+	}); err != nil {
+		return err
+	}
+
+	return <-reply
 }
 
 // TableStateSnapshot represents a point-in-time snapshot of table state for safe concurrent access
@@ -1221,22 +1284,6 @@ func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error 
 	return nil
 }
 
-// SetUserDisconnected safely updates the IsDisconnected status of a user seated at the table.
-// It acquires the table lock to synchronize concurrent access so that readers (e.g. state snapshots)
-// don't race with writers.
-func (t *Table) SetUserDisconnected(userID string, disconnected bool) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	u, ok := t.users[userID]
-	if !ok {
-		return fmt.Errorf("user not found at table")
-	}
-
-	u.IsDisconnected = disconnected
-	return nil
-}
-
 // XX We need to properly fix this restore for clients. and properly restore game state from sm
 func (t *Table) RestoreGame(tableID string) (*Game, error) {
 	t.mu.Lock()
@@ -1274,10 +1321,9 @@ func (t *Table) RestoreGame(tableID string) (*Game, error) {
 	// Initialize players for this game
 	game.SetPlayers(active)
 
-	// Ensure all players are ready before transitioning to GAME_ACTIVE
-	// This ensures the state machine can transition from WAITING_FOR_PLAYERS or PLAYERS_READY
-	for _, u := range t.users {
-		u.IsReady = true
+	readyIDs := make([]string, 0, len(active))
+	for _, u := range active {
+		readyIDs = append(readyIDs, u.ID)
 	}
 
 	// Attach game to table

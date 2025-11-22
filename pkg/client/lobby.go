@@ -135,6 +135,15 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 		return "", err
 	}
 
+	// Surface server-side validation errors (only message field available now).
+	if resp.GetTableId() == "" {
+		msg := resp.GetMessage()
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return "", fmt.Errorf("failed to create table: %s", msg)
+	}
+
 	pc.SetCurrentTableID(resp.TableId)
 
 	// Note: Game stream is not automatically started for table creation
@@ -154,7 +163,11 @@ func (pc *PokerClient) JoinTable(ctx context.Context, tableID string) error {
 	}
 
 	if !resp.Success {
-		return fmt.Errorf("failed to join table: %s", resp.Message)
+		msg := resp.GetMessage()
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return fmt.Errorf("failed to join table: %s", msg)
 	}
 
 	pc.SetCurrentTableID(tableID)

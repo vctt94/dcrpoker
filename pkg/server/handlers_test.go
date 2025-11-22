@@ -59,7 +59,7 @@ func TestGameStateHandlerBuildGameStates(t *testing.T) {
 		Hand:    []poker.Card{cardA}, // irrelevant – should be hidden from p1
 	}
 
-	gsnap := &GameSnapshot{
+	gsnap := &poker.GameStateSnapshot{
 		Phase:         pokerrpc.GamePhase_PRE_FLOP,
 		Pot:           0,
 		CurrentBet:    0,
@@ -130,7 +130,7 @@ func TestGameStateHandlerShowsOwnCardsDuringNewHandDealing(t *testing.T) {
 	tsnap := &TableSnapshot{
 		ID:      "tid",
 		Players: []*PlayerSnapshot{p1Snap, p2Snap},
-		GameSnapshot: &GameSnapshot{
+		GameSnapshot: &poker.GameStateSnapshot{
 			Phase:         pokerrpc.GamePhase_NEW_HAND_DEALING,
 			Pot:           0,
 			CurrentBet:    0,
