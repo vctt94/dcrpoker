@@ -104,6 +104,11 @@ enum NotificationType {
   CARDS_HIDDEN = 21;
   NEW_HAND_STARTED = 22;
   PLAYER_ALL_IN = 23;
+  // Connection and stream lifecycle (typed, non-UNKNOWN)
+  NOTIFICATION_STREAM_CONNECTED = 24;
+  NOTIFICATION_STREAM_DISCONNECTED = 25;
+  GAME_STREAM_CONNECTED = 26;
+  GAME_STREAM_DISCONNECTED = 27;
 }
 
 enum HandRank {

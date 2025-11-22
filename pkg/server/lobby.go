@@ -628,8 +628,8 @@ func (s *Server) StartNotificationStream(req *pokerrpc.StartNotificationStreamRe
 
 	// Send an initial notification to ensure the stream is established
 	initialNotification := &pokerrpc.Notification{
-		Type:     pokerrpc.NotificationType_UNKNOWN,
-		Message:  "Connected to notification stream",
+		Type:     pokerrpc.NotificationType_NOTIFICATION_STREAM_CONNECTED,
+		Message:  "notification stream connected",
 		PlayerId: playerID,
 	}
 	if err := stream.Send(initialNotification); err != nil {

@@ -43,6 +43,14 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 	// Unregister on exit only if this goroutine still owns the stored stream.
 	// This prevents a replaced (older) stream from deleting the newer mapping.
 	defer func() {
+		// Inform table peers this player's game stream disconnected.
+		s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
+			Type:     pokerrpc.NotificationType_GAME_STREAM_DISCONNECTED,
+			Message:  "game stream disconnected",
+			TableId:  tableID,
+			PlayerId: playerID,
+		})
+
 		if v, present := b.streams.Load(playerID); present && v == stream {
 			b.streams.Delete(playerID)
 			if b.count.Add(-1) == 0 {
@@ -66,6 +74,14 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 			}
 		}
 	}
+
+	// Inform table peers this player's game stream is connected (reconnected).
+	s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
+		Type:     pokerrpc.NotificationType_GAME_STREAM_CONNECTED,
+		Message:  "game stream connected",
+		TableId:  tableID,
+		PlayerId: playerID,
+	})
 
 	// Build a fresh snapshot to broadcast the reconnection and seed this stream.
 	gsh := NewGameStateHandler(s)

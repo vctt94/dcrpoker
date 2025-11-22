@@ -14,7 +14,6 @@ import 'package:golib_plugin/definitions.dart'
         JoinPokerTableArgs,
         InitClient,
         GameUpdateDTO;
-import 'package:grpc/grpc.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/notifications.dart';
 
@@ -347,6 +346,19 @@ class PokerModel extends ChangeNotifier {
   // -------- Notifications (from Go; no direct gRPC stream) ----------
   void _onNotification(pr.Notification n) {
     switch (n.type) {
+      case pr.NotificationType.NOTIFICATION_STREAM_CONNECTED:
+        // Force a full resync in case the initial resync GameUpdate was missed.
+        unawaited(_restoreCurrentTable());
+        break;
+      case pr.NotificationType.GAME_STREAM_CONNECTED:
+        // Ensure latest state and that the game stream is active.
+        unawaited(refreshGameState());
+        unawaited(ensureGameStream());
+        break;
+      case pr.NotificationType.NOTIFICATION_STREAM_DISCONNECTED:
+      case pr.NotificationType.GAME_STREAM_DISCONNECTED:
+        // No-op: UI remains usable; we’ll act on reconnect events.
+        break;
       case pr.NotificationType.TABLE_CREATED:
       case pr.NotificationType.TABLE_REMOVED:
       case pr.NotificationType.PLAYER_JOINED:
@@ -434,7 +446,7 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Game Updates (from game stream) ----------
   void _onGameUpdate(pr.GameUpdate gameUpdate) {
-    // Update game state from the stream update
+   // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
     // Update UI state based on game phase
     final phase = gameUpdate.phase;
@@ -550,6 +562,7 @@ class PokerModel extends ChangeNotifier {
       if (_seated && currentTableId == tableId) {
         // Ensure state is up-to-date via golib.
         await refreshGameState();
+        await ensureGameStream();
         unawaited(_refreshLastWinners());
         notifyListeners();
         return true;
@@ -570,15 +583,7 @@ class PokerModel extends ChangeNotifier {
       await refreshTables();
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
-      // If game is already started, ensure game stream is active
-      if (game != null &&
-          (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
-        try {
-          await Golib.startGameStream();
-        } catch (e) {
-          rethrow;
-        }
-      }
+      await ensureGameStream();
       unawaited(_refreshLastWinners());
       notifyListeners();
       return true;
@@ -586,6 +591,17 @@ class PokerModel extends ChangeNotifier {
       errorMessage = 'Join failed: $e';
       notifyListeners();
       return false;
+    }
+  }
+
+  Future<void> ensureGameStream() async {
+    final g = game;
+    if (g==null) return;
+    if(!(g.gameStarted || g.phase != pr.GamePhase.WAITING)) return;
+    try {
+      await Golib.startGameStream();
+    } catch (e) {
+      rethrow;
     }
   }
 
@@ -803,8 +819,9 @@ class PokerModel extends ChangeNotifier {
       lastWinners = List.unmodifiable(winners);
       lastShowdownFxMs = DateTime.now().millisecondsSinceEpoch;
       notifyListeners();
-    } catch (e, st) {
-      // ignore; cache stays as-is
+    } catch (_) {
+      // empty cache
+      lastWinners = const [];
     }
   }
 
