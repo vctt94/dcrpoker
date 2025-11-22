@@ -1353,33 +1353,41 @@ func TestThreePlayersAutoplayOneHand(t *testing.T) {
 			continue
 		}
 
-		// Helper to make an action with retry on transient errors.
-		// Test logic: play passively to complete a full hand (check when possible, call otherwise).
-		// This exercises all betting rounds without complex raising logic.
-		makeAction := func() error {
-			if currPlayer.CurrentBet >= state.CurrentBet {
-				// Already matched the current bet - check
-				_, err := env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: curr, TableId: tableID})
-				if err != nil && isTransientTurnError(err) {
-					return err // Retry on transient errors
-				}
-				require.NoError(t, err)
-				return nil
-			} else {
-				// Need to match the current bet - call using dedicated CallBet RPC
-				// (avoids race with reading state.CurrentBet and then betting to it)
-				_, err := env.pokerClient.CallBet(ctx, &pokerrpc.CallBetRequest{PlayerId: curr, TableId: tableID})
-				if err != nil && isTransientTurnError(err) {
-					return err // Retry on transient errors
-				}
-				require.NoError(t, err)
-				return nil
-			}
-		}
-
-		// Use Eventually pattern to handle transient turn races
+		// Use Eventually pattern to handle transient turn races.
 		require.Eventually(t, func() bool {
-			return makeAction() == nil
+			latest := env.getGameState(ctx, tableID)
+			// Skip if hand not in a betting phase anymore
+			if latest.Phase != pokerrpc.GamePhase_PRE_FLOP &&
+				latest.Phase != pokerrpc.GamePhase_FLOP &&
+				latest.Phase != pokerrpc.GamePhase_TURN &&
+				latest.Phase != pokerrpc.GamePhase_RIVER {
+				return false
+			}
+			cur := latest.CurrentPlayer
+			var curPl *pokerrpc.Player
+			for _, p := range latest.Players {
+				if p.Id == cur {
+					curPl = p
+					break
+				}
+			}
+			if curPl == nil {
+				return false
+			}
+
+			var err error
+			if curPl.CurrentBet >= latest.CurrentBet {
+				_, err = env.pokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: cur, TableId: tableID})
+			} else {
+				_, err = env.pokerClient.CallBet(ctx, &pokerrpc.CallBetRequest{PlayerId: cur, TableId: tableID})
+			}
+			if err != nil {
+				if isTransientTurnError(err) {
+					return false
+				}
+				require.NoError(t, err)
+			}
+			return true
 		}, 1*time.Second, 10*time.Millisecond, "failed to execute action for player %s", curr)
 	}
 

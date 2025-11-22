@@ -152,9 +152,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
 
                           void seedDefault() {
                             // Pre-fill with 3x BB or 3x current bet, whichever is higher
-                            // Only use 3x current bet if currentBet is strictly greater than 3x BB
+                            // Use 3x current bet if currentBet is greater than or equal to 3x BB
                             final threeBB = bb * 3;
-                            final targetTotal = (bb > 0 && currentBet > threeBB) ? (currentBet * 3) : threeBB;
+                            final targetTotal = (bb > 0 && currentBet >= threeBB) ? (currentBet * 3) : threeBB;
                             _betCtrl.text = targetTotal.toString();
                           }
 
@@ -199,9 +199,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
 
                           void setTo3xBB() {
                             // Set to 3x BB or 3x current bet, whichever is higher
-                            // Only use 3x current bet if currentBet is strictly greater than 3x BB
+                            // Use 3x current bet if currentBet is greater than or equal to 3x BB
                             final threeBB = bb * 3;
-                            final targetTotal = (bb > 0 && currentBet > threeBB) ? (currentBet * 3) : threeBB;
+                            final targetTotal = (bb > 0 && currentBet >= threeBB) ? (currentBet * 3) : threeBB;
                             _betCtrl.text = targetTotal.toString();
                           }
 
@@ -247,8 +247,8 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               Builder(
                                 builder: (context) {
                                   final threeBB = bb * 3;
-                                  // Show "3x Bet" only if currentBet is strictly greater than 3x BB
-                                  final buttonText = (bb > 0 && currentBet > threeBB) ? '3x Bet' : '3x BB';
+                                  // Show "3x Bet" if currentBet is greater than or equal to 3x BB
+                                  final buttonText = (bb > 0 && currentBet >= threeBB) ? '3x Bet' : '3x BB';
                                   return ElevatedButton(
                                     onPressed: bb > 0 ? setTo3xBB : null,
                                     child: Text(buttonText),

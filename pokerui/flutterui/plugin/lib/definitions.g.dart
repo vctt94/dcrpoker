@@ -512,6 +512,8 @@ GameUpdateDTO _$GameUpdateDTOFromJson(Map<String, dynamic> json) =>
       json['phaseName'] as String,
       (json['timeBankSeconds'] as num).toInt(),
       (json['turnDeadlineUnixMs'] as num).toInt(),
+      (json['smallBlind'] as num?)?.toInt() ?? 0,
+      (json['bigBlind'] as num?)?.toInt() ?? 0,
     );
 
 Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
@@ -531,6 +533,8 @@ Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
       'phaseName': instance.phaseName,
       'timeBankSeconds': instance.timeBankSeconds,
       'turnDeadlineUnixMs': instance.turnDeadlineUnixMs,
+      'smallBlind': instance.smallBlind,
+      'bigBlind': instance.bigBlind,
     };
 
 NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
