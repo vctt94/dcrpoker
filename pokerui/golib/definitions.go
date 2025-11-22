@@ -582,39 +582,9 @@ maxbufferlines=1000
 
 	// Create default server certificate if it doesn't exist
 	if _, err := os.Stat(grpcCertPath); os.IsNotExist(err) {
-		if err := createDefaultServerCert(grpcCertPath); err != nil {
+		if err := client.CreateDefaultServerCert(grpcCertPath); err != nil {
 			return fmt.Errorf("failed to create default server certificate: %v", err)
 		}
-	}
-
-	return nil
-}
-
-// createDefaultServerCert creates a default server certificate file
-func createDefaultServerCert(certPath string) error {
-	// Ensure the directory exists
-	dir := filepath.Dir(certPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("failed to create cert directory: %v", err)
-	}
-
-	// Default server certificate content
-	defaultCert := `-----BEGIN CERTIFICATE-----
-MIIBzDCCAXGgAwIBAgIRAKzgtkERbGLTLSM3kvtKq4YwCgYIKoZIzj0EAwIwKzER
-MA8GA1UEChMIZ2VuY2VydHMxFjAUBgNVBAMTDTE5Mi4xNjguMC4xMDkwHhcNMjUw
-NTIxMTcwMzEyWhcNMzUwNTIwMTcwMzEyWjArMREwDwYDVQQKEwhnZW5jZXJ0czEW
-MBQGA1UEAxMNMTkyLjE2OC4wLjEwOTBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IA
-BCeYEkUALzxW+deCYqEXk9n5SXpm/0k7cprUzOhyxo3rgFEcXAswmtuTj4aRItsV
-mHWffXRqnTRQmPMjlngoHBijdjB0MA4GA1UdDwEB/wQEAwIChDAPBgNVHRMBAf8E
-BTADAQH/MB0GA1UdDgQWBBQVCe1KJ5IC9UbKr0CxQ8zoc/DcQTAyBgNVHREEKzAp
-gglsb2NhbGhvc3SHBMCoAG2HBH8AAAGHEAAAAAAAAAAAAAAAAAAAAAEwCgYIKoZI
-zj0EAwIDSQAwRgIhAK2zFZM5R6hjDnSVDZFqgL7Glnc1kYm0WwAyuqQ3u6pSAiEA
-stnyeJa1nliPo5mCKwgl5c2S/knBIm6f0y61CN6IFWw=
------END CERTIFICATE-----`
-
-	// Write the certificate file
-	if err := os.WriteFile(certPath, []byte(defaultCert), 0644); err != nil {
-		return fmt.Errorf("failed to write cert file: %v", err)
 	}
 
 	return nil
@@ -635,7 +605,7 @@ func handleCreateDefaultConfig(args createDefaultConfigArgs) (map[string]string,
 
 // handleCreateDefaultServerCert handles the CTCreateDefaultServerCert command
 func handleCreateDefaultServerCert(certPath string) (map[string]string, error) {
-	if err := createDefaultServerCert(certPath); err != nil {
+	if err := client.CreateDefaultServerCert(certPath); err != nil {
 		return nil, err
 	}
 
