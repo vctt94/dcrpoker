@@ -165,7 +165,7 @@ func loadServerConf(configPath string, fileName string) (*ServerConf, error) {
 	cfg := &ServerConf{
 		Datadir:        configPath,
 		GRPCHost:       "localhost",
-		GRPCPort:       "50051",
+		GRPCPort:       "50050",
 		GRPCCertPath:   filepath.Join(configPath, "server.cert"),
 		GRPCKeyPath:    filepath.Join(configPath, "server.key"),
 		DcrdHost:       "localhost",

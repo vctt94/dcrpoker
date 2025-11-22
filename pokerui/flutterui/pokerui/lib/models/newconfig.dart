@@ -5,7 +5,7 @@ import 'package:pokerui/config.dart';
 
 class NewConfigModel extends ChangeNotifier {
   // ─── Editable fields ────────────────────────────────────────────────────
-  String serverAddr        = '127.0.0.1:50051';
+  String serverAddr        = '127.0.0.1:50050';
   String grpcCertPath      = '';
   String address           = '';
   String brRpcUrl          = 'wss://127.0.0.1:7777/ws';

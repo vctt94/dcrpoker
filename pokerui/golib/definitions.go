@@ -481,7 +481,7 @@ func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel, brRpcUrl
 
 	// Set default values
 	if serverAddr == "" {
-		serverAddr = "127.0.0.1:50051" // Default server
+		serverAddr = "127.0.0.1:50050" // Default server
 	}
 	if grpcCertPath == "" {
 		grpcCertPath = filepath.Join(dataDir, "server.cert")
@@ -563,9 +563,7 @@ maxbufferlines=1000
 	// CLI share the same connection settings.
 	host, port, ok := strings.Cut(serverAddr, ":")
 	if !ok || host == "" || port == "" {
-		// Fallback to sensible defaults if parsing fails.
-		host = "127.0.0.1"
-		port = "50051"
+		return fmt.Errorf("invalid server address: %s", serverAddr)
 	}
 	pcConf := &client.PokerConf{
 		Datadir:        dataDir,

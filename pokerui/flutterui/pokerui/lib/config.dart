@@ -71,7 +71,7 @@ class Config {
     }
     final serverAddr = pick('server_addr');
     return Config(
-      serverAddr: serverAddr.isNotEmpty ? serverAddr : '127.0.0.1:50051',
+      serverAddr: serverAddr.isNotEmpty ? serverAddr : '127.0.0.1:50050',
       grpcCertPath: pickPath('grpc_cert_path'),
       payoutAddress: pick('payout_address'),
       rpcCertPath: pickPath('rpc_cert_path'),
