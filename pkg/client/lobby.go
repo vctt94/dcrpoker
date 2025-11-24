@@ -457,7 +457,7 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 		}
 
 	case pokerrpc.NotificationType_NEW_HAND_STARTED:
-		pc.log.Infof("New hand started for table %s", ntfn.TableId)
+		pc.log.Debugf("New hand started for table %s", ntfn.TableId)
 
 	case pokerrpc.NotificationType_GAME_ENDED:
 		pc.ntfns.notifyGameEnded(ntfn.TableId, ntfn.Message, ts)

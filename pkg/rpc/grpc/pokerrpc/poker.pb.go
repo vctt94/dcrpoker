@@ -169,6 +169,11 @@ const (
 	NotificationType_CARDS_HIDDEN       NotificationType = 21
 	NotificationType_NEW_HAND_STARTED   NotificationType = 22
 	NotificationType_PLAYER_ALL_IN      NotificationType = 23
+	// Connection and stream lifecycle (typed, non-UNKNOWN)
+	NotificationType_NOTIFICATION_STREAM_CONNECTED    NotificationType = 24
+	NotificationType_NOTIFICATION_STREAM_DISCONNECTED NotificationType = 25
+	NotificationType_GAME_STREAM_CONNECTED            NotificationType = 26
+	NotificationType_GAME_STREAM_DISCONNECTED         NotificationType = 27
 )
 
 // Enum value maps for NotificationType.
@@ -198,32 +203,40 @@ var (
 		21: "CARDS_HIDDEN",
 		22: "NEW_HAND_STARTED",
 		23: "PLAYER_ALL_IN",
+		24: "NOTIFICATION_STREAM_CONNECTED",
+		25: "NOTIFICATION_STREAM_DISCONNECTED",
+		26: "GAME_STREAM_CONNECTED",
+		27: "GAME_STREAM_DISCONNECTED",
 	}
 	NotificationType_value = map[string]int32{
-		"UNKNOWN":            0,
-		"PLAYER_JOINED":      1,
-		"PLAYER_LEFT":        2,
-		"GAME_STARTED":       3,
-		"GAME_ENDED":         4,
-		"BET_MADE":           5,
-		"PLAYER_FOLDED":      6,
-		"NEW_ROUND":          7,
-		"SHOWDOWN_RESULT":    8,
-		"TIP_RECEIVED":       9,
-		"BALANCE_UPDATED":    10,
-		"TABLE_CREATED":      11,
-		"TABLE_REMOVED":      12,
-		"PLAYER_READY":       13,
-		"PLAYER_UNREADY":     14,
-		"ALL_PLAYERS_READY":  15,
-		"SMALL_BLIND_POSTED": 16,
-		"BIG_BLIND_POSTED":   17,
-		"CALL_MADE":          18,
-		"CHECK_MADE":         19,
-		"CARDS_SHOWN":        20,
-		"CARDS_HIDDEN":       21,
-		"NEW_HAND_STARTED":   22,
-		"PLAYER_ALL_IN":      23,
+		"UNKNOWN":                          0,
+		"PLAYER_JOINED":                    1,
+		"PLAYER_LEFT":                      2,
+		"GAME_STARTED":                     3,
+		"GAME_ENDED":                       4,
+		"BET_MADE":                         5,
+		"PLAYER_FOLDED":                    6,
+		"NEW_ROUND":                        7,
+		"SHOWDOWN_RESULT":                  8,
+		"TIP_RECEIVED":                     9,
+		"BALANCE_UPDATED":                  10,
+		"TABLE_CREATED":                    11,
+		"TABLE_REMOVED":                    12,
+		"PLAYER_READY":                     13,
+		"PLAYER_UNREADY":                   14,
+		"ALL_PLAYERS_READY":                15,
+		"SMALL_BLIND_POSTED":               16,
+		"BIG_BLIND_POSTED":                 17,
+		"CALL_MADE":                        18,
+		"CHECK_MADE":                       19,
+		"CARDS_SHOWN":                      20,
+		"CARDS_HIDDEN":                     21,
+		"NEW_HAND_STARTED":                 22,
+		"PLAYER_ALL_IN":                    23,
+		"NOTIFICATION_STREAM_CONNECTED":    24,
+		"NOTIFICATION_STREAM_DISCONNECTED": 25,
+		"GAME_STREAM_CONNECTED":            26,
+		"GAME_STREAM_DISCONNECTED":         27,
 	}
 )
 
@@ -3947,7 +3960,7 @@ const file_poker_proto_rawDesc = "" +
 	"\x14PLAYER_STATE_IN_GAME\x10\x02\x12\x17\n" +
 	"\x13PLAYER_STATE_ALL_IN\x10\x03\x12\x17\n" +
 	"\x13PLAYER_STATE_FOLDED\x10\x04\x12\x15\n" +
-	"\x11PLAYER_STATE_LEFT\x10\x05*\xcd\x03\n" +
+	"\x11PLAYER_STATE_LEFT\x10\x05*\xcf\x04\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x11\n" +
 	"\rPLAYER_JOINED\x10\x01\x12\x0f\n" +
@@ -3975,7 +3988,11 @@ const file_poker_proto_rawDesc = "" +
 	"\vCARDS_SHOWN\x10\x14\x12\x10\n" +
 	"\fCARDS_HIDDEN\x10\x15\x12\x14\n" +
 	"\x10NEW_HAND_STARTED\x10\x16\x12\x11\n" +
-	"\rPLAYER_ALL_IN\x10\x17*\xa8\x01\n" +
+	"\rPLAYER_ALL_IN\x10\x17\x12!\n" +
+	"\x1dNOTIFICATION_STREAM_CONNECTED\x10\x18\x12$\n" +
+	" NOTIFICATION_STREAM_DISCONNECTED\x10\x19\x12\x19\n" +
+	"\x15GAME_STREAM_CONNECTED\x10\x1a\x12\x1c\n" +
+	"\x18GAME_STREAM_DISCONNECTED\x10\x1b*\xa8\x01\n" +
 	"\bHandRank\x12\r\n" +
 	"\tHIGH_CARD\x10\x00\x12\b\n" +
 	"\x04PAIR\x10\x01\x12\f\n" +

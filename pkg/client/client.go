@@ -22,6 +22,7 @@ import (
 	pokerutils "github.com/vctt94/pokerbisonrelay/pkg/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 // LoadClientConfig loads the client config and creates ClientConfig with LogBackend
@@ -279,6 +280,14 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context) error {
 
 	creds := credentials.NewTLS(tlsConfig)
 	dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
+
+	// Enable client-side keepalives so we detect idle/half-open connections
+	// after the host sleeps and can restart the streams automatically.
+	dialOpts = append(dialOpts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+		Time:                10 * time.Second,
+		Timeout:             7 * time.Second,
+		PermitWithoutStream: true,
+	}))
 
 	// Construct server address from GRPCHost and GRPCPort
 	serverAddr := fmt.Sprintf("%s:%s", pc.cfg.GRPCHost, pc.cfg.GRPCPort)
@@ -538,10 +547,11 @@ func (pc *PokerClient) setConnectionState(connected bool, reason error) {
 		pc.log.Warnf("notification stream disconnected: %v", reason)
 	}
 
-	pc.enqueueUpdate(&pokerrpc.Notification{
-		Type:    pokerrpc.NotificationType_UNKNOWN,
-		Message: msg,
-	})
+	ntype := pokerrpc.NotificationType_NOTIFICATION_STREAM_CONNECTED
+	if !connected {
+		ntype = pokerrpc.NotificationType_NOTIFICATION_STREAM_DISCONNECTED
+	}
+	pc.enqueueUpdate(&pokerrpc.Notification{Type: ntype, Message: msg})
 }
 
 func (pc *PokerClient) setGameStreamConnectionState(connected bool, reason error) {
@@ -566,10 +576,11 @@ func (pc *PokerClient) setGameStreamConnectionState(connected bool, reason error
 		pc.log.Warnf("game stream disconnected: %v", reason)
 	}
 
-	pc.enqueueUpdate(&pokerrpc.Notification{
-		Type:    pokerrpc.NotificationType_UNKNOWN,
-		Message: msg,
-	})
+	ntype := pokerrpc.NotificationType_GAME_STREAM_CONNECTED
+	if !connected {
+		ntype = pokerrpc.NotificationType_GAME_STREAM_DISCONNECTED
+	}
+	pc.enqueueUpdate(&pokerrpc.Notification{Type: ntype, Message: msg})
 }
 
 func capBackoff(current, max time.Duration) time.Duration {

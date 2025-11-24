@@ -128,6 +128,18 @@ class NotificationType extends $pb.ProtobufEnum {
   static const NotificationType PLAYER_ALL_IN =
       NotificationType._(23, _omitEnumNames ? '' : 'PLAYER_ALL_IN');
 
+  /// Connection and stream lifecycle (typed, non-UNKNOWN)
+  static const NotificationType NOTIFICATION_STREAM_CONNECTED =
+      NotificationType._(
+          24, _omitEnumNames ? '' : 'NOTIFICATION_STREAM_CONNECTED');
+  static const NotificationType NOTIFICATION_STREAM_DISCONNECTED =
+      NotificationType._(
+          25, _omitEnumNames ? '' : 'NOTIFICATION_STREAM_DISCONNECTED');
+  static const NotificationType GAME_STREAM_CONNECTED =
+      NotificationType._(26, _omitEnumNames ? '' : 'GAME_STREAM_CONNECTED');
+  static const NotificationType GAME_STREAM_DISCONNECTED =
+      NotificationType._(27, _omitEnumNames ? '' : 'GAME_STREAM_DISCONNECTED');
+
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
     PLAYER_JOINED,
@@ -153,10 +165,14 @@ class NotificationType extends $pb.ProtobufEnum {
     CARDS_HIDDEN,
     NEW_HAND_STARTED,
     PLAYER_ALL_IN,
+    NOTIFICATION_STREAM_CONNECTED,
+    NOTIFICATION_STREAM_DISCONNECTED,
+    GAME_STREAM_CONNECTED,
+    GAME_STREAM_DISCONNECTED,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 23);
+      $pb.ProtobufEnum.$_initByValueList(values, 27);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 
