@@ -357,7 +357,6 @@ class PokerModel extends ChangeNotifier {
         break;
       case pr.NotificationType.NOTIFICATION_STREAM_DISCONNECTED:
       case pr.NotificationType.GAME_STREAM_DISCONNECTED:
-        // No-op: UI remains usable; we’ll act on reconnect events.
         break;
       case pr.NotificationType.TABLE_CREATED:
       case pr.NotificationType.TABLE_REMOVED:
@@ -378,8 +377,10 @@ class PokerModel extends ChangeNotifier {
         _myHoleCardsCache = const [];
         // Clear any stale bet FX at the start of a new hand
         lastBetFx = null;
-        // Don't call refreshGameState here - wait for GameUpdate from stream
-        // The stream will send the game state with hand cards
+        // Ensure the game stream is attached for the new hand. In the normal
+        // case the stream is already active and this is a no-op; if the game
+        // stream was silently lost while we were idle, this re-attaches it.
+        unawaited(ensureGameStream());
         notifyListeners();
         break;
       case pr.NotificationType.GAME_STARTED:
@@ -446,7 +447,7 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Game Updates (from game stream) ----------
   void _onGameUpdate(pr.GameUpdate gameUpdate) {
-   // Update game state from the stream update
+    // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
     // Update UI state based on game phase
     final phase = gameUpdate.phase;
