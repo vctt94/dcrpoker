@@ -247,14 +247,11 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 		grpc.Creds(creds),
 		grpc.MaxConcurrentStreams(1000),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:                  1 * time.Minute,
-			Timeout:               20 * time.Second,
-			MaxConnectionIdle:     5 * time.Minute,
-			MaxConnectionAge:      2 * time.Hour,
-			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:    30 * time.Second,
+			Timeout: 7 * time.Second,
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             30 * time.Second,
+			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
 	)
