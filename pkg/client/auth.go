@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"crypto/hmac"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -9,11 +11,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // UserIdentityData stores the persistent user identity (seed key)
@@ -23,9 +28,63 @@ type UserIdentityData struct {
 
 // SessionData stores persisted session info to avoid re-logins across restarts.
 type SessionData struct {
-	Token    string `json:"token"`
-	UserID   string `json:"user_id"`
-	Nickname string `json:"nickname"`
+	Token         string `json:"token"`
+	UserID        string `json:"user_id"`
+	Nickname      string `json:"nickname"`
+	PayoutAddress string `json:"payout_address"`
+}
+
+type LoginCode struct {
+	Code        string
+	TTL         time.Duration
+	AddressHint string
+}
+
+// sessionKeyState tracks deterministic session key indices.
+type sessionKeyState struct {
+	NextIndex uint64 `json:"next_index"`
+}
+
+// SetPayoutAddress verifies a signed code and binds the payout address to the
+// current session/user. Token is passed via metadata, not the request body.
+func (pc *PokerClient) SetPayoutAddress(ctx context.Context, token, address, signature, code string) (string, error) {
+	if strings.TrimSpace(address) == "" {
+		return "", fmt.Errorf("address is required")
+	}
+	if strings.TrimSpace(signature) == "" {
+		return "", fmt.Errorf("signature is required")
+	}
+	if strings.TrimSpace(code) == "" {
+		return "", fmt.Errorf("code is required")
+	}
+	if strings.TrimSpace(token) == "" {
+		return "", fmt.Errorf("token is required")
+	}
+
+	authClient := pokerrpc.NewAuthServiceClient(pc.conn)
+	mdCtx := metadata.NewOutgoingContext(ctx, metadata.Pairs("token", token))
+	resp, err := authClient.SetPayoutAddress(mdCtx, &pokerrpc.SetPayoutAddressRequest{
+		Address:   address,
+		Signature: signature,
+		Code:      code,
+	})
+	if err != nil {
+		return "", err
+	}
+	if !resp.GetOk() {
+		return "", fmt.Errorf("set payout address failed: %s", resp.GetError())
+	}
+
+	pc.persistPayoutAddress(resp.GetAddress())
+
+	if sess, err := pc.LoadSession(); err == nil && sess != nil {
+		sess.PayoutAddress = resp.GetAddress()
+		if err := pc.SaveSession(sess); err != nil {
+			pc.log.Warnf("failed to persist payout address in session: %v", err)
+		}
+	}
+
+	return resp.GetAddress(), nil
 }
 
 // GetOrCreateSeedKey generates or loads the seed key
@@ -76,6 +135,27 @@ func (pc *PokerClient) GetUserID() (string, error) {
 		return "", err
 	}
 	return pc.DeriveUserID(seedHex)
+}
+
+// RequestLoginCode asks the server for a nonce that must be signed by the
+// wallet to complete login.
+func (pc *PokerClient) RequestLoginCode(ctx context.Context) (*LoginCode, error) {
+	userID, err := pc.GetUserID()
+	if err != nil {
+		return nil, err
+	}
+
+	authClient := pokerrpc.NewAuthServiceClient(pc.conn)
+	resp, err := authClient.RequestLoginCode(ctx, &pokerrpc.RequestLoginCodeRequest{UserId: userID})
+	if err != nil {
+		return nil, err
+	}
+
+	return &LoginCode{
+		Code:        resp.GetCode(),
+		TTL:         time.Duration(resp.GetTtlSec()) * time.Second,
+		AddressHint: resp.GetAddressHint(),
+	}, nil
 }
 
 // userIdentityFilePath returns the path to the user identity file
@@ -293,13 +373,14 @@ func (pc *PokerClient) Register(ctx context.Context, nickname string) error {
 
 // LoginResponse contains login response data
 type LoginResponse struct {
-	Token    string
-	UserID   string
-	Nickname string
+	Token         string
+	UserID        string
+	Nickname      string
+	PayoutAddress string
 }
 
-// Login logs in a user with a nickname
-// If the user is not registered, it will automatically register them first
+// Login logs in a user with a nickname. If the user is not registered, it will
+// automatically register them first.
 func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginResponse, error) {
 	// Validate nickname
 	if err := validateNickname(nickname); err != nil {
@@ -346,18 +427,22 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 
 	// Persist session for future resumes. Do not fail login if persistence fails.
 	session := &SessionData{
-		Token:    resp.Token,
-		UserID:   resp.UserId,
-		Nickname: resp.Nickname,
+		Token:         resp.Token,
+		UserID:        resp.UserId,
+		Nickname:      resp.Nickname,
+		PayoutAddress: resp.PayoutAddress,
 	}
 	if err := pc.SaveSession(session); err != nil {
 		pc.log.Warnf("failed to persist session for %s: %v", nickname, err)
 	}
 
+	pc.persistPayoutAddress(resp.PayoutAddress)
+
 	return &LoginResponse{
-		Token:    resp.Token,
-		UserID:   resp.UserId,
-		Nickname: resp.Nickname,
+		Token:         resp.Token,
+		UserID:        resp.UserId,
+		Nickname:      resp.Nickname,
+		PayoutAddress: resp.PayoutAddress,
 	}, nil
 }
 
@@ -382,6 +467,138 @@ func (pc *PokerClient) SaveSession(session *SessionData) error {
 	}
 
 	return os.WriteFile(path, blob, 0600)
+}
+
+func (pc *PokerClient) configFilePath() string {
+	name := strings.TrimSpace(pc.cfg.ConfFileName)
+	if name == "" {
+		return ""
+	}
+	if filepath.IsAbs(name) {
+		return name
+	}
+	return filepath.Join(pc.cfg.Datadir, name)
+}
+
+// persistPayoutAddress writes the verified payout address into the shared
+// client config so subsequent runs can reuse it without prompting the user.
+func (pc *PokerClient) persistPayoutAddress(addr string) {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return
+	}
+	pc.cfg.PayoutAddress = addr
+
+	confPath := pc.configFilePath()
+	if confPath == "" {
+		return
+	}
+	pcConf := &PokerConf{
+		Datadir:        pc.cfg.Datadir,
+		GRPCHost:       pc.cfg.GRPCHost,
+		GRPCPort:       pc.cfg.GRPCPort,
+		GRPCCertPath:   pc.cfg.GRPCCertPath,
+		PayoutAddress:  pc.cfg.PayoutAddress,
+		LogFile:        pc.cfg.LogFile,
+		Debug:          pc.cfg.Debug,
+		MaxLogFiles:    pc.cfg.MaxLogFiles,
+		MaxBufferLines: pc.cfg.MaxBufferLines,
+	}
+	if err := WriteClientConfigFile(pcConf, confPath); err != nil {
+		pc.log.Warnf("failed to persist payout address to config: %v", err)
+	}
+}
+
+func (pc *PokerClient) sessionKeysPath() string {
+	if pc.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(pc.DataDir, "session_keys.json")
+}
+
+func (pc *PokerClient) loadSessionKeyState() (*sessionKeyState, error) {
+	path := pc.sessionKeysPath()
+	if path == "" {
+		return nil, fmt.Errorf("no data directory configured")
+	}
+	state := &sessionKeyState{NextIndex: 0}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return state, nil
+		}
+		return nil, err
+	}
+	if err := json.Unmarshal(data, state); err != nil {
+		return nil, err
+	}
+	return state, nil
+}
+
+func (pc *PokerClient) saveSessionKeyState(state *sessionKeyState) error {
+	path := pc.sessionKeysPath()
+	if path == "" {
+		return fmt.Errorf("no data directory configured")
+	}
+	blob, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, blob, 0600)
+}
+
+func (pc *PokerClient) deriveSessionPriv(index uint64) (*secp256k1.PrivateKey, error) {
+	seedHex, err := pc.GetOrCreateSeedKey()
+	if err != nil {
+		return nil, err
+	}
+	seed, err := hex.DecodeString(seedHex)
+	if err != nil || len(seed) != 32 {
+		return nil, fmt.Errorf("invalid seed")
+	}
+
+	h := hmac.New(blake256.New, seed)
+	h.Write([]byte("poker/session-key/v1"))
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], index)
+	h.Write(buf[:])
+	keyBytes := h.Sum(nil)
+	if len(keyBytes) != 32 {
+		return nil, fmt.Errorf("bad key length")
+	}
+	return secp256k1.PrivKeyFromBytes(keyBytes), nil
+}
+
+// GenerateSessionKey derives a deterministic session key using the client's
+// seed and advances the local counter. Returns hex-encoded priv/pub and index.
+func (pc *PokerClient) GenerateSessionKey() (privHex, pubHex string, index uint64, err error) {
+	state, err := pc.loadSessionKeyState()
+	if err != nil {
+		return "", "", 0, err
+	}
+	index = state.NextIndex
+	priv, err := pc.deriveSessionPriv(index)
+	if err != nil {
+		return "", "", 0, err
+	}
+	state.NextIndex++
+	if err := pc.saveSessionKeyState(state); err != nil {
+		return "", "", 0, err
+	}
+	return hex.EncodeToString(priv.Serialize()), hex.EncodeToString(priv.PubKey().SerializeCompressed()), index, nil
+}
+
+// DeriveSessionKeyAt deterministically derives the session key for a specific
+// index without mutating local state.
+func (pc *PokerClient) DeriveSessionKeyAt(index uint64) (privHex, pubHex string, err error) {
+	priv, err := pc.deriveSessionPriv(index)
+	if err != nil {
+		return "", "", err
+	}
+	return hex.EncodeToString(priv.Serialize()), hex.EncodeToString(priv.PubKey().SerializeCompressed()), nil
 }
 
 // LoadSession loads a persisted session from disk.

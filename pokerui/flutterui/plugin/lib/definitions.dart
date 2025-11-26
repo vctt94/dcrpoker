@@ -265,10 +265,50 @@ class LoginResponse {
   final String userId;
   @JsonKey(name: 'nickname')
   final String nickname;
-  LoginResponse(this.token, this.userId, this.nickname);
+  @JsonKey(name: 'address')
+  final String address;
+  LoginResponse(this.token, this.userId, this.nickname, this.address);
   factory LoginResponse.fromJson(Map<String, dynamic> json) =>
       _$LoginResponseFromJson(json);
   Map<String, dynamic> toJson() => _$LoginResponseToJson(this);
+}
+
+@JsonSerializable()
+class RequestLoginCodeResponse {
+  final String code;
+  @JsonKey(name: 'ttl_sec')
+  final int ttlSec;
+  @JsonKey(name: 'address_hint')
+  final String addressHint;
+  RequestLoginCodeResponse(this.code, this.ttlSec, this.addressHint);
+  factory RequestLoginCodeResponse.fromJson(Map<String, dynamic> json) =>
+      _$RequestLoginCodeResponseFromJson(json);
+  Map<String, dynamic> toJson() => _$RequestLoginCodeResponseToJson(this);
+}
+
+@JsonSerializable()
+class SetPayoutAddressRequest {
+  final String address;
+  final String signature;
+  final String code;
+  SetPayoutAddressRequest(this.address, this.signature, this.code);
+  factory SetPayoutAddressRequest.fromJson(Map<String, dynamic> json) =>
+      _$SetPayoutAddressRequestFromJson(json);
+  Map<String, dynamic> toJson() => _$SetPayoutAddressRequestToJson(this);
+}
+
+@JsonSerializable()
+class SetPayoutAddressResponse {
+  @JsonKey(defaultValue: false)
+  final bool ok;
+  @JsonKey(defaultValue: '')
+  final String error;
+  @JsonKey(defaultValue: '')
+  final String address;
+  SetPayoutAddressResponse(this.ok, this.error, this.address);
+  factory SetPayoutAddressResponse.fromJson(Map<String, dynamic> json) =>
+      _$SetPayoutAddressResponseFromJson(json);
+  Map<String, dynamic> toJson() => _$SetPayoutAddressResponseToJson(this);
 }
 
 @JsonSerializable()
@@ -354,6 +394,8 @@ class Account {
       _$AccountFromJson(json);
   Map<String, dynamic> toJson() => _$AccountToJson(this);
 }
+
+enum EscrowNotificationType { escrowFunding, other }
 
 @JsonSerializable()
 class LogEntry {
@@ -621,6 +663,10 @@ class PlayerDTO {
   final bool isSmallBlind;
   @JsonKey(name: 'isBigBlind')
   final bool isBigBlind;
+  @JsonKey(name: 'escrowId', defaultValue: '')
+  final String escrowId;
+  @JsonKey(name: 'escrowReady', defaultValue: false)
+  final bool escrowReady;
 
   PlayerDTO(
     this.id,
@@ -638,6 +684,8 @@ class PlayerDTO {
     this.playerState,
     this.isSmallBlind,
     this.isBigBlind,
+    this.escrowId,
+    this.escrowReady,
   );
 
   factory PlayerDTO.fromJson(Map<String, dynamic> json) =>
@@ -661,7 +709,9 @@ class PlayerDTO {
       ..playerState = pr.PlayerState.valueOf(playerState) ??
           pr.PlayerState.PLAYER_STATE_UNINITIALIZED
       ..isSmallBlind = isSmallBlind
-      ..isBigBlind = isBigBlind;
+      ..isBigBlind = isBigBlind
+      ..escrowId = escrowId
+      ..escrowReady = escrowReady;
   }
 }
 
@@ -1014,6 +1064,19 @@ abstract class PluginPlatform {
     return LoginResponse.fromJson(result as Map<String, dynamic>);
   }
 
+  Future<RequestLoginCodeResponse> requestLoginCode() async {
+    const cmdType = CTRequestLoginCode;
+    final result = await asyncCall(cmdType, {});
+    return RequestLoginCodeResponse.fromJson(_asJsonMap(result));
+  }
+
+  Future<SetPayoutAddressResponse> setPayoutAddress(
+      SetPayoutAddressRequest req) async {
+    const cmdType = CTSetPayoutAddress;
+    final result = await asyncCall(cmdType, req.toJson());
+    return SetPayoutAddressResponse.fromJson(_asJsonMap(result));
+  }
+
   Future<LoginResponse?> resumeSession() async {
     const cmdType = CTResumeSession;
     final result = await asyncCall(cmdType, {});
@@ -1119,22 +1182,75 @@ abstract class PluginPlatform {
     return m.map((k, v) => MapEntry(k, v == null ? '' : v.toString()));
   }
 
+  Future<Map<String, String>> deriveSettlementSessionKey(int index) async {
+    final res = await asyncCall(CTDeriveSessionKey, {'index': index});
+    final m = _asJsonMap(res);
+    return m.map((k, v) => MapEntry(k, v == null ? '' : v.toString()));
+  }
+
   Future<Map<String, dynamic>> openEscrow({
-    required String payout,
     required int betAtoms,
+    required String compPubkey,
     int csvBlocks = 64,
   }) async {
     final payload = {
-      'payout': payout,
       'bet_atoms': betAtoms,
       'csv_blocks': csvBlocks,
+      'comp_pubkey': compPubkey,
     };
     final res = await asyncCall(CTOpenEscrow, payload);
     return _asJsonMap(res);
   }
 
-  Future<void> startPreSign(String matchId) async {
-    await asyncCall(CTStartPreSign, {'match_id': matchId});
+  Future<Map<String, dynamic>> getEscrowStatus(String escrowId) async {
+    final res = await asyncCall(CTGetEscrowStatus, {'escrow_id': escrowId});
+    return _asJsonMap(res);
+  }
+
+  Future<List<dynamic>> getEscrowHistory() async {
+    final res = await asyncCall(CTGetEscrowHistory, {});
+    return _asJsonListOrWrap(res);
+  }
+
+  Future<Map<String, dynamic>> bindEscrow({
+    required String tableId,
+    required int seatIndex,
+    required String outpoint,
+    String matchId = '',
+  }) async {
+    final res = await asyncCall(CTBindEscrow, {
+      'table_id': tableId,
+      'seat_index': seatIndex,
+      'outpoint': outpoint,
+      'match_id': matchId,
+    });
+    return _asJsonMap(res);
+  }
+
+  Future<void> startPreSign({
+    required String matchId,
+    required String tableId,
+    required String sessionId,
+    required int seatIndex,
+    required String escrowId,
+    required String compPriv,
+  }) async {
+    await asyncCall(CTStartPreSign, {
+      'match_id': matchId,
+      'table_id': tableId,
+      'session_id': sessionId,
+      'seat_index': seatIndex,
+      'escrow_id': escrowId,
+      'comp_priv': compPriv,
+    });
+  }
+
+  Future<Map<String, String>> archiveSessionKey(String matchId, Map<String, dynamic> escrowInfo) async {
+    final res = await asyncCall(CTArchiveSessionKey, {
+      'match_id': matchId,
+      'escrow_info': escrowInfo,
+    });
+    return _asJsonMap(res).map((k, v) => MapEntry(k, v.toString()));
   }
 
   Future<void> archiveSettlementSessionKey(String matchId) async {
@@ -1254,8 +1370,11 @@ const int CTLeaveWaitingRoom = 0x09;
 const int CTGenerateSessionKey = 0x0a;
 const int CTOpenEscrow = 0x0b;
 const int CTStartPreSign = 0x0c;
-// 0x0d unused
+const int CTBindEscrow = 0x0d;
 const int CTArchiveSessionKey = 0x0e;
+const int CTDeriveSessionKey = 0x0f;
+const int CTGetEscrowStatus = 0x30;
+const int CTGetEscrowHistory = 0x31;
 
 // Poker-specific commands
 const int CTGetPlayerCurrentTable = 0x10;
@@ -1286,6 +1405,8 @@ const int CTRegister = 0x24;
 const int CTLogin = 0x25;
 const int CTLogout = 0x26;
 const int CTResumeSession = 0x28;
+const int CTRequestLoginCode = 0x29;
+const int CTSetPayoutAddress = 0x2a;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =

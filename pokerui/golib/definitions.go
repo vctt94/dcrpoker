@@ -43,6 +43,53 @@ type initClient struct {
 	RPCPass           string `json:"rpc_pass"`
 }
 
+// handleEscrowNotification inspects notification messages for escrow funding
+// updates and persists them locally for history/refund flows.
+func handleEscrowNotification(cctx *clientCtx, n *pokerrpc.Notification) {
+	if cctx == nil || cctx.c == nil || n == nil {
+		return
+	}
+	if strings.TrimSpace(n.Message) == "" {
+		return
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(n.Message), &payload); err != nil {
+		return
+	}
+	typ, _ := payload["type"].(string)
+	if strings.ToLower(strings.TrimSpace(typ)) != "escrow_funding" {
+		return
+	}
+	escrowID, _ := payload["escrow_id"].(string)
+	if strings.TrimSpace(escrowID) == "" {
+		return
+	}
+	info := &client.EscrowInfo{
+		EscrowID: escrowID,
+		Status:   "funding",
+	}
+	if txid, ok := payload["funding_txid"].(string); ok {
+		info.FundingTxid = txid
+	}
+	if vout, ok := payload["funding_vout"].(float64); ok {
+		info.FundingVout = uint32(vout)
+	}
+	if amt, ok := payload["amount_atoms"].(float64); ok {
+		info.FundedAmount = uint64(amt)
+	}
+	if csv, ok := payload["csv_blocks"].(float64); ok {
+		info.CSVBlocks = uint32(csv)
+	}
+	if height, ok := payload["confirmed_height"].(float64); ok && height > 0 {
+		info.ConfirmedHeight = uint32(height)
+		info.Status = "funded"
+	}
+
+	if err := cctx.c.CacheEscrowInfo(info); err != nil && cctx.log != nil {
+		cctx.log.Warnf("escrow cache update failed for %s: %v", escrowID, err)
+	}
+}
+
 type createDefaultConfigArgs struct {
 	DataDir         string `json:"datadir"`
 	ServerAddr      string `json:"server_addr"`
@@ -69,13 +116,18 @@ type createWaitingRoom struct {
 }
 
 type openEscrowReq struct {
-	Payout    string `json:"payout"`
-	BetAtoms  int64  `json:"bet_atoms"`
-	CSVBlocks int64  `json:"csv_blocks"`
+	BetAtoms   int64  `json:"bet_atoms"`
+	CSVBlocks  int64  `json:"csv_blocks"`
+	CompPubkey string `json:"comp_pubkey"` // hex-encoded 33-byte session pubkey
 }
 
 type preSignReq struct {
-	MatchID string `json:"match_id"`
+	MatchID   string `json:"match_id"`
+	TableID   string `json:"table_id"`
+	SessionID string `json:"session_id"`
+	SeatIndex int    `json:"seat_index"`
+	EscrowID  string `json:"escrow_id"`
+	CompPriv  string `json:"comp_priv"` // hex session priv
 }
 
 type joinPokerTable struct {
@@ -111,6 +163,17 @@ type loginResp struct {
 	Token    string `json:"token"`
 	UserID   string `json:"user_id"`
 	Nickname string `json:"nickname"`
+	Address  string `json:"address"`
+}
+
+type setPayoutAddressReq struct {
+	Address   string `json:"address"`
+	Signature string `json:"signature"`
+	Code      string `json:"code"`
+}
+
+type escrowStatusReq struct {
+	EscrowID string `json:"escrow_id"`
 }
 
 type evaluateHand struct {
@@ -204,6 +267,8 @@ type playerDTO struct {
 	PlayerState     int32      `json:"playerState"` // enum as int
 	IsSmallBlind    bool       `json:"isSmallBlind"`
 	IsBigBlind      bool       `json:"isBigBlind"`
+	EscrowID        string     `json:"escrowId"`
+	EscrowReady     bool       `json:"escrowReady"`
 }
 
 // gameUpdateDTO represents a game update for JSON marshaling
@@ -259,6 +324,8 @@ func playerToDTO(p *pokerrpc.Player) *playerDTO {
 		PlayerState:     int32(p.PlayerState),
 		IsSmallBlind:    p.IsSmallBlind,
 		IsBigBlind:      p.IsBigBlind,
+		EscrowID:        p.EscrowId,
+		EscrowReady:     p.EscrowReady,
 	}
 }
 
@@ -332,6 +399,8 @@ type clientCtx struct {
 	// expirationDays are the expiration days provided by the server when
 	// connected
 	expirationDays uint64
+
+	Token string
 
 	serverState atomic.Value
 }
@@ -455,6 +524,8 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 				switch v := msg.(type) {
 				case *pokerrpc.Notification:
+					// Update local escrow cache when funding updates arrive.
+					handleEscrowNotification(cctx, v)
 					notify(NTPokerNotification, v, nil)
 				case *pokerrpc.GameUpdate:
 					// Convert GameUpdate to DTO and forward to Flutter

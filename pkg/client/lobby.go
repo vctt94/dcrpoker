@@ -543,11 +543,12 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 	case pokerrpc.NotificationType_PLAYER_ALL_IN:
 		pc.log.Infof("Player %s is all-in with amount %d", ntfn.PlayerId, ntfn.Amount)
 
+	case pokerrpc.NotificationType_ESCROW_FUNDING:
+		pc.log.Infof("Escrow funding: %s", ntfn.Message)
+
 	default:
 		pc.log.Debug("received unknown notification type", "type", ntfn.Type)
 	}
-
-	pc.enqueueUpdate(ntfn)
 }
 
 // reSyncStateAfterReconnect refreshes client-side state after a notification stream reconnect.

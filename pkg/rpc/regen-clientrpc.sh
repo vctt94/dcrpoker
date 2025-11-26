@@ -24,9 +24,9 @@ export PATH="$BINDIR:$HOME/.pub-cache/bin:$PATH"
 # --- Generate code ---
 
 echo "Generating Go code..."
-protoc --go_out=. --go-grpc_out=. -I. poker.proto
+protoc --go_out=. --go-grpc_out=. -I. poker.proto pokerreferee.proto
 
 echo "Generating Dart code..."
-protoc --dart_out=grpc:../../pokerui/flutterui/plugin/lib/grpc/generated -I. poker.proto
+protoc --dart_out=grpc:../../pokerui/flutterui/plugin/lib/grpc/generated -I. poker.proto pokerreferee.proto
 
 echo "✅ Done. Generated Go and Dart gRPC bindings."

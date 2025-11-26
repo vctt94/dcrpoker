@@ -33,8 +33,12 @@ const (
 	CTGenerateSessionKey CmdType = 0x0a
 	CTOpenEscrow         CmdType = 0x0b
 	CTStartPreSign       CmdType = 0x0c
+	CTBindEscrow         CmdType = 0x0d
 	// Archive current session key into historic dir using match_id
 	CTArchiveSessionKey CmdType = 0x0e
+	CTDeriveSessionKey  CmdType = 0x0f
+	CTGetEscrowStatus   CmdType = 0x30
+	CTGetEscrowHistory  CmdType = 0x31
 
 	// Poker-specific commands
 	CTGetPlayerCurrentTable   CmdType = 0x10
@@ -60,10 +64,12 @@ const (
 	CTStartGameStream         CmdType = 0x27
 
 	// Auth commands
-	CTRegister      CmdType = 0x24
-	CTLogin         CmdType = 0x25
-	CTLogout        CmdType = 0x26
-	CTResumeSession CmdType = 0x28
+	CTRegister         CmdType = 0x24
+	CTLogin            CmdType = 0x25
+	CTLogout           CmdType = 0x26
+	CTResumeSession    CmdType = 0x28
+	CTRequestLoginCode CmdType = 0x29
+	CTSetPayoutAddress CmdType = 0x2a
 
 	CTCreateLockFile        CmdType = 0x60
 	CTCloseLockFile         CmdType = 0x61
@@ -225,6 +231,15 @@ func call(cmd *cmd) *CmdResult {
 	case CTResumeSession:
 		v, err = handleResumeSession(uint32(cmd.ClientHandle))
 
+	case CTRequestLoginCode:
+		v, err = handleRequestLoginCode(uint32(cmd.ClientHandle))
+
+	case CTSetPayoutAddress:
+		var req setPayoutAddressReq
+		if decode(&req) {
+			v, err = handleSetPayoutAddress(uint32(cmd.ClientHandle), req)
+		}
+
 	case CTLogout:
 		v, err = handleLogout(uint32(cmd.ClientHandle))
 
@@ -240,7 +255,7 @@ func call(cmd *cmd) *CmdResult {
 		if client == nil {
 			err = fmt.Errorf("unknown client handle %d", cmd.ClientHandle)
 		} else {
-			v, err = handleClientCmd(client, cmd)
+			v, err = handleClientCmd(uint32(cmd.ClientHandle), client, cmd)
 		}
 	}
 

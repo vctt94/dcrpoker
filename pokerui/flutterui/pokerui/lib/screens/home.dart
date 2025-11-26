@@ -208,7 +208,37 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                       ),
                     ),
 
-                    // 3) Error message if exists
+                    // 3) Success banner
+                    if (pokerModel.successMessage.isNotEmpty)
+                      Center(
+                        child: Container(
+                          width: MediaQuery.of(context).size.width * 0.85,
+                          margin: const EdgeInsets.only(top: 16.0),
+                          child: Card(
+                            color: Colors.green.shade700,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle, color: Colors.white),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: SelectableText(
+                                      pokerModel.successMessage,
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    // 4) Error banner
                     if (pokerModel.errorMessage.isNotEmpty)
                       Center(
                         child: Container(

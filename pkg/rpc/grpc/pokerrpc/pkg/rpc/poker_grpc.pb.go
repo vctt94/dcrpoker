@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v6.33.0
-// source: poker.proto
+// source: pkg/rpc/poker.proto
 
 package pokerrpc
 
@@ -479,7 +479,7 @@ var PokerService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "poker.proto",
+	Metadata: "pkg/rpc/poker.proto",
 }
 
 const (
@@ -977,7 +977,7 @@ var LobbyService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "poker.proto",
+	Metadata: "pkg/rpc/poker.proto",
 }
 
 const (
@@ -1273,5 +1273,5 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "poker.proto",
+	Metadata: "pkg/rpc/poker.proto",
 }

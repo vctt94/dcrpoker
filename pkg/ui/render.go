@@ -545,6 +545,14 @@ func (r *Renderer) formatPlayerInfo(player *pokerrpc.Player) string {
 		status = append(status, "YOU")
 	}
 
+	if player.EscrowId != "" {
+		if player.EscrowReady {
+			status = append(status, "ESCROW READY")
+		} else {
+			status = append(status, "ESCROW FUNDING")
+		}
+	}
+
 	// Check if it's their turn (and they haven't folded)
 	if player.Id == r.ui.currentPlayerID && !player.Folded {
 		status = append(status, "ACTING")

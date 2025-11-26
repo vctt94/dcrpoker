@@ -8,7 +8,8 @@
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names, unused_import
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
+// ignore_for_file: unused_import
 
 import 'dart:convert' as $convert;
 import 'dart:core' as $core;
@@ -85,6 +86,7 @@ const NotificationType$json = {
     {'1': 'NOTIFICATION_STREAM_DISCONNECTED', '2': 25},
     {'1': 'GAME_STREAM_CONNECTED', '2': 26},
     {'1': 'GAME_STREAM_DISCONNECTED', '2': 27},
+    {'1': 'ESCROW_FUNDING', '2': 28},
   ],
 };
 
@@ -100,7 +102,8 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'tDQVJEU19TSE9XThAUEhAKDENBUkRTX0hJRERFThAVEhQKEE5FV19IQU5EX1NUQVJURUQQFhIR'
     'Cg1QTEFZRVJfQUxMX0lOEBcSIQodTk9USUZJQ0FUSU9OX1NUUkVBTV9DT05ORUNURUQQGBIkCi'
     'BOT1RJRklDQVRJT05fU1RSRUFNX0RJU0NPTk5FQ1RFRBAZEhkKFUdBTUVfU1RSRUFNX0NPTk5F'
-    'Q1RFRBAaEhwKGEdBTUVfU1RSRUFNX0RJU0NPTk5FQ1RFRBAb');
+    'Q1RFRBAaEhwKGEdBTUVfU1RSRUFNX0RJU0NPTk5FQ1RFRBAbEhIKDkVTQ1JPV19GVU5ESU5HEB'
+    'w=');
 
 @$core.Deprecated('Use handRankDescriptor instead')
 const HandRank$json = {
@@ -864,6 +867,8 @@ const Player$json = {
     {'1': 'is_small_blind', '3': 13, '4': 1, '5': 8, '10': 'isSmallBlind'},
     {'1': 'is_big_blind', '3': 14, '4': 1, '5': 8, '10': 'isBigBlind'},
     {'1': 'is_disconnected', '3': 15, '4': 1, '5': 8, '10': 'isDisconnected'},
+    {'1': 'escrow_id', '3': 16, '4': 1, '5': 9, '10': 'escrowId'},
+    {'1': 'escrow_ready', '3': 17, '4': 1, '5': 8, '10': 'escrowReady'},
   ],
 };
 
@@ -877,7 +882,8 @@ final $typed_data.Uint8List playerDescriptor = $convert.base64Decode(
     '9kZXNjcmlwdGlvbhgLIAEoCVIPaGFuZERlc2NyaXB0aW9uEjUKDHBsYXllcl9zdGF0ZRgMIAEo'
     'DjISLnBva2VyLlBsYXllclN0YXRlUgtwbGF5ZXJTdGF0ZRIkCg5pc19zbWFsbF9ibGluZBgNIA'
     'EoCFIMaXNTbWFsbEJsaW5kEiAKDGlzX2JpZ19ibGluZBgOIAEoCFIKaXNCaWdCbGluZBInCg9p'
-    'c19kaXNjb25uZWN0ZWQYDyABKAhSDmlzRGlzY29ubmVjdGVk');
+    'c19kaXNjb25uZWN0ZWQYDyABKAhSDmlzRGlzY29ubmVjdGVkEhsKCWVzY3Jvd19pZBgQIAEoCV'
+    'IIZXNjcm93SWQSIQoMZXNjcm93X3JlYWR5GBEgASgIUgtlc2Nyb3dSZWFkeQ==');
 
 @$core.Deprecated('Use cardDescriptor instead')
 const Card$json = {
@@ -1070,13 +1076,79 @@ const LoginRequest$json = {
   '2': [
     {'1': 'nickname', '3': 1, '4': 1, '5': 9, '10': 'nickname'},
     {'1': 'user_id', '3': 2, '4': 1, '5': 9, '10': 'userId'},
+    {'1': 'address', '3': 3, '4': 1, '5': 9, '10': 'address'},
+    {'1': 'signature', '3': 4, '4': 1, '5': 9, '10': 'signature'},
+    {'1': 'code', '3': 5, '4': 1, '5': 9, '10': 'code'},
   ],
 };
 
 /// Descriptor for `LoginRequest`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List loginRequestDescriptor = $convert.base64Decode(
     'CgxMb2dpblJlcXVlc3QSGgoIbmlja25hbWUYASABKAlSCG5pY2tuYW1lEhcKB3VzZXJfaWQYAi'
-    'ABKAlSBnVzZXJJZA==');
+    'ABKAlSBnVzZXJJZBIYCgdhZGRyZXNzGAMgASgJUgdhZGRyZXNzEhwKCXNpZ25hdHVyZRgEIAEo'
+    'CVIJc2lnbmF0dXJlEhIKBGNvZGUYBSABKAlSBGNvZGU=');
+
+@$core.Deprecated('Use requestLoginCodeRequestDescriptor instead')
+const RequestLoginCodeRequest$json = {
+  '1': 'RequestLoginCodeRequest',
+  '2': [
+    {'1': 'user_id', '3': 1, '4': 1, '5': 9, '10': 'userId'},
+  ],
+};
+
+/// Descriptor for `RequestLoginCodeRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List requestLoginCodeRequestDescriptor =
+    $convert.base64Decode(
+        'ChdSZXF1ZXN0TG9naW5Db2RlUmVxdWVzdBIXCgd1c2VyX2lkGAEgASgJUgZ1c2VySWQ=');
+
+@$core.Deprecated('Use requestLoginCodeResponseDescriptor instead')
+const RequestLoginCodeResponse$json = {
+  '1': 'RequestLoginCodeResponse',
+  '2': [
+    {'1': 'code', '3': 1, '4': 1, '5': 9, '10': 'code'},
+    {'1': 'ttl_sec', '3': 2, '4': 1, '5': 3, '10': 'ttlSec'},
+    {'1': 'address_hint', '3': 3, '4': 1, '5': 9, '10': 'addressHint'},
+  ],
+};
+
+/// Descriptor for `RequestLoginCodeResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List requestLoginCodeResponseDescriptor =
+    $convert.base64Decode(
+        'ChhSZXF1ZXN0TG9naW5Db2RlUmVzcG9uc2USEgoEY29kZRgBIAEoCVIEY29kZRIXCgd0dGxfc2'
+        'VjGAIgASgDUgZ0dGxTZWMSIQoMYWRkcmVzc19oaW50GAMgASgJUgthZGRyZXNzSGludA==');
+
+@$core.Deprecated('Use setPayoutAddressRequestDescriptor instead')
+const SetPayoutAddressRequest$json = {
+  '1': 'SetPayoutAddressRequest',
+  '2': [
+    {'1': 'token', '3': 1, '4': 1, '5': 9, '10': 'token'},
+    {'1': 'address', '3': 2, '4': 1, '5': 9, '10': 'address'},
+    {'1': 'signature', '3': 3, '4': 1, '5': 9, '10': 'signature'},
+    {'1': 'code', '3': 4, '4': 1, '5': 9, '10': 'code'},
+  ],
+};
+
+/// Descriptor for `SetPayoutAddressRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List setPayoutAddressRequestDescriptor = $convert.base64Decode(
+    'ChdTZXRQYXlvdXRBZGRyZXNzUmVxdWVzdBIUCgV0b2tlbhgBIAEoCVIFdG9rZW4SGAoHYWRkcm'
+    'VzcxgCIAEoCVIHYWRkcmVzcxIcCglzaWduYXR1cmUYAyABKAlSCXNpZ25hdHVyZRISCgRjb2Rl'
+    'GAQgASgJUgRjb2Rl');
+
+@$core.Deprecated('Use setPayoutAddressResponseDescriptor instead')
+const SetPayoutAddressResponse$json = {
+  '1': 'SetPayoutAddressResponse',
+  '2': [
+    {'1': 'ok', '3': 1, '4': 1, '5': 8, '10': 'ok'},
+    {'1': 'error', '3': 2, '4': 1, '5': 9, '10': 'error'},
+    {'1': 'address', '3': 3, '4': 1, '5': 9, '10': 'address'},
+  ],
+};
+
+/// Descriptor for `SetPayoutAddressResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List setPayoutAddressResponseDescriptor =
+    $convert.base64Decode(
+        'ChhTZXRQYXlvdXRBZGRyZXNzUmVzcG9uc2USDgoCb2sYASABKAhSAm9rEhQKBWVycm9yGAIgAS'
+        'gJUgVlcnJvchIYCgdhZGRyZXNzGAMgASgJUgdhZGRyZXNz');
 
 @$core.Deprecated('Use loginResponseDescriptor instead')
 const LoginResponse$json = {
@@ -1087,6 +1159,7 @@ const LoginResponse$json = {
     {'1': 'token', '3': 3, '4': 1, '5': 9, '10': 'token'},
     {'1': 'user_id', '3': 4, '4': 1, '5': 9, '10': 'userId'},
     {'1': 'nickname', '3': 5, '4': 1, '5': 9, '10': 'nickname'},
+    {'1': 'payout_address', '3': 6, '4': 1, '5': 9, '10': 'payoutAddress'},
   ],
 };
 
@@ -1094,7 +1167,8 @@ const LoginResponse$json = {
 final $typed_data.Uint8List loginResponseDescriptor = $convert.base64Decode(
     'Cg1Mb2dpblJlc3BvbnNlEg4KAm9rGAEgASgIUgJvaxIUCgVlcnJvchgCIAEoCVIFZXJyb3ISFA'
     'oFdG9rZW4YAyABKAlSBXRva2VuEhcKB3VzZXJfaWQYBCABKAlSBnVzZXJJZBIaCghuaWNrbmFt'
-    'ZRgFIAEoCVIIbmlja25hbWU=');
+    'ZRgFIAEoCVIIbmlja25hbWUSJQoOcGF5b3V0X2FkZHJlc3MYBiABKAlSDXBheW91dEFkZHJlc3'
+    'M=');
 
 @$core.Deprecated('Use logoutRequestDescriptor instead')
 const LogoutRequest$json = {

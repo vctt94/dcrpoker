@@ -1,0 +1,195 @@
+syntax = "proto3";
+
+package poker;
+
+option go_package = "grpc/pokerrpc";
+
+// PokerReferee coordinates Schnorr adaptor escrow/presign/finalize for
+// SNG/WTA tables (2–6 seats, single winner).
+service PokerReferee {
+  // Creates a per-player escrow session for a table/session/seat.
+  rpc OpenEscrow(OpenEscrowRequest) returns (OpenEscrowResponse) {}
+
+  // Binds an existing escrow to a table/session seat and reports readiness.
+  rpc BindEscrow(BindEscrowRequest) returns (BindEscrowResponse) {}
+
+  // Publishes the compressed session pubkey used for adaptor presign.
+  rpc PublishSessionKey(PublishSessionKeyRequest)
+      returns (PublishSessionKeyResponse) {}
+
+  // Bidirectional stream for presign handshakes (HELLO → REQ → presigs).
+  rpc SettlementStream(stream SettlementStreamMessage)
+      returns (stream SettlementStreamMessage) {}
+
+  // Returns the draft, gamma, and presigs for the winning branch.
+  rpc GetFinalizeBundle(GetFinalizeBundleRequest)
+      returns (GetFinalizeBundleResponse) {}
+
+  // Returns funding/conf status for an escrow owned by the caller.
+  rpc GetEscrowStatus(GetEscrowStatusRequest) returns (GetEscrowStatusResponse) {}
+}
+
+// ---------- Open escrow ----------
+
+message OpenEscrowRequest {
+  uint64 amount_atoms = 1;
+  uint32 csv_blocks = 2;
+  string token = 3; // auth token from Login
+  bytes comp_pubkey = 4; // 33-byte compressed session key X = xG
+}
+
+message OpenEscrowResponse {
+  string escrow_id = 1;
+  string deposit_addr = 2;        // human-readable deposit address
+  string redeem_script_hex = 3;   // hex-encoded redeem script for the escrow
+  string pk_script_hex = 4;       // hex-encoded pkScript to watch for funding
+  string match_id = 5;            // table_id|session_id
+  uint32 required_confirmations = 6;
+}
+
+// ---------- Bind escrow ----------
+
+message BindEscrowRequest {
+  string outpoint = 1; // funding outpoint txid:vout
+  string table_id = 2;
+  string session_id = 3;
+  uint32 seat_index = 4;
+  string match_id = 5; // optional pre-derived match_id; table+session preferred
+  string token = 6;    // auth token from Login (may also come from metadata)
+  string redeem_script_hex = 7;
+  uint32 csv_blocks = 8;
+}
+
+message BindEscrowResponse {
+  string match_id = 1;
+  string table_id = 2;
+  string session_id = 3;
+  uint32 seat_index = 4;
+  string escrow_id = 5;
+  bool escrow_ready = 6;
+  uint64 amount_atoms = 7;
+  uint64 required_amount_atoms = 8;
+  string outpoint = 9;
+}
+
+// ---------- Escrow status ----------
+
+message GetEscrowStatusRequest {
+  string escrow_id = 1;
+  string token = 2; // auth token from Login (may also come from metadata)
+}
+
+message GetEscrowStatusResponse {
+  string escrow_id = 1;
+  uint32 confs = 2;
+  uint32 utxo_count = 3;
+  bool ok = 4;
+  int64 updated_at_unix = 5;
+  string funding_txid = 6;
+  uint32 funding_vout = 7;
+  uint64 amount_atoms = 8;
+  string pk_script_hex = 9;
+  uint32 csv_blocks = 10;
+  uint32 required_confirmations = 11;
+  bool mature_for_csv = 12;
+}
+
+// ---------- Session pubkey publish ----------
+
+message PublishSessionKeyRequest {
+  string escrow_id = 1;
+  bytes comp_pubkey = 2;  // 33-byte compressed session key X = xG
+}
+
+message PublishSessionKeyResponse {
+  bool ok = 1;
+  string error = 2;
+}
+
+// ---------- Presign stream (bidirectional) ----------
+
+message SettlementStreamMessage {
+  oneof msg {
+    SettlementHello hello = 1;
+    NeedPreSigs need_pre_sigs = 2;
+    ProvidePreSigs provide_pre_sigs = 3;
+    VerifyPreSigsOk verify_ok = 4;
+    SettlementError error = 5;
+  }
+}
+
+// Client → Server
+message SettlementHello {
+  string match_id = 1;   // table_id|session_id
+  string escrow_id = 2;  // escrow session owned by caller
+  bytes comp_pubkey = 3; // session pubkey for verification
+  string token = 4;      // auth token from Login
+  string table_id = 5;
+  string session_id = 6;
+  uint32 seat_index = 7;
+}
+
+// Server → Client: request presigs for a specific branch/winner seat.
+message NeedPreSigs {
+  string match_id = 1;
+  int32 branch = 2; // winner seat index
+  string draft_tx_hex = 3;
+  repeated NeedPreSigsInput inputs = 4;
+}
+
+message NeedPreSigsInput {
+  string input_id = 1;           // stable input identifier (e.g., txid:vout)
+  string redeem_script_hex = 2;  // redeem script for this input
+  string sighash_hex = 3;        // 32-byte SigHashAll digest (m)
+  string adaptor_point_hex = 4;  // compressed adaptor point T for this branch
+  uint32 input_index = 5;        // index inside the draft transaction
+  uint64 amount_atoms = 6;       // input amount to bind sighash
+}
+
+// Client → Server: presigs for the requested branch/input set.
+message ProvidePreSigs {
+  string match_id = 1;
+  int32 branch = 2; // winner seat index
+  repeated PreSignature presigs = 3;
+}
+
+message PreSignature {
+  string input_id = 1;
+  string r_prime_compact_hex = 2; // 33-byte even-Y R'
+  string s_prime_hex = 3;         // 32-byte s'
+}
+
+// Server → Client: indicates presigs were verified and stored.
+message VerifyPreSigsOk {
+  string match_id = 1;
+  int32 branch = 2;
+}
+
+// Server → Client: terminal error for this stream.
+message SettlementError {
+  string match_id = 1;
+  string error = 2;
+}
+
+// ---------- Finalization ----------
+
+message GetFinalizeBundleRequest {
+  string match_id = 1;
+  int32 winner_seat = 2; // branch to finalize
+}
+
+message GetFinalizeBundleResponse {
+  string match_id = 1;
+  int32 branch = 2;
+  string draft_tx_hex = 3; // winning branch draft
+  string gamma_hex = 4;    // adaptor secret scalar for this branch
+  repeated FinalizeInput inputs = 5;
+}
+
+message FinalizeInput {
+  string input_id = 1;
+  string r_prime_compact_hex = 2;
+  string s_prime_hex = 3;
+  uint32 input_index = 4;
+  string redeem_script_hex = 5;
+}

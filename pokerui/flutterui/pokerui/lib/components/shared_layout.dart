@@ -93,6 +93,38 @@ class SharedLayout extends StatelessWidget {
                         Navigator.of(context).pushNamed('/logs');
                       },
                     ),
+                    ListTile(
+                      leading: const Icon(Icons.verified, color: Colors.white),
+                      title: const Text('Sign Address',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/sign-address');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.lock, color: Colors.white),
+                      title: const Text('Open Escrow',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/open-escrow');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.undo, color: Colors.white),
+                      title: const Text('Refund Tools',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/refund');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.history, color: Colors.white),
+                      title: const Text('Escrow History',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/escrow-history');
+                      },
+                    ),
                   ],
                 ),
               ),

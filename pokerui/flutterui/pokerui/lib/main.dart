@@ -18,6 +18,10 @@ import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
 import 'package:pokerui/screens/startup_error.dart';
 import 'package:pokerui/screens/login.dart';
+import 'package:pokerui/screens/sign_address.dart';
+import 'package:pokerui/screens/open_escrow.dart';
+import 'package:pokerui/screens/refund.dart';
+import 'package:pokerui/screens/escrow_history.dart';
 import 'package:pokerui/client_init.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
@@ -408,6 +412,10 @@ class MyApp extends StatelessWidget {
               },
             ),
         '/logs': (context) => const LogsScreen(),
+        '/sign-address': (context) => const SignAddressScreen(),
+        '/open-escrow': (context) => const OpenEscrowScreen(),
+        '/refund': (context) => const RefundScreen(),
+        '/escrow-history': (context) => const EscrowHistoryScreen(),
       },
       initialRoute: '/',
     );

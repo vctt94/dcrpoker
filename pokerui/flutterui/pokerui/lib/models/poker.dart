@@ -57,6 +57,8 @@ class UiPlayer {
   final bool isReady;
   final bool isDisconnected;
   final String handDesc; // only meaningful at showdown
+  final String escrowId;
+  final bool escrowReady;
 
   const UiPlayer({
     required this.id,
@@ -73,6 +75,8 @@ class UiPlayer {
     required this.isReady,
     required this.isDisconnected,
     required this.handDesc,
+    this.escrowId = '',
+    this.escrowReady = false,
   });
 
   factory UiPlayer.fromProto(pr.Player p) {
@@ -91,6 +95,32 @@ class UiPlayer {
       isReady: p.isReady,
       isDisconnected: p.isDisconnected,
       handDesc: p.handDescription,
+      escrowId: p.escrowId,
+      escrowReady: p.escrowReady,
+    );
+  }
+
+  UiPlayer copyWith({
+    String? escrowId,
+    bool? escrowReady,
+  }) {
+    return UiPlayer(
+      id: id,
+      name: name,
+      balance: balance,
+      hand: hand,
+      currentBet: currentBet,
+      folded: folded,
+      isTurn: isTurn,
+      isAllIn: isAllIn,
+      isDealer: isDealer,
+      isSmallBlind: isSmallBlind,
+      isBigBlind: isBigBlind,
+      isReady: isReady,
+      isDisconnected: isDisconnected,
+      handDesc: handDesc,
+      escrowId: escrowId ?? this.escrowId,
+      escrowReady: escrowReady ?? this.escrowReady,
     );
   }
 }
@@ -240,12 +270,37 @@ class UiGameState {
         turnDeadlineUnixMs:
             u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
       );
+
+  UiGameState copyWith({
+    List<UiPlayer>? players,
+  }) {
+    return UiGameState(
+      tableId: tableId,
+      phase: phase,
+      phaseName: phaseName,
+      players: players ?? this.players,
+      communityCards: communityCards,
+      pot: pot,
+      currentBet: currentBet,
+      currentPlayerId: currentPlayerId,
+      minRaise: minRaise,
+      maxRaise: maxRaise,
+      smallBlind: smallBlind,
+      bigBlind: bigBlind,
+      gameStarted: gameStarted,
+      playersRequired: playersRequired,
+      playersJoined: playersJoined,
+      timeBankSeconds: timeBankSeconds,
+      turnDeadlineUnixMs: turnDeadlineUnixMs,
+    );
+  }
 }
 
 /// -------- The main ChangeNotifier --------
 class PokerModel extends ChangeNotifier {
   // Identity
   final String playerId;
+  final String dataDir;
 
   // UI/state
   PokerState _state = PokerState.idle;
@@ -257,7 +312,10 @@ class PokerModel extends ChangeNotifier {
   List<UiWinner> lastWinners = const [];
   int lastShowdownFxMs = 0; // monotonic trigger for showdown chip animation
   String errorMessage = '';
+  String successMessage = '';
   int myAtomsBalance = 0; // DCR atoms (wallet balance for buy-in requirements)
+  String? _lastBoundEscrowId;
+  bool _lastBoundEscrowReady = false;
 
   // Cache hero hole cards for use at showdown when the server may omit them
   List<pr.Card> _myHoleCardsCache = const [];
@@ -285,6 +343,7 @@ class PokerModel extends ChangeNotifier {
 
   PokerModel({
     required this.playerId,
+    required this.dataDir,
   });
 
   /// Factory method to create PokerModel from Config
@@ -309,6 +368,7 @@ class PokerModel extends ChangeNotifier {
 
     return PokerModel(
       playerId: playerId,
+      dataDir: cfg.dataDir,
     );
   }
 
@@ -440,6 +500,39 @@ class PokerModel extends ChangeNotifier {
         }
         break;
 
+      case pr.NotificationType.ESCROW_FUNDING:
+        // Escrow readiness/funding updates arrive over the notification stream.
+        if (n.tableId.isEmpty || n.tableId != currentTableId) {
+          break;
+        }
+        final payload = _decodeJsonMap(n.message);
+        final pid = _firstNonEmpty(payload?['player_id'], n.playerId);
+        final escrowId = _firstNonEmpty(payload?['escrow_id'], '');
+        final readyRaw = payload?['escrow_ready'] ?? payload?['ready'];
+        final ready = readyRaw is bool
+            ? readyRaw
+            : (readyRaw is num ? readyRaw != 0 : false);
+        if (pid.isEmpty) {
+          unawaited(refreshGameState());
+          break;
+        }
+        if (game == null) {
+          unawaited(refreshGameState());
+          break;
+        }
+        final updatedPlayers = game!.players
+            .map((p) => p.id == pid
+                ? p.copyWith(escrowId: escrowId, escrowReady: ready)
+                : p)
+            .toList();
+        game = game!.copyWith(players: List.unmodifiable(updatedPlayers));
+        if (pid == playerId && escrowId.isNotEmpty) {
+          _lastBoundEscrowId = escrowId;
+          _lastBoundEscrowReady = ready;
+        }
+        notifyListeners();
+        break;
+
       default:
         break;
     }
@@ -449,6 +542,11 @@ class PokerModel extends ChangeNotifier {
   void _onGameUpdate(pr.GameUpdate gameUpdate) {
     // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
+    final mePlayer = me;
+    if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
+      _lastBoundEscrowId = mePlayer.escrowId;
+      _lastBoundEscrowReady = mePlayer.escrowReady;
+    }
     // Update UI state based on game phase
     final phase = gameUpdate.phase;
     if (phase == pr.GamePhase.SHOWDOWN) {
@@ -473,7 +571,7 @@ class PokerModel extends ChangeNotifier {
       tables = List.unmodifiable(list.map((t) => UiTable(
             id: t.id,
             hostId: t.hostId,
-            players: const [],
+            players: const [], // plugin table summary has no players; filled from game updates
             smallBlind: t.smallBlind,
             bigBlind: t.bigBlind,
             maxPlayers: t.maxPlayers,
@@ -493,9 +591,11 @@ class PokerModel extends ChangeNotifier {
         lastWinners = const [];
       }
       errorMessage = '';
+      successMessage = '';
       notifyListeners();
     } catch (e) {
       errorMessage = 'Failed to load tables: $e';
+      successMessage = '';
       notifyListeners();
     }
   }
@@ -593,6 +693,62 @@ class PokerModel extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  Future<void> bindEscrow({
+    required String tableId,
+    required int seatIndex,
+    required String outpoint,
+  }) async {
+    String boundEscrowId = '';
+    bool boundEscrowReady = false;
+    try {
+      final resp = await Golib.bindEscrow(
+        tableId: tableId,
+        seatIndex: seatIndex,
+        outpoint: outpoint,
+      );
+      if (resp is Map<String, dynamic>) {
+        boundEscrowId = (resp['escrow_id'] ?? '').toString();
+        final readyRaw = resp['escrow_ready'];
+        boundEscrowReady = readyRaw is bool
+            ? readyRaw
+            : (readyRaw is num ? readyRaw != 0 : false);
+      }
+      await refreshTables();
+      if (game != null && boundEscrowId.isNotEmpty) {
+        final updatedPlayers = game!.players
+            .map((p) => p.id == playerId
+                ? p.copyWith(
+                    escrowId: boundEscrowId, escrowReady: boundEscrowReady)
+                : p)
+            .toList();
+        game = game!.copyWith(players: List.unmodifiable(updatedPlayers));
+      }
+      if (boundEscrowId.isNotEmpty) {
+        _lastBoundEscrowId = boundEscrowId;
+        _lastBoundEscrowReady = boundEscrowReady;
+      }
+      await refreshGameState();
+      final shortId = tableId.length <= 8 ? tableId : tableId.substring(0, 8);
+      successMessage = 'Escrow bound to table $shortId';
+      errorMessage = '';
+    } catch (e) {
+      successMessage = '';
+      errorMessage = 'Bind escrow failed: $e';
+    }
+    notifyListeners();
+  }
+
+  Future<List<Map<String, dynamic>>> listCachedEscrows() async {
+    final res = await Golib.getEscrowHistory(); // returns list of escrow maps
+    final escrows = <Map<String, dynamic>>[];
+    for (final any in res) {
+      if (any is Map<String, dynamic>) {
+        escrows.add(any);
+      }
+    }
+    return escrows;
   }
 
   Future<void> ensureGameStream() async {
@@ -786,6 +942,11 @@ class PokerModel extends ChangeNotifier {
       final dto = GameUpdateDTO.fromJson(gameStateJson);
       final gameUpdate = dto.toProtobuf();
       game = UiGameState.fromUpdate(gameUpdate);
+      final mePlayer = me;
+      if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
+        _lastBoundEscrowId = mePlayer.escrowId;
+        _lastBoundEscrowReady = mePlayer.escrowReady;
+      }
 
       // Keep coarse UI state in sync even when attaching mid-hand.
       // This mirrors the logic in _onGameUpdate so that the UI shows
@@ -916,6 +1077,21 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Helpers ----------
   UiPlayer? get me => game?.players.firstWhereOrNull((p) => p.id == playerId);
+  String get cachedEscrowId {
+    final mePlayer = me;
+    if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
+      return mePlayer.escrowId;
+    }
+    return _lastBoundEscrowId ?? '';
+  }
+
+  bool get cachedEscrowReady {
+    final mePlayer = me;
+    if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
+      return mePlayer.escrowReady;
+    }
+    return _lastBoundEscrowReady;
+  }
 
   bool get iAmReady => _iAmReady;
 
@@ -930,6 +1106,27 @@ class PokerModel extends ChangeNotifier {
         g.phase == pr.GamePhase.FLOP ||
         g.phase == pr.GamePhase.TURN ||
         g.phase == pr.GamePhase.RIVER;
+  }
+
+  Map<String, dynamic>? _decodeJsonMap(String raw) {
+    try {
+      final parsed = jsonDecode(raw);
+      if (parsed is Map<String, dynamic>) return parsed;
+      if (parsed is Map) {
+        return parsed.map((key, value) => MapEntry('$key', value));
+      }
+    } catch (_) {
+      // ignore parse errors
+    }
+    return null;
+  }
+
+  String _firstNonEmpty(dynamic a, String fallback) {
+    final aa = (a ?? '').toString().trim();
+    if (aa.isNotEmpty) {
+      return aa;
+    }
+    return fallback;
   }
 
   void clearError() {

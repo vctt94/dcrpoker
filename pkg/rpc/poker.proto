@@ -52,6 +52,8 @@ service LobbyService {
 
 // AuthService handles user authentication and identity management
 service AuthService {
+  rpc RequestLoginCode (RequestLoginCodeRequest) returns (RequestLoginCodeResponse);
+  rpc SetPayoutAddress (SetPayoutAddressRequest) returns (SetPayoutAddressResponse);
   rpc Register (RegisterRequest) returns (RegisterResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc Logout (LogoutRequest) returns (LogoutResponse);
@@ -109,6 +111,7 @@ enum NotificationType {
   NOTIFICATION_STREAM_DISCONNECTED = 25;
   GAME_STREAM_CONNECTED = 26;
   GAME_STREAM_DISCONNECTED = 27;
+  ESCROW_FUNDING = 28; // escrow funding status update for owner only
 }
 
 enum HandRank {
@@ -364,6 +367,8 @@ message Player {
   bool is_small_blind = 13; // True if this player is the small blind for current hand
   bool is_big_blind = 14;   // True if this player is the big blind for current hand
   bool is_disconnected = 15; // True if the player is disconnected but seat is reserved
+  string escrow_id = 16;     // Bound escrow ID, if any
+  bool escrow_ready = 17;    // True when escrow funding is single-UTXO and valid
 }
 
 message Card {
@@ -434,6 +439,32 @@ message RegisterResponse {
 message LoginRequest {
   string nickname = 1;
   string user_id = 2;  // Derived from seed key
+  string address = 3;  // P2PKH address to verify control of
+  string signature = 4; // Decred signed message over `address` (base64-encoded compact sig)
+  string code = 5;      // Optional server-provided nonce; signature is over this when set
+}
+
+message RequestLoginCodeRequest {
+  string user_id = 1;  // Optional: lets server return address hint for this user
+}
+
+message RequestLoginCodeResponse {
+  string code = 1;
+  int64 ttl_sec = 2;
+  string address_hint = 3;
+}
+
+message SetPayoutAddressRequest {
+  string token = 1;     // active session token (already logged in)
+  string address = 2;   // payout address to bind
+  string signature = 3; // compact base64 signature over `code`
+  string code = 4;      // nonce from RequestLoginCode
+}
+
+message SetPayoutAddressResponse {
+  bool ok = 1;
+  string error = 2;
+  string address = 3;
 }
 
 message LoginResponse {
@@ -442,6 +473,7 @@ message LoginResponse {
   string token = 3;     // Session token
   string user_id = 4;
   string nickname = 5;
+  string payout_address = 6; // Verified payout address bound to this session
 }
 
 message LogoutRequest {

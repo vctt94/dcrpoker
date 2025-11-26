@@ -22,6 +22,7 @@ import (
 	pokerutils "github.com/vctt94/pokerbisonrelay/pkg/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -54,6 +55,7 @@ func LoadClientConfig(datadir, filename string) (*ClientConfig, error) {
 		MaxBufferLines: cfg.MaxBufferLines,
 		LogBackend:     logBackend,
 		Notifications:  NewNotificationManager(),
+		ConfFileName:   filename,
 	}
 
 	return clientCfg, nil
@@ -73,6 +75,7 @@ type ClientConfig struct {
 	LogBackend     *logging.LogBackend
 	Notifications  *NotificationManager
 	PlayerID       string
+	ConfFileName   string
 }
 
 // PokerClient represents a poker client with notification handling
@@ -123,37 +126,60 @@ type PokerClient struct {
 
 // NewPokerClient creates a new poker client with notification support
 func NewPokerClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
-	// Validate that notifications are properly initialized
-	if cfg.Notifications == nil {
-		// initialize notification manager with NewNotificationManager
-		return nil, fmt.Errorf("notification manager cannot be nil - client startup aborted")
+	if err := ensureNotifications(cfg); err != nil {
+		return nil, err
 	}
 
-	// Create the base client
-	client, err := newClient(ctx, cfg)
+	baseClient, err := newClient(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base client: %v", err)
 	}
 
+	return wrapPokerClient(ctx, cfg, baseClient)
+}
+
+// NewPokerClientWithDialOptions creates a new poker client using the provided
+// dial target and options. This is intended for tests that use in-memory gRPC
+// servers.
+func NewPokerClientWithDialOptions(ctx context.Context, cfg *ClientConfig, dialTarget string, dialOpts ...grpc.DialOption) (*PokerClient, error) {
+	if err := ensureNotifications(cfg); err != nil {
+		return nil, err
+	}
+
+	baseClient, err := newClientWithDialOptions(ctx, cfg, dialTarget, dialOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create base client: %v", err)
+	}
+
+	return wrapPokerClient(ctx, cfg, baseClient)
+}
+
+func ensureNotifications(cfg *ClientConfig) error {
+	if cfg.Notifications == nil {
+		return fmt.Errorf("notification manager cannot be nil - client startup aborted")
+	}
+	return nil
+}
+
+func wrapPokerClient(ctx context.Context, cfg *ClientConfig, base *PokerClient) (*PokerClient, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
 	pc := &PokerClient{
-		ID:           client.ID,
-		DataDir:      client.DataDir,
-		LobbyService: client.LobbyService,
-		PokerService: client.PokerService,
-		conn:         client.conn,
+		ID:           base.ID,
+		DataDir:      base.DataDir,
+		LobbyService: base.LobbyService,
+		PokerService: base.PokerService,
+		conn:         base.conn,
 		cfg:          cfg,
 		ntfns:        cfg.Notifications,
-		log:          client.log,
-		logBackend:   client.logBackend,
+		log:          base.log,
+		logBackend:   base.logBackend,
 		UpdatesCh:    make(chan tea.Msg, 100),
 		ErrorsCh:     make(chan error, 10),
 		ctx:          ctx,
 		cancelFunc:   cancel,
 	}
 
-	// Final validation that client is properly initialized
 	if err := pc.validate(); err != nil {
 		return nil, fmt.Errorf("client validation failed: %v", err)
 	}
@@ -163,6 +189,49 @@ func NewPokerClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error
 
 // newBaseClient creates a basic client without notification support (internal use)
 func newClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
+	client, err := buildBaseClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	serverAddr := fmt.Sprintf("%s:%s", cfg.GRPCHost, cfg.GRPCPort)
+	dialOpts, err := client.defaultDialOptions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default dial options: %v", err)
+	}
+	if err := client.dialWithOptions(serverAddr, dialOpts...); err != nil {
+		return nil, fmt.Errorf("failed to dial with options: %v", err)
+	}
+
+	if err := client.initializeAccount(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize account: %v", err)
+	}
+
+	return client, nil
+}
+
+func newClientWithDialOptions(ctx context.Context, cfg *ClientConfig, dialTarget string, dialOpts ...grpc.DialOption) (*PokerClient, error) {
+	client, err := buildBaseClient(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if dialTarget == "" {
+		return nil, fmt.Errorf("dial target is not configured")
+	}
+
+	if err := client.dialWithOptions(dialTarget, dialOpts...); err != nil {
+		return nil, fmt.Errorf("failed to dial with options: %v", err)
+	}
+
+	if err := client.initializeAccount(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize account: %v", err)
+	}
+
+	return client, nil
+}
+
+func buildBaseClient(cfg *ClientConfig) (*PokerClient, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("cfg is nil")
 	}
@@ -215,61 +284,47 @@ func newClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
 
 	log.Debugf("Using client ID: %s", client.ID)
 
-	// Connect to the poker server
-	if err := client.connectToPokerServer(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to poker server: %v", err)
-	}
-
-	// Initialize account
-	if err := client.initializeAccount(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize account: %v", err)
-	}
-
 	return client, nil
 }
 
-// connectToPokerServer establishes gRPC connection to the poker server
-func (pc *PokerClient) connectToPokerServer(ctx context.Context) error {
+func (pc *PokerClient) defaultDialOptions() ([]grpc.DialOption, error) {
 	var dialOpts []grpc.DialOption
-
-	if pc.cfg == nil {
-		return fmt.Errorf("cfg is nil")
-	}
 
 	// Check if GRPCHost and GRPCPort are properly configured
 	if pc.cfg.GRPCHost == "" {
-		return fmt.Errorf("GRPCHost is not configured")
+		return nil, fmt.Errorf("GRPCHost is not configured")
 	}
 	if pc.cfg.GRPCPort == "" {
-		return fmt.Errorf("GRPCPort is not configured")
+		return nil, fmt.Errorf("GRPCPort is not configured")
 	}
 
-	// Use TLS
 	grpcServerCertPath := pc.cfg.GRPCCertPath
 	if grpcServerCertPath == "" {
-		return fmt.Errorf("GRPCCertPath not configured")
+		// Tests and local dev may run the server without TLS; allow insecure in that case.
+		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		return dialOpts, nil
 	}
 
 	// Require that the server certificate exists; do not auto-create.
 	if _, err := os.Stat(grpcServerCertPath); os.IsNotExist(err) {
-		return fmt.Errorf("server certificate not found at %s", grpcServerCertPath)
+		return nil, fmt.Errorf("server certificate not found at %s", grpcServerCertPath)
 	}
 
 	// Load the server certificate
 	pemServerCA, err := os.ReadFile(grpcServerCertPath)
 	if err != nil {
-		return fmt.Errorf("failed to read server certificate: %v", err)
+		return nil, fmt.Errorf("failed to read server certificate: %v", err)
 	}
 
 	certPool := x509.NewCertPool()
 	if !certPool.AppendCertsFromPEM(pemServerCA) {
-		return fmt.Errorf("failed to add server certificate to pool")
+		return nil, fmt.Errorf("failed to add server certificate to pool")
 	}
 
 	// Use GRPCHost for TLS ServerName strictly; do not fallback.
 	serverName := pc.cfg.GRPCHost
 	if serverName == "" {
-		return fmt.Errorf("GRPCHost not configured for TLS ServerName")
+		return nil, fmt.Errorf("GRPCHost not configured for TLS ServerName")
 	}
 
 	// Create the TLS credentials with ServerName
@@ -281,6 +336,13 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context) error {
 	creds := credentials.NewTLS(tlsConfig)
 	dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
 
+	return dialOpts, nil
+}
+
+func (pc *PokerClient) dialWithOptions(dialTarget string, dialOpts ...grpc.DialOption) error {
+	// Copy so we do not mutate provided dial options.
+	dialOpts = append([]grpc.DialOption{}, dialOpts...)
+
 	// Enable client-side keepalives so we detect idle/half-open connections
 	// after the host sleeps and can restart the streams automatically.
 	dialOpts = append(dialOpts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -289,8 +351,14 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context) error {
 		PermitWithoutStream: true,
 	}))
 
-	// Construct server address from GRPCHost and GRPCPort
-	serverAddr := fmt.Sprintf("%s:%s", pc.cfg.GRPCHost, pc.cfg.GRPCPort)
+	// Construct server address
+	serverAddr := dialTarget
+	if serverAddr == "" {
+		serverAddr = fmt.Sprintf("%s:%s", pc.cfg.GRPCHost, pc.cfg.GRPCPort)
+	}
+	if serverAddr == "" {
+		return fmt.Errorf("server address not configured")
+	}
 
 	// Create the client connection
 	conn, err := grpc.Dial(serverAddr, dialOpts...)
@@ -303,6 +371,13 @@ func (pc *PokerClient) connectToPokerServer(ctx context.Context) error {
 	pc.PokerService = pokerrpc.NewPokerServiceClient(conn)
 
 	return nil
+}
+
+// PayoutAddress returns the configured payout address (if any).
+func (pc *PokerClient) PayoutAddress() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.cfg.PayoutAddress
 }
 
 // initializeAccount ensures the client has an account with the server
