@@ -60,6 +60,20 @@ func handleEscrowNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 	if strings.ToLower(strings.TrimSpace(typ)) != "escrow_funding" {
 		return
 	}
+	// Escrow funding updates are broadcast to the whole table so the UI can
+	// highlight other players. Only persist updates that target the local
+	// player to avoid polluting our cached escrow state with someone else's.
+	targetPID := strings.TrimSpace(n.GetPlayerId())
+	if targetPID == "" {
+		if pidRaw, ok := payload["player_id"]; ok {
+			targetPID = strings.TrimSpace(fmt.Sprint(pidRaw))
+		} else if pidRaw, ok := payload["playerId"]; ok {
+			targetPID = strings.TrimSpace(fmt.Sprint(pidRaw))
+		}
+	}
+	if targetPID != "" && targetPID != cctx.ID.String() {
+		return
+	}
 	escrowID, _ := payload["escrow_id"].(string)
 	if strings.TrimSpace(escrowID) == "" {
 		return
@@ -269,6 +283,7 @@ type playerDTO struct {
 	IsBigBlind      bool       `json:"isBigBlind"`
 	EscrowID        string     `json:"escrowId"`
 	EscrowReady     bool       `json:"escrowReady"`
+	TableSeat       int32      `json:"tableSeat"`
 }
 
 // gameUpdateDTO represents a game update for JSON marshaling
@@ -326,6 +341,7 @@ func playerToDTO(p *pokerrpc.Player) *playerDTO {
 		IsBigBlind:      p.IsBigBlind,
 		EscrowID:        p.EscrowId,
 		EscrowReady:     p.EscrowReady,
+		TableSeat:       p.TableSeat,
 	}
 }
 

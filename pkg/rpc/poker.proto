@@ -369,6 +369,7 @@ message Player {
   bool is_disconnected = 15; // True if the player is disconnected but seat is reserved
   string escrow_id = 16;     // Bound escrow ID, if any
   bool escrow_ready = 17;    // True when escrow funding is single-UTXO and valid
+  int32 table_seat = 18;     // The seat index (0-based) where this player is seated
 }
 
 message Card {

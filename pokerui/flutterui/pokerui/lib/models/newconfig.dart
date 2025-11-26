@@ -38,7 +38,7 @@ class NewConfigModel extends ChangeNotifier {
   String appDatadir() => _appDataDir;
 
   Future<String> getConfigFilePath() async =>
-      p.join(_appDataDir, 'pokerui.conf');
+      p.join(_appDataDir, '$APPNAME.conf');
 
   // expose the resolved data directory to the UI for display
   String get dataDir => _appDataDir;

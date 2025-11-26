@@ -2871,6 +2871,7 @@ class Player extends $pb.GeneratedMessage {
     $core.bool? isDisconnected,
     $core.String? escrowId,
     $core.bool? escrowReady,
+    $core.int? tableSeat,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -2890,6 +2891,7 @@ class Player extends $pb.GeneratedMessage {
     if (isDisconnected != null) result.isDisconnected = isDisconnected;
     if (escrowId != null) result.escrowId = escrowId;
     if (escrowReady != null) result.escrowReady = escrowReady;
+    if (tableSeat != null) result.tableSeat = tableSeat;
     return result;
   }
 
@@ -2924,6 +2926,7 @@ class Player extends $pb.GeneratedMessage {
     ..aOB(15, _omitFieldNames ? '' : 'isDisconnected')
     ..aOS(16, _omitFieldNames ? '' : 'escrowId')
     ..aOB(17, _omitFieldNames ? '' : 'escrowReady')
+    ..aI(18, _omitFieldNames ? '' : 'tableSeat')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3090,6 +3093,15 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasEscrowReady() => $_has(16);
   @$pb.TagNumber(17)
   void clearEscrowReady() => $_clearField(17);
+
+  @$pb.TagNumber(18)
+  $core.int get tableSeat => $_getIZ(17);
+  @$pb.TagNumber(18)
+  set tableSeat($core.int value) => $_setSignedInt32(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasTableSeat() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearTableSeat() => $_clearField(18);
 }
 
 class Card extends $pb.GeneratedMessage {

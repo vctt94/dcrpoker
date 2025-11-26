@@ -667,6 +667,8 @@ class PlayerDTO {
   final String escrowId;
   @JsonKey(name: 'escrowReady', defaultValue: false)
   final bool escrowReady;
+  @JsonKey(name: 'tableSeat', defaultValue: 0)
+  final int tableSeat;
 
   PlayerDTO(
     this.id,
@@ -686,6 +688,7 @@ class PlayerDTO {
     this.isBigBlind,
     this.escrowId,
     this.escrowReady,
+    this.tableSeat,
   );
 
   factory PlayerDTO.fromJson(Map<String, dynamic> json) =>
@@ -711,7 +714,8 @@ class PlayerDTO {
       ..isSmallBlind = isSmallBlind
       ..isBigBlind = isBigBlind
       ..escrowId = escrowId
-      ..escrowReady = escrowReady;
+      ..escrowReady = escrowReady
+      ..tableSeat = tableSeat;
   }
 }
 

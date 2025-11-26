@@ -869,6 +869,7 @@ const Player$json = {
     {'1': 'is_disconnected', '3': 15, '4': 1, '5': 8, '10': 'isDisconnected'},
     {'1': 'escrow_id', '3': 16, '4': 1, '5': 9, '10': 'escrowId'},
     {'1': 'escrow_ready', '3': 17, '4': 1, '5': 8, '10': 'escrowReady'},
+    {'1': 'table_seat', '3': 18, '4': 1, '5': 5, '10': 'tableSeat'},
   ],
 };
 
@@ -883,7 +884,8 @@ final $typed_data.Uint8List playerDescriptor = $convert.base64Decode(
     'DjISLnBva2VyLlBsYXllclN0YXRlUgtwbGF5ZXJTdGF0ZRIkCg5pc19zbWFsbF9ibGluZBgNIA'
     'EoCFIMaXNTbWFsbEJsaW5kEiAKDGlzX2JpZ19ibGluZBgOIAEoCFIKaXNCaWdCbGluZBInCg9p'
     'c19kaXNjb25uZWN0ZWQYDyABKAhSDmlzRGlzY29ubmVjdGVkEhsKCWVzY3Jvd19pZBgQIAEoCV'
-    'IIZXNjcm93SWQSIQoMZXNjcm93X3JlYWR5GBEgASgIUgtlc2Nyb3dSZWFkeQ==');
+    'IIZXNjcm93SWQSIQoMZXNjcm93X3JlYWR5GBEgASgIUgtlc2Nyb3dSZWFkeRIdCgp0YWJsZV9z'
+    'ZWF0GBIgASgFUgl0YWJsZVNlYXQ=');
 
 @$core.Deprecated('Use cardDescriptor instead')
 const Card$json = {

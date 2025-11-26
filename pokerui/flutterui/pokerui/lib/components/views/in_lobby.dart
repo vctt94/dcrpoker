@@ -21,8 +21,6 @@ class InLobbyView extends StatelessWidget {
     String? selectedOutpoint = escrows.isNotEmpty
         ? '${escrows.first['funding_txid'] ?? ''}:${(escrows.first['funding_vout'] ?? 0).toString()}'
         : null;
-    int seatIndex =
-        t.players.length < t.maxPlayers ? t.players.length : t.maxPlayers - 1;
     final formKey = GlobalKey<FormState>();
     await showDialog(
       context: ctx,
@@ -56,12 +54,6 @@ class InLobbyView extends StatelessWidget {
                     return (chosen == null || chosen.isEmpty) ? 'Outpoint required' : null;
                   },
                 ),
-                DropdownButtonFormField<int>(
-                  value: seatIndex,
-                  decoration: const InputDecoration(labelText: 'Seat'),
-                  items: List.generate(t.maxPlayers, (i) => DropdownMenuItem(value: i, child: Text('Seat $i'))),
-                  onChanged: (v) => seatIndex = v ?? seatIndex,
-                ),
               ],
             ),
           ),
@@ -73,7 +65,6 @@ class InLobbyView extends StatelessWidget {
                 Navigator.pop(dctx);
                 await model.bindEscrow(
                   tableId: t.id,
-                  seatIndex: seatIndex,
                   outpoint: (escrowCtrl.text.trim().isNotEmpty ? escrowCtrl.text.trim() : selectedOutpoint) ?? '',
                 );
               },

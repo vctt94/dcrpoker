@@ -59,6 +59,7 @@ class UiPlayer {
   final String handDesc; // only meaningful at showdown
   final String escrowId;
   final bool escrowReady;
+  final int tableSeat; // 0-based seat index
 
   const UiPlayer({
     required this.id,
@@ -77,6 +78,7 @@ class UiPlayer {
     required this.handDesc,
     this.escrowId = '',
     this.escrowReady = false,
+    this.tableSeat = -1, // not seated
   });
 
   factory UiPlayer.fromProto(pr.Player p) {
@@ -97,12 +99,14 @@ class UiPlayer {
       handDesc: p.handDescription,
       escrowId: p.escrowId,
       escrowReady: p.escrowReady,
+      tableSeat: p.tableSeat,
     );
   }
 
   UiPlayer copyWith({
     String? escrowId,
     bool? escrowReady,
+    int? tableSeat,
   }) {
     return UiPlayer(
       id: id,
@@ -121,6 +125,7 @@ class UiPlayer {
       handDesc: handDesc,
       escrowId: escrowId ?? this.escrowId,
       escrowReady: escrowReady ?? this.escrowReady,
+      tableSeat: tableSeat ?? this.tableSeat,
     );
   }
 }
@@ -697,15 +702,15 @@ class PokerModel extends ChangeNotifier {
 
   Future<void> bindEscrow({
     required String tableId,
-    required int seatIndex,
     required String outpoint,
   }) async {
     String boundEscrowId = '';
     bool boundEscrowReady = false;
     try {
+      // Server determines the seat automatically from the caller's position
       final resp = await Golib.bindEscrow(
         tableId: tableId,
-        seatIndex: seatIndex,
+        seatIndex: -1, // Server will determine seat
         outpoint: outpoint,
       );
       if (resp is Map<String, dynamic>) {
