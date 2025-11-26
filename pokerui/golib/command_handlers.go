@@ -280,9 +280,6 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 			if req.TableID == "" {
 				return nil, fmt.Errorf("table_id required")
 			}
-			if req.SeatIndex < 0 {
-				return nil, fmt.Errorf("seat_index must be >=0")
-			}
 			if strings.TrimSpace(req.Outpoint) == "" {
 				return nil, fmt.Errorf("outpoint required")
 			}
