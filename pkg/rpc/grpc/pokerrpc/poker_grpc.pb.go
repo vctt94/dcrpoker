@@ -982,7 +982,6 @@ var LobbyService_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	AuthService_RequestLoginCode_FullMethodName = "/poker.AuthService/RequestLoginCode"
-	AuthService_SetPayoutAddress_FullMethodName = "/poker.AuthService/SetPayoutAddress"
 	AuthService_Register_FullMethodName         = "/poker.AuthService/Register"
 	AuthService_Login_FullMethodName            = "/poker.AuthService/Login"
 	AuthService_Logout_FullMethodName           = "/poker.AuthService/Logout"
@@ -996,7 +995,6 @@ const (
 // AuthService handles user authentication and identity management
 type AuthServiceClient interface {
 	RequestLoginCode(ctx context.Context, in *RequestLoginCodeRequest, opts ...grpc.CallOption) (*RequestLoginCodeResponse, error)
-	SetPayoutAddress(ctx context.Context, in *SetPayoutAddressRequest, opts ...grpc.CallOption) (*SetPayoutAddressResponse, error)
 	Register(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	Logout(ctx context.Context, in *LogoutRequest, opts ...grpc.CallOption) (*LogoutResponse, error)
@@ -1015,16 +1013,6 @@ func (c *authServiceClient) RequestLoginCode(ctx context.Context, in *RequestLog
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RequestLoginCodeResponse)
 	err := c.cc.Invoke(ctx, AuthService_RequestLoginCode_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *authServiceClient) SetPayoutAddress(ctx context.Context, in *SetPayoutAddressRequest, opts ...grpc.CallOption) (*SetPayoutAddressResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetPayoutAddressResponse)
-	err := c.cc.Invoke(ctx, AuthService_SetPayoutAddress_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1078,7 +1066,6 @@ func (c *authServiceClient) GetUserInfo(ctx context.Context, in *GetUserInfoRequ
 // AuthService handles user authentication and identity management
 type AuthServiceServer interface {
 	RequestLoginCode(context.Context, *RequestLoginCodeRequest) (*RequestLoginCodeResponse, error)
-	SetPayoutAddress(context.Context, *SetPayoutAddressRequest) (*SetPayoutAddressResponse, error)
 	Register(context.Context, *RegisterRequest) (*RegisterResponse, error)
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	Logout(context.Context, *LogoutRequest) (*LogoutResponse, error)
@@ -1095,9 +1082,6 @@ type UnimplementedAuthServiceServer struct{}
 
 func (UnimplementedAuthServiceServer) RequestLoginCode(context.Context, *RequestLoginCodeRequest) (*RequestLoginCodeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RequestLoginCode not implemented")
-}
-func (UnimplementedAuthServiceServer) SetPayoutAddress(context.Context, *SetPayoutAddressRequest) (*SetPayoutAddressResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetPayoutAddress not implemented")
 }
 func (UnimplementedAuthServiceServer) Register(context.Context, *RegisterRequest) (*RegisterResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Register not implemented")
@@ -1146,24 +1130,6 @@ func _AuthService_RequestLoginCode_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AuthServiceServer).RequestLoginCode(ctx, req.(*RequestLoginCodeRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _AuthService_SetPayoutAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetPayoutAddressRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(AuthServiceServer).SetPayoutAddress(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: AuthService_SetPayoutAddress_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(AuthServiceServer).SetPayoutAddress(ctx, req.(*SetPayoutAddressRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1250,10 +1216,6 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RequestLoginCode",
 			Handler:    _AuthService_RequestLoginCode_Handler,
-		},
-		{
-			MethodName: "SetPayoutAddress",
-			Handler:    _AuthService_SetPayoutAddress_Handler,
 		},
 		{
 			MethodName: "Register",

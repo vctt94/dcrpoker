@@ -698,13 +698,6 @@ class AuthServiceClient extends $grpc.Client {
     return $createUnaryCall(_$requestLoginCode, request, options: options);
   }
 
-  $grpc.ResponseFuture<$0.SetPayoutAddressResponse> setPayoutAddress(
-    $0.SetPayoutAddressRequest request, {
-    $grpc.CallOptions? options,
-  }) {
-    return $createUnaryCall(_$setPayoutAddress, request, options: options);
-  }
-
   $grpc.ResponseFuture<$0.RegisterResponse> register(
     $0.RegisterRequest request, {
     $grpc.CallOptions? options,
@@ -740,11 +733,6 @@ class AuthServiceClient extends $grpc.Client {
       '/poker.AuthService/RequestLoginCode',
       ($0.RequestLoginCodeRequest value) => value.writeToBuffer(),
       $0.RequestLoginCodeResponse.fromBuffer);
-  static final _$setPayoutAddress = $grpc.ClientMethod<
-          $0.SetPayoutAddressRequest, $0.SetPayoutAddressResponse>(
-      '/poker.AuthService/SetPayoutAddress',
-      ($0.SetPayoutAddressRequest value) => value.writeToBuffer(),
-      $0.SetPayoutAddressResponse.fromBuffer);
   static final _$register =
       $grpc.ClientMethod<$0.RegisterRequest, $0.RegisterResponse>(
           '/poker.AuthService/Register',
@@ -780,15 +768,6 @@ abstract class AuthServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.RequestLoginCodeRequest.fromBuffer(value),
         ($0.RequestLoginCodeResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.SetPayoutAddressRequest,
-            $0.SetPayoutAddressResponse>(
-        'SetPayoutAddress',
-        setPayoutAddress_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) =>
-            $0.SetPayoutAddressRequest.fromBuffer(value),
-        ($0.SetPayoutAddressResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.RegisterRequest, $0.RegisterResponse>(
         'Register',
         register_Pre,
@@ -829,15 +808,6 @@ abstract class AuthServiceBase extends $grpc.Service {
 
   $async.Future<$0.RequestLoginCodeResponse> requestLoginCode(
       $grpc.ServiceCall call, $0.RequestLoginCodeRequest request);
-
-  $async.Future<$0.SetPayoutAddressResponse> setPayoutAddress_Pre(
-      $grpc.ServiceCall $call,
-      $async.Future<$0.SetPayoutAddressRequest> $request) async {
-    return setPayoutAddress($call, await $request);
-  }
-
-  $async.Future<$0.SetPayoutAddressResponse> setPayoutAddress(
-      $grpc.ServiceCall call, $0.SetPayoutAddressRequest request);
 
   $async.Future<$0.RegisterResponse> register_Pre($grpc.ServiceCall $call,
       $async.Future<$0.RegisterRequest> $request) async {

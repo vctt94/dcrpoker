@@ -18,7 +18,6 @@ import (
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
-	"google.golang.org/grpc/metadata"
 )
 
 // UserIdentityData stores the persistent user identity (seed key)
@@ -43,48 +42,6 @@ type LoginCode struct {
 // sessionKeyState tracks deterministic session key indices.
 type sessionKeyState struct {
 	NextIndex uint64 `json:"next_index"`
-}
-
-// SetPayoutAddress verifies a signed code and binds the payout address to the
-// current session/user. Token is passed via metadata, not the request body.
-func (pc *PokerClient) SetPayoutAddress(ctx context.Context, token, address, signature, code string) (string, error) {
-	if strings.TrimSpace(address) == "" {
-		return "", fmt.Errorf("address is required")
-	}
-	if strings.TrimSpace(signature) == "" {
-		return "", fmt.Errorf("signature is required")
-	}
-	if strings.TrimSpace(code) == "" {
-		return "", fmt.Errorf("code is required")
-	}
-	if strings.TrimSpace(token) == "" {
-		return "", fmt.Errorf("token is required")
-	}
-
-	authClient := pokerrpc.NewAuthServiceClient(pc.conn)
-	mdCtx := metadata.NewOutgoingContext(ctx, metadata.Pairs("token", token))
-	resp, err := authClient.SetPayoutAddress(mdCtx, &pokerrpc.SetPayoutAddressRequest{
-		Address:   address,
-		Signature: signature,
-		Code:      code,
-	})
-	if err != nil {
-		return "", err
-	}
-	if !resp.GetOk() {
-		return "", fmt.Errorf("set payout address failed: %s", resp.GetError())
-	}
-
-	pc.persistPayoutAddress(resp.GetAddress())
-
-	if sess, err := pc.LoadSession(); err == nil && sess != nil {
-		sess.PayoutAddress = resp.GetAddress()
-		if err := pc.SaveSession(sess); err != nil {
-			pc.log.Warnf("failed to persist payout address in session: %v", err)
-		}
-	}
-
-	return resp.GetAddress(), nil
 }
 
 // GetOrCreateSeedKey generates or loads the seed key

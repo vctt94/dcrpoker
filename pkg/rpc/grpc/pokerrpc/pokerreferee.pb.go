@@ -1476,6 +1476,134 @@ func (x *FinalizeInput) GetRedeemScriptHex() string {
 	return ""
 }
 
+type SetPayoutAddressRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`         // active session token (already logged in)
+	Address       string                 `protobuf:"bytes,2,opt,name=address,proto3" json:"address,omitempty"`     // payout address to bind
+	Signature     string                 `protobuf:"bytes,3,opt,name=signature,proto3" json:"signature,omitempty"` // compact base64 signature over `code`
+	Code          string                 `protobuf:"bytes,4,opt,name=code,proto3" json:"code,omitempty"`           // nonce from RequestLoginCode
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetPayoutAddressRequest) Reset() {
+	*x = SetPayoutAddressRequest{}
+	mi := &file_pokerreferee_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetPayoutAddressRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetPayoutAddressRequest) ProtoMessage() {}
+
+func (x *SetPayoutAddressRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pokerreferee_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetPayoutAddressRequest.ProtoReflect.Descriptor instead.
+func (*SetPayoutAddressRequest) Descriptor() ([]byte, []int) {
+	return file_pokerreferee_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SetPayoutAddressRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *SetPayoutAddressRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *SetPayoutAddressRequest) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *SetPayoutAddressRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type SetPayoutAddressResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	Address       string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetPayoutAddressResponse) Reset() {
+	*x = SetPayoutAddressResponse{}
+	mi := &file_pokerreferee_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetPayoutAddressResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetPayoutAddressResponse) ProtoMessage() {}
+
+func (x *SetPayoutAddressResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pokerreferee_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetPayoutAddressResponse.ProtoReflect.Descriptor instead.
+func (*SetPayoutAddressResponse) Descriptor() ([]byte, []int) {
+	return file_pokerreferee_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *SetPayoutAddressResponse) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
+
+func (x *SetPayoutAddressResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+func (x *SetPayoutAddressResponse) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
 var File_pokerreferee_proto protoreflect.FileDescriptor
 
 const file_pokerreferee_proto_rawDesc = "" +
@@ -1609,7 +1737,16 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\vs_prime_hex\x18\x03 \x01(\tR\tsPrimeHex\x12\x1f\n" +
 	"\vinput_index\x18\x04 \x01(\rR\n" +
 	"inputIndex\x12*\n" +
-	"\x11redeem_script_hex\x18\x05 \x01(\tR\x0fredeemScriptHex2\xfa\x03\n" +
+	"\x11redeem_script_hex\x18\x05 \x01(\tR\x0fredeemScriptHex\"{\n" +
+	"\x17SetPayoutAddressRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x18\n" +
+	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x1c\n" +
+	"\tsignature\x18\x03 \x01(\tR\tsignature\x12\x12\n" +
+	"\x04code\x18\x04 \x01(\tR\x04code\"Z\n" +
+	"\x18SetPayoutAddressResponse\x12\x0e\n" +
+	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress2\xd1\x04\n" +
 	"\fPokerReferee\x12C\n" +
 	"\n" +
 	"OpenEscrow\x12\x18.poker.OpenEscrowRequest\x1a\x19.poker.OpenEscrowResponse\"\x00\x12C\n" +
@@ -1618,7 +1755,8 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\x11PublishSessionKey\x12\x1f.poker.PublishSessionKeyRequest\x1a .poker.PublishSessionKeyResponse\"\x00\x12X\n" +
 	"\x10SettlementStream\x12\x1e.poker.SettlementStreamMessage\x1a\x1e.poker.SettlementStreamMessage\"\x00(\x010\x01\x12X\n" +
 	"\x11GetFinalizeBundle\x12\x1f.poker.GetFinalizeBundleRequest\x1a .poker.GetFinalizeBundleResponse\"\x00\x12R\n" +
-	"\x0fGetEscrowStatus\x12\x1d.poker.GetEscrowStatusRequest\x1a\x1e.poker.GetEscrowStatusResponse\"\x00B\x0fZ\rgrpc/pokerrpcb\x06proto3"
+	"\x0fGetEscrowStatus\x12\x1d.poker.GetEscrowStatusRequest\x1a\x1e.poker.GetEscrowStatusResponse\"\x00\x12U\n" +
+	"\x10SetPayoutAddress\x12\x1e.poker.SetPayoutAddressRequest\x1a\x1f.poker.SetPayoutAddressResponse\"\x00B\x0fZ\rgrpc/pokerrpcb\x06proto3"
 
 var (
 	file_pokerreferee_proto_rawDescOnce sync.Once
@@ -1632,7 +1770,7 @@ func file_pokerreferee_proto_rawDescGZIP() []byte {
 	return file_pokerreferee_proto_rawDescData
 }
 
-var file_pokerreferee_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_pokerreferee_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_pokerreferee_proto_goTypes = []any{
 	(*OpenEscrowRequest)(nil),         // 0: poker.OpenEscrowRequest
 	(*OpenEscrowResponse)(nil),        // 1: poker.OpenEscrowResponse
@@ -1653,6 +1791,8 @@ var file_pokerreferee_proto_goTypes = []any{
 	(*GetFinalizeBundleRequest)(nil),  // 16: poker.GetFinalizeBundleRequest
 	(*GetFinalizeBundleResponse)(nil), // 17: poker.GetFinalizeBundleResponse
 	(*FinalizeInput)(nil),             // 18: poker.FinalizeInput
+	(*SetPayoutAddressRequest)(nil),   // 19: poker.SetPayoutAddressRequest
+	(*SetPayoutAddressResponse)(nil),  // 20: poker.SetPayoutAddressResponse
 }
 var file_pokerreferee_proto_depIdxs = []int32{
 	9,  // 0: poker.SettlementStreamMessage.hello:type_name -> poker.SettlementHello
@@ -1669,14 +1809,16 @@ var file_pokerreferee_proto_depIdxs = []int32{
 	8,  // 11: poker.PokerReferee.SettlementStream:input_type -> poker.SettlementStreamMessage
 	16, // 12: poker.PokerReferee.GetFinalizeBundle:input_type -> poker.GetFinalizeBundleRequest
 	4,  // 13: poker.PokerReferee.GetEscrowStatus:input_type -> poker.GetEscrowStatusRequest
-	1,  // 14: poker.PokerReferee.OpenEscrow:output_type -> poker.OpenEscrowResponse
-	3,  // 15: poker.PokerReferee.BindEscrow:output_type -> poker.BindEscrowResponse
-	7,  // 16: poker.PokerReferee.PublishSessionKey:output_type -> poker.PublishSessionKeyResponse
-	8,  // 17: poker.PokerReferee.SettlementStream:output_type -> poker.SettlementStreamMessage
-	17, // 18: poker.PokerReferee.GetFinalizeBundle:output_type -> poker.GetFinalizeBundleResponse
-	5,  // 19: poker.PokerReferee.GetEscrowStatus:output_type -> poker.GetEscrowStatusResponse
-	14, // [14:20] is the sub-list for method output_type
-	8,  // [8:14] is the sub-list for method input_type
+	19, // 14: poker.PokerReferee.SetPayoutAddress:input_type -> poker.SetPayoutAddressRequest
+	1,  // 15: poker.PokerReferee.OpenEscrow:output_type -> poker.OpenEscrowResponse
+	3,  // 16: poker.PokerReferee.BindEscrow:output_type -> poker.BindEscrowResponse
+	7,  // 17: poker.PokerReferee.PublishSessionKey:output_type -> poker.PublishSessionKeyResponse
+	8,  // 18: poker.PokerReferee.SettlementStream:output_type -> poker.SettlementStreamMessage
+	17, // 19: poker.PokerReferee.GetFinalizeBundle:output_type -> poker.GetFinalizeBundleResponse
+	5,  // 20: poker.PokerReferee.GetEscrowStatus:output_type -> poker.GetEscrowStatusResponse
+	20, // 21: poker.PokerReferee.SetPayoutAddress:output_type -> poker.SetPayoutAddressResponse
+	15, // [15:22] is the sub-list for method output_type
+	8,  // [8:15] is the sub-list for method input_type
 	8,  // [8:8] is the sub-list for extension type_name
 	8,  // [8:8] is the sub-list for extension extendee
 	0,  // [0:8] is the sub-list for field type_name
@@ -1700,7 +1842,7 @@ func file_pokerreferee_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pokerreferee_proto_rawDesc), len(file_pokerreferee_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

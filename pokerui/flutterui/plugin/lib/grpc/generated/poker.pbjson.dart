@@ -1119,39 +1119,6 @@ final $typed_data.Uint8List requestLoginCodeResponseDescriptor =
         'ChhSZXF1ZXN0TG9naW5Db2RlUmVzcG9uc2USEgoEY29kZRgBIAEoCVIEY29kZRIXCgd0dGxfc2'
         'VjGAIgASgDUgZ0dGxTZWMSIQoMYWRkcmVzc19oaW50GAMgASgJUgthZGRyZXNzSGludA==');
 
-@$core.Deprecated('Use setPayoutAddressRequestDescriptor instead')
-const SetPayoutAddressRequest$json = {
-  '1': 'SetPayoutAddressRequest',
-  '2': [
-    {'1': 'token', '3': 1, '4': 1, '5': 9, '10': 'token'},
-    {'1': 'address', '3': 2, '4': 1, '5': 9, '10': 'address'},
-    {'1': 'signature', '3': 3, '4': 1, '5': 9, '10': 'signature'},
-    {'1': 'code', '3': 4, '4': 1, '5': 9, '10': 'code'},
-  ],
-};
-
-/// Descriptor for `SetPayoutAddressRequest`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List setPayoutAddressRequestDescriptor = $convert.base64Decode(
-    'ChdTZXRQYXlvdXRBZGRyZXNzUmVxdWVzdBIUCgV0b2tlbhgBIAEoCVIFdG9rZW4SGAoHYWRkcm'
-    'VzcxgCIAEoCVIHYWRkcmVzcxIcCglzaWduYXR1cmUYAyABKAlSCXNpZ25hdHVyZRISCgRjb2Rl'
-    'GAQgASgJUgRjb2Rl');
-
-@$core.Deprecated('Use setPayoutAddressResponseDescriptor instead')
-const SetPayoutAddressResponse$json = {
-  '1': 'SetPayoutAddressResponse',
-  '2': [
-    {'1': 'ok', '3': 1, '4': 1, '5': 8, '10': 'ok'},
-    {'1': 'error', '3': 2, '4': 1, '5': 9, '10': 'error'},
-    {'1': 'address', '3': 3, '4': 1, '5': 9, '10': 'address'},
-  ],
-};
-
-/// Descriptor for `SetPayoutAddressResponse`. Decode as a `google.protobuf.DescriptorProto`.
-final $typed_data.Uint8List setPayoutAddressResponseDescriptor =
-    $convert.base64Decode(
-        'ChhTZXRQYXlvdXRBZGRyZXNzUmVzcG9uc2USDgoCb2sYASABKAhSAm9rEhQKBWVycm9yGAIgAS'
-        'gJUgVlcnJvchIYCgdhZGRyZXNzGAMgASgJUgdhZGRyZXNz');
-
 @$core.Deprecated('Use loginResponseDescriptor instead')
 const LoginResponse$json = {
   '1': 'LoginResponse',

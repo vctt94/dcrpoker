@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"regexp"
@@ -11,6 +12,9 @@ import (
 	"time"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/decred/dcrd/chaincfg/v3"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
+	"github.com/decred/dcrd/txscript/v4/stdaddr"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
@@ -127,6 +131,28 @@ func (a *authState) storeNonce(code string, userID *zkidentity.ShortID, ttl time
 	a.purgeExpiredNoncesLocked(now)
 	a.nonces[code] = loginNonce{userID: userID, expires: now.Add(ttl)}
 	a.mu.Unlock()
+}
+
+// ConsumeNonce checks if a nonce is valid and returns the nonce metadata.
+func (a *authState) ConsumeNonce(code string) (loginNonce, bool) {
+	now := time.Now()
+	a.mu.Lock()
+	a.purgeExpiredNoncesLocked(now)
+	meta, ok := a.nonces[code]
+	if !ok || now.After(meta.expires) {
+		a.mu.Unlock()
+		return loginNonce{}, false
+	}
+	delete(a.nonces, code)
+	a.mu.Unlock()
+	return meta, true
+}
+
+func (a *authState) payoutAddrHint(userID zkidentity.ShortID) string {
+	a.mu.RLock()
+	addr := a.uidToPayoutAddr[userID]
+	a.mu.RUnlock()
+	return addr
 }
 
 // displayNameFor returns the cached nickname for a user ID, if known.
@@ -268,9 +294,7 @@ func (s *Server) RequestLoginCode(ctx context.Context, req *pokerrpc.RequestLogi
 		}
 		uidCopy := uid
 		uidPtr = &uidCopy
-		s.auth.mu.RLock()
-		addrHint = s.auth.uidToPayoutAddr[uid]
-		s.auth.mu.RUnlock()
+		addrHint = s.auth.payoutAddrHint(uid)
 	}
 
 	var b [16]byte
@@ -331,6 +355,88 @@ func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerr
 		}, nil
 	}
 
+	params := s.chainParams
+	if params == nil {
+		params = chaincfg.TestNet3Params()
+	}
+
+	// If the client supplied an address + signature, verify it and persist as payout.
+	addrStr := strings.TrimSpace(req.Address)
+	sigB64 := strings.TrimSpace(req.Signature)
+	if addrStr != "" || sigB64 != "" {
+		if addrStr == "" || sigB64 == "" {
+			return &pokerrpc.LoginResponse{Ok: false, Error: "address and signature are required together"}, nil
+		}
+		code := strings.TrimSpace(req.Code)
+		if code == "" {
+			return &pokerrpc.LoginResponse{Ok: false, Error: "login code is required when providing signature"}, nil
+		}
+		nonceMeta, ok := s.auth.ConsumeNonce(code)
+		if !ok {
+			return &pokerrpc.LoginResponse{Ok: false, Error: "invalid or expired code"}, nil
+		}
+		if nonceMeta.userID != nil && *nonceMeta.userID != userID {
+			return &pokerrpc.LoginResponse{Ok: false, Error: "code does not match user id"}, nil
+		}
+
+		addr, err := stdaddr.DecodeAddress(addrStr, params)
+		if err != nil {
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: fmt.Sprintf("invalid address: %v", err),
+			}, nil
+		}
+
+		// Verify signature proves control of the provided address.
+		sig, err := base64.StdEncoding.DecodeString(sigB64)
+		if err != nil {
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: fmt.Sprintf("invalid signature encoding: %v", err),
+			}, nil
+		}
+
+		digest, err := signedMessageDigest(code)
+		if err != nil {
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: fmt.Sprintf("failed to build signed message payload: %v", err),
+			}, nil
+		}
+
+		pub, _, err := ecdsa.RecoverCompact(sig, digest)
+		if err != nil {
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: fmt.Sprintf("failed to recover pubkey: %v", err),
+			}, nil
+		}
+		got, err := stdaddr.NewAddressPubKeyHashEcdsaSecp256k1V0(stdaddr.Hash160(pub.SerializeCompressed()), params)
+		if err != nil {
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: fmt.Sprintf("failed to compute address: %v", err),
+			}, nil
+		}
+		if got.String() != addr.String() {
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: "address does not match recovered signature",
+			}, nil
+		}
+
+		s.auth.mu.Lock()
+		if existing, ok := s.auth.uidToPayoutAddr[userID]; ok && existing != addrStr {
+			s.auth.mu.Unlock()
+			return &pokerrpc.LoginResponse{
+				Ok:    false,
+				Error: "payout address mismatch for this user id",
+			}, nil
+		}
+		s.auth.uidToPayoutAddr[userID] = addrStr
+		s.auth.mu.Unlock()
+	}
+
 	// Update last login in database
 	if err := s.db.UpdateAuthUserLastLogin(ctx, userID.String()); err != nil {
 		// Log but don't fail login
@@ -364,17 +470,19 @@ func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerr
 	token := fmt.Sprintf("sess_%d_%x", time.Now().Unix(), tokenBytes)
 	s.auth.mu.Lock()
 	s.auth.sessions[token] = sessionInfo{
-		userID:   userID,
-		nickname: nickname,
-		created:  time.Now(),
+		userID:     userID,
+		nickname:   nickname,
+		payoutAddr: addrStr,
+		created:    time.Now(),
 	}
 	s.auth.mu.Unlock()
 
 	return &pokerrpc.LoginResponse{
-		Ok:       true,
-		Token:    token,
-		UserId:   userID.String(),
-		Nickname: nickname,
+		Ok:            true,
+		Token:         token,
+		UserId:        userID.String(),
+		Nickname:      nickname,
+		PayoutAddress: s.auth.payoutAddrHint(userID),
 	}, nil
 }
 

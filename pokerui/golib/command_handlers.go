@@ -919,7 +919,8 @@ func handleSetPayoutAddress(handle uint32, req setPayoutAddressReq) (interface{}
 		return nil, fmt.Errorf("no session token; login first")
 	}
 
-	addr, err := cc.c.SetPayoutAddress(cc.ctx, cc.Token, req.Address, req.Signature, req.Code)
+	ref := cc.c.Referee(cc.Token)
+	addr, err := ref.SetPayoutAddress(cc.ctx, req.Address, req.Signature, req.Code)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set payout address: %v", err)
 	}

@@ -25,6 +25,7 @@ const (
 	PokerReferee_SettlementStream_FullMethodName  = "/poker.PokerReferee/SettlementStream"
 	PokerReferee_GetFinalizeBundle_FullMethodName = "/poker.PokerReferee/GetFinalizeBundle"
 	PokerReferee_GetEscrowStatus_FullMethodName   = "/poker.PokerReferee/GetEscrowStatus"
+	PokerReferee_SetPayoutAddress_FullMethodName  = "/poker.PokerReferee/SetPayoutAddress"
 )
 
 // PokerRefereeClient is the client API for PokerReferee service.
@@ -46,6 +47,7 @@ type PokerRefereeClient interface {
 	GetFinalizeBundle(ctx context.Context, in *GetFinalizeBundleRequest, opts ...grpc.CallOption) (*GetFinalizeBundleResponse, error)
 	// Returns funding/conf status for an escrow owned by the caller.
 	GetEscrowStatus(ctx context.Context, in *GetEscrowStatusRequest, opts ...grpc.CallOption) (*GetEscrowStatusResponse, error)
+	SetPayoutAddress(ctx context.Context, in *SetPayoutAddressRequest, opts ...grpc.CallOption) (*SetPayoutAddressResponse, error)
 }
 
 type pokerRefereeClient struct {
@@ -119,6 +121,16 @@ func (c *pokerRefereeClient) GetEscrowStatus(ctx context.Context, in *GetEscrowS
 	return out, nil
 }
 
+func (c *pokerRefereeClient) SetPayoutAddress(ctx context.Context, in *SetPayoutAddressRequest, opts ...grpc.CallOption) (*SetPayoutAddressResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetPayoutAddressResponse)
+	err := c.cc.Invoke(ctx, PokerReferee_SetPayoutAddress_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // PokerRefereeServer is the server API for PokerReferee service.
 // All implementations must embed UnimplementedPokerRefereeServer
 // for forward compatibility.
@@ -138,6 +150,7 @@ type PokerRefereeServer interface {
 	GetFinalizeBundle(context.Context, *GetFinalizeBundleRequest) (*GetFinalizeBundleResponse, error)
 	// Returns funding/conf status for an escrow owned by the caller.
 	GetEscrowStatus(context.Context, *GetEscrowStatusRequest) (*GetEscrowStatusResponse, error)
+	SetPayoutAddress(context.Context, *SetPayoutAddressRequest) (*SetPayoutAddressResponse, error)
 	mustEmbedUnimplementedPokerRefereeServer()
 }
 
@@ -165,6 +178,9 @@ func (UnimplementedPokerRefereeServer) GetFinalizeBundle(context.Context, *GetFi
 }
 func (UnimplementedPokerRefereeServer) GetEscrowStatus(context.Context, *GetEscrowStatusRequest) (*GetEscrowStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetEscrowStatus not implemented")
+}
+func (UnimplementedPokerRefereeServer) SetPayoutAddress(context.Context, *SetPayoutAddressRequest) (*SetPayoutAddressResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPayoutAddress not implemented")
 }
 func (UnimplementedPokerRefereeServer) mustEmbedUnimplementedPokerRefereeServer() {}
 func (UnimplementedPokerRefereeServer) testEmbeddedByValue()                      {}
@@ -284,6 +300,24 @@ func _PokerReferee_GetEscrowStatus_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PokerReferee_SetPayoutAddress_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPayoutAddressRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PokerRefereeServer).SetPayoutAddress(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PokerReferee_SetPayoutAddress_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PokerRefereeServer).SetPayoutAddress(ctx, req.(*SetPayoutAddressRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // PokerReferee_ServiceDesc is the grpc.ServiceDesc for PokerReferee service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -310,6 +344,10 @@ var PokerReferee_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetEscrowStatus",
 			Handler:    _PokerReferee_GetEscrowStatus_Handler,
+		},
+		{
+			MethodName: "SetPayoutAddress",
+			Handler:    _PokerReferee_SetPayoutAddress_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

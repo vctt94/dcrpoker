@@ -82,6 +82,13 @@ class PokerRefereeClient extends $grpc.Client {
     return $createUnaryCall(_$getEscrowStatus, request, options: options);
   }
 
+  $grpc.ResponseFuture<$0.SetPayoutAddressResponse> setPayoutAddress(
+    $0.SetPayoutAddressRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$setPayoutAddress, request, options: options);
+  }
+
   // method descriptors
 
   static final _$openEscrow =
@@ -114,6 +121,11 @@ class PokerRefereeClient extends $grpc.Client {
           '/poker.PokerReferee/GetEscrowStatus',
           ($0.GetEscrowStatusRequest value) => value.writeToBuffer(),
           $0.GetEscrowStatusResponse.fromBuffer);
+  static final _$setPayoutAddress = $grpc.ClientMethod<
+          $0.SetPayoutAddressRequest, $0.SetPayoutAddressResponse>(
+      '/poker.PokerReferee/SetPayoutAddress',
+      ($0.SetPayoutAddressRequest value) => value.writeToBuffer(),
+      $0.SetPayoutAddressResponse.fromBuffer);
 }
 
 @$pb.GrpcServiceName('poker.PokerReferee')
@@ -171,6 +183,15 @@ abstract class PokerRefereeServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.GetEscrowStatusRequest.fromBuffer(value),
         ($0.GetEscrowStatusResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.SetPayoutAddressRequest,
+            $0.SetPayoutAddressResponse>(
+        'SetPayoutAddress',
+        setPayoutAddress_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) =>
+            $0.SetPayoutAddressRequest.fromBuffer(value),
+        ($0.SetPayoutAddressResponse value) => value.writeToBuffer()));
   }
 
   $async.Future<$0.OpenEscrowResponse> openEscrow_Pre($grpc.ServiceCall $call,
@@ -219,4 +240,13 @@ abstract class PokerRefereeServiceBase extends $grpc.Service {
 
   $async.Future<$0.GetEscrowStatusResponse> getEscrowStatus(
       $grpc.ServiceCall call, $0.GetEscrowStatusRequest request);
+
+  $async.Future<$0.SetPayoutAddressResponse> setPayoutAddress_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.SetPayoutAddressRequest> $request) async {
+    return setPayoutAddress($call, await $request);
+  }
+
+  $async.Future<$0.SetPayoutAddressResponse> setPayoutAddress(
+      $grpc.ServiceCall call, $0.SetPayoutAddressRequest request);
 }

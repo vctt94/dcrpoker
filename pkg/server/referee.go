@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,8 +17,10 @@ import (
 
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/chaincfg/v3"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"github.com/decred/dcrd/dcrutil/v4"
 	"github.com/decred/dcrd/txscript/v4"
 	"github.com/decred/dcrd/txscript/v4/stdaddr"
@@ -1330,4 +1333,110 @@ func decodeMsgTx(raw []byte) (*wire.MsgTx, error) {
 		return nil, err
 	}
 	return &tx, nil
+}
+
+func signedMessageDigest(msg string) ([]byte, error) {
+	var buf bytes.Buffer
+	const header = "Decred Signed Message:\n"
+	if err := wire.WriteVarString(&buf, 0, header); err != nil {
+		return nil, err
+	}
+	if err := wire.WriteVarString(&buf, 0, msg); err != nil {
+		return nil, err
+	}
+	return chainhash.HashB(buf.Bytes()), nil
+}
+
+// SetPayoutAddress verifies a signed code and binds the payout address to the
+// current session/user. Token is passed via metadata, not the request body.
+
+// SetPayoutAddress verifies a signed nonce and persists the payout address for
+// the authenticated user/session.
+func (s *Server) SetPayoutAddress(ctx context.Context, req *pokerrpc.SetPayoutAddressRequest) (*pokerrpc.SetPayoutAddressResponse, error) {
+	if s.auth == nil {
+		s.auth = newAuthState(s.db)
+	}
+
+	token := strings.TrimSpace(req.GetToken())
+	if token == "" {
+		if md, ok := metadata.FromIncomingContext(ctx); ok {
+			if vals := md.Get("token"); len(vals) > 0 {
+				token = strings.TrimSpace(vals[0])
+			}
+		}
+	}
+	if token == "" {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "token required"}, nil
+	}
+
+	addrStr := strings.TrimSpace(req.GetAddress())
+	sigB64 := strings.TrimSpace(req.GetSignature())
+	code := strings.TrimSpace(req.GetCode())
+	if addrStr == "" || sigB64 == "" || code == "" {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "address, signature, and code are required"}, nil
+	}
+
+	sess, ok := s.sessionForToken(token)
+	if !ok {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "invalid or expired session"}, nil
+	}
+
+	params := s.chainParams
+	if params == nil {
+		params = chaincfg.TestNet3Params()
+	}
+
+	nonceMeta, ok := s.auth.ConsumeNonce(code)
+	if !ok {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "invalid or expired code"}, nil
+	}
+	if nonceMeta.userID != nil && *nonceMeta.userID != sess.userID {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "code does not match user id"}, nil
+	}
+
+	addr, err := stdaddr.DecodeAddress(addrStr, params)
+	if err != nil {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: fmt.Sprintf("invalid address: %v", err)}, nil
+	}
+
+	sig, err := base64.StdEncoding.DecodeString(sigB64)
+	if err != nil {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: fmt.Sprintf("invalid signature encoding: %v", err)}, nil
+	}
+	digest, err := signedMessageDigest(code)
+	if err != nil {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: fmt.Sprintf("failed to build signed message payload: %v", err)}, nil
+	}
+	pub, _, err := ecdsa.RecoverCompact(sig, digest)
+	if err != nil {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: fmt.Sprintf("failed to recover pubkey: %v", err)}, nil
+	}
+	got, err := stdaddr.NewAddressPubKeyHashEcdsaSecp256k1V0(stdaddr.Hash160(pub.SerializeCompressed()), params)
+	if err != nil {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: fmt.Sprintf("failed to compute address: %v", err)}, nil
+	}
+	if got.String() != addr.String() {
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "address does not match recovered signature"}, nil
+	}
+
+	s.auth.mu.Lock()
+	s.auth.uidToPayoutAddr[sess.userID] = addrStr
+	if meta, ok := s.auth.sessions[token]; ok {
+		meta.payoutAddr = addrStr
+		s.auth.sessions[token] = meta
+	}
+	s.auth.mu.Unlock()
+
+	// Persist to DB for future reference.
+	if err := s.db.UpsertAuthUser(ctx, sess.nickname, sess.userID.String()); err != nil {
+		s.log.Warnf("failed to upsert auth user when setting payout: %v", err)
+	}
+	if err := s.db.UpdateAuthUserLastLogin(ctx, sess.userID.String()); err != nil {
+		s.log.Warnf("failed to update last login on payout set: %v", err)
+	}
+
+	return &pokerrpc.SetPayoutAddressResponse{
+		Ok:      true,
+		Address: addrStr,
+	}, nil
 }

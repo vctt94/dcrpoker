@@ -27,6 +27,8 @@ service PokerReferee {
 
   // Returns funding/conf status for an escrow owned by the caller.
   rpc GetEscrowStatus(GetEscrowStatusRequest) returns (GetEscrowStatusResponse) {}
+
+  rpc SetPayoutAddress(SetPayoutAddressRequest) returns (SetPayoutAddressResponse) {}
 }
 
 // ---------- Open escrow ----------
@@ -192,4 +194,17 @@ message FinalizeInput {
   string s_prime_hex = 3;
   uint32 input_index = 4;
   string redeem_script_hex = 5;
+}
+
+message SetPayoutAddressRequest {
+  string token = 1;     // active session token (already logged in)
+  string address = 2;   // payout address to bind
+  string signature = 3; // compact base64 signature over `code`
+  string code = 4;      // nonce from RequestLoginCode
+}
+
+message SetPayoutAddressResponse {
+  bool ok = 1;
+  string error = 2;
+  string address = 3;
 }

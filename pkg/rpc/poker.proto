@@ -53,7 +53,6 @@ service LobbyService {
 // AuthService handles user authentication and identity management
 service AuthService {
   rpc RequestLoginCode (RequestLoginCodeRequest) returns (RequestLoginCodeResponse);
-  rpc SetPayoutAddress (SetPayoutAddressRequest) returns (SetPayoutAddressResponse);
   rpc Register (RegisterRequest) returns (RegisterResponse);
   rpc Login (LoginRequest) returns (LoginResponse);
   rpc Logout (LogoutRequest) returns (LogoutResponse);
@@ -453,19 +452,6 @@ message RequestLoginCodeResponse {
   string code = 1;
   int64 ttl_sec = 2;
   string address_hint = 3;
-}
-
-message SetPayoutAddressRequest {
-  string token = 1;     // active session token (already logged in)
-  string address = 2;   // payout address to bind
-  string signature = 3; // compact base64 signature over `code`
-  string code = 4;      // nonce from RequestLoginCode
-}
-
-message SetPayoutAddressResponse {
-  bool ok = 1;
-  string error = 2;
-  string address = 3;
 }
 
 message LoginResponse {

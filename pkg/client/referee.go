@@ -37,6 +37,27 @@ func (pc *PokerClient) Referee(token string) *RefereeClient {
 	return NewRefereeClient(pokerrpc.NewPokerRefereeClient(pc.conn), pc.log, token)
 }
 
+// SetPayoutAddress verifies a signed code and binds the payout address to the current session/user.
+func (c *RefereeClient) SetPayoutAddress(ctx context.Context, address, signature, code string) (string, error) {
+	if c.token != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "token", c.token)
+	}
+	req := &pokerrpc.SetPayoutAddressRequest{
+		Token:     c.token,
+		Address:   address,
+		Signature: signature,
+		Code:      code,
+	}
+	resp, err := c.rc.SetPayoutAddress(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	if !resp.Ok {
+		return "", fmt.Errorf("set payout address failed: %s", resp.Error)
+	}
+	return resp.Address, nil
+}
+
 func (c *RefereeClient) GetEscrowStatus(ctx context.Context, escrowID string) (*pokerrpc.GetEscrowStatusResponse, error) {
 	if c.token != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "token", c.token)

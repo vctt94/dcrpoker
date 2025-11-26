@@ -1947,6 +1947,176 @@ class FinalizeInput extends $pb.GeneratedMessage {
   void clearRedeemScriptHex() => $_clearField(5);
 }
 
+class SetPayoutAddressRequest extends $pb.GeneratedMessage {
+  factory SetPayoutAddressRequest({
+    $core.String? token,
+    $core.String? address,
+    $core.String? signature,
+    $core.String? code,
+  }) {
+    final result = create();
+    if (token != null) result.token = token;
+    if (address != null) result.address = address;
+    if (signature != null) result.signature = signature;
+    if (code != null) result.code = code;
+    return result;
+  }
+
+  SetPayoutAddressRequest._();
+
+  factory SetPayoutAddressRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory SetPayoutAddressRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SetPayoutAddressRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'token')
+    ..aOS(2, _omitFieldNames ? '' : 'address')
+    ..aOS(3, _omitFieldNames ? '' : 'signature')
+    ..aOS(4, _omitFieldNames ? '' : 'code')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SetPayoutAddressRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SetPayoutAddressRequest copyWith(
+          void Function(SetPayoutAddressRequest) updates) =>
+      super.copyWith((message) => updates(message as SetPayoutAddressRequest))
+          as SetPayoutAddressRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static SetPayoutAddressRequest create() => SetPayoutAddressRequest._();
+  @$core.override
+  SetPayoutAddressRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static SetPayoutAddressRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SetPayoutAddressRequest>(create);
+  static SetPayoutAddressRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get token => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set token($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasToken() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearToken() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get address => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set address($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasAddress() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearAddress() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get signature => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set signature($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasSignature() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearSignature() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get code => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set code($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasCode() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearCode() => $_clearField(4);
+}
+
+class SetPayoutAddressResponse extends $pb.GeneratedMessage {
+  factory SetPayoutAddressResponse({
+    $core.bool? ok,
+    $core.String? error,
+    $core.String? address,
+  }) {
+    final result = create();
+    if (ok != null) result.ok = ok;
+    if (error != null) result.error = error;
+    if (address != null) result.address = address;
+    return result;
+  }
+
+  SetPayoutAddressResponse._();
+
+  factory SetPayoutAddressResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory SetPayoutAddressResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'SetPayoutAddressResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'ok')
+    ..aOS(2, _omitFieldNames ? '' : 'error')
+    ..aOS(3, _omitFieldNames ? '' : 'address')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SetPayoutAddressResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  SetPayoutAddressResponse copyWith(
+          void Function(SetPayoutAddressResponse) updates) =>
+      super.copyWith((message) => updates(message as SetPayoutAddressResponse))
+          as SetPayoutAddressResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static SetPayoutAddressResponse create() => SetPayoutAddressResponse._();
+  @$core.override
+  SetPayoutAddressResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static SetPayoutAddressResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<SetPayoutAddressResponse>(create);
+  static SetPayoutAddressResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get ok => $_getBF(0);
+  @$pb.TagNumber(1)
+  set ok($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasOk() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearOk() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get error => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set error($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasError() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearError() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get address => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set address($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAddress() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAddress() => $_clearField(3);
+}
+
 const $core.bool _omitFieldNames =
     $core.bool.fromEnvironment('protobuf.omit_field_names');
 const $core.bool _omitMessageNames =
