@@ -299,18 +299,22 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		// Build players list from snapshot data
 		var players []*pokerrpc.Player
 		for _, ps := range tableSnapshot.Players {
-			player := &pokerrpc.Player{
-				Id:             ps.ID,
-				IsReady:        ps.IsReady,
-				PlayerState:    pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
-				IsDisconnected: ps.IsDisconnected,
-			}
-			players = append(players, player)
+		player := &pokerrpc.Player{
+			Id:             ps.ID,
+			Name:           ps.Name,
+			IsReady:        ps.IsReady,
+			PlayerState:    pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
+			IsDisconnected: ps.IsDisconnected,
+			EscrowId:       ps.EscrowID,
+			EscrowReady:    ps.EscrowReady,
+			TableSeat:      int32(ps.TableSeat),
 		}
+		players = append(players, player)
+	}
 
-		return &pokerrpc.GameUpdate{
-			TableId:         tableSnapshot.ID,
-			Phase:           pokerrpc.GamePhase_WAITING,
+	return &pokerrpc.GameUpdate{
+		TableId:         tableSnapshot.ID,
+		Phase:           pokerrpc.GamePhase_WAITING,
 			PhaseName:       pokerrpc.GamePhase_WAITING.String(),
 			Players:         players,
 			PlayersRequired: int32(tableSnapshot.Config.MinPlayers),
@@ -325,6 +329,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 	for _, ps := range tableSnapshot.Players {
 		player := &pokerrpc.Player{
 			Id:             ps.ID,
+			Name:           ps.Name,
 			Balance:        ps.Balance,
 			IsReady:        ps.IsReady,
 			Folded:         ps.HasFolded,
@@ -337,7 +342,10 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 			IsDisconnected: ps.IsDisconnected,
 			// Use FSM-derived snapshot value. UIs should prefer
 			// GameUpdate.CurrentPlayer for highlighting.
-			IsTurn: ps.IsTurn,
+			IsTurn:      ps.IsTurn,
+			EscrowId:    ps.EscrowID,
+			EscrowReady: ps.EscrowReady,
+			TableSeat:   int32(ps.TableSeat),
 		}
 
 		if ps.ID == requestingPlayerID {

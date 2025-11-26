@@ -64,8 +64,7 @@ func main() {
 	}()
 
 	// Add test users
-	table.AddNewUser("player1", "Player 1", 10000, 0)
-	table.AddNewUser("player2", "Player 2", 10000, 1)
+	table.AddNewUser("player1", 1, &poker.AddUserOptions{DisplayName: "Player 2"})
 
 	// Set players ready
 	table.SetPlayerReady("player1", true)

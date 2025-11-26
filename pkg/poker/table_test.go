@@ -20,7 +20,7 @@ func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChip
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
 		HostID:           "host",
-		BuyIn:            startingChips,
+		BuyIn:            0,
 		MinPlayers:       minPlayers,
 		MaxPlayers:       maxPlayers,
 		SmallBlind:       sb,
@@ -39,9 +39,9 @@ func TestTableUserManagement(t *testing.T) {
 	tbl := newTestTable(t, 2, 3, 5, 10, 1000)
 
 	// Add first user
-	u1, err := tbl.AddNewUser("u1", "U1", 0, 0)
-	require.NoError(t, err)
+	u1, err := tbl.AddNewUser("u1", 0, nil)
 	require.NotNil(t, u1)
+	require.NoError(t, err)
 
 	// Duplicate add of same user should fail with duplicate error (not full)
 	err = tbl.AddUser(u1)
@@ -49,16 +49,16 @@ func TestTableUserManagement(t *testing.T) {
 	assert.Contains(t, err.Error(), "user already at table")
 
 	// Add second user
-	u2, err := tbl.AddNewUser("u2", "U2", 0, 1)
-	require.NoError(t, err)
+	u2, err := tbl.AddNewUser("u2", 1, nil)
 	require.NotNil(t, u2)
+	require.NoError(t, err)
 
 	// Fill to capacity and then exceed
-	_, err = tbl.AddNewUser("u3", "U3", 0, 2)
+	_, err = tbl.AddNewUser("u3", 2, nil)
 	require.NoError(t, err)
 
 	// Exceeding capacity should fail with full error
-	err = tbl.AddUser(NewUser("u4", "U4", 0, 3))
+	err = tbl.AddUser(NewUser("u4", 3, nil))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "table is full")
 
@@ -85,9 +85,9 @@ func TestTableStateTransitionsAndStartGame(t *testing.T) {
 	assert.Equal(t, "WAITING_FOR_PLAYERS", tbl.GetTableStateString())
 
 	// Add users and mark ready
-	_, err := tbl.AddNewUser("p1", "P1", 0, 0)
+	_, err := tbl.AddNewUser("p1", 0, nil)
 	require.NoError(t, err)
-	_, err = tbl.AddNewUser("p2", "P2", 0, 1)
+	_, err = tbl.AddNewUser("p2", 1, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, tbl.SetPlayerReady("p1", true))
@@ -113,12 +113,41 @@ func TestTableStateTransitionsAndStartGame(t *testing.T) {
 	assert.NotEqual(t, pokerrpc.GamePhase_WAITING, tbl.GetGamePhase())
 }
 
+func TestCheckAllPlayersReadyRequiresEscrowFunding(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	tbl.config.BuyIn = 1_000
+	_, err := tbl.AddNewUser("p1", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p2", 1, nil)
+	require.NoError(t, err)
+
+	_, changed, err := tbl.SetSeatEscrowState(0, "esc1", false)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
+	assert.False(t, tbl.CheckAllPlayersReady())
+
+	_, changed, err = tbl.SetSeatEscrowState(0, "esc1", true)
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.False(t, tbl.CheckAllPlayersReady())
+
+	_, changed, err = tbl.SetSeatEscrowState(1, "esc2", true)
+	require.NoError(t, err)
+	require.True(t, changed)
+	assert.True(t, tbl.CheckAllPlayersReady())
+}
+
 func TestTableBettingActionsAndTurns(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("a", "A", 0, 0)
-	_, _ = tbl.AddNewUser("b", "B", 0, 1)
-	_ = tbl.SetPlayerReady("a", true)
-	_ = tbl.SetPlayerReady("b", true)
+	_, err := tbl.AddNewUser("a", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("b", 1, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("a", true))
+	require.NoError(t, tbl.SetPlayerReady("b", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -150,7 +179,7 @@ func TestTableBettingActionsAndTurns(t *testing.T) {
 	}
 
 	// Wrong turn should fail
-	err := tbl.MakeBet(other, 10)
+	err = tbl.MakeBet(other, 10)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not your turn")
 
@@ -185,10 +214,12 @@ func TestTableBettingActionsAndTurns(t *testing.T) {
 
 func TestTableInvalidInputs(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("a", "A", 0, 0)
-	_, _ = tbl.AddNewUser("b", "B", 0, 1)
-	_ = tbl.SetPlayerReady("a", true)
-	_ = tbl.SetPlayerReady("b", true)
+	_, err := tbl.AddNewUser("a", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("b", 1, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("a", true))
+	require.NoError(t, tbl.SetPlayerReady("b", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -198,7 +229,7 @@ func TestTableInvalidInputs(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "Game should be active after StartGame()")
 
 	// Negative bet
-	err := tbl.MakeBet("a", -1)
+	err = tbl.MakeBet("a", -1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "amount cannot be negative")
 
@@ -222,10 +253,12 @@ func TestAllInFlag_HeadsUpWaitsForResponse(t *testing.T) {
 	// The game should NOT jump to showdown immediately
 	// stacks 100, blinds 5/10
 	tbl := newTestTable(t, 2, 2, 5, 10, 100)
-	_, _ = tbl.AddNewUser("sb", "SB", 0, 0)
-	_, _ = tbl.AddNewUser("bb", "BB", 0, 1)
-	_ = tbl.SetPlayerReady("sb", true)
-	_ = tbl.SetPlayerReady("bb", true)
+	_, err := tbl.AddNewUser("sb", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("bb", 1, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("sb", true))
+	require.NoError(t, tbl.SetPlayerReady("bb", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -316,7 +349,7 @@ func TestAllInFlag_HeadsUpWaitsForResponse(t *testing.T) {
 	// Option 2: BB calls -> both all-in, go to showdown
 
 	// Let's test the fold scenario
-	err := tbl.HandleFold(bbID)
+	err = tbl.HandleFold(bbID)
 	require.NoError(t, err, "BB should be able to fold")
 
 	// After BB folds, game should go to showdown (only 1 alive player)
@@ -334,10 +367,12 @@ func TestAllInFlag_HeadsUpCallTriggersShowdown(t *testing.T) {
 	// there are 0 active players left, so showdown is triggered
 	// stacks 100, blinds 5/10
 	tbl := newTestTable(t, 2, 2, 5, 10, 100)
-	_, _ = tbl.AddNewUser("sb", "SB", 0, 0)
-	_, _ = tbl.AddNewUser("bb", "BB", 0, 1)
-	_ = tbl.SetPlayerReady("sb", true)
-	_ = tbl.SetPlayerReady("bb", true)
+	_, err := tbl.AddNewUser("sb", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("bb", 1, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("sb", true))
+	require.NoError(t, tbl.SetPlayerReady("bb", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -395,7 +430,7 @@ func TestAllInFlag_HeadsUpCallTriggersShowdown(t *testing.T) {
 	assert.Equal(t, "ALL_IN", sbPlayer.StateString)
 
 	// BB calls (also going all-in since BB has 90 chips left and needs to call 90 more)
-	err := tbl.HandleCall(bbID)
+	err = tbl.HandleCall(bbID)
 	require.NoError(t, err)
 
 	// After BB calls and goes all-in, both players are all-in (0 active players)
@@ -422,12 +457,15 @@ func TestAllInFlag_ThreePlayerContinuesBetting(t *testing.T) {
 	// Showdown should NOT be triggered immediately
 	// stacks 100, blinds 5/10
 	tbl := newTestTable(t, 3, 3, 5, 10, 100)
-	_, _ = tbl.AddNewUser("p1", "P1", 0, 0) // SB
-	_, _ = tbl.AddNewUser("p2", "P2", 0, 1) // BB
-	_, _ = tbl.AddNewUser("p3", "P3", 0, 2) // Button (first to act preflop in 3-way)
-	_ = tbl.SetPlayerReady("p1", true)
-	_ = tbl.SetPlayerReady("p2", true)
-	_ = tbl.SetPlayerReady("p3", true)
+	_, err := tbl.AddNewUser("p1", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p2", 1, nil) // BB
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p3", 2, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
+	require.NoError(t, tbl.SetPlayerReady("p3", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -513,11 +551,13 @@ func TestAllInFlag_ThreePlayerContinuesBetting(t *testing.T) {
 
 func TestHandleTimeoutsAutoFold(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("p1", "P1", 0, 0)
-	_, _ = tbl.AddNewUser("p2", "P2", 0, 1)
+	_, err := tbl.AddNewUser("p1", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p2", 1, nil)
+	require.NoError(t, err)
 
-	_ = tbl.SetPlayerReady("p1", true)
-	_ = tbl.SetPlayerReady("p2", true)
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -582,11 +622,12 @@ func TestHandleTimeoutsAutoFold(t *testing.T) {
 
 func TestConcurrency_SafeSnapshotsAndBalanceUpdates(t *testing.T) {
 	tbl := newTestTable(t, 3, 6, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("u1", "U1", 0, 0)
-	_, _ = tbl.AddNewUser("u2", "U2", 0, 1)
-	_, _ = tbl.AddNewUser("u3", "U3", 0, 2)
-
-	// Spin concurrent writers and readers; this test is most valuable under -race.
+	_, err := tbl.AddNewUser("u1", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("u2", 1, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("u3", 2, nil)
+	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 
@@ -610,10 +651,12 @@ func TestConcurrency_SafeSnapshotsAndBalanceUpdates(t *testing.T) {
 // Ensures Table action handlers reject actions during SHOWDOWN (or non-betting phases).
 func TestDisallowActionsDuringShowdown_Table(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("p1", "P1", 0, 0)
-	_, _ = tbl.AddNewUser("p2", "P2", 0, 1)
-	_ = tbl.SetPlayerReady("p1", true)
-	_ = tbl.SetPlayerReady("p2", true)
+	_, err := tbl.AddNewUser("p1", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p2", 1, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -639,7 +682,7 @@ func TestDisallowActionsDuringShowdown_Table(t *testing.T) {
 	g.mu.Unlock()
 
 	// All action handlers should be rejected due to phase guard
-	err := tbl.HandleCall(cur.ID())
+	err = tbl.HandleCall(cur.ID())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "action not allowed during phase")
 
@@ -659,10 +702,12 @@ func TestDisallowActionsDuringShowdown_Table(t *testing.T) {
 // Ensures Game action wrappers also reject actions during SHOWDOWN.
 func TestDisallowActionsDuringShowdown_Game(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("p1", "P1", 0, 0)
-	_, _ = tbl.AddNewUser("p2", "P2", 0, 1)
-	_ = tbl.SetPlayerReady("p1", true)
-	_ = tbl.SetPlayerReady("p2", true)
+	_, err := tbl.AddNewUser("p1", 0, nil)
+	require.NoError(t, err)
+	_, err = tbl.AddNewUser("p2", 1, nil)
+	require.NoError(t, err)
+	require.NoError(t, tbl.SetPlayerReady("p1", true))
+	require.NoError(t, tbl.SetPlayerReady("p2", true))
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -684,7 +729,7 @@ func TestDisallowActionsDuringShowdown_Game(t *testing.T) {
 	g.phase = pokerrpc.GamePhase_SHOWDOWN
 	g.mu.Unlock()
 
-	err := g.HandlePlayerCall(cur.ID())
+	err = g.HandlePlayerCall(cur.ID())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "action not allowed during phase")
 
@@ -711,9 +756,9 @@ func TestHoleCardsAvailableOnGameStart(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 10, 20, 1000)
 
 	// Add two players
-	_, err := tbl.AddNewUser("p1", "Player1", 0, 0)
+	_, err := tbl.AddNewUser("p1", 0, nil)
 	require.NoError(t, err)
-	_, err = tbl.AddNewUser("p2", "Player2", 0, 1)
+	_, err = tbl.AddNewUser("p2", 1, nil)
 	require.NoError(t, err)
 
 	// Mark both players ready
@@ -873,7 +918,7 @@ func TestTableClose_WithGame(t *testing.T) {
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
 		HostID:           "host1",
-		BuyIn:            1000,
+		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       6,
 		SmallBlind:       10,
@@ -888,9 +933,9 @@ func TestTableClose_WithGame(t *testing.T) {
 	table := NewTable(cfg)
 
 	// Add users to the table
-	user1 := NewUser("user1", "Alice", 2000, 0)
+	user1 := NewUser("user1", 0, nil)
 	user1.IsReady = true
-	user2 := NewUser("user2", "Bob", 2000, 1)
+	user2 := NewUser("user2", 1, nil)
 	user2.IsReady = true
 
 	err := table.AddUser(user1)

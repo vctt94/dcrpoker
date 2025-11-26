@@ -13,20 +13,11 @@ import (
 )
 
 func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest) (*pokerrpc.CreateTableResponse, error) {
-	// Get creator's DCR balance
-	creatorBalance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-
 	// Prevent joining a different table while still seated in an active game.
 	if activeTableID, found := s.findActiveTableForPlayer(req.PlayerId); found {
 		return nil, status.Errorf(codes.FailedPrecondition, "player already in active game at table %s", activeTableID)
 	}
 	s.log.Debugf("Creating table with buy-in %d", req.BuyIn)
-	if creatorBalance < req.BuyIn {
-		return nil, fmt.Errorf("insufficient DCR balance for buy-in: need %d, have %d", req.BuyIn, creatorBalance)
-	}
 
 	// Config
 	timeBank := time.Duration(req.TimeBankSeconds) * time.Second
@@ -85,17 +76,14 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	go s.processTableEvents(tableEventChan)
 
 	// Seat creator
-	if _, err := table.AddNewUser(req.PlayerId, req.PlayerId, creatorBalance, 0); err != nil {
+	if _, err := table.AddNewUser(req.PlayerId, 0, &poker.AddUserOptions{
+		DisplayName: s.displayNameFor(req.PlayerId),
+	}); err != nil {
 		return nil, err
 	}
 	// Persist the creator's seat so restarts can restore both participants
 	if err := s.db.SeatPlayer(ctx, cfg.ID, req.PlayerId, 0); err != nil {
 		s.log.Errorf("SeatPlayer (host) failed (table=%s player=%s seat=%d): %v", cfg.ID, req.PlayerId, 0, err)
-	}
-
-	// Deduct buy-in
-	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, -req.BuyIn, "table buy-in", "created table"); err != nil {
-		return nil, err
 	}
 
 	// Register table using concurrent registry
@@ -141,17 +129,8 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 		// game stream and receive the initial snapshot.
 		return &pokerrpc.JoinTableResponse{
 			Success: true,
-			Message: fmt.Sprintf("Reconnected. You have %d DCR balance.", existingUser.DCRAccountBalance),
+			Message: "Reconnected to table.",
 		}, nil
-	}
-
-	// Verify wallet balance.
-	dcrBalance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-	if dcrBalance < config.BuyIn {
-		return &pokerrpc.JoinTableResponse{Success: false, Message: "Insufficient DCR balance for buy-in"}, nil
 	}
 
 	// Pick next free seat.
@@ -182,19 +161,12 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	}
 
 	// Seat player in-memory
-	_, err = table.AddNewUser(req.PlayerId, req.PlayerId, dcrBalance, seat)
-	if err != nil {
+	if _, err := table.AddNewUser(req.PlayerId, seat, &poker.AddUserOptions{
+		DisplayName: s.displayNameFor(req.PlayerId),
+	}); err != nil {
 		rollbackSeat()
 		return &pokerrpc.JoinTableResponse{Success: false, Message: err.Error()}, nil
 	}
-
-	// Deduct buy-in from wallet.
-	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, -config.BuyIn, "table_buy_in", "joined table"); err != nil {
-		table.RemoveUser(req.PlayerId)
-		rollbackSeat()
-		return nil, err
-	}
-	_ = table.SetUserDCRAccountBalance(req.PlayerId, dcrBalance-config.BuyIn)
 
 	// Publish join notification.
 	evt, err := s.buildGameEvent(
@@ -271,15 +243,6 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	if err := s.db.UnseatPlayer(ctx, req.TableId, req.PlayerId); err != nil {
 		s.log.Errorf("Failed to unseat player in DB: %v", err)
 		// We continue; in-memory removal already happened.
-	}
-
-	// Refund buy-in if no hand has started
-	refundAmount := int64(0)
-	if !table.IsGameStarted() {
-		refundAmount = config.BuyIn
-		if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, refundAmount, "table_refund", "left table"); err != nil {
-			return nil, err
-		}
 	}
 
 	// If the host leaves, transfer host if possible, else close the table
@@ -488,6 +451,40 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
+	}
+
+	// Enforce escrow funding when the player has bound an escrow to this table.
+	user := table.GetUser(req.PlayerId)
+	if user == nil {
+		return nil, status.Error(codes.NotFound, "player not at table")
+	}
+	cfg := table.GetConfig()
+	if cfg.BuyIn > 0 && user.EscrowID == "" {
+		return nil, status.Error(codes.FailedPrecondition, "escrow required for this table")
+	}
+	if user.EscrowID != "" {
+		s.referee.mu.RLock()
+		es := s.referee.escrows[user.EscrowID]
+		s.referee.mu.RUnlock()
+		if es == nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow %s not found for player", user.EscrowID)
+		}
+		if cfg.BuyIn > 0 && es.AmountAtoms != uint64(cfg.BuyIn) {
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow amount %d must equal table buy-in %d", es.AmountAtoms, cfg.BuyIn)
+		}
+		if _, err := ensureBoundFunding(es); err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow not funded: %v", err)
+		}
+		// Record binding into table model to keep FSM readiness in sync.
+		s.referee.mu.Lock()
+		if es.TableID == "" {
+			es.TableID = req.TableId
+		}
+		if es.SeatIndex == 0 && user.TableSeat >= 0 {
+			es.SeatIndex = uint32(user.TableSeat)
+		}
+		s.referee.mu.Unlock()
+		s.updateTableEscrowBinding(req.TableId, es.OwnerUID, es.SeatIndex, es.EscrowID, true)
 	}
 
 	if err := table.SetPlayerReady(req.PlayerId, true); err != nil {

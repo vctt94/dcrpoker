@@ -12,11 +12,14 @@ import (
 func (s *Server) collectPlayerSnapshot(user *poker.User, gameSnapshot *poker.GameStateSnapshot) *PlayerSnapshot {
 	snapshot := &PlayerSnapshot{
 		ID:                user.ID,
+		Name:              user.Name,
 		TableSeat:         user.TableSeat,
 		Balance:           0, // Default for users not in game
 		Hand:              make([]poker.Card, 0),
 		DCRAccountBalance: user.DCRAccountBalance,
 		IsReady:           user.IsReady,
+		EscrowID:          user.EscrowID,
+		EscrowReady:       user.EscrowReady,
 		IsDisconnected:    user.IsDisconnected,
 		HasFolded:         false,
 		IsAllIn:           false,

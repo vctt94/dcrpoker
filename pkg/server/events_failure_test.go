@@ -101,8 +101,14 @@ func TestSaveTableState_SnapshotFailure(t *testing.T) {
 		AutoAdvanceDelay: 1 * time.Second,
 	}
 	tbl := poker.NewTable(cfg)
-	_, _ = tbl.AddNewUser("p1", "p1", 0, 0)
-	_, _ = tbl.AddNewUser("p2", "p2", 0, 1)
+	_, err := tbl.AddNewUser("p1", 0, nil)
+	if err != nil {
+		t.Fatalf("add p1: %v", err)
+	}
+	_, err = tbl.AddNewUser("p2", 1, nil)
+	if err != nil {
+		t.Fatalf("add p2: %v", err)
+	}
 	_ = tbl.SetPlayerReady("p1", true)
 	_ = tbl.SetPlayerReady("p2", true)
 	if !tbl.CheckAllPlayersReady() {

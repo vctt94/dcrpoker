@@ -85,11 +85,13 @@ func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 
 	table := poker.NewTable(cfg)
 
-	if _, err := table.AddNewUser("p1", "p1", 1000, 0); err != nil {
-		t.Fatalf("add user p1: %v", err)
+	_, err := table.AddNewUser("p1", 0, nil)
+	if err != nil {
+		t.Fatalf("add p1: %v", err)
 	}
-	if _, err := table.AddNewUser("p2", "p2", 1000, 1); err != nil {
-		t.Fatalf("add user p2: %v", err)
+	_, err = table.AddNewUser("p2", 1, nil)
+	if err != nil {
+		t.Fatalf("add p2: %v", err)
 	}
 	if err := table.SetPlayerReady("p1", true); err != nil {
 		t.Fatalf("ready p1: %v", err)

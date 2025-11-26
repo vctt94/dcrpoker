@@ -55,17 +55,42 @@ type User struct {
 	IsReady           bool  // Ready to start/continue games
 	JoinedAt          time.Time
 	IsDisconnected    bool // Whether the user is disconnected
+	EscrowID          string
+	EscrowReady       bool // Whether escrow funding is valid/bound
 }
 
-// NewUser creates a new user
-func NewUser(id, name string, dcrAccountBalance int64, seat int) *User {
+// AddUserOptions allows callers to attach optional metadata to a user.
+type AddUserOptions struct {
+	DisplayName       string
+	DCRAccountBalance int64
+	EscrowID          string
+	EscrowReady       bool
+}
+
+// NewUser creates a new user with optional metadata.
+// If opts is nil, defaults are used (DisplayName = id, zero balance, no escrow).
+func NewUser(id string, seat int, opts *AddUserOptions) *User {
+	cfg := AddUserOptions{
+		DisplayName: id,
+	}
+	if opts != nil {
+		if opts.DisplayName != "" {
+			cfg.DisplayName = opts.DisplayName
+		}
+		cfg.DCRAccountBalance = opts.DCRAccountBalance
+		cfg.EscrowID = opts.EscrowID
+		cfg.EscrowReady = opts.EscrowReady
+	}
+
 	return &User{
 		ID:                id,
-		Name:              name,
-		DCRAccountBalance: dcrAccountBalance,
+		Name:              cfg.DisplayName,
+		DCRAccountBalance: cfg.DCRAccountBalance,
 		TableSeat:         seat,
 		IsReady:           false,
 		JoinedAt:          time.Now(),
+		EscrowID:          cfg.EscrowID,
+		EscrowReady:       cfg.EscrowReady,
 	}
 }
 
@@ -382,8 +407,15 @@ func (t *Table) allPlayersReady() bool {
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
+	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
 		if !u.IsReady {
+			return false
+		}
+		if requireEscrow && u.EscrowID == "" {
+			return false
+		}
+		if u.EscrowID != "" && !u.EscrowReady {
 			return false
 		}
 	}
@@ -508,8 +540,15 @@ func (t *Table) allPlayersReadyLocked() bool {
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
+	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
 		if !u.IsReady {
+			return false
+		}
+		if requireEscrow && u.EscrowID == "" {
+			return false
+		}
+		if u.EscrowID != "" && !u.EscrowReady {
 			return false
 		}
 	}
@@ -1119,14 +1158,73 @@ func (t *Table) AddUser(user *User) error {
 	return nil
 }
 
-// AddNewUser creates and adds a new user to the table in one operation
-func (t *Table) AddNewUser(id, name string, dcrAccountBalance int64, seat int) (*User, error) {
-	user := NewUser(id, name, dcrAccountBalance, seat)
+// AddNewUser creates and adds a new user to the table in one operation.
+// Only the zk identity (id) and seat are required; optional metadata such as
+// escrow bindings can be provided via opts.
+func (t *Table) AddNewUser(id string, seat int, opts *AddUserOptions) (*User, error) {
+	user := NewUser(id, seat, opts)
 	err := t.AddUser(user)
 	if err != nil {
 		return nil, err
 	}
 	return user, nil
+}
+
+// SetSeatEscrowState binds an escrow to a seat and records whether funding is valid.
+// Returns the player ID seated there and whether anything changed.
+func (t *Table) SetSeatEscrowState(seat int, escrowID string, ready bool) (string, bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	var user *User
+	for _, u := range t.users {
+		if u.TableSeat == seat {
+			user = u
+			break
+		}
+	}
+	if user == nil {
+		return "", false, fmt.Errorf("no player at seat %d", seat)
+	}
+	if user.EscrowID != "" && user.EscrowID != escrowID {
+		return "", false, fmt.Errorf("seat %d already bound to escrow %s", seat, user.EscrowID)
+	}
+	changed := user.EscrowID != escrowID || user.EscrowReady != ready
+	user.EscrowID = escrowID
+	user.EscrowReady = ready
+	return user.ID, changed, nil
+}
+
+// GetUserAtSeat returns the user seated at the specified seat, or nil if no one is there.
+func (t *Table) GetUserAtSeat(seat int) *User {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	for _, u := range t.users {
+		if u.TableSeat == seat {
+			return u
+		}
+	}
+	return nil
+}
+
+// SetUserEscrowState binds an escrow to a user by their ID and records whether funding is valid.
+// Returns whether anything changed.
+func (t *Table) SetUserEscrowState(userID string, escrowID string, ready bool) (bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	user, exists := t.users[userID]
+	if !exists {
+		return false, fmt.Errorf("user %s not at table", userID)
+	}
+	if user.EscrowID != "" && user.EscrowID != escrowID {
+		return false, fmt.Errorf("user %s already bound to escrow %s", userID, user.EscrowID)
+	}
+	changed := user.EscrowID != escrowID || user.EscrowReady != ready
+	user.EscrowID = escrowID
+	user.EscrowReady = ready
+	return changed, nil
 }
 
 // RemoveUser removes a user from the table
@@ -1240,6 +1338,8 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 			IsReady:           user.IsReady,
 			IsDisconnected:    user.IsDisconnected,
 			JoinedAt:          user.JoinedAt,
+			EscrowID:          user.EscrowID,
+			EscrowReady:       user.EscrowReady,
 		}
 		usersCopy = append(usersCopy, userCopy)
 	}

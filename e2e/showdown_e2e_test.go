@@ -16,6 +16,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // TestShowdownRestoreBug_HandEvaluationCorrectness verifies that after a server restart
@@ -46,8 +47,7 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 
 		grpcSrv := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(grpcSrv, srv)
@@ -55,7 +55,8 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 
 		go grpcSrv.Serve(lis)
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		lc := pokerrpc.NewLobbyServiceClient(conn)

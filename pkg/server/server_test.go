@@ -570,7 +570,7 @@ func TestPokerService(t *testing.T) {
 			BigBlind:      20,
 			MinPlayers:    2,
 			MaxPlayers:    6,
-			BuyIn:         1000,
+			BuyIn:         0,
 			StartingChips: 1000,
 			AutoAdvanceMs: 1000,
 		})
@@ -670,7 +670,7 @@ func TestPokerGameFlow(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    3,
 		MaxPlayers:    6,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -769,7 +769,7 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    6,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -833,7 +833,7 @@ func TestHeadsUpPostflopActorIsBB(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -932,7 +932,7 @@ func TestBetValidation_UnderBetRejected(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1010,7 +1010,7 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1275,7 +1275,7 @@ func TestJoinTable(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    6,
-		BuyIn:         1000,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1307,12 +1307,12 @@ func TestJoinTable(t *testing.T) {
 	assert.True(t, resp.Success)
 	assert.Contains(t, resp.Message, "Reconnected")
 
-	// Test joining with insufficient balance
+	// Test joining ignores legacy wallet balances (escrow handles funding)
 	player3ID := "player3"
 	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
 		PlayerId:    player3ID,
-		Amount:      500, // Not enough for 1000 buy-in
-		Description: "insufficient balance",
+		Amount:      500, // Less than buy-in; should not block join
+		Description: "seed balance",
 	})
 	require.NoError(t, err)
 
@@ -1321,8 +1321,7 @@ func TestJoinTable(t *testing.T) {
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
-	assert.False(t, resp.Success)
-	assert.Contains(t, resp.Message, "Insufficient DCR balance")
+	assert.True(t, resp.Success)
 }
 
 // TestSnapshotRestoresCurrentPlayer ensures that when a snapshot is taken while it is a particular
@@ -1366,7 +1365,7 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    3,
 		MaxPlayers:    6,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1471,7 +1470,7 @@ func TestBlindPostingAndBalances(t *testing.T) {
 	p1 := "p1"
 	p2 := "p2"
 
-	// Fund players with sufficient DCR balance (atoms)
+	// Seed legacy wallet balances (no longer required for seating)
 	for _, pid := range []string{p1, p2} {
 		_, err := srv.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
 			PlayerId:    pid,
@@ -1494,7 +1493,7 @@ func TestBlindPostingAndBalances(t *testing.T) {
 		BigBlind:      bigBlind,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: startingChips,
 		AutoAdvanceMs: 1000,
 	})
@@ -1714,4 +1713,66 @@ func TestTimebankExpiryBroadcast(t *testing.T) {
 	ms1.cancel()
 	ms2.cancel()
 	wg.Wait()
+}
+
+func TestSetPlayerReadyRequiresFundedEscrowWhenBound(t *testing.T) {
+	ctx := context.Background()
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+
+	// Use zeroShortID.String() as hostID so it matches the escrow OwnerUID
+	hostID := zeroShortID.String()
+	createResp, err := srv.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      hostID,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    1,
+		MaxPlayers:    2,
+		BuyIn:         1_000,
+		StartingChips: 1_000,
+		AutoAdvanceMs: 1_000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	es := &refereeEscrowSession{
+		EscrowID:        "escrow-unfunded",
+		OwnerUID:        zeroShortID,
+		AmountAtoms:     1_000,
+		RedeemScriptHex: "51",
+		PkScriptHex:     "51",
+		TableID:         tableID,
+		SeatIndex:       0,
+	}
+	srv.referee.mu.Lock()
+	srv.referee.escrows[es.EscrowID] = es
+	srv.referee.mu.Unlock()
+
+	table, ok := srv.getTable(tableID)
+	require.True(t, ok)
+	_, changed, err := table.SetSeatEscrowState(0, es.EscrowID, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	_, err = srv.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+		PlayerId: hostID,
+		TableId:  tableID,
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+
+	srv.TestBindEscrowFunding(es.EscrowID, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 1_000)
+	srv.updateTableEscrowBinding(tableID, es.OwnerUID, es.SeatIndex, es.EscrowID, true)
+
+	_, err = srv.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+		PlayerId: hostID,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
 }

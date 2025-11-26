@@ -2558,6 +2558,7 @@ type Player struct {
 	IsDisconnected  bool                   `protobuf:"varint,15,opt,name=is_disconnected,json=isDisconnected,proto3" json:"is_disconnected,omitempty"`               // True if the player is disconnected but seat is reserved
 	EscrowId        string                 `protobuf:"bytes,16,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"`                                  // Bound escrow ID, if any
 	EscrowReady     bool                   `protobuf:"varint,17,opt,name=escrow_ready,json=escrowReady,proto3" json:"escrow_ready,omitempty"`                        // True when escrow funding is single-UTXO and valid
+	TableSeat       int32                  `protobuf:"varint,18,opt,name=table_seat,json=tableSeat,proto3" json:"table_seat,omitempty"`                              // The seat index (0-based) where this player is seated
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2709,6 +2710,13 @@ func (x *Player) GetEscrowReady() bool {
 		return x.EscrowReady
 	}
 	return false
+}
+
+func (x *Player) GetTableSeat() int32 {
+	if x != nil {
+		return x.TableSeat
+	}
+	return 0
 }
 
 type Card struct {
@@ -4150,7 +4158,7 @@ const file_poker_proto_rawDesc = "" +
 	"\bshowdown\x18\x0f \x01(\v2\x0f.poker.ShowdownR\bshowdown\"E\n" +
 	"\bShowdown\x12'\n" +
 	"\awinners\x18\x01 \x03(\v2\r.poker.WinnerR\awinners\x12\x10\n" +
-	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xa0\x04\n" +
+	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xbf\x04\n" +
 	"\x06Player\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -4171,7 +4179,9 @@ const file_poker_proto_rawDesc = "" +
 	"isBigBlind\x12'\n" +
 	"\x0fis_disconnected\x18\x0f \x01(\bR\x0eisDisconnected\x12\x1b\n" +
 	"\tescrow_id\x18\x10 \x01(\tR\bescrowId\x12!\n" +
-	"\fescrow_ready\x18\x11 \x01(\bR\vescrowReady\"0\n" +
+	"\fescrow_ready\x18\x11 \x01(\bR\vescrowReady\x12\x1d\n" +
+	"\n" +
+	"table_seat\x18\x12 \x01(\x05R\ttableSeat\"0\n" +
 	"\x04Card\x12\x12\n" +
 	"\x04suit\x18\x01 \x01(\tR\x04suit\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"O\n" +

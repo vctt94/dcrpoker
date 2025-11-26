@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
@@ -22,8 +23,14 @@ type authState struct {
 	// User ID → Nickname mapping (each user has one nickname)
 	uidToNickname map[zkidentity.ShortID]string
 
+	// User ID → payout address (P2PKH) verified at login.
+	uidToPayoutAddr map[zkidentity.ShortID]string
+
 	// Active sessions: token → session info (ephemeral, not persisted)
 	sessions map[string]sessionInfo
+
+	// Pending login codes: nonce → metadata
+	nonces map[string]loginNonce
 
 	// User ID → metadata (for future use, loaded from DB)
 	userMetadata map[zkidentity.ShortID]UserMetadata
@@ -31,9 +38,60 @@ type authState struct {
 
 // sessionInfo contains session information
 type sessionInfo struct {
-	userID   zkidentity.ShortID
-	nickname string
-	created  time.Time
+	userID     zkidentity.ShortID
+	nickname   string
+	payoutAddr string
+	created    time.Time
+}
+
+type loginNonce struct {
+	userID  *zkidentity.ShortID
+	expires time.Time
+}
+
+func (s *Server) sessionForToken(tok string) (sessionInfo, bool) {
+	if s.auth == nil {
+		return sessionInfo{}, false
+	}
+	s.auth.mu.RLock()
+	defer s.auth.mu.RUnlock()
+	sess, ok := s.auth.sessions[tok]
+	return sess, ok
+}
+
+func (s *Server) payoutForToken(tok string) (zkidentity.ShortID, string, bool) {
+	sess, ok := s.sessionForToken(tok)
+	if !ok {
+		return zkidentity.ShortID{}, "", false
+	}
+	return sess.userID, sess.payoutAddr, true
+}
+
+// authSessionCount returns the number of active auth sessions (for debug logs).
+func (s *Server) authSessionCount() int {
+	if s.auth == nil {
+		return 0
+	}
+	s.auth.mu.RLock()
+	defer s.auth.mu.RUnlock()
+	return len(s.auth.sessions)
+}
+
+// TestSeedSession seeds an auth session for tests without wallet login.
+func (s *Server) TestSeedSession(token string, uid zkidentity.ShortID, payoutAddr, nickname string) {
+	if s.auth == nil {
+		s.auth = newAuthState(s.db)
+	}
+	s.auth.mu.Lock()
+	s.auth.sessions[token] = sessionInfo{
+		userID:     uid,
+		nickname:   nickname,
+		payoutAddr: payoutAddr,
+		created:    time.Now(),
+	}
+	s.auth.uidToPayoutAddr[uid] = payoutAddr
+	s.auth.uidToNickname[uid] = nickname
+	s.auth.mu.Unlock()
 }
 
 // UserMetadata contains user metadata
@@ -46,11 +104,47 @@ type UserMetadata struct {
 // newAuthState creates a new auth state
 func newAuthState(db Database) *authState {
 	return &authState{
-		db:            db,
-		uidToNickname: make(map[zkidentity.ShortID]string),
-		sessions:      make(map[string]sessionInfo),
-		userMetadata:  make(map[zkidentity.ShortID]UserMetadata),
+		db:              db,
+		uidToNickname:   make(map[zkidentity.ShortID]string),
+		uidToPayoutAddr: make(map[zkidentity.ShortID]string),
+		sessions:        make(map[string]sessionInfo),
+		nonces:          make(map[string]loginNonce),
+		userMetadata:    make(map[zkidentity.ShortID]UserMetadata),
 	}
+}
+
+func (a *authState) purgeExpiredNoncesLocked(now time.Time) {
+	for code, meta := range a.nonces {
+		if now.After(meta.expires) {
+			delete(a.nonces, code)
+		}
+	}
+}
+
+func (a *authState) storeNonce(code string, userID *zkidentity.ShortID, ttl time.Duration) {
+	now := time.Now()
+	a.mu.Lock()
+	a.purgeExpiredNoncesLocked(now)
+	a.nonces[code] = loginNonce{userID: userID, expires: now.Add(ttl)}
+	a.mu.Unlock()
+}
+
+// displayNameFor returns the cached nickname for a user ID, if known.
+func (s *Server) displayNameFor(userID string) string {
+	if s == nil || s.auth == nil {
+		return strings.TrimSpace(userID)
+	}
+	var uid zkidentity.ShortID
+	if err := uid.FromString(strings.TrimSpace(userID)); err != nil {
+		return strings.TrimSpace(userID)
+	}
+	s.auth.mu.RLock()
+	nick := s.auth.uidToNickname[uid]
+	s.auth.mu.RUnlock()
+	if strings.TrimSpace(nick) == "" {
+		return strings.TrimSpace(userID)
+	}
+	return nick
 }
 
 // loadAuthStateFromDB loads all registered users from the database into memory
@@ -158,6 +252,43 @@ func (s *Server) Register(ctx context.Context, req *pokerrpc.RegisterRequest) (*
 	}, nil
 }
 
+// RequestLoginCode issues a short-lived nonce that must be signed by the
+// caller's wallet to complete login.
+func (s *Server) RequestLoginCode(ctx context.Context, req *pokerrpc.RequestLoginCodeRequest) (*pokerrpc.RequestLoginCodeResponse, error) {
+	if s.auth == nil {
+		s.auth = newAuthState(s.db)
+	}
+
+	var uidPtr *zkidentity.ShortID
+	addrHint := ""
+	if trimmed := strings.TrimSpace(req.GetUserId()); trimmed != "" {
+		var uid zkidentity.ShortID
+		if err := uid.FromString(trimmed); err != nil {
+			return nil, fmt.Errorf("invalid user id: %w", err)
+		}
+		uidCopy := uid
+		uidPtr = &uidCopy
+		s.auth.mu.RLock()
+		addrHint = s.auth.uidToPayoutAddr[uid]
+		s.auth.mu.RUnlock()
+	}
+
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, fmt.Errorf("generate login code: %w", err)
+	}
+	code := hex.EncodeToString(b[:])
+	ttl := 5 * time.Minute
+
+	s.auth.storeNonce(code, uidPtr, ttl)
+
+	return &pokerrpc.RequestLoginCodeResponse{
+		Code:        code,
+		TtlSec:      int64(ttl.Seconds()),
+		AddressHint: addrHint,
+	}, nil
+}
+
 // Login handles user login
 func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerrpc.LoginResponse, error) {
 	// Validate nickname format (but don't check uniqueness)
@@ -231,11 +362,13 @@ func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerr
 		}, nil
 	}
 	token := fmt.Sprintf("sess_%d_%x", time.Now().Unix(), tokenBytes)
+	s.auth.mu.Lock()
 	s.auth.sessions[token] = sessionInfo{
 		userID:   userID,
 		nickname: nickname,
 		created:  time.Now(),
 	}
+	s.auth.mu.Unlock()
 
 	return &pokerrpc.LoginResponse{
 		Ok:       true,

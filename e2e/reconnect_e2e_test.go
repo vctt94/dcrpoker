@@ -14,6 +14,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // TestReconnectRestore_ChecksAdvance verifies that after a server restart and reconnect
@@ -46,14 +47,14 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -231,13 +232,13 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 		return &boot{db, srv, gs, conn, pokerrpc.NewLobbyServiceClient(conn), pokerrpc.NewPokerServiceClient(conn)}
 	}
@@ -415,14 +416,14 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -627,14 +628,14 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -861,14 +862,14 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{

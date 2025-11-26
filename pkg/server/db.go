@@ -129,18 +129,18 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 			dcrBalance = 0
 		}
 
-		// Your User factory signature: (id, name, dcrBalance, seat)
-		user := poker.NewUser(p.PlayerID, p.PlayerID, dcrBalance, p.Seat)
+		user := poker.NewUser(p.PlayerID, p.Seat, &poker.AddUserOptions{
+			DisplayName:       s.displayNameFor(p.PlayerID),
+			DCRAccountBalance: dcrBalance,
+		})
 
 		// Seat the user in the table model
-		if _, err := table.AddNewUser(user.ID, user.ID, user.DCRAccountBalance, user.TableSeat); err != nil {
+		if _, err := table.AddNewUser(user.ID, user.TableSeat, &poker.AddUserOptions{
+			DisplayName:       s.displayNameFor(user.ID),
+			DCRAccountBalance: user.DCRAccountBalance,
+			EscrowID:          user.EscrowID,
+		}); err != nil {
 			s.log.Errorf("AddNewUser(%s): %v", user.ID, err)
-			continue
-		}
-
-		// Apply lobby flag via table API (fires state update in FSM)
-		if err := table.SetPlayerReady(user.ID, p.Ready); err != nil {
-			s.log.Errorf("SetPlayerReady(%s): %v", user.ID, err)
 		}
 	}
 
