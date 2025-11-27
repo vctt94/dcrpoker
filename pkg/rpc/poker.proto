@@ -111,6 +111,8 @@ enum NotificationType {
   GAME_STREAM_CONNECTED = 26;
   GAME_STREAM_DISCONNECTED = 27;
   ESCROW_FUNDING = 28; // escrow funding status update for owner only
+  MESSAGE = 29; // generic informational message (e.g., settlement status)
+  SETTLEMENT_BROADCAST = 30; // settlement transaction broadcasted
 }
 
 enum HandRank {
@@ -342,6 +344,11 @@ message Notification {
   int32 countdown = 13;
   repeated Winner winners = 14;
   Showdown showdown = 15;
+  // Settlement fields for GAME_ENDED notifications
+  string winner_id = 16;    // Player ID of the game winner
+  int32 winner_seat = 17;   // Seat index of winner (branch for finalization)
+  string match_id = 18;     // Match ID for referee settlement (table_id|session_id)
+  bool is_winner = 19;      // True if recipient is the winner (personalized per player)
 }
 
 message Showdown {

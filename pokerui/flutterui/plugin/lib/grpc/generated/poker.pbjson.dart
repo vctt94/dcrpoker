@@ -87,6 +87,8 @@ const NotificationType$json = {
     {'1': 'GAME_STREAM_CONNECTED', '2': 26},
     {'1': 'GAME_STREAM_DISCONNECTED', '2': 27},
     {'1': 'ESCROW_FUNDING', '2': 28},
+    {'1': 'MESSAGE', '2': 29},
+    {'1': 'SETTLEMENT_BROADCAST', '2': 30},
   ],
 };
 
@@ -103,7 +105,7 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'Cg1QTEFZRVJfQUxMX0lOEBcSIQodTk9USUZJQ0FUSU9OX1NUUkVBTV9DT05ORUNURUQQGBIkCi'
     'BOT1RJRklDQVRJT05fU1RSRUFNX0RJU0NPTk5FQ1RFRBAZEhkKFUdBTUVfU1RSRUFNX0NPTk5F'
     'Q1RFRBAaEhwKGEdBTUVfU1RSRUFNX0RJU0NPTk5FQ1RFRBAbEhIKDkVTQ1JPV19GVU5ESU5HEB'
-    'w=');
+    'wSCwoHTUVTU0FHRRAdEhgKFFNFVFRMRU1FTlRfQlJPQURDQVNUEB4=');
 
 @$core.Deprecated('Use handRankDescriptor instead')
 const HandRank$json = {
@@ -804,6 +806,10 @@ const Notification$json = {
       '6': '.poker.Showdown',
       '10': 'showdown'
     },
+    {'1': 'winner_id', '3': 16, '4': 1, '5': 9, '10': 'winnerId'},
+    {'1': 'winner_seat', '3': 17, '4': 1, '5': 5, '10': 'winnerSeat'},
+    {'1': 'match_id', '3': 18, '4': 1, '5': 9, '10': 'matchId'},
+    {'1': 'is_winner', '3': 19, '4': 1, '5': 8, '10': 'isWinner'},
   ],
 };
 
@@ -818,7 +824,9 @@ final $typed_data.Uint8List notificationDescriptor = $convert.base64Decode(
     'ZWFkeRIYCgdzdGFydGVkGAsgASgIUgdzdGFydGVkEisKEmdhbWVfcmVhZHlfdG9fcGxheRgMIA'
     'EoCFIPZ2FtZVJlYWR5VG9QbGF5EhwKCWNvdW50ZG93bhgNIAEoBVIJY291bnRkb3duEicKB3dp'
     'bm5lcnMYDiADKAsyDS5wb2tlci5XaW5uZXJSB3dpbm5lcnMSKwoIc2hvd2Rvd24YDyABKAsyDy'
-    '5wb2tlci5TaG93ZG93blIIc2hvd2Rvd24=');
+    '5wb2tlci5TaG93ZG93blIIc2hvd2Rvd24SGwoJd2lubmVyX2lkGBAgASgJUgh3aW5uZXJJZBIf'
+    'Cgt3aW5uZXJfc2VhdBgRIAEoBVIKd2lubmVyU2VhdBIZCghtYXRjaF9pZBgSIAEoCVIHbWF0Y2'
+    'hJZBIbCglpc193aW5uZXIYEyABKAhSCGlzV2lubmVy');
 
 @$core.Deprecated('Use showdownDescriptor instead')
 const Showdown$json = {

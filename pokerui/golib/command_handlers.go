@@ -265,6 +265,76 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 			return hist, nil
 		}
 
+	case CTGetEscrowById:
+		{
+			var req struct {
+				EscrowID string `json:"escrow_id"`
+			}
+			if err := decodeStrict(cmd.Payload, &req); err != nil {
+				return nil, fmt.Errorf("get escrow by id payload: %w", err)
+			}
+			if req.EscrowID == "" {
+				return nil, fmt.Errorf("escrow_id required")
+			}
+			cmtx.Lock()
+			cc := cs[handle]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				return nil, fmt.Errorf("client not initialized")
+			}
+			info, err := cc.c.GetEscrowById(req.EscrowID)
+			if err != nil {
+				return nil, err
+			}
+			return info, nil
+		}
+
+	case CTGetFinalizeBundle:
+		{
+			var req struct {
+				MatchID    string `json:"match_id"`
+				WinnerSeat int32  `json:"winner_seat"`
+			}
+			if err := decodeStrict(cmd.Payload, &req); err != nil {
+				return nil, fmt.Errorf("finalize bundle payload: %w", err)
+			}
+			if req.MatchID == "" {
+				return nil, fmt.Errorf("match_id required")
+			}
+			cmtx.Lock()
+			cc := cs[handle]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				return nil, fmt.Errorf("client not initialized")
+			}
+			if cc.Token == "" {
+				return nil, fmt.Errorf("no session token; login first")
+			}
+			ref := cc.c.Referee(cc.Token)
+			resp, err := ref.GetFinalizeBundle(cc.ctx, req.MatchID, req.WinnerSeat)
+			if err != nil {
+				return nil, fmt.Errorf("GetFinalizeBundle failed: %w", err)
+			}
+			// Build inputs array for response
+			inputs := make([]map[string]any, 0, len(resp.GetInputs()))
+			for _, in := range resp.GetInputs() {
+				inputs = append(inputs, map[string]any{
+					"input_id":            in.GetInputId(),
+					"r_prime_compact_hex": in.GetRPrimeCompactHex(),
+					"s_prime_hex":         in.GetSPrimeHex(),
+					"input_index":         in.GetInputIndex(),
+					"redeem_script_hex":   in.GetRedeemScriptHex(),
+				})
+			}
+			return map[string]any{
+				"match_id":     resp.GetMatchId(),
+				"branch":       resp.GetBranch(),
+				"draft_tx_hex": resp.GetDraftTxHex(),
+				"gamma_hex":    resp.GetGammaHex(),
+				"inputs":       inputs,
+			}, nil
+		}
+
 	case CTBindEscrow:
 		{
 			var req struct {

@@ -132,6 +132,31 @@ func mergeEscrowInfo(dst, src *EscrowInfo) {
 	}
 }
 
+// GetEscrowById returns the cached escrow info for a specific escrow ID.
+func (pc *PokerClient) GetEscrowById(escrowID string) (map[string]interface{}, error) {
+	escrowID = strings.TrimSpace(escrowID)
+	if escrowID == "" {
+		return nil, fmt.Errorf("escrow_id required")
+	}
+	dir := pc.historyDir()
+	if dir == "" {
+		return nil, fmt.Errorf("no data directory configured")
+	}
+	path := filepath.Join(dir, fmt.Sprintf("escrow_%s.json", sanitizeForFile(escrowID)))
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("escrow %s not found in cache", escrowID)
+		}
+		return nil, err
+	}
+	var info map[string]interface{}
+	if err := json.Unmarshal(b, &info); err != nil {
+		return nil, fmt.Errorf("failed to parse escrow info: %w", err)
+	}
+	return info, nil
+}
+
 // GetEscrowHistory returns all cached escrow infos.
 func (pc *PokerClient) GetEscrowHistory() ([]map[string]interface{}, error) {
 	dir := pc.historyDir()

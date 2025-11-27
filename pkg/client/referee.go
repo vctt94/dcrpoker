@@ -146,6 +146,8 @@ func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID, sess
 		}
 		if ok := msg.GetVerifyOk(); ok != nil {
 			// Presign finished for all branches.
+			// Close the send direction to signal EOF to the server.
+			_ = stream.CloseSend()
 			return nil
 		}
 	}

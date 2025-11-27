@@ -35,10 +35,12 @@ const (
 	CTStartPreSign       CmdType = 0x0c
 	CTBindEscrow         CmdType = 0x0d
 	// Archive current session key into historic dir using match_id
-	CTArchiveSessionKey CmdType = 0x0e
-	CTDeriveSessionKey  CmdType = 0x0f
-	CTGetEscrowStatus   CmdType = 0x30
-	CTGetEscrowHistory  CmdType = 0x31
+	CTArchiveSessionKey   CmdType = 0x0e
+	CTDeriveSessionKey    CmdType = 0x0f
+	CTGetEscrowStatus     CmdType = 0x30
+	CTGetEscrowHistory    CmdType = 0x31
+	CTGetFinalizeBundle   CmdType = 0x32 // Get gamma + presigs for settlement finalization
+	CTGetEscrowById       CmdType = 0x33 // Get single escrow info by ID (includes comp_priv)
 
 	// Poker-specific commands
 	CTGetPlayerCurrentTable   CmdType = 0x10
@@ -300,6 +302,11 @@ type notificationDTO struct {
 	Started         bool   `json:"started"`
 	GameReadyToPlay bool   `json:"gameReadyToPlay"`
 	Countdown       int32  `json:"countdown,omitempty"`
+	// Settlement fields for GAME_ENDED notifications
+	WinnerId   string `json:"winnerId,omitempty"`
+	WinnerSeat int32  `json:"winnerSeat,omitempty"`
+	MatchId    string `json:"matchId,omitempty"`
+	IsWinner   bool   `json:"isWinner,omitempty"`
 }
 
 func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
@@ -327,6 +334,17 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 	if n.Countdown != 0 {
 		dto.Countdown = n.Countdown
 	}
+	// Settlement fields for GAME_ENDED
+	if n.WinnerId != "" {
+		dto.WinnerId = n.WinnerId
+	}
+	if n.WinnerSeat != 0 {
+		dto.WinnerSeat = n.WinnerSeat
+	}
+	if n.MatchId != "" {
+		dto.MatchId = n.MatchId
+	}
+	dto.IsWinner = n.IsWinner
 	return dto
 }
 

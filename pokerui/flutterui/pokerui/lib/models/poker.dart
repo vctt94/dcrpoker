@@ -1,6 +1,7 @@
 // lib/models/poker_model.dart
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:collection/collection.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
@@ -341,6 +342,16 @@ class PokerModel extends ChangeNotifier {
   final Map<String, bool> playersShowingCards = {};
   bool get myCardsShown => playersShowingCards[playerId] ?? false;
 
+  // Settlement presigning state
+  bool _presignInProgress = false;
+  bool _presignCompleted = false;
+  String _presignError = '';
+  String _lastPresignMatchId = '';
+
+  bool get presignInProgress => _presignInProgress;
+  bool get presignCompleted => _presignCompleted;
+  String get presignError => _presignError;
+
   // Subscription to poker notifications coming from golib.
   StreamSubscription<pr.Notification>? _pokerNtfnSub;
   // Subscription to game updates coming from golib.
@@ -428,12 +439,18 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.PLAYER_JOINED:
       case pr.NotificationType.PLAYER_LEFT:
       case pr.NotificationType.BALANCE_UPDATED:
-      case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.PLAYER_UNREADY:
+        // Refresh lightweight lists/balances; avoid spamming server.
+        unawaited(refreshTables());
+        unawaited(_refreshBalance());
+        break;
+      case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.ALL_PLAYERS_READY:
         // Refresh lightweight lists/balances; avoid spamming server.
         unawaited(refreshTables());
         unawaited(_refreshBalance());
+        // When players become ready, attempt to start presigning
+        unawaited(_maybeStartPresignForCurrentTable());
         break;
 
       case pr.NotificationType.NEW_HAND_STARTED:
@@ -536,6 +553,10 @@ class PokerModel extends ChangeNotifier {
           _lastBoundEscrowReady = ready;
         }
         notifyListeners();
+        // When escrow becomes ready, attempt to start presigning
+        if (ready) {
+          unawaited(_maybeStartPresignForCurrentTable());
+        }
         break;
 
       default:
@@ -780,6 +801,7 @@ class PokerModel extends ChangeNotifier {
       _iAmReady = false;
       _seated = false;
       playersShowingCards.clear();
+      _resetPresignState();
       _state = PokerState.browsingTables;
       notifyListeners();
       unawaited(refreshTables());
@@ -826,6 +848,8 @@ class PokerModel extends ChangeNotifier {
       await Golib.setPlayerReady();
       _iAmReady = true;
       notifyListeners();
+      // Attempt to start presigning if conditions are met
+      unawaited(_maybeStartPresignForCurrentTable());
     } catch (e) {
       errorMessage = 'Set ready failed: $e';
       notifyListeners();
@@ -843,6 +867,108 @@ class PokerModel extends ChangeNotifier {
       errorMessage = 'Set unready failed: $e';
       notifyListeners();
     }
+  }
+
+  /// Attempts to start presigning when conditions are met for escrow-backed tables.
+  /// Called automatically when:
+  /// - Table has a buy-in (escrow-backed)
+  /// - Player has a funded escrow
+  /// - All players are ready
+  /// - Presigning is not already in progress or completed
+  Future<void> _maybeStartPresignForCurrentTable() async {
+    final tid = currentTableId;
+    if (tid == null) return;
+
+    // Get current table info
+    final table = tables.firstWhereOrNull((t) => t.id == tid);
+    if (table == null) return;
+
+    // Only for escrow-backed tables
+    if (table.buyInAtoms <= 0) return;
+
+    // Don't start if game already started
+    final g = game;
+    if (g != null && g.gameStarted) return;
+
+    // Check escrow status
+    final escrowId = cachedEscrowId;
+    final escrowReady = cachedEscrowReady;
+    if (escrowId.isEmpty || !escrowReady) return;
+
+    // Don't re-presign
+    if (_presignInProgress || _presignCompleted) return;
+
+    // Check if all players are ready
+    if (g == null) return;
+    final players = g.players;
+    if (players.length < table.minPlayers) return;
+    final allReady = players.every((p) => p.isReady);
+    if (!allReady) return;
+
+    // Find my seat index
+    final mePlayer = me;
+    if (mePlayer == null || mePlayer.tableSeat < 0) return;
+
+    // For poker, matchID is just tableID
+    final matchId = tid;
+
+    // Prevent re-presign for the same match
+    if (_lastPresignMatchId == matchId && _presignCompleted) return;
+
+    _presignInProgress = true;
+    _presignError = '';
+    notifyListeners();
+
+    developer.log(
+      'Starting settlement presign for match $matchId',
+      name: 'settlement',
+    );
+
+    try {
+      // Get the session private key from the escrow
+      final escrowInfo = await Golib.getEscrowById(escrowId);
+      final compPriv = escrowInfo['comp_priv'] ?? escrowInfo['session_priv'] ?? '';
+      if (compPriv is! String || compPriv.isEmpty) {
+        throw Exception('Session private key not found for escrow $escrowId');
+      }
+
+      await Golib.startPreSign(
+        matchId: matchId,
+        tableId: tid,
+        sessionId: '', // Empty for poker
+        seatIndex: mePlayer.tableSeat,
+        escrowId: escrowId,
+        compPriv: compPriv,
+      );
+
+      _presignInProgress = false;
+      _presignCompleted = true;
+      _lastPresignMatchId = matchId;
+      successMessage = 'Settlement prepared for this match.';
+      developer.log(
+        'Presign completed for match $matchId',
+        name: 'settlement',
+      );
+    } catch (e, st) {
+      _presignInProgress = false;
+      _presignCompleted = false;
+      _presignError = '$e';
+      developer.log(
+        'startPreSign error: $e',
+        name: 'settlement',
+        stackTrace: st,
+      );
+      errorMessage = 'Settlement presign failed: $e';
+    }
+    notifyListeners();
+  }
+
+  /// Resets presign state when leaving a table or when a new hand starts.
+  void _resetPresignState() {
+    _presignInProgress = false;
+    _presignCompleted = false;
+    _presignError = '';
+    _lastPresignMatchId = '';
   }
 
   Future<void> showCards() async {

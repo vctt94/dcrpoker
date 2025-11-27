@@ -1216,6 +1216,11 @@ abstract class PluginPlatform {
     return _asJsonListOrWrap(res);
   }
 
+  Future<Map<String, dynamic>> getEscrowById(String escrowId) async {
+    final res = await asyncCall(CTGetEscrowById, {'escrow_id': escrowId});
+    return _asJsonMap(res);
+  }
+
   Future<Map<String, dynamic>> bindEscrow({
     required String tableId,
     required int seatIndex,
@@ -1379,6 +1384,8 @@ const int CTArchiveSessionKey = 0x0e;
 const int CTDeriveSessionKey = 0x0f;
 const int CTGetEscrowStatus = 0x30;
 const int CTGetEscrowHistory = 0x31;
+const int CTGetFinalizeBundle = 0x32;
+const int CTGetEscrowById = 0x33;
 
 // Poker-specific commands
 const int CTGetPlayerCurrentTable = 0x10;

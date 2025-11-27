@@ -141,6 +141,10 @@ class NotificationType extends $pb.ProtobufEnum {
       NotificationType._(27, _omitEnumNames ? '' : 'GAME_STREAM_DISCONNECTED');
   static const NotificationType ESCROW_FUNDING =
       NotificationType._(28, _omitEnumNames ? '' : 'ESCROW_FUNDING');
+  static const NotificationType MESSAGE =
+      NotificationType._(29, _omitEnumNames ? '' : 'MESSAGE');
+  static const NotificationType SETTLEMENT_BROADCAST =
+      NotificationType._(30, _omitEnumNames ? '' : 'SETTLEMENT_BROADCAST');
 
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
@@ -172,10 +176,12 @@ class NotificationType extends $pb.ProtobufEnum {
     GAME_STREAM_CONNECTED,
     GAME_STREAM_DISCONNECTED,
     ESCROW_FUNDING,
+    MESSAGE,
+    SETTLEMENT_BROADCAST,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 28);
+      $pb.ProtobufEnum.$_initByValueList(values, 30);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

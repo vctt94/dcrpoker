@@ -2590,6 +2590,10 @@ class Notification extends $pb.GeneratedMessage {
     $core.int? countdown,
     $core.Iterable<Winner>? winners,
     Showdown? showdown,
+    $core.String? winnerId,
+    $core.int? winnerSeat,
+    $core.String? matchId,
+    $core.bool? isWinner,
   }) {
     final result = create();
     if (type != null) result.type = type;
@@ -2607,6 +2611,10 @@ class Notification extends $pb.GeneratedMessage {
     if (countdown != null) result.countdown = countdown;
     if (winners != null) result.winners.addAll(winners);
     if (showdown != null) result.showdown = showdown;
+    if (winnerId != null) result.winnerId = winnerId;
+    if (winnerSeat != null) result.winnerSeat = winnerSeat;
+    if (matchId != null) result.matchId = matchId;
+    if (isWinner != null) result.isWinner = isWinner;
     return result;
   }
 
@@ -2642,6 +2650,10 @@ class Notification extends $pb.GeneratedMessage {
         subBuilder: Winner.create)
     ..aOM<Showdown>(15, _omitFieldNames ? '' : 'showdown',
         subBuilder: Showdown.create)
+    ..aOS(16, _omitFieldNames ? '' : 'winnerId')
+    ..aI(17, _omitFieldNames ? '' : 'winnerSeat')
+    ..aOS(18, _omitFieldNames ? '' : 'matchId')
+    ..aOB(19, _omitFieldNames ? '' : 'isWinner')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2789,6 +2801,43 @@ class Notification extends $pb.GeneratedMessage {
   void clearShowdown() => $_clearField(15);
   @$pb.TagNumber(15)
   Showdown ensureShowdown() => $_ensure(14);
+
+  /// Settlement fields for GAME_ENDED notifications
+  @$pb.TagNumber(16)
+  $core.String get winnerId => $_getSZ(15);
+  @$pb.TagNumber(16)
+  set winnerId($core.String value) => $_setString(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasWinnerId() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearWinnerId() => $_clearField(16);
+
+  @$pb.TagNumber(17)
+  $core.int get winnerSeat => $_getIZ(16);
+  @$pb.TagNumber(17)
+  set winnerSeat($core.int value) => $_setSignedInt32(16, value);
+  @$pb.TagNumber(17)
+  $core.bool hasWinnerSeat() => $_has(16);
+  @$pb.TagNumber(17)
+  void clearWinnerSeat() => $_clearField(17);
+
+  @$pb.TagNumber(18)
+  $core.String get matchId => $_getSZ(17);
+  @$pb.TagNumber(18)
+  set matchId($core.String value) => $_setString(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasMatchId() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearMatchId() => $_clearField(18);
+
+  @$pb.TagNumber(19)
+  $core.bool get isWinner => $_getBF(18);
+  @$pb.TagNumber(19)
+  set isWinner($core.bool value) => $_setBool(18, value);
+  @$pb.TagNumber(19)
+  $core.bool hasIsWinner() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearIsWinner() => $_clearField(19);
 }
 
 class Showdown extends $pb.GeneratedMessage {
