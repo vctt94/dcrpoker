@@ -1195,12 +1195,14 @@ abstract class PluginPlatform {
   Future<Map<String, dynamic>> openEscrow({
     required int betAtoms,
     required String compPubkey,
+    required int keyIndex,
     int csvBlocks = 64,
   }) async {
     final payload = {
       'bet_atoms': betAtoms,
       'csv_blocks': csvBlocks,
       'comp_pubkey': compPubkey,
+      'key_index': keyIndex,
     };
     final res = await asyncCall(CTOpenEscrow, payload);
     return _asJsonMap(res);

@@ -450,10 +450,10 @@ class PokerModel extends ChangeNotifier {
         break;
       case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.ALL_PLAYERS_READY:
-        // Refresh lightweight lists/balances; avoid spamming server.
+        // Refresh tables/balances and check if presigning can now start.
+        // When all players become ready and escrows are funded, trigger presigning.
         unawaited(refreshTables());
         unawaited(_refreshBalance());
-        // When players become ready, attempt to start presigning
         unawaited(_maybeStartPresignForCurrentTable());
         break;
 
@@ -891,27 +891,35 @@ class PokerModel extends ChangeNotifier {
     if (table.buyInAtoms <= 0) return;
 
     // Don't start if game already started
-    final g = game;
-    if (g != null && g.gameStarted) return;
+    if (table.gameStarted) return;
 
     // Check escrow status
     final escrowId = cachedEscrowId;
     final escrowReady = cachedEscrowReady;
     if (escrowId.isEmpty || !escrowReady) return;
 
-    // Find my seat index first
-    final mePlayer = me;
+    // Don't re-presign if already in progress
+    if (_presignInProgress) return;
+
+    // Get players from game state (server returns players even before game starts)
+    final g = game;
+    if (g == null || g.players.isEmpty) return;
+    final players = g.players;
+
+    // Find my player
+    final mePlayer = players.firstWhereOrNull((p) => p.id == playerId);
     if (mePlayer == null || mePlayer.tableSeat < 0) return;
 
-    // Don't re-presign if already complete (server state) or in progress
-    if (_presignInProgress || mePlayer.presignComplete) return;
+    // Don't re-presign if already complete (server state)
+    if (mePlayer.presignComplete) return;
 
-    // Check if all players are ready
-    if (g == null) return;
-    final players = g.players;
+    // Check if we have enough players
     if (players.length < table.minPlayers) return;
-    final allReady = players.every((p) => p.isReady);
-    if (!allReady) return;
+
+    // Check if all players are ready and have funded escrows
+    final allReadyWithEscrow = players.every(
+        (p) => p.isReady && p.escrowId.isNotEmpty && p.escrowReady);
+    if (!allReadyWithEscrow) return;
 
     // For poker, matchID is just tableID
     final matchId = tid;
@@ -1089,6 +1097,8 @@ class PokerModel extends ChangeNotifier {
       }
 
       notifyListeners();
+      // After getting fresh game state, check if presigning should start
+      unawaited(_maybeStartPresignForCurrentTable());
     } catch (e) {
       errorMessage = 'GetGameState failed: $e';
       notifyListeners();

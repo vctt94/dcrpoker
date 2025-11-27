@@ -70,6 +70,7 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     final betAtoms = _atomsFromDcr(_betDcrController.text);
     final csvBlocks = int.tryParse(_csvBlocksController.text.trim());
     final compPub = _compPubController.text.trim();
+    final keyIndexStr = _keyIndex;
 
     if (betAtoms == null || betAtoms <= 0) {
       setState(() => _error = 'Enter a bet amount > 0');
@@ -77,6 +78,15 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     }
     if (compPub.isEmpty) {
       setState(() => _error = 'Provide a compressed session pubkey');
+      return;
+    }
+    if (keyIndexStr == null || keyIndexStr.isEmpty) {
+      setState(() => _error = 'Generate a session key first');
+      return;
+    }
+    final keyIndex = int.tryParse(keyIndexStr);
+    if (keyIndex == null) {
+      setState(() => _error = 'Invalid key index');
       return;
     }
 
@@ -91,6 +101,7 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
       final res = await Golib.openEscrow(
         betAtoms: betAtoms,
         compPubkey: compPub,
+        keyIndex: keyIndex,
         csvBlocks: csvBlocks ?? 64,
       );
       setState(() {

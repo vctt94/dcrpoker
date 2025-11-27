@@ -133,6 +133,7 @@ type openEscrowReq struct {
 	BetAtoms   int64  `json:"bet_atoms"`
 	CSVBlocks  int64  `json:"csv_blocks"`
 	CompPubkey string `json:"comp_pubkey"` // hex-encoded 33-byte session pubkey
+	KeyIndex   uint64 `json:"key_index"`   // session key derivation index (for re-deriving priv key)
 }
 
 type preSignReq struct {
