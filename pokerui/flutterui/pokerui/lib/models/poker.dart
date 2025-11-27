@@ -60,6 +60,7 @@ class UiPlayer {
   final String handDesc; // only meaningful at showdown
   final String escrowId;
   final bool escrowReady;
+  final bool presignComplete;
   final int tableSeat; // 0-based seat index
 
   const UiPlayer({
@@ -79,6 +80,7 @@ class UiPlayer {
     required this.handDesc,
     this.escrowId = '',
     this.escrowReady = false,
+    this.presignComplete = false,
     this.tableSeat = -1, // not seated
   });
 
@@ -100,6 +102,7 @@ class UiPlayer {
       handDesc: p.handDescription,
       escrowId: p.escrowId,
       escrowReady: p.escrowReady,
+      presignComplete: p.presignComplete,
       tableSeat: p.tableSeat,
     );
   }
@@ -107,6 +110,7 @@ class UiPlayer {
   UiPlayer copyWith({
     String? escrowId,
     bool? escrowReady,
+    bool? presignComplete,
     int? tableSeat,
   }) {
     return UiPlayer(
@@ -126,6 +130,7 @@ class UiPlayer {
       handDesc: handDesc,
       escrowId: escrowId ?? this.escrowId,
       escrowReady: escrowReady ?? this.escrowReady,
+      presignComplete: presignComplete ?? this.presignComplete,
       tableSeat: tableSeat ?? this.tableSeat,
     );
   }
@@ -344,12 +349,11 @@ class PokerModel extends ChangeNotifier {
 
   // Settlement presigning state
   bool _presignInProgress = false;
-  bool _presignCompleted = false;
   String _presignError = '';
-  String _lastPresignMatchId = '';
 
   bool get presignInProgress => _presignInProgress;
-  bool get presignCompleted => _presignCompleted;
+  /// Returns true if server reports presigning complete for current player
+  bool get presignCompleted => me?.presignComplete ?? false;
   String get presignError => _presignError;
 
   // Subscription to poker notifications coming from golib.
@@ -895,8 +899,12 @@ class PokerModel extends ChangeNotifier {
     final escrowReady = cachedEscrowReady;
     if (escrowId.isEmpty || !escrowReady) return;
 
-    // Don't re-presign
-    if (_presignInProgress || _presignCompleted) return;
+    // Find my seat index first
+    final mePlayer = me;
+    if (mePlayer == null || mePlayer.tableSeat < 0) return;
+
+    // Don't re-presign if already complete (server state) or in progress
+    if (_presignInProgress || mePlayer.presignComplete) return;
 
     // Check if all players are ready
     if (g == null) return;
@@ -905,15 +913,8 @@ class PokerModel extends ChangeNotifier {
     final allReady = players.every((p) => p.isReady);
     if (!allReady) return;
 
-    // Find my seat index
-    final mePlayer = me;
-    if (mePlayer == null || mePlayer.tableSeat < 0) return;
-
     // For poker, matchID is just tableID
     final matchId = tid;
-
-    // Prevent re-presign for the same match
-    if (_lastPresignMatchId == matchId && _presignCompleted) return;
 
     _presignInProgress = true;
     _presignError = '';
@@ -942,8 +943,6 @@ class PokerModel extends ChangeNotifier {
       );
 
       _presignInProgress = false;
-      _presignCompleted = true;
-      _lastPresignMatchId = matchId;
       successMessage = 'Settlement prepared for this match.';
       developer.log(
         'Presign completed for match $matchId',
@@ -951,7 +950,6 @@ class PokerModel extends ChangeNotifier {
       );
     } catch (e, st) {
       _presignInProgress = false;
-      _presignCompleted = false;
       _presignError = '$e';
       developer.log(
         'startPreSign error: $e',
@@ -963,12 +961,10 @@ class PokerModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Resets presign state when leaving a table or when a new hand starts.
+  /// Resets local presign state when leaving a table.
   void _resetPresignState() {
     _presignInProgress = false;
-    _presignCompleted = false;
     _presignError = '';
-    _lastPresignMatchId = '';
   }
 
   Future<void> showCards() async {
@@ -1078,7 +1074,6 @@ class PokerModel extends ChangeNotifier {
         _lastBoundEscrowId = mePlayer.escrowId;
         _lastBoundEscrowReady = mePlayer.escrowReady;
       }
-
       // Keep coarse UI state in sync even when attaching mid-hand.
       // This mirrors the logic in _onGameUpdate so that the UI shows
       // the table (and hole cards) immediately on reconnect/restore.

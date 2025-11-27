@@ -2921,6 +2921,7 @@ class Player extends $pb.GeneratedMessage {
     $core.String? escrowId,
     $core.bool? escrowReady,
     $core.int? tableSeat,
+    $core.bool? presignComplete,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -2941,6 +2942,7 @@ class Player extends $pb.GeneratedMessage {
     if (escrowId != null) result.escrowId = escrowId;
     if (escrowReady != null) result.escrowReady = escrowReady;
     if (tableSeat != null) result.tableSeat = tableSeat;
+    if (presignComplete != null) result.presignComplete = presignComplete;
     return result;
   }
 
@@ -2976,6 +2978,7 @@ class Player extends $pb.GeneratedMessage {
     ..aOS(16, _omitFieldNames ? '' : 'escrowId')
     ..aOB(17, _omitFieldNames ? '' : 'escrowReady')
     ..aI(18, _omitFieldNames ? '' : 'tableSeat')
+    ..aOB(19, _omitFieldNames ? '' : 'presignComplete')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3151,6 +3154,15 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasTableSeat() => $_has(17);
   @$pb.TagNumber(18)
   void clearTableSeat() => $_clearField(18);
+
+  @$pb.TagNumber(19)
+  $core.bool get presignComplete => $_getBF(18);
+  @$pb.TagNumber(19)
+  set presignComplete($core.bool value) => $_setBool(18, value);
+  @$pb.TagNumber(19)
+  $core.bool hasPresignComplete() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearPresignComplete() => $_clearField(19);
 }
 
 class Card extends $pb.GeneratedMessage {

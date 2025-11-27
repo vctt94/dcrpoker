@@ -35,12 +35,12 @@ const (
 	CTStartPreSign       CmdType = 0x0c
 	CTBindEscrow         CmdType = 0x0d
 	// Archive current session key into historic dir using match_id
-	CTArchiveSessionKey   CmdType = 0x0e
-	CTDeriveSessionKey    CmdType = 0x0f
-	CTGetEscrowStatus     CmdType = 0x30
-	CTGetEscrowHistory    CmdType = 0x31
-	CTGetFinalizeBundle   CmdType = 0x32 // Get gamma + presigs for settlement finalization
-	CTGetEscrowById       CmdType = 0x33 // Get single escrow info by ID (includes comp_priv)
+	CTArchiveSessionKey CmdType = 0x0e
+	CTDeriveSessionKey  CmdType = 0x0f
+	CTGetEscrowStatus   CmdType = 0x30
+	CTGetEscrowHistory  CmdType = 0x31
+	CTGetFinalizeBundle CmdType = 0x32 // Get gamma + presigs for settlement finalization
+	CTGetEscrowById     CmdType = 0x33 // Get single escrow info by ID (includes comp_priv)
 
 	// Poker-specific commands
 	CTGetPlayerCurrentTable   CmdType = 0x10

@@ -376,6 +376,7 @@ message Player {
   string escrow_id = 16;     // Bound escrow ID, if any
   bool escrow_ready = 17;    // True when escrow funding is single-UTXO and valid
   int32 table_seat = 18;     // The seat index (0-based) where this player is seated
+  bool presign_complete = 19; // True when settlement presigning is complete for this player
 }
 
 message Card {
