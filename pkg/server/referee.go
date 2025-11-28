@@ -207,6 +207,8 @@ func (s *Server) buildWTADrafts(matchID string, escrows []*refereeEscrowSession)
 	for winner := 0; winner < n; winner++ {
 		gammaHex, TCompHex := deriveAdaptorForBranch(s.referee.adaptorSecret, matchID, int32(winner))
 		tx := wire.NewMsgTx()
+		// Schnorr via OP_CHECKSIGALTVERIFY requires tx version >= 3 (consensus).
+		tx.Version = 3
 		var total uint64
 		for _, es := range snaps {
 			utxo := es.BoundUTXO
@@ -819,6 +821,8 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 						s.log.Warnf("Failed to set presign complete on table %s for player %s: %v", tableID, playerID, err)
 					} else {
 						s.log.Debugf("Set presign complete on table %s for player %s", tableID, playerID)
+						// Check if we should start the game now that presigning is complete
+						s.maybeStartGameAfterPresign(table, tableID, matchID, playerID)
 					}
 				}
 			}
@@ -1053,7 +1057,7 @@ func (s *Server) FinalizeAndBroadcastSettlement(ctx context.Context, matchID str
 		sFinal.Add2(&sPrime, &gamma)
 		sBytes := sFinal.Bytes()
 
-		// Build Schnorr signature: R' (32 bytes x-coord) || s (32 bytes).
+		// Build Schnorr signature: R' (32 bytes x-coord) || s (32 bytes) || SigHashAll (1 byte).
 		// For Decred Schnorr, we need the 32-byte x-coordinate of R'.
 		rPrimePub, err := secp256k1.ParsePubKey(rPrimeBytes)
 		if err != nil {
@@ -1063,9 +1067,11 @@ func (s *Server) FinalizeAndBroadcastSettlement(ctx context.Context, matchID str
 		rX.SetByteSlice(rPrimePub.X().Bytes())
 		rXBytes := rX.Bytes()
 
-		sig := make([]byte, 64)
-		copy(sig[:32], rXBytes[:])
-		copy(sig[32:], sBytes[:])
+		// Build 65-byte signature: 32 bytes rX + 32 bytes s + 1 byte SigHashAll
+		sig65 := make([]byte, 0, 65)
+		sig65 = append(sig65, rXBytes[:]...)
+		sig65 = append(sig65, sBytes[:]...)
+		sig65 = append(sig65, byte(txscript.SigHashAll))
 
 		// Decode redeem script for P2SH signing.
 		redeemScript, err := hex.DecodeString(fin.RedeemScriptHex)
@@ -1073,10 +1079,13 @@ func (s *Server) FinalizeAndBroadcastSettlement(ctx context.Context, matchID str
 			return "", fmt.Errorf("decode redeem script for input %s: %w", fin.InputId, err)
 		}
 
-		// Build signature script: <sig> <redeemScript> for P2SH.
-		// Schnorr sigs in Decred use OP_DATA_64 (0x40) prefix.
+		// Build signature script: <sig65> <OP_1> <redeemScript> for P2SH.
+		// The redeem script starts with OP_IF, which requires a non-zero value (OP_1)
+		// on the stack to take the winner branch (immediate spend).
+		// Order matches working reference implementation.
 		sigScript, err := txscript.NewScriptBuilder().
-			AddData(sig).
+			AddData(sig65).
+			AddOp(txscript.OP_1).
 			AddData(redeemScript).
 			Script()
 		if err != nil {
@@ -1590,6 +1599,10 @@ func (s *Server) SetPayoutAddress(ctx context.Context, req *pokerrpc.SetPayoutAd
 	if meta, ok := s.auth.sessions[token]; ok {
 		meta.payoutAddr = addrStr
 		s.auth.sessions[token] = meta
+	}
+	if !ok {
+		s.auth.mu.Unlock()
+		return &pokerrpc.SetPayoutAddressResponse{Ok: false, Error: "session not found"}, nil
 	}
 	s.auth.mu.Unlock()
 

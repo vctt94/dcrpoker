@@ -503,7 +503,8 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 	}
 	s.eventProcessor.PublishEvent(event)
 
-	// If all players are ready and the game hasn't started yet, check if we can start
+	// If all players are ready and the game hasn't started yet
+	// notify players that presigning is required
 	if allReady && !gameStarted {
 		// For escrow-backed tables, verify presigning is complete before starting
 		if cfg.BuyIn > 0 {
@@ -524,33 +525,7 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 					AllPlayersReady: allReady,
 				}, nil
 			}
-			s.log.Infof("Presigning complete for table %s, starting game", req.TableId)
 		}
-
-		// Start game asynchronously to avoid blocking this RPC handler
-		// (StartGame now waits for FSM to reach PRE_FLOP before returning)
-		go func() {
-			if errStart := table.StartGame(); errStart != nil {
-				s.log.Errorf("Failed to start game for table %s: %v", req.TableId, errStart)
-				return
-			}
-
-			// Publish typed GAME_STARTED event *after* the game has been
-			// successfully created so that the emitted snapshot reflects the brand-new
-			// game state (dealer, blinds, current player, etc.). Without this, the first
-			// game update received by the clients would still be in the pre-start state
-			// which prevents the UI from progressing to the actual hand.
-			gameStartedEvent, errGS := s.buildGameEvent(
-				pokerrpc.NotificationType_GAME_STARTED,
-				req.TableId,
-				GameStartedPayload{PlayerIDs: []string{req.PlayerId}},
-			)
-			if errGS != nil {
-				s.log.Errorf("Failed to build GAME_STARTED event: %v", errGS)
-				return
-			}
-			s.eventProcessor.PublishEvent(gameStartedEvent)
-		}()
 	}
 
 	return &pokerrpc.SetPlayerReadyResponse{
@@ -558,6 +533,51 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		Message:         "Player is ready",
 		AllPlayersReady: allReady,
 	}, nil
+}
+
+// maybeStartGameAfterPresign checks if the game should start after presigning completes
+// and starts it if all conditions are met. This is called from both SetPlayerReady
+// and when presigning completes in the referee.
+func (s *Server) maybeStartGameAfterPresign(table *poker.Table, tableID, matchID, playerID string) {
+	allReady := table.CheckAllPlayersReady()
+	gameStarted := table.IsGameStarted()
+	if !allReady || gameStarted {
+		return
+	}
+
+	cfg := table.GetConfig()
+	if cfg.BuyIn > 0 {
+		complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
+		if !complete {
+			s.log.Debugf("Presigning not yet complete for table %s: %d/%d seats", tableID, completedSeats, totalSeats)
+			return
+		}
+		s.log.Infof("Presigning complete for table %s, starting game", tableID)
+	}
+
+	// Start game asynchronously to avoid blocking
+	go func() {
+		if errStart := table.StartGame(); errStart != nil {
+			s.log.Errorf("Failed to start game for table %s: %v", tableID, errStart)
+			return
+		}
+
+		// Publish typed GAME_STARTED event *after* the game has been
+		// successfully created so that the emitted snapshot reflects the brand-new
+		// game state (dealer, blinds, current player, etc.). Without this, the first
+		// game update received by the clients would still be in the pre-start state
+		// which prevents the UI from progressing to the actual hand.
+		gameStartedEvent, errGS := s.buildGameEvent(
+			pokerrpc.NotificationType_GAME_STARTED,
+			tableID,
+			GameStartedPayload{PlayerIDs: []string{playerID}},
+		)
+		if errGS != nil {
+			s.log.Errorf("Failed to build GAME_STARTED event: %v", errGS)
+			return
+		}
+		s.eventProcessor.PublishEvent(gameStartedEvent)
+	}()
 }
 
 func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUnreadyRequest) (*pokerrpc.SetPlayerUnreadyResponse, error) {
