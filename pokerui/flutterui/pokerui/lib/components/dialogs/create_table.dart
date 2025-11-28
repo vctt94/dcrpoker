@@ -28,8 +28,8 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
   final _form = GlobalKey<FormState>();
 
   // Defaults
-  int _smallBlind = 5;
-  int _bigBlind = 10;
+  int _smallBlind = 10;
+  int _bigBlind = 20;
   int _minPlayers = 2;
   int _maxPlayers = 2;
   String _buyInDcr = '0.0';

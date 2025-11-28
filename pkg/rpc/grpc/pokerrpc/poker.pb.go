@@ -175,6 +175,9 @@ const (
 	NotificationType_GAME_STREAM_CONNECTED            NotificationType = 26
 	NotificationType_GAME_STREAM_DISCONNECTED         NotificationType = 27
 	NotificationType_ESCROW_FUNDING                   NotificationType = 28 // escrow funding status update for owner only
+	NotificationType_MESSAGE                          NotificationType = 29 // generic informational message (e.g., settlement status)
+	NotificationType_SETTLEMENT_BROADCAST             NotificationType = 30 // settlement transaction broadcasted
+	NotificationType_PRESIGN_PENDING                  NotificationType = 31 // presigning required before game can start
 )
 
 // Enum value maps for NotificationType.
@@ -209,6 +212,9 @@ var (
 		26: "GAME_STREAM_CONNECTED",
 		27: "GAME_STREAM_DISCONNECTED",
 		28: "ESCROW_FUNDING",
+		29: "MESSAGE",
+		30: "SETTLEMENT_BROADCAST",
+		31: "PRESIGN_PENDING",
 	}
 	NotificationType_value = map[string]int32{
 		"UNKNOWN":                          0,
@@ -240,6 +246,9 @@ var (
 		"GAME_STREAM_CONNECTED":            26,
 		"GAME_STREAM_DISCONNECTED":         27,
 		"ESCROW_FUNDING":                   28,
+		"MESSAGE":                          29,
+		"SETTLEMENT_BROADCAST":             30,
+		"PRESIGN_PENDING":                  31,
 	}
 )
 
@@ -2347,8 +2356,13 @@ type Notification struct {
 	Countdown       int32                  `protobuf:"varint,13,opt,name=countdown,proto3" json:"countdown,omitempty"`
 	Winners         []*Winner              `protobuf:"bytes,14,rep,name=winners,proto3" json:"winners,omitempty"`
 	Showdown        *Showdown              `protobuf:"bytes,15,opt,name=showdown,proto3" json:"showdown,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Settlement fields for GAME_ENDED notifications
+	WinnerId      string `protobuf:"bytes,16,opt,name=winner_id,json=winnerId,proto3" json:"winner_id,omitempty"`        // Player ID of the game winner
+	WinnerSeat    int32  `protobuf:"varint,17,opt,name=winner_seat,json=winnerSeat,proto3" json:"winner_seat,omitempty"` // Seat index of winner (branch for finalization)
+	MatchId       string `protobuf:"bytes,18,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`           // Match ID for referee settlement (table_id|session_id)
+	IsWinner      bool   `protobuf:"varint,19,opt,name=is_winner,json=isWinner,proto3" json:"is_winner,omitempty"`       // True if recipient is the winner (personalized per player)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Notification) Reset() {
@@ -2486,6 +2500,34 @@ func (x *Notification) GetShowdown() *Showdown {
 	return nil
 }
 
+func (x *Notification) GetWinnerId() string {
+	if x != nil {
+		return x.WinnerId
+	}
+	return ""
+}
+
+func (x *Notification) GetWinnerSeat() int32 {
+	if x != nil {
+		return x.WinnerSeat
+	}
+	return 0
+}
+
+func (x *Notification) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *Notification) GetIsWinner() bool {
+	if x != nil {
+		return x.IsWinner
+	}
+	return false
+}
+
 type Showdown struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Winners       []*Winner              `protobuf:"bytes,1,rep,name=winners,proto3" json:"winners,omitempty"`
@@ -2559,6 +2601,7 @@ type Player struct {
 	EscrowId        string                 `protobuf:"bytes,16,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"`                                  // Bound escrow ID, if any
 	EscrowReady     bool                   `protobuf:"varint,17,opt,name=escrow_ready,json=escrowReady,proto3" json:"escrow_ready,omitempty"`                        // True when escrow funding is single-UTXO and valid
 	TableSeat       int32                  `protobuf:"varint,18,opt,name=table_seat,json=tableSeat,proto3" json:"table_seat,omitempty"`                              // The seat index (0-based) where this player is seated
+	PresignComplete bool                   `protobuf:"varint,19,opt,name=presign_complete,json=presignComplete,proto3" json:"presign_complete,omitempty"`            // True when settlement presigning is complete for this player
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2717,6 +2760,13 @@ func (x *Player) GetTableSeat() int32 {
 		return x.TableSeat
 	}
 	return 0
+}
+
+func (x *Player) GetPresignComplete() bool {
+	if x != nil {
+		return x.PresignComplete
+	}
+	return false
 }
 
 type Card struct {
@@ -4009,7 +4059,7 @@ const file_poker_proto_rawDesc = "" +
 	"\vnew_balance\x18\x03 \x01(\x03R\n" +
 	"newBalance\"=\n" +
 	"\x1eStartNotificationStreamRequest\x12\x1b\n" +
-	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"\x8c\x04\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"\x82\x05\n" +
 	"\fNotification\x12+\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x17.poker.NotificationTypeR\x04type\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x19\n" +
@@ -4027,10 +4077,15 @@ const file_poker_proto_rawDesc = "" +
 	"\x12game_ready_to_play\x18\f \x01(\bR\x0fgameReadyToPlay\x12\x1c\n" +
 	"\tcountdown\x18\r \x01(\x05R\tcountdown\x12'\n" +
 	"\awinners\x18\x0e \x03(\v2\r.poker.WinnerR\awinners\x12+\n" +
-	"\bshowdown\x18\x0f \x01(\v2\x0f.poker.ShowdownR\bshowdown\"E\n" +
+	"\bshowdown\x18\x0f \x01(\v2\x0f.poker.ShowdownR\bshowdown\x12\x1b\n" +
+	"\twinner_id\x18\x10 \x01(\tR\bwinnerId\x12\x1f\n" +
+	"\vwinner_seat\x18\x11 \x01(\x05R\n" +
+	"winnerSeat\x12\x19\n" +
+	"\bmatch_id\x18\x12 \x01(\tR\amatchId\x12\x1b\n" +
+	"\tis_winner\x18\x13 \x01(\bR\bisWinner\"E\n" +
 	"\bShowdown\x12'\n" +
 	"\awinners\x18\x01 \x03(\v2\r.poker.WinnerR\awinners\x12\x10\n" +
-	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xbf\x04\n" +
+	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xea\x04\n" +
 	"\x06Player\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -4053,7 +4108,8 @@ const file_poker_proto_rawDesc = "" +
 	"\tescrow_id\x18\x10 \x01(\tR\bescrowId\x12!\n" +
 	"\fescrow_ready\x18\x11 \x01(\bR\vescrowReady\x12\x1d\n" +
 	"\n" +
-	"table_seat\x18\x12 \x01(\x05R\ttableSeat\"0\n" +
+	"table_seat\x18\x12 \x01(\x05R\ttableSeat\x12)\n" +
+	"\x10presign_complete\x18\x13 \x01(\bR\x0fpresignComplete\"0\n" +
 	"\x04Card\x12\x12\n" +
 	"\x04suit\x18\x01 \x01(\tR\x04suit\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"O\n" +
@@ -4137,7 +4193,7 @@ const file_poker_proto_rawDesc = "" +
 	"\x14PLAYER_STATE_IN_GAME\x10\x02\x12\x17\n" +
 	"\x13PLAYER_STATE_ALL_IN\x10\x03\x12\x17\n" +
 	"\x13PLAYER_STATE_FOLDED\x10\x04\x12\x15\n" +
-	"\x11PLAYER_STATE_LEFT\x10\x05*\xe3\x04\n" +
+	"\x11PLAYER_STATE_LEFT\x10\x05*\x9f\x05\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x11\n" +
 	"\rPLAYER_JOINED\x10\x01\x12\x0f\n" +
@@ -4170,7 +4226,10 @@ const file_poker_proto_rawDesc = "" +
 	" NOTIFICATION_STREAM_DISCONNECTED\x10\x19\x12\x19\n" +
 	"\x15GAME_STREAM_CONNECTED\x10\x1a\x12\x1c\n" +
 	"\x18GAME_STREAM_DISCONNECTED\x10\x1b\x12\x12\n" +
-	"\x0eESCROW_FUNDING\x10\x1c*\xa8\x01\n" +
+	"\x0eESCROW_FUNDING\x10\x1c\x12\v\n" +
+	"\aMESSAGE\x10\x1d\x12\x18\n" +
+	"\x14SETTLEMENT_BROADCAST\x10\x1e\x12\x13\n" +
+	"\x0fPRESIGN_PENDING\x10\x1f*\xa8\x01\n" +
 	"\bHandRank\x12\r\n" +
 	"\tHIGH_CARD\x10\x00\x12\b\n" +
 	"\x04PAIR\x10\x01\x12\f\n" +

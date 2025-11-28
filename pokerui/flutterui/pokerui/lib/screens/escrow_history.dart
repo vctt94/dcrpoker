@@ -160,7 +160,7 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
   String _stateLabel(_EscrowEntry e) {
     final live = e.liveStatus;
     if (live == null) return 'Status unknown';
-    if (live.utxoCount == 0) return 'Spent';
+    if (live.utxoCount == 0) return 'Seen in mempool';
     if (live.matureForCsv) return 'Refundable';
     return 'Locked';
   }
@@ -168,7 +168,6 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
   Color _stateColor(_EscrowEntry e) {
     final live = e.liveStatus;
     if (live == null) return Colors.white70;
-    if (live.utxoCount == 0) return Colors.redAccent;
     if (live.matureForCsv) return Colors.greenAccent;
     return Colors.orangeAccent;
   }
@@ -439,6 +438,7 @@ class _EscrowLiveStatus {
   });
 
   factory _EscrowLiveStatus.fromJson(Map<String, dynamic> json) {
+    print('json: $json');
     return _EscrowLiveStatus(
       confs: _asInt(json['confs']) ?? 0,
       utxoCount: _asInt(json['utxo_count']) ?? 0,

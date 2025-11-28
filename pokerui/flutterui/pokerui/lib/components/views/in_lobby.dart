@@ -258,9 +258,7 @@ class InLobbyView extends StatelessWidget {
   Widget _buildEscrowStatePanel(BuildContext context, UiTable table, PokerModel model) {
     final myEscrowId = model.cachedEscrowId;
     final myEscrowReady = model.cachedEscrowReady;
-    final presignInProgress = model.presignInProgress;
     final presignCompleted = model.presignCompleted;
-    final presignError = model.presignError;
 
     if (myEscrowId.isEmpty) {
       // No escrow bound
@@ -322,36 +320,14 @@ class InLobbyView extends StatelessWidget {
             statusColor: myEscrowReady ? Colors.greenAccent : Colors.amberAccent,
           ),
           const SizedBox(height: 8),
-          // Presign status row
+          // Presign status row (handled automatically by golib)
           _buildStatusRow(
             icon: Icons.draw,
             label: 'Presign',
-            value: presignInProgress ? 'In progress...' : (presignCompleted ? 'Complete' : 'Waiting'),
-            status: presignCompleted ? '✓' : (presignInProgress ? '⏳' : '○'),
-            statusColor: presignCompleted ? Colors.greenAccent : (presignInProgress ? Colors.lightBlueAccent : Colors.white54),
+            value: presignCompleted ? 'Complete' : 'Waiting',
+            status: presignCompleted ? '✓' : '○',
+            statusColor: presignCompleted ? Colors.greenAccent : Colors.white54,
           ),
-          if (presignError.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: Colors.red.shade900.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline, size: 16, color: Colors.red.shade300),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      presignError,
-                      style: TextStyle(color: Colors.red.shade300, fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
         ],
       ),
     );

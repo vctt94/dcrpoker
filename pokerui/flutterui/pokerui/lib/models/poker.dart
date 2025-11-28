@@ -450,11 +450,9 @@ class PokerModel extends ChangeNotifier {
         break;
       case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.ALL_PLAYERS_READY:
-        // Refresh tables/balances and check if presigning can now start.
-        // When all players become ready and escrows are funded, trigger presigning.
+        // Refresh lightweight lists/balances; avoid spamming server.
         unawaited(refreshTables());
         unawaited(_refreshBalance());
-        unawaited(_maybeStartPresignForCurrentTable());
         break;
 
       case pr.NotificationType.NEW_HAND_STARTED:

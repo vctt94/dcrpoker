@@ -89,6 +89,7 @@ const NotificationType$json = {
     {'1': 'ESCROW_FUNDING', '2': 28},
     {'1': 'MESSAGE', '2': 29},
     {'1': 'SETTLEMENT_BROADCAST', '2': 30},
+    {'1': 'PRESIGN_PENDING', '2': 31},
   ],
 };
 
@@ -105,7 +106,8 @@ final $typed_data.Uint8List notificationTypeDescriptor = $convert.base64Decode(
     'Cg1QTEFZRVJfQUxMX0lOEBcSIQodTk9USUZJQ0FUSU9OX1NUUkVBTV9DT05ORUNURUQQGBIkCi'
     'BOT1RJRklDQVRJT05fU1RSRUFNX0RJU0NPTk5FQ1RFRBAZEhkKFUdBTUVfU1RSRUFNX0NPTk5F'
     'Q1RFRBAaEhwKGEdBTUVfU1RSRUFNX0RJU0NPTk5FQ1RFRBAbEhIKDkVTQ1JPV19GVU5ESU5HEB'
-    'wSCwoHTUVTU0FHRRAdEhgKFFNFVFRMRU1FTlRfQlJPQURDQVNUEB4=');
+    'wSCwoHTUVTU0FHRRAdEhgKFFNFVFRMRU1FTlRfQlJPQURDQVNUEB4SEwoPUFJFU0lHTl9QRU5E'
+    'SU5HEB8=');
 
 @$core.Deprecated('Use handRankDescriptor instead')
 const HandRank$json = {

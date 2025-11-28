@@ -196,7 +196,7 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				PKScriptHex:     resp.PkScriptHex,
 				CSVBlocks:       uint32(req.CSVBlocks),
 				Status:          "opened",
-				KeyIndex:        req.KeyIndex, // cache derivation index (not the private key itself)
+				KeyIndex:        uint32(req.KeyIndex), // cache derivation index (not the private key itself)
 			}
 			if err := cc.c.CacheEscrowInfo(info); err != nil && cc.log != nil {
 				cc.log.Warnf("failed to cache escrow info %s: %v", resp.EscrowId, err)

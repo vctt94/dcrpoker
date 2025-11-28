@@ -113,6 +113,7 @@ enum NotificationType {
   ESCROW_FUNDING = 28; // escrow funding status update for owner only
   MESSAGE = 29; // generic informational message (e.g., settlement status)
   SETTLEMENT_BROADCAST = 30; // settlement transaction broadcasted
+  PRESIGN_PENDING = 31; // presigning required before game can start
 }
 
 enum HandRank {
