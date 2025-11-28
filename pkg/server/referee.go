@@ -152,22 +152,24 @@ type schnorrRefereeState struct {
 	adaptorSecret string
 	feeAtoms      uint64
 
-	mu           sync.RWMutex
-	escrows      map[string]*refereeEscrowSession                   // escrowID -> session
-	matchEscrows map[string]map[uint32]string                       // matchKey -> seat -> escrowID
-	presigns     map[string]map[int32]map[string]*refereePreSignCtx // matchKey -> branch -> inputID -> ctx
-	branchGamma  map[string]map[int32]string                        // matchKey -> branch -> gammaHex
+	mu              sync.RWMutex
+	escrows         map[string]*refereeEscrowSession                   // escrowID -> session
+	matchEscrows    map[string]map[uint32]string                       // matchKey -> seat -> escrowID
+	presigns        map[string]map[int32]map[string]*refereePreSignCtx // matchKey -> branch -> inputID -> ctx
+	branchGamma     map[string]map[int32]string                        // matchKey -> branch -> gammaHex
+	presignComplete map[string]map[uint32]bool                         // matchKey -> seat -> completed
 }
 
 func newSchnorrRefereeState(cfg ServerConfig) *schnorrRefereeState {
 	return &schnorrRefereeState{
-		network:       cfg.Network,
-		adaptorSecret: cfg.AdaptorSecret,
-		feeAtoms:      DefaultSettlementFeeAtoms,
-		escrows:       make(map[string]*refereeEscrowSession),
-		matchEscrows:  make(map[string]map[uint32]string),
-		presigns:      make(map[string]map[int32]map[string]*refereePreSignCtx),
-		branchGamma:   make(map[string]map[int32]string),
+		network:         cfg.Network,
+		adaptorSecret:   cfg.AdaptorSecret,
+		feeAtoms:        DefaultSettlementFeeAtoms,
+		escrows:         make(map[string]*refereeEscrowSession),
+		matchEscrows:    make(map[string]map[uint32]string),
+		presigns:        make(map[string]map[int32]map[string]*refereePreSignCtx),
+		branchGamma:     make(map[string]map[int32]string),
+		presignComplete: make(map[string]map[uint32]bool),
 	}
 }
 
@@ -282,45 +284,6 @@ func chainhashFromStr(s string) (*chainhash.Hash, error) {
 func deriveAdaptorForBranch(secret string, matchID string, branch int32) (gammaHex string, TCompHex string) {
 	// For now, reuse helper from pong derivation style.
 	return deriveAdaptorGamma(matchID, branch, secret)
-}
-
-// updateTableEscrowBinding syncs escrow binding/readiness into the table model
-// so lobby FSM readiness reflects funding state.
-func (s *Server) updateTableEscrowBinding(tableID string, playerUID zkidentity.ShortID, seat uint32, escrowID string, ready bool) {
-	table, ok := s.getTable(tableID)
-	if !ok || table == nil {
-		return
-	}
-	playerID := playerUID.String()
-	// Use user ID directly to avoid seat lookup issues
-	changed, err := table.SetUserEscrowState(playerID, escrowID, ready)
-	if err != nil {
-		s.log.Warnf("bind escrow to table failed (table=%s player=%s escrow=%s): %v", tableID, playerID, escrowID, err)
-		return
-	}
-	if changed {
-		s.log.Debugf("table escrow updated table=%s seat=%d player=%s escrow=%s ready=%v", tableID, seat, playerID, escrowID, ready)
-		if msg, err := json.Marshal(map[string]interface{}{
-			"type":         "escrow_funding",
-			"table_id":     tableID,
-			"player_id":    playerID,
-			"escrow_id":    escrowID,
-			"escrow_ready": ready,
-			"seat_index":   seat,
-		}); err == nil {
-			s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
-				Type:     pokerrpc.NotificationType_ESCROW_FUNDING,
-				Message:  string(msg),
-				TableId:  tableID,
-				PlayerId: playerID,
-			})
-		} else {
-			s.log.Warnf("marshal escrow_funding notification failed: %v", err)
-		}
-		if snap, err := s.collectTableSnapshot(tableID); err == nil {
-			s.publishTableSnapshotEvent(tableID, snap)
-		}
-	}
 }
 
 // OpenEscrow creates an escrow session for a Schnorr SNG table.
@@ -460,11 +423,6 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 	sessionID := strings.TrimSpace(req.GetSessionId())
 	seat := req.GetSeatIndex()
 
-	// Derive a default session ID when not provided so table+session binding works.
-	if sessionID == "" {
-		sessionID = "default"
-	}
-
 	if tableID == "" {
 		return nil, status.Error(codes.InvalidArgument, "table_id required")
 	}
@@ -524,6 +482,12 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 		}
 	}
 	s.referee.mu.RUnlock()
+	if es != nil {
+		if es.OwnerUID != uid {
+			return nil, status.Error(codes.PermissionDenied, "escrow not owned by caller")
+		}
+		escrowID = es.EscrowID
+	}
 	if es == nil {
 		if req.RedeemScriptHex == "" || req.CsvBlocks == 0 {
 			return nil, status.Error(codes.NotFound, "escrow not found for outpoint")
@@ -577,18 +541,14 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 		s.referee.mu.Lock()
 		s.referee.escrows[escrowID] = es
 		s.referee.mu.Unlock()
-	} else {
-		if es.OwnerUID != uid {
-			return nil, status.Error(codes.PermissionDenied, "escrow not owned by caller")
-		}
-		escrowID = es.EscrowID
 	}
 	matchID := strings.TrimSpace(req.GetMatchId())
-	if tableID != "" && sessionID != "" {
-		matchID = schnorrMatchKey{TableID: tableID, SessionID: sessionID}.String()
+	if matchID == "" && tableID != "" {
+		// For WTA poker, tableID alone is the matchID (no sessionID suffix needed)
+		matchID = tableID
 	}
 	if matchID == "" {
-		return nil, status.Error(codes.InvalidArgument, "match_id or table+session required")
+		return nil, status.Error(codes.InvalidArgument, "match_id or table_id required")
 	}
 
 	// Enforce table buy-in amount match if table exists.
@@ -666,7 +626,11 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 	s.referee.matchEscrows[matchID][seat] = escrowID
 	s.referee.mu.Unlock()
 
-	s.updateTableEscrowBinding(tableID, uid, seat, escrowID, ready)
+	// Notify the user's state machine about the escrow binding (similar to SendReady pattern).
+	if err := callerUser.SendEscrowBound(escrowID, ready); err != nil {
+		s.log.Warnf("Failed to send escrow bound event: %v", err)
+		// Don't fail the bind if user event fails - escrow is still bound in referee state
+	}
 
 	return &pokerrpc.BindEscrowResponse{
 		MatchId:             matchID,
@@ -731,46 +695,54 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 
 	// Bind escrow to match/seat if provided.
 	tableID := strings.TrimSpace(hello.TableId)
+	if tableID == "" {
+		return status.Error(codes.InvalidArgument, "table_id required")
+	}
+
 	sessionID := strings.TrimSpace(hello.SessionId)
 	seat := hello.SeatIndex
-	if tableID != "" && sessionID != "" {
-		matchID = schnorrMatchKey{TableID: tableID, SessionID: sessionID}.String()
-		s.referee.mu.Lock()
-		if s.referee.matchEscrows[matchID] == nil {
-			s.referee.matchEscrows[matchID] = make(map[uint32]string)
-		}
-		if existing := s.referee.matchEscrows[matchID][seat]; existing != "" && existing != escrowID {
-			s.referee.mu.Unlock()
-			return status.Errorf(codes.AlreadyExists, "seat %d already bound", seat)
-		}
-		s.referee.matchEscrows[matchID][seat] = escrowID
-		s.referee.mu.Unlock()
-
-		es.mu.Lock()
-		es.TableID = tableID
-		es.SessionID = sessionID
-		es.SeatIndex = seat
-		es.mu.Unlock()
-
-		// Enforce escrow amount matches table buy-in and record funding state into table model.
-		table, ok := s.getTable(tableID)
-		if !ok || table == nil {
-			return status.Error(codes.NotFound, "table not found for escrow binding")
-		}
-		cfg := table.GetConfig()
-		if cfg.BuyIn > 0 && es.AmountAtoms != uint64(cfg.BuyIn) {
-			return status.Errorf(codes.FailedPrecondition, "escrow amount %d must equal table buy-in %d", es.AmountAtoms, cfg.BuyIn)
-		}
-		es.mu.RLock()
-		ready := es.BoundUTXO != nil && es.BoundUTXO.Value == es.AmountAtoms
-		es.mu.RUnlock()
-		s.updateTableEscrowBinding(tableID, uid, seat, escrowID, ready)
-	}
-
+	// For WTA poker, tableID alone is the matchID (sessionID is optional/ignored)
 	if matchID == "" {
-		return status.Error(codes.InvalidArgument, "match_id or table/session required")
+		matchID = tableID
 	}
 
+	s.referee.mu.Lock()
+	if s.referee.matchEscrows[matchID] == nil {
+		s.referee.matchEscrows[matchID] = make(map[uint32]string)
+	}
+	if existing := s.referee.matchEscrows[matchID][seat]; existing != "" && existing != escrowID {
+		s.referee.mu.Unlock()
+		return status.Errorf(codes.AlreadyExists, "seat %d already bound", seat)
+	}
+	s.referee.matchEscrows[matchID][seat] = escrowID
+	s.referee.mu.Unlock()
+
+	es.mu.Lock()
+	es.TableID = tableID
+	es.SessionID = sessionID
+	es.SeatIndex = seat
+	es.mu.Unlock()
+
+	// Enforce escrow amount matches table buy-in and record funding state into table model.
+	table, ok := s.getTable(tableID)
+	if !ok || table == nil {
+		return status.Error(codes.NotFound, "table not found for escrow binding")
+	}
+	cfg := table.GetConfig()
+	if cfg.BuyIn > 0 && es.AmountAtoms != uint64(cfg.BuyIn) {
+		return status.Errorf(codes.FailedPrecondition, "escrow amount %d must equal table buy-in %d", es.AmountAtoms, cfg.BuyIn)
+	}
+	es.mu.RLock()
+	ready := es.BoundUTXO != nil && es.BoundUTXO.Value == es.AmountAtoms
+	es.mu.RUnlock()
+	if ready {
+		user := table.GetUser(uid.String())
+		if user != nil {
+			if err := user.SendEscrowBound(escrowID, ready); err != nil {
+				s.log.Warnf("Failed to send escrow bound event: %v", err)
+			}
+		}
+	}
 	// Enforce presign only when table is "full": all escrows for the match
 	// are funded and bound to a single UTXO (2-6 players).
 	allEscrows, err := s.readyMatchEscrows(matchID)
@@ -831,6 +803,27 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
+			// Mark this seat's presigning as complete in referee state.
+			s.referee.mu.Lock()
+			if s.referee.presignComplete[matchID] == nil {
+				s.referee.presignComplete[matchID] = make(map[uint32]bool)
+			}
+			s.referee.presignComplete[matchID][seat] = true
+			s.referee.mu.Unlock()
+
+			// Also update the table FSM so the lobby knows presigning is done.
+			if tableID != "" {
+				if table, ok := s.getTable(tableID); ok && table != nil {
+					playerID := uid.String()
+					if err := table.SetPlayerPresignComplete(playerID); err != nil {
+						s.log.Warnf("Failed to set presign complete on table %s for player %s: %v", tableID, playerID, err)
+					} else {
+						s.log.Debugf("Set presign complete on table %s for player %s", tableID, playerID)
+					}
+				}
+			}
+
+			s.log.Infof("Presigning complete for match %s seat %d", matchID, seat)
 			return nil
 		}
 		if err != nil {
@@ -920,25 +913,20 @@ func (s *Server) trackEscrowFunding(es *refereeEscrowSession, updates <-chan cha
 					payload["confirmed_height"] = u.Confs // height unavailable; best-effort marker
 				}
 			}
-			if msg, err := json.Marshal(payload); err == nil {
-				s.notifyPlayer(es.OwnerUID.String(), &pokerrpc.Notification{
-					Type:     pokerrpc.NotificationType_ESCROW_FUNDING,
-					Message:  string(msg),
-					PlayerId: es.OwnerUID.String(),
-				})
-				s.log.Debugf("escrow funding notify id=%s confs=%d utxos=%d", es.EscrowID, u.Confs, u.UTXOCount)
-			} else {
-				s.log.Warnf("trackEscrowFunding: marshal notify payload: %v", err)
+			msg, err := json.Marshal(payload)
+			if err != nil {
+				s.log.Warnf("trackEscrowFunding: marshal payload: %v", err)
+				continue
 			}
+			s.notifyPlayer(es.OwnerUID.String(), &pokerrpc.Notification{
+				Type:     pokerrpc.NotificationType_ESCROW_FUNDING,
+				Message:  string(msg),
+				PlayerId: es.OwnerUID.String(),
+			})
+			s.log.Debugf("escrow funding notify id=%s confs=%d utxos=%d", es.EscrowID, u.Confs, u.UTXOCount)
+
 		}
 
-		// Sync escrow readiness into the table model so lobby FSM reflects funding.
-		if es.TableID != "" {
-			es.mu.RLock()
-			ready := es.BoundUTXO != nil && es.BoundUTXO.Value == es.AmountAtoms
-			es.mu.RUnlock()
-			s.updateTableEscrowBinding(es.TableID, es.OwnerUID, es.SeatIndex, es.EscrowID, ready)
-		}
 	}
 }
 
@@ -1002,6 +990,114 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pokerrpc.GetFinaliz
 		})
 	}
 	return resp, nil
+}
+
+// FinalizeAndBroadcastSettlement completes the Schnorr settlement for a match:
+// - Retrieves the finalize bundle for the winning branch
+// - Computes final signatures: s = s' + gamma (mod n) for each input
+// - Attaches Schnorr signatures to the draft transaction
+// - Broadcasts the finalized transaction via dcrd
+// Returns the txid of the broadcast transaction.
+func (s *Server) FinalizeAndBroadcastSettlement(ctx context.Context, matchID string, winnerSeat int32) (string, error) {
+	if s.dcrd == nil {
+		return "", fmt.Errorf("dcrd client not connected; cannot broadcast")
+	}
+
+	// Get the finalize bundle with gamma and presigs.
+	bundle, err := s.GetFinalizeBundle(ctx, &pokerrpc.GetFinalizeBundleRequest{
+		MatchId:    matchID,
+		WinnerSeat: winnerSeat,
+	})
+	if err != nil {
+		return "", fmt.Errorf("GetFinalizeBundle failed: %w", err)
+	}
+
+	// Decode draft transaction.
+	draftBytes, err := hex.DecodeString(bundle.DraftTxHex)
+	if err != nil {
+		return "", fmt.Errorf("decode draft tx hex: %w", err)
+	}
+	tx, err := decodeMsgTx(draftBytes)
+	if err != nil {
+		return "", fmt.Errorf("deserialize draft tx: %w", err)
+	}
+
+	// Decode gamma scalar.
+	gammaBytes, err := hex.DecodeString(bundle.GammaHex)
+	if err != nil || len(gammaBytes) != 32 {
+		return "", fmt.Errorf("invalid gamma hex")
+	}
+	var gamma secp256k1.ModNScalar
+	gamma.SetBytes((*[32]byte)(gammaBytes))
+
+	// Build signature scripts for each input.
+	for _, fin := range bundle.Inputs {
+		if int(fin.InputIndex) >= len(tx.TxIn) {
+			return "", fmt.Errorf("input index %d out of range", fin.InputIndex)
+		}
+
+		// Decode R' (compressed point) and s' (scalar).
+		rPrimeBytes, err := hex.DecodeString(fin.RPrimeCompactHex)
+		if err != nil || len(rPrimeBytes) != 33 {
+			return "", fmt.Errorf("invalid R' for input %s", fin.InputId)
+		}
+		sPrimeBytes, err := hex.DecodeString(fin.SPrimeHex)
+		if err != nil || len(sPrimeBytes) != 32 {
+			return "", fmt.Errorf("invalid s' for input %s", fin.InputId)
+		}
+
+		// Compute final s = s' + gamma (mod n).
+		var sPrime secp256k1.ModNScalar
+		sPrime.SetBytes((*[32]byte)(sPrimeBytes))
+		var sFinal secp256k1.ModNScalar
+		sFinal.Add2(&sPrime, &gamma)
+		sBytes := sFinal.Bytes()
+
+		// Build Schnorr signature: R' (32 bytes x-coord) || s (32 bytes).
+		// For Decred Schnorr, we need the 32-byte x-coordinate of R'.
+		rPrimePub, err := secp256k1.ParsePubKey(rPrimeBytes)
+		if err != nil {
+			return "", fmt.Errorf("parse R' pubkey for input %s: %w", fin.InputId, err)
+		}
+		var rX secp256k1.FieldVal
+		rX.SetByteSlice(rPrimePub.X().Bytes())
+		rXBytes := rX.Bytes()
+
+		sig := make([]byte, 64)
+		copy(sig[:32], rXBytes[:])
+		copy(sig[32:], sBytes[:])
+
+		// Decode redeem script for P2SH signing.
+		redeemScript, err := hex.DecodeString(fin.RedeemScriptHex)
+		if err != nil {
+			return "", fmt.Errorf("decode redeem script for input %s: %w", fin.InputId, err)
+		}
+
+		// Build signature script: <sig> <redeemScript> for P2SH.
+		// Schnorr sigs in Decred use OP_DATA_64 (0x40) prefix.
+		sigScript, err := txscript.NewScriptBuilder().
+			AddData(sig).
+			AddData(redeemScript).
+			Script()
+		if err != nil {
+			return "", fmt.Errorf("build sig script for input %s: %w", fin.InputId, err)
+		}
+
+		tx.TxIn[fin.InputIndex].SignatureScript = sigScript
+	}
+
+	// Broadcast the finalized transaction.
+	txHash, err := s.dcrd.SendRawTransaction(ctx, tx, true)
+	if err != nil {
+		return "", fmt.Errorf("SendRawTransaction failed: %w", err)
+	}
+
+	txid := txHash.String()
+	s.log.Infof("Settlement broadcast successful: matchID=%s winnerSeat=%d txid=%s", matchID, winnerSeat, txid)
+
+	// TODO: Persist settlement outcome and clean up escrow/presign state.
+
+	return txid, nil
 }
 
 // GetEscrowStatus returns funding/conf status for an escrow owned by caller.
@@ -1086,6 +1182,49 @@ func (s *Server) TestBindEscrowFunding(escrowID, txid string, vout uint32, amoun
 	es.mu.Unlock()
 }
 
+// TestBindEscrowToMatch binds an escrow to a match/seat and table user model (testing only).
+// This sets up the escrow bindings without completing presigning.
+func (s *Server) TestBindEscrowToMatch(escrowID, matchID, tableID, playerID string, seat uint32) {
+	if s.referee == nil {
+		return
+	}
+	s.referee.mu.Lock()
+	es := s.referee.escrows[escrowID]
+	if es == nil {
+		s.referee.mu.Unlock()
+		return
+	}
+	// Bind escrow to matchEscrows.
+	if s.referee.matchEscrows[matchID] == nil {
+		s.referee.matchEscrows[matchID] = make(map[uint32]string)
+	}
+	s.referee.matchEscrows[matchID][seat] = escrowID
+	s.referee.mu.Unlock()
+
+	// Bind to table user model.
+	es.mu.Lock()
+	es.TableID = tableID
+	es.SeatIndex = seat
+	es.mu.Unlock()
+
+	// Update user's escrow binding in the table.
+	table, ok := s.getTable(tableID)
+	if !ok || table == nil {
+		return
+	}
+
+	// Determine if escrow is ready (has bound UTXO with correct value).
+	es.mu.RLock()
+	ready := es.BoundUTXO != nil && es.BoundUTXO.Value == es.AmountAtoms
+	es.mu.RUnlock()
+
+	// Update the user's escrow binding via the table FSM.
+	if err := table.SetPlayerEscrow(playerID, escrowID, ready); err != nil {
+		// Log error but don't fail test helper
+		return
+	}
+}
+
 // readyMatchEscrows returns all escrows for a match, ensuring 2-6 entries and
 // that each has a bound UTXO and session pubkey.
 func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, error) {
@@ -1130,6 +1269,33 @@ func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, err
 		escrows = append(escrows, es)
 	}
 	return escrows, nil
+}
+
+// IsPresigningComplete checks if all seats bound to a match have completed presigning.
+// Returns true if presigning is complete for all seats, false otherwise.
+// Also returns the number of seats that have completed and total seats.
+func (s *Server) IsPresigningComplete(matchID string) (complete bool, completedSeats, totalSeats int) {
+	s.referee.mu.RLock()
+	defer s.referee.mu.RUnlock()
+
+	seatsMap := s.referee.matchEscrows[matchID]
+	if len(seatsMap) < 2 {
+		return false, 0, len(seatsMap)
+	}
+
+	totalSeats = len(seatsMap)
+	presignMap := s.referee.presignComplete[matchID]
+	if presignMap == nil {
+		return false, 0, totalSeats
+	}
+
+	for seat := range seatsMap {
+		if presignMap[seat] {
+			completedSeats++
+		}
+	}
+
+	return completedSeats == totalSeats, completedSeats, totalSeats
 }
 
 // storePresigs verifies and stores presign artifacts for a branch.

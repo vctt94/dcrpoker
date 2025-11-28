@@ -250,10 +250,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 				// Acquire player lock before mutating fields to avoid data races
 				players[w].mu.Lock()
 				players[w].balance += pot.amount
-				newBal := players[w].balance
 				players[w].mu.Unlock()
-				// Notify player FSM about balance change (async, non-blocking)
-				players[w].NotifyBalanceChange(newBal, pot.amount, "pot_win")
 			}
 			pm.pots[pi].amount = 0
 			for j := range pm.pots[pi].eligibility {
@@ -304,14 +301,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 				// Acquire player lock before mutating fields to avoid data races
 				players[idx].mu.Lock()
 				players[idx].balance += add
-				newBal := players[idx].balance
 				players[idx].mu.Unlock()
-				// Notify player FSM about balance change (async, non-blocking)
-				reason := "pot_win_split"
-				if len(winners) == 1 {
-					reason = "pot_win"
-				}
-				players[idx].NotifyBalanceChange(newBal, add, reason)
 			}
 		}
 

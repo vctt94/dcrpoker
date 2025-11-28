@@ -175,8 +175,9 @@ func (e *Env) GetGameState(ctx context.Context, tableID string) *pokerrpc.GameUp
 }
 
 // CreateStandardTable creates a table with standard settings for testing.
+// Uses BuyIn: 0 to avoid escrow requirement in tests.
 func (e *Env) CreateStandardTable(ctx context.Context, creatorID string, minPlayers, maxPlayers int) string {
-	return e.CreateTableWithBuyIn(ctx, creatorID, minPlayers, maxPlayers, 1_000)
+	return e.CreateTableWithBuyIn(ctx, creatorID, minPlayers, maxPlayers, 0)
 }
 
 // CreateTableWithBuyIn creates a table with the provided buy-in/stack values.

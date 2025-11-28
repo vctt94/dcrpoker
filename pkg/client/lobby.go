@@ -549,6 +549,9 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 	default:
 		pc.log.Debug("received unknown notification type", "type", ntfn.Type)
 	}
+
+	// Enqueue for golib handler to update escrow cache with confirmed_height
+	pc.enqueueUpdate(ntfn)
 }
 
 // reSyncStateAfterReconnect refreshes client-side state after a notification stream reconnect.

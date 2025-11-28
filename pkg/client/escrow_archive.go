@@ -23,6 +23,7 @@ type EscrowInfo struct {
 	Status          string `json:"status,omitempty"`
 	ConfirmedHeight uint32 `json:"confirmed_height,omitempty"`
 	Confs           uint32 `json:"confs,omitempty"`
+	KeyIndex        uint32 `json:"key_index,omitempty"` // session key derivation index (safer than storing priv key)
 }
 
 // SessionArchive captures the escrow info we persist per match/escrow.
@@ -129,6 +130,9 @@ func mergeEscrowInfo(dst, src *EscrowInfo) {
 	}
 	if src.ConfirmedHeight != 0 {
 		dst.ConfirmedHeight = src.ConfirmedHeight
+	}
+	if dst.KeyIndex == 0 && src.KeyIndex != 0 {
+		dst.KeyIndex = src.KeyIndex
 	}
 }
 

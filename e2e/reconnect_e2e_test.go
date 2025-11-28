@@ -111,7 +111,7 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -286,7 +286,7 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -480,7 +480,7 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -692,7 +692,7 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -926,7 +926,7 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,

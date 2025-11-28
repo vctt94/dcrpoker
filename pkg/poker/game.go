@@ -338,12 +338,15 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 				delta = balance
 			}
 
-			// Use player method to post blind (players are still seated at table)
-			applied := p.HandlePostBlind(delta)
+			// Update player's currentBet and balance
+			p.mu.Lock()
+			p.balance -= delta
+			p.currentBet = already + delta
+			p.mu.Unlock()
 
 			// Reflect into pot manager and table-wide current bet
-			g.potManager.addBet(pos, applied, g.players) // contract: g.mu held
-			finalBet := already + applied
+			g.potManager.addBet(pos, delta, g.players) // contract: g.mu held
+			finalBet := already + delta
 			if finalBet > g.currentBet {
 				g.currentBet = finalBet
 			}
@@ -673,7 +676,7 @@ func (g *Game) RestorePotFromSnapshot(amount int64) {
 		if pl == nil {
 			continue
 		}
-		if pl.GetCurrentStateString() != "FOLDED" {
+		if pl.GetCurrentStateString() != FOLDED_STATE {
 			p.makeEligible(i)
 		}
 	}
@@ -910,8 +913,6 @@ func (g *Game) refundUncalledBets() error {
 	// Credit the refunded amount directly to player balance (Game FSM owns balance)
 	if hiPlayer >= 0 && refunded > 0 {
 		g.players[hiPlayer].balance += refunded
-		// Notify player FSM about balance change (async, non-blocking)
-		g.players[hiPlayer].NotifyBalanceChange(g.players[hiPlayer].balance, refunded, "uncalled_bet_refund")
 	}
 	return nil
 }
@@ -962,7 +963,7 @@ func (g *Game) SetCurrentPlayerByID(playerID string) {
 					continue
 				}
 				if j == i {
-					if cp.GetCurrentStateString() == "IN_GAME" {
+					if cp.GetCurrentStateString() == IN_GAME_STATE {
 						cp.StartTurn()
 					}
 				} else {
@@ -1189,7 +1190,7 @@ func (g *Game) HandlePlayerFold(playerID string) error {
 func (g *Game) unfoldsPlayers() int {
 	n := 0
 	for _, p := range g.players {
-		if p != nil && p.GetCurrentStateString() != "FOLDED" {
+		if p != nil && p.GetCurrentStateString() != FOLDED_STATE {
 			n++
 		}
 	}
@@ -1332,7 +1333,7 @@ func (g *Game) handlePlayerCall(playerID string) error {
 	activePlayers := 0
 	for _, p := range g.players {
 		state := p.GetCurrentStateString()
-		if state != "FOLDED" && state != "ALL_IN" {
+		if state != FOLDED_STATE && state != ALL_IN_STATE {
 			activePlayers++
 		}
 	}
@@ -1565,7 +1566,7 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 
 		// Only start turn for players that are actively in the hand.
 		// This avoids blocking StartTurn on players whose FSM is in AT_TABLE.
-		if g.players[g.currentPlayer].GetCurrentStateString() == "IN_GAME" {
+		if g.players[g.currentPlayer].GetCurrentStateString() == IN_GAME_STATE {
 			g.players[g.currentPlayer].StartTurn()
 			break
 		}
@@ -1609,7 +1610,7 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	// Collect non-folded players
 	unfolded := make([]*Player, 0, len(g.players))
 	for _, p := range g.players {
-		if p != nil && p.GetCurrentStateString() != "FOLDED" {
+		if p != nil && p.GetCurrentStateString() != FOLDED_STATE {
 			unfolded = append(unfolded, p)
 		}
 	}
@@ -1861,6 +1862,9 @@ func (g *Game) maybeCompleteBettingRound() {
 	}
 
 	// 1) Tally round status (REMOVED turn check - we hold g.mu so no TOCTOU possible)
+	// First, find the effective bet: when a short-stack all-in occurs, the effective bet
+	// is the maximum of all all-in amounts, not the table currentBet.
+	maxAllInBet := int64(0)
 	alive, active, unmatched := 0, 0, 0
 	for _, p := range g.players {
 		if p == nil {
@@ -1869,7 +1873,7 @@ func (g *Game) maybeCompleteBettingRound() {
 		state := p.GetCurrentStateString()
 
 		// Skip folded entirely.
-		if state == "FOLDED" {
+		if state == FOLDED_STATE {
 			continue
 		}
 
@@ -1877,16 +1881,41 @@ func (g *Game) maybeCompleteBettingRound() {
 		alive++
 
 		// ALL_IN counts as matched but is not actionable.
-		if state == "ALL_IN" {
+		if state == ALL_IN_STATE {
+			p.mu.RLock()
+			allInBet := p.currentBet
+			p.mu.RUnlock()
+			if allInBet > maxAllInBet {
+				maxAllInBet = allInBet
+			}
 			continue
 		}
 
-		// Actionable: must match table currentBet.
+		// Count active players
 		active++
+	}
+
+	// Calculate effective bet: when someone goes all-in for less than the table currentBet,
+	// the effective bet becomes the all-in amount (other players can't bet more than that).
+	effectiveBet := g.currentBet
+	if maxAllInBet > 0 && maxAllInBet < effectiveBet {
+		effectiveBet = maxAllInBet
+	}
+
+	// Now check if active players are matched to the effective bet
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		if state == FOLDED_STATE || state == ALL_IN_STATE {
+			continue
+		}
+		// Actionable player: must have at least the effective bet
 		p.mu.RLock()
 		cb := p.currentBet
 		p.mu.RUnlock()
-		if cb != g.currentBet {
+		if cb < effectiveBet {
 			unmatched++
 		}
 	}
@@ -1902,7 +1931,7 @@ func (g *Game) maybeCompleteBettingRound() {
 	// Also enable if only one player is active but all others are all-in (no one left to bet against)
 	// AND all bets are matched (no unmatched bets).
 	allInCount := alive - active
-	g.log.Debugf("maybeCompleteBettingRound: alive=%d, active=%d, allInCount=%d, unmatched=%d", alive, active, allInCount, unmatched)
+	g.log.Debugf("maybeCompleteBettingRound: alive=%d, active=%d, allInCount=%d, unmatched=%d, effectiveBet=%d, tableCurrentBet=%d, maxAllInBet=%d", alive, active, allInCount, unmatched, effectiveBet, g.currentBet, maxAllInBet)
 	if active == 0 || (active == 1 && allInCount > 0 && unmatched == 0) {
 		// Enable auto-advance mode so state handlers know to schedule timers
 		g.autoAdvanceEnabled = true
@@ -1993,7 +2022,7 @@ func (g *Game) computeStreetStarterIndex() int {
 			continue
 		}
 		st := p.GetCurrentStateString()
-		if st != "FOLDED" && st != "ALL_IN" {
+		if st != FOLDED_STATE && st != ALL_IN_STATE {
 			return idx
 		}
 	}
@@ -2054,7 +2083,7 @@ func (g *Game) initializeCurrentPlayer() {
 		}
 
 		// Use the unified player state directly; only IN_GAME can act.
-		if g.players[g.currentPlayer].GetCurrentStateString() == "IN_GAME" {
+		if g.players[g.currentPlayer].GetCurrentStateString() == IN_GAME_STATE {
 			break
 		}
 
@@ -2072,7 +2101,7 @@ func (g *Game) initializeCurrentPlayer() {
 
 	// Start turn for the new current player only if actively in the hand
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-		if g.players[g.currentPlayer].GetCurrentStateString() == "IN_GAME" {
+		if g.players[g.currentPlayer].GetCurrentStateString() == IN_GAME_STATE {
 			g.players[g.currentPlayer].StartTurn()
 		}
 	}
@@ -2179,7 +2208,7 @@ func (g *Game) RestoreGameState(tableID string) {
 	// 4) If nobody is actionable (e.g., only one alive), push to showdown
 	alive := 0
 	for _, p := range g.players {
-		if p != nil && p.GetCurrentStateString() != "FOLDED" {
+		if p != nil && p.GetCurrentStateString() != FOLDED_STATE {
 			alive++
 		}
 	}
@@ -2403,7 +2432,7 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			HandDescription: player.handDescription,
 			HandValue:       player.handValue,
 			LastAction:      player.lastAction,
-			StateString:     player.getCurrentStateString(),
+			StateString:     player.GetCurrentStateString(),
 		}
 		player.mu.RUnlock()
 

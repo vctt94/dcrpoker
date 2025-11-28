@@ -129,18 +129,17 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 			dcrBalance = 0
 		}
 
-		user := poker.NewUser(p.PlayerID, p.Seat, &poker.AddUserOptions{
+		user := poker.NewUser(p.PlayerID, table, &poker.AddUserOptions{
 			DisplayName:       s.displayNameFor(p.PlayerID),
 			DCRAccountBalance: dcrBalance,
 		})
 
-		// Seat the user in the table model
-		if _, err := table.AddNewUser(user.ID, user.TableSeat, &poker.AddUserOptions{
-			DisplayName:       s.displayNameFor(user.ID),
-			DCRAccountBalance: user.DCRAccountBalance,
-			EscrowID:          user.EscrowID,
-		}); err != nil {
-			s.log.Errorf("AddNewUser(%s): %v", user.ID, err)
+		// Set the seat from the database record
+		user.TableSeat = p.Seat
+
+		// Add the user to the table model
+		if err := table.AddUser(user); err != nil {
+			s.log.Errorf("AddUser(%s): %v", user.ID, err)
 		}
 	}
 
@@ -277,7 +276,7 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 			continue
 		}
 		st := p.GetCurrentStateString()
-		if st != "FOLDED" && st != "ALL_IN" {
+		if st != poker.FOLDED_STATE && st != poker.ALL_IN_STATE {
 			_ = p.HandleStartHand()
 		}
 	}

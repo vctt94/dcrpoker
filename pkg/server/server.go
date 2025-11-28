@@ -387,6 +387,11 @@ func (s *Server) getTable(tableID string) (*poker.Table, bool) {
 	return nil, false
 }
 
+// GetTable retrieves a table by ID (public accessor for tests).
+func (s *Server) GetTable(tableID string) (*poker.Table, bool) {
+	return s.getTable(tableID)
+}
+
 // GetAllTables returns all tables from the server registry.
 func (s *Server) GetAllTables() []*poker.Table {
 	tableRefs := make([]*poker.Table, 0)

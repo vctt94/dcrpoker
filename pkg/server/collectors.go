@@ -20,6 +20,7 @@ func (s *Server) collectPlayerSnapshot(user *poker.User, gameSnapshot *poker.Gam
 		IsReady:           user.IsReady,
 		EscrowID:          user.EscrowID,
 		EscrowReady:       user.EscrowReady,
+		PresignComplete:   user.PresignComplete,
 		IsDisconnected:    user.IsDisconnected,
 		HasFolded:         false,
 		IsAllIn:           false,
@@ -27,7 +28,7 @@ func (s *Server) collectPlayerSnapshot(user *poker.User, gameSnapshot *poker.Gam
 		IsSmallBlind:      false,
 		IsBigBlind:        false,
 		IsTurn:            false,
-		GameState:         "AT_TABLE",
+		GameState:         poker.AT_TABLE_STATE,
 		HandDescription:   "",
 		HasBet:            0,
 		StartingBalance:   0,
@@ -165,6 +166,14 @@ func (s *Server) buildGameEvent(
 			default:
 				s.log.Warnf("ActionPayload for unsupported event type %s on table %s", eventType, tableID)
 				serverPayload = nil
+			}
+		case poker.GameEndedPayload:
+			// Convert poker.GameEndedPayload to server GameEndedPayload
+			serverPayload = GameEndedPayload{
+				WinnerID:   p.WinnerID,
+				WinnerSeat: p.WinnerSeat,
+				MatchID:    p.MatchID,
+				TotalPot:   p.TotalPot,
 			}
 		default:
 			s.log.Warnf("Unknown payload type %T for event %s on table %s", payload, eventType, tableID)

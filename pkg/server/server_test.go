@@ -1768,7 +1768,6 @@ func TestSetPlayerReadyRequiresFundedEscrowWhenBound(t *testing.T) {
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 
 	srv.TestBindEscrowFunding(es.EscrowID, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 1_000)
-	srv.updateTableEscrowBinding(tableID, es.OwnerUID, es.SeatIndex, es.EscrowID, true)
 
 	_, err = srv.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
 		PlayerId: hostID,

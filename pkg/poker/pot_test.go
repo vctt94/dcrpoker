@@ -165,10 +165,10 @@ func TestSidepots(t *testing.T) {
 
 	// Wait for all-in state transitions
 	require.Eventually(t, func() bool {
-		return players[0].GetCurrentStateString() == "ALL_IN"
+		return players[0].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		return players[2].GetCurrentStateString() == "ALL_IN"
+		return players[2].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	// Player 0 goes all-in for 50
@@ -273,10 +273,10 @@ func TestPotDistribution(t *testing.T) {
 
 	// Wait for all-in state transitions
 	require.Eventually(t, func() bool {
-		return players[0].GetCurrentStateString() == "ALL_IN"
+		return players[0].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		return players[2].GetCurrentStateString() == "ALL_IN"
+		return players[2].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	// Set up hand values for test
@@ -325,7 +325,7 @@ func TestPotDistribution(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -381,7 +381,7 @@ func TestTiepotDistribution(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -430,7 +430,7 @@ func TestOddChipDistribution(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -479,7 +479,7 @@ func TestOddChipDistribution(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -541,17 +541,17 @@ func TestBuildpotsFromTotals(t *testing.T) {
 
 	// Wait for all-in state transitions
 	require.Eventually(t, func() bool {
-		return players[0].GetCurrentStateString() == "ALL_IN"
+		return players[0].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		return players[1].GetCurrentStateString() == "ALL_IN"
+		return players[1].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 
 	// Set up folded state for player 3
 	reply := make(chan error, 1)
 	players[3].handParticipation.Send(evFoldReq{Reply: reply})
 	require.NoError(t, <-reply)
-	require.Equal(t, "FOLDED", players[3].GetCurrentStateString())
+	require.Equal(t, FOLDED_STATE, players[3].GetCurrentStateString())
 
 	// Set up bets
 	pm.addBet(0, 30, players)  // Player 0: All-in with 30
@@ -660,9 +660,9 @@ func TestHeadsUppotDistributionAfterCall(t *testing.T) {
 	setBalance(players[1], 0) // Player 1 loses
 
 	// Set up hand values and states manually for test
-	players[0].tablePresence.Send(evStartHand{})
+	require.NoError(t, players[0].HandleStartHand())
 	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 100})
-	players[1].tablePresence.Send(evStartHand{})
+	require.NoError(t, players[1].HandleStartHand())
 	setHandValue(players[1], &HandValue{Rank: HighCard, RankValue: 1000})
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
@@ -672,7 +672,7 @@ func TestHeadsUppotDistributionAfterCall(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -803,7 +803,7 @@ func TestBetTrackingRegression(t *testing.T) {
 			players := make([]*Player, scenario.numPlayers)
 			for i := 0; i < scenario.numPlayers; i++ {
 				players[i] = NewPlayer(fmt.Sprintf("player_%d", i), fmt.Sprintf("Player %d", i), 0)
-				players[i].tablePresence.Send(evStartHand{})
+				require.NoError(t, players[i].HandleStartHand())
 			}
 
 			// Set hand values (first winner wins, others lose)
@@ -824,7 +824,7 @@ func TestBetTrackingRegression(t *testing.T) {
 					setHandDesc(player, "High Card")
 				}
 				// Set players to in-game state
-				player.tablePresence.Send(evStartHand{})
+				// (already initialized above)
 			}
 
 			// Execute all actions
@@ -858,7 +858,7 @@ func TestBetTrackingRegression(t *testing.T) {
 			for i, p := range players {
 				if p != nil {
 					p.mu.RLock()
-					foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+					foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 					handValues[i] = p.handValue
 					p.mu.RUnlock()
 				}
@@ -1253,7 +1253,7 @@ func TestShowdownWinningsNotification_potZeroedAfterDistribution(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -1315,7 +1315,7 @@ func settle(t *testing.T, pm *potManager, players []*Player) ([]int64, int64) {
 		for i, p := range players {
 			if p != nil {
 				p.mu.RLock()
-				foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+				foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 				handValues[i] = p.handValue
 				p.mu.RUnlock()
 			}
@@ -1445,9 +1445,9 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 	// Debug: check what happens after pot building
 	t.Logf("Before pot building:")
 	t.Logf("TotalBets: %v", pm.totalBets)
-	t.Logf("Player 0 folded: %v", players[0].GetCurrentStateString() == "FOLDED")
-	t.Logf("Player 1 folded: %v", players[1].GetCurrentStateString() == "FOLDED")
-	t.Logf("Player 2 folded: %v", players[2].GetCurrentStateString() == "FOLDED")
+	t.Logf("Player 0 folded: %v", players[0].GetCurrentStateString() == FOLDED_STATE)
+	t.Logf("Player 1 folded: %v", players[1].GetCurrentStateString() == FOLDED_STATE)
+	t.Logf("Player 2 folded: %v", players[2].GetCurrentStateString() == FOLDED_STATE)
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
 	t.Logf("After pot building:")
@@ -1503,8 +1503,8 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 		NewPlayer("P1", "P1", 0),
 	}
 	// Ensure both are considered alive (not folded)
-	players[0].tablePresence.Send(evStartHand{})
-	players[1].tablePresence.Send(evStartHand{})
+	require.NoError(t, players[0].HandleStartHand())
+	require.NoError(t, players[1].HandleStartHand())
 
 	pm := NewPotManager(2)
 
@@ -1558,7 +1558,7 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -1603,7 +1603,7 @@ func Test_PotManager_NoPlayerCallsWhilePmLocked(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			state := p.GetCurrentStateString()
-			foldStatus[i] = (state == "FOLDED")
+			foldStatus[i] = (state == FOLDED_STATE)
 		}
 	}
 
@@ -1691,11 +1691,11 @@ func Test_PotManager_PrecomputePattern(t *testing.T) {
 	reply := make(chan error, 1)
 	players[0].handParticipation.Send(evFoldReq{Reply: reply})
 
-	// Player 1 goes all-in (500)
-	players[1].HandlePostBlind(500)
+	// Player 1 goes all-in (500) - use pot manager to track bet
+	pm.addBet(1, 500, players)
 
-	// Player 2 bets 500
-	players[2].HandlePostBlind(500)
+	// Player 2 bets 500 - use pot manager to track bet
+	pm.addBet(2, 500, players)
 
 	// CORRECT PATTERN: Pre-compute all player state
 	foldStatus := make([]bool, len(players))
@@ -1704,7 +1704,7 @@ func Test_PotManager_PrecomputePattern(t *testing.T) {
 	for i, p := range players {
 		if p != nil {
 			state := p.GetCurrentStateString()
-			foldStatus[i] = (state == "FOLDED")
+			foldStatus[i] = (state == FOLDED_STATE)
 
 			p.mu.RLock()
 			allInStatus[i] = p.isAllIn
@@ -1826,7 +1826,7 @@ func TestAddBet_PrecomputedFlags_NoPlayerAccessUnderPmLock(t *testing.T) {
 	require.NoError(t, <-reply)
 
 	// Verify player 1 is folded
-	require.Equal(t, "FOLDED", players[1].GetCurrentStateString())
+	require.Equal(t, FOLDED_STATE, players[1].GetCurrentStateString())
 
 	// Call addBet - this should pre-compute fold status BEFORE acquiring pm.mu
 	// The critical requirement is that Player methods are NOT called while pm.mu is held

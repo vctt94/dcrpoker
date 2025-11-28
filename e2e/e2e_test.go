@@ -56,13 +56,14 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 
 	// Alice creates a new table that acts like a Sit'n'Go (auto-start when all
 	// players are ready).
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "alice",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    3,
 		MaxPlayers:    3,
-		BuyIn:         1_000,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1000,
@@ -210,8 +211,8 @@ func TestCompleteHandFlow(t *testing.T) {
 		env.SetBalance(ctx, p, initialBankroll)
 	}
 
-	// Player1 creates a table for 4 players
-	tableID := env.CreateStandardTable(ctx, "player1", 4, 4)
+	// Player1 creates a table for 4 players (BuyIn: 0 to avoid escrow requirement in tests)
+	tableID := env.CreateTableWithBuyIn(ctx, "player1", 4, 4, 0)
 
 	// All players join the table
 	for _, p := range players[1:] { // Skip player1 who already created the table
@@ -474,13 +475,14 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 	}
 
 	// Create table with short timebank
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:        "active1",
 		SmallBlind:      10,
 		BigBlind:        20,
 		MinPlayers:      3,
 		MaxPlayers:      3,
-		BuyIn:           1_000,
+		BuyIn:           0,
 		MinBalance:      1_000,
 		StartingChips:   1_000,
 		TimeBankSeconds: 5, // 5 seconds timeout
@@ -578,13 +580,14 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	}
 
 	// Create table with short timebank
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:        "active1",
 		SmallBlind:      10,
 		BigBlind:        20,
 		MinPlayers:      3,
 		MaxPlayers:      3,
-		BuyIn:           1_000,
+		BuyIn:           0,
 		MinBalance:      1_000,
 		StartingChips:   1_000,
 		TimeBankSeconds: 5, // 5 seconds timeout
@@ -908,13 +911,14 @@ func TestStartingChipsDefault(t *testing.T) {
 	}
 
 	// Create table with StartingChips set to 0 to test default logic
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    3,
 		MaxPlayers:    3,
-		BuyIn:         1_500,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 0, // This should default to 1000
 		AutoAdvanceMs: 1000,
@@ -1439,13 +1443,14 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 			}
 
 			// NOTE: AutoStartMs=0 to maximize overlap/race in workers.
+			// BuyIn: 0 to avoid escrow requirement in tests
 			createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 				PlayerId:      "p1",
 				SmallBlind:    10,
 				BigBlind:      20,
 				MinPlayers:    2,
 				MaxPlayers:    2,
-				BuyIn:         stack,
+				BuyIn:         0,
 				MinBalance:    stack,
 				StartingChips: stack,
 				AutoStartMs:   5000,
@@ -1583,13 +1588,14 @@ func TestShortStackBlindAllIn(t *testing.T) {
 	}
 
 	// Create table with starting chips (15) less than big blind (20)
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 15,  // Less than BB - forces all-in on BB post
 		AutoStartMs:   200, // Short delay for faster testing
@@ -1701,13 +1707,14 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 		}
 
 		// Create table with small starting chips (100) and blinds
+		// BuyIn: 0 to avoid escrow requirement in tests
 		createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      "player1",
 			SmallBlind:    10,
 			BigBlind:      20,
 			MinPlayers:    3,
 			MaxPlayers:    3,
-			BuyIn:         1_000,
+			BuyIn:         0,
 			MinBalance:    1_000,
 			StartingChips: 100,
 			AutoStartMs:   200,
@@ -1774,13 +1781,14 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 		}
 
 		// Create table
+		// BuyIn: 0 to avoid escrow requirement in tests
 		createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      "player1",
 			SmallBlind:    10,
 			BigBlind:      20,
 			MinPlayers:    3,
 			MaxPlayers:    3,
-			BuyIn:         1_000,
+			BuyIn:         0,
 			MinBalance:    1_000,
 			StartingChips: 500,
 			AutoStartMs:   5000, // Long delay to prevent auto-start during test
@@ -1892,13 +1900,14 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 		}
 
 		// Create table with long auto-start delay to avoid race
+		// BuyIn: 0 to avoid escrow requirement in tests
 		createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      "player1",
 			SmallBlind:    10,
 			BigBlind:      20,
 			MinPlayers:    3,
 			MaxPlayers:    3,
-			BuyIn:         1_000,
+			BuyIn:         0,
 			MinBalance:    1_000,
 			StartingChips: 1_000,
 			AutoStartMs:   5000, // Long delay to prevent auto-start during test
@@ -2004,13 +2013,14 @@ func TestHeadsUpAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 	}
 
 	// Create table with small stacks to facilitate all-in
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 100, // Small stacks
 		AutoStartMs:   5000,
@@ -2138,13 +2148,14 @@ func TestThreePlayerAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 	}
 
 	// Create table with small stacks to facilitate all-in
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    3,
 		MaxPlayers:    3,
-		BuyIn:         1_000,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 100, // Small stacks
 		AutoStartMs:   5000,
@@ -2325,13 +2336,14 @@ func TestPartialAllIn_OneFolded_AutoAdvanceStreets(t *testing.T) {
 	}
 
 	// Create table
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    3,
 		MaxPlayers:    3,
-		BuyIn:         1_000,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 200, // Moderate stacks
 		AutoStartMs:   5000,
@@ -2480,13 +2492,14 @@ func TestGameOver_WinnerTakesAll(t *testing.T) {
 
 	// Create table with small starting chips (100 each)
 	// Use shorter auto-start to speed up test if we need multiple hands
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "alice",
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0,
 		MinBalance:    1_000,
 		StartingChips: 100,  // Small stacks
 		AutoStartMs:   1500, // Shorter delay for faster test
@@ -2628,13 +2641,14 @@ func TestUnequalStacksAllIn_AutoAdvancePartialMatch(t *testing.T) {
 	}
 
 	// Create table with moderate stacks - small blinds so all-in doesn't eliminate anyone
+	// BuyIn: 0 to avoid escrow requirement in tests
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "rich_player",
 		SmallBlind:    5,
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         10_000,
+		BuyIn:         0,
 		MinBalance:    10_000,
 		StartingChips: 200, // After blinds: 195 and 190
 		AutoStartMs:   5000,

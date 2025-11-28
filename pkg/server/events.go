@@ -57,6 +57,7 @@ type PlayerSnapshot struct {
 	IsReady           bool
 	EscrowID          string
 	EscrowReady       bool
+	PresignComplete   bool
 	IsDisconnected    bool
 	HasFolded         bool
 	IsAllIn           bool

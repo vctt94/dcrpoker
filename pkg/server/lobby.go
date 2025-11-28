@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +13,17 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// newTableID generates a random 16-byte hex table ID.
+// This serves as both the table identifier and the matchID for Schnorr settlement.
+func newTableID() string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		// Fallback to timestamp if crypto/rand fails (should never happen)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buf[:])
+}
 
 func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest) (*pokerrpc.CreateTableResponse, error) {
 	// Prevent joining a different table while still seated in an active game.
@@ -43,7 +56,7 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	}
 
 	cfg := poker.TableConfig{
-		ID:               fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:               newTableID(),
 		Log:              tblLog,
 		GameLog:          gameLog,
 		HostID:           req.PlayerId,
@@ -76,7 +89,7 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	go s.processTableEvents(tableEventChan)
 
 	// Seat creator
-	if _, err := table.AddNewUser(req.PlayerId, 0, &poker.AddUserOptions{
+	if _, err := table.AddNewUser(req.PlayerId, &poker.AddUserOptions{
 		DisplayName: s.displayNameFor(req.PlayerId),
 	}); err != nil {
 		return nil, err
@@ -161,7 +174,7 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	}
 
 	// Seat player in-memory
-	if _, err := table.AddNewUser(req.PlayerId, seat, &poker.AddUserOptions{
+	if _, err := table.AddNewUser(req.PlayerId, &poker.AddUserOptions{
 		DisplayName: s.displayNameFor(req.PlayerId),
 	}); err != nil {
 		rollbackSeat()
@@ -201,28 +214,10 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	config := table.GetConfig()
 	isHost := req.PlayerId == config.HostID
 
-	// Check if player has chips in an active game
-	// Snapshot game reference under lock (following locking policy: snapshot pattern)
-	var playerChips int64
-	var gamePlayer *poker.Player
+	// If a game is in progress, keep the seat (disconnect)
 	if table.IsGameStarted() {
-		game := table.GetGame()
-		if game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == req.PlayerId {
-					playerChips = p.Balance()
-					gamePlayer = p
-					break
-				}
-			}
-		}
-	}
+		user.SendDisconnect()
 
-	// If a hand is in progress AND player still has chips, keep the seat (disconnect)
-	if table.IsGameStarted() && playerChips > 0 {
-		if gamePlayer != nil {
-			gamePlayer.SendDisconnect()
-		}
 		if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 			s.publishTableSnapshotEvent(req.TableId, snap)
 		}
@@ -230,7 +225,7 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
-			Message: fmt.Sprintf("You have been disconnected but your seat is reserved. You have %d chips remaining.", playerChips),
+			Message: fmt.Sprintf("You have been disconnected but your seat is reserved because you have chips remaining."),
 		}, nil
 	}
 
@@ -484,24 +479,11 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 			es.SeatIndex = uint32(user.TableSeat)
 		}
 		s.referee.mu.Unlock()
-		s.updateTableEscrowBinding(req.TableId, es.OwnerUID, es.SeatIndex, es.EscrowID, true)
 	}
 
-	if err := table.SetPlayerReady(req.PlayerId, true); err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
-	}
-
-	// Inform player FSM (if active) so snapshots reflect readiness via player marshal.
-	if table.IsGameStarted() {
-		if game := table.GetGame(); game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == req.PlayerId {
-					p.SendReady()
-					break
-				}
-			}
-		}
-	}
+	// Inform FSM so snapshots reflect readiness via player marshal.
+	user.SendReady()
+	table.SendPlayerReady(req.PlayerId, true)
 
 	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 		s.publishTableSnapshotEvent(req.TableId, snap)
@@ -520,8 +502,31 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build PLAYER_READY event: %v", err))
 	}
 	s.eventProcessor.PublishEvent(event)
-	// If all players are ready and the game hasn't started yet, start the game
+
+	// If all players are ready and the game hasn't started yet, check if we can start
 	if allReady && !gameStarted {
+		// For escrow-backed tables, verify presigning is complete before starting
+		if cfg.BuyIn > 0 {
+			// The matchID for poker tables is the tableID
+			matchID := req.TableId
+			complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
+			if !complete {
+				s.log.Infof("All players ready but presigning not complete for table %s: %d/%d seats", req.TableId, completedSeats, totalSeats)
+				// Notify players that presigning is required
+				s.broadcastNotificationToTable(req.TableId, &pokerrpc.Notification{
+					Type:    pokerrpc.NotificationType_PRESIGN_PENDING,
+					TableId: req.TableId,
+					Message: fmt.Sprintf("Waiting for presigning: %d/%d players complete. Please complete settlement presign.", completedSeats, totalSeats),
+				})
+				return &pokerrpc.SetPlayerReadyResponse{
+					Success:         true,
+					Message:         fmt.Sprintf("Player is ready. Waiting for presigning: %d/%d complete.", completedSeats, totalSeats),
+					AllPlayersReady: allReady,
+				}, nil
+			}
+			s.log.Infof("Presigning complete for table %s, starting game", req.TableId)
+		}
+
 		// Start game asynchronously to avoid blocking this RPC handler
 		// (StartGame now waits for FSM to reach PRE_FLOP before returning)
 		go func() {
@@ -563,21 +568,16 @@ func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUn
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	if err := table.SetPlayerReady(req.PlayerId, false); err != nil {
+	if err := table.SendPlayerReady(req.PlayerId, false); err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
-	if table.IsGameStarted() {
-		if game := table.GetGame(); game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == req.PlayerId {
-					p.SendUnready()
-					break
-				}
-			}
-		}
+	user := table.GetUser(req.PlayerId)
+	if user == nil {
+		return nil, status.Error(codes.NotFound, "player not at table")
 	}
-
+	user.SendUnready()
+	table.SendPlayerReady(req.PlayerId, false)
 	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 		s.publishTableSnapshotEvent(req.TableId, snap)
 	}
