@@ -935,23 +935,32 @@ func (s *Server) trackEscrowFunding(es *refereeEscrowSession, updates <-chan cha
 }
 
 // GetFinalizeBundle returns the winning branch draft and presign artifacts.
+// The WinnerSeat parameter is interpreted as a table seat index and mapped to the
+// corresponding branch index (branches are indexed by sorted UTXO order, not seat order).
 func (s *Server) GetFinalizeBundle(ctx context.Context, req *pokerrpc.GetFinalizeBundleRequest) (*pokerrpc.GetFinalizeBundleResponse, error) {
 	if req == nil || strings.TrimSpace(req.MatchId) == "" {
 		return nil, status.Error(codes.InvalidArgument, "match_id required")
 	}
 	matchID := strings.TrimSpace(req.MatchId)
-	branch := req.WinnerSeat
-	if branch < 0 {
+	tableSeat := req.WinnerSeat
+	if tableSeat < 0 {
 		return nil, status.Error(codes.InvalidArgument, "winner_seat required")
 	}
 
-	// Ensure match is fully bound/funded and winner seat is valid.
+	// Ensure match is fully bound/funded
 	escrows, err := s.readyMatchEscrows(matchID)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "match not ready: %v", err)
 	}
+
+	// Map table seat to branch index (branches are indexed by sorted UTXO order, not seat order)
+	branch, err := s.seatToBranchIndex(matchID, tableSeat)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to map table seat %d to branch: %v", tableSeat, err)
+	}
+
 	if int(branch) >= len(escrows) {
-		return nil, status.Errorf(codes.InvalidArgument, "winner_seat %d out of range (n=%d)", branch, len(escrows))
+		return nil, status.Errorf(codes.InvalidArgument, "branch %d (from seat %d) out of range (n=%d)", branch, tableSeat, len(escrows))
 	}
 
 	// Fetch presigns + gamma for requested branch.
@@ -1102,7 +1111,8 @@ func (s *Server) FinalizeAndBroadcastSettlement(ctx context.Context, matchID str
 	}
 
 	txid := txHash.String()
-	s.log.Infof("Settlement broadcast successful: matchID=%s winnerSeat=%d txid=%s", matchID, winnerSeat, txid)
+	s.log.Infof("Settlement broadcast successful: matchID=%s winnerSeat=%d branch=%d txid=%s",
+		matchID, winnerSeat, bundle.Branch, txid)
 
 	// TODO: Persist settlement outcome and clean up escrow/presign state.
 
@@ -1278,6 +1288,53 @@ func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, err
 		escrows = append(escrows, es)
 	}
 	return escrows, nil
+}
+
+// seatToBranchIndex maps a table seat index to the corresponding branch index.
+// Branches are indexed by the sorted UTXO order (PkScriptHex, Txid, Vout), not seat order.
+// This function replicates the same sorting logic used in buildWTADrafts to find the correct branch.
+func (s *Server) seatToBranchIndex(matchID string, tableSeat int32) (int32, error) {
+	if tableSeat < 0 {
+		return -1, fmt.Errorf("invalid table seat: %d", tableSeat)
+	}
+
+	// Get all escrows for the match
+	escrows, err := s.readyMatchEscrows(matchID)
+	if err != nil {
+		return -1, fmt.Errorf("get escrows: %w", err)
+	}
+
+	// Create snapshots and sort them the same way buildWTADrafts does
+	var snaps []escrowSnapshot
+	for _, es := range escrows {
+		snap := es.snapshot()
+		if snap.BoundUTXO == nil {
+			return -1, fmt.Errorf("escrow %s missing bound utxo", snap.EscrowID)
+		}
+		snaps = append(snaps, snap)
+	}
+
+	// Sort inputs deterministically (pkScript+txid:vout) - same logic as buildWTADrafts
+	sort.Slice(snaps, func(i, j int) bool {
+		a := snaps[i].PkScriptHex
+		b := snaps[j].PkScriptHex
+		if a == b {
+			if snaps[i].BoundUTXO.Txid == snaps[j].BoundUTXO.Txid {
+				return snaps[i].BoundUTXO.Vout < snaps[j].BoundUTXO.Vout
+			}
+			return snaps[i].BoundUTXO.Txid < snaps[j].BoundUTXO.Txid
+		}
+		return a < b
+	})
+
+	// Find the index of the escrow whose SeatIndex matches the table seat
+	for idx, snap := range snaps {
+		if snap.SeatIndex == uint32(tableSeat) {
+			return int32(idx), nil
+		}
+	}
+
+	return -1, fmt.Errorf("table seat %d not found in match escrows", tableSeat)
 }
 
 // IsPresigningComplete checks if all seats bound to a match have completed presigning.

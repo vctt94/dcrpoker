@@ -510,6 +510,8 @@ func (s *Server) trySettlementBroadcast(tableID, matchID string, winnerSeat int3
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// Finalize and broadcast settlement for the winning table seat. Seat-to-branch
+	// mapping is handled inside GetFinalizeBundle so we pass the table seat here.
 	txid, err := s.FinalizeAndBroadcastSettlement(ctx, matchID, winnerSeat)
 	if err != nil {
 		// Settlement failed - presigs incomplete, dcrd not connected, etc.
@@ -523,8 +525,6 @@ func (s *Server) trySettlementBroadcast(tableID, matchID string, winnerSeat int3
 		})
 		return
 	}
-
-	s.log.Infof("Settlement broadcast successful: matchID=%s winnerSeat=%d txid=%s", matchID, winnerSeat, txid)
 
 	// Notify all players of the successful settlement
 	for _, playerID := range playerIDs {
