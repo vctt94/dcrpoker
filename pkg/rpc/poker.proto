@@ -38,9 +38,6 @@ service LobbyService {
   rpc GetPlayerCurrentTable(GetPlayerCurrentTableRequest) returns (GetPlayerCurrentTableResponse) {}
   
   // Player management
-  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse) {}
-  rpc UpdateBalance(UpdateBalanceRequest) returns (UpdateBalanceResponse) {}
-  rpc ProcessTip(ProcessTipRequest) returns (ProcessTipResponse) {}
   
   // Ready state management
   rpc SetPlayerReady(SetPlayerReadyRequest) returns (SetPlayerReadyResponse) {}
@@ -489,4 +486,5 @@ message GetUserInfoResponse {
   string nickname = 2;
   int64 created = 3;
   int64 last_login = 4;
+  string payout_address = 5;
 }

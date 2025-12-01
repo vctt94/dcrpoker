@@ -12,19 +12,18 @@ type UserMachineStateFn = statemachine.StateFn[User]
 
 // User represents someone seated at the table (not necessarily playing)
 type User struct {
-	mu                sync.RWMutex
-	sm                *statemachine.Machine[User] // state machine
-	ID                string
-	Name              string
-	DCRAccountBalance int64 // DCR account balance (in atoms)
-	table             *Table
-	TableSeat         int  // Seat position at the table
-	IsReady           bool // Ready to start/continue games
-	JoinedAt          time.Time
-	IsDisconnected    bool // Whether the user is disconnected
-	EscrowID          string
-	EscrowReady       bool // Whether escrow funding is valid/bound
-	PresignComplete   bool // Whether settlement presigning is complete
+	mu              sync.RWMutex
+	sm              *statemachine.Machine[User] // state machine
+	ID              string
+	Name            string
+	table           *Table
+	TableSeat       int  // Seat position at the table
+	IsReady         bool // Ready to start/continue games
+	JoinedAt        time.Time
+	IsDisconnected  bool // Whether the user is disconnected
+	EscrowID        string
+	EscrowReady     bool // Whether escrow funding is valid/bound
+	PresignComplete bool // Whether settlement presigning is complete
 }
 
 // fired when users join/leave or toggle ready; state may move to/from PLAYERS_READY
@@ -53,10 +52,9 @@ type evSetUserPresignComplete struct {
 
 // AddUserOptions allows callers to attach optional metadata to a user.
 type AddUserOptions struct {
-	DisplayName       string
-	DCRAccountBalance int64
-	EscrowID          string
-	EscrowReady       bool
+	DisplayName string
+	EscrowID    string
+	EscrowReady bool
 }
 
 // NewUser creates a new user with optional metadata.
@@ -69,21 +67,19 @@ func NewUser(id string, table *Table, opts *AddUserOptions) *User {
 		if opts.DisplayName != "" {
 			cfg.DisplayName = opts.DisplayName
 		}
-		cfg.DCRAccountBalance = opts.DCRAccountBalance
 		cfg.EscrowID = opts.EscrowID
 		cfg.EscrowReady = opts.EscrowReady
 	}
 
 	user := &User{
-		ID:                id,
-		Name:              cfg.DisplayName,
-		DCRAccountBalance: cfg.DCRAccountBalance,
-		table:             table,
-		TableSeat:         -1, // -1 indicates unseated
-		IsReady:           false,
-		JoinedAt:          time.Now(),
-		EscrowID:          cfg.EscrowID,
-		EscrowReady:       cfg.EscrowReady,
+		ID:            id,
+		Name:          cfg.DisplayName,
+		table:         table,
+		TableSeat:     -1, // -1 indicates unseated
+		IsReady:       false,
+		JoinedAt:      time.Now(),
+		EscrowID:      cfg.EscrowID,
+		EscrowReady:   cfg.EscrowReady,
 	}
 	user.sm = statemachine.New(user, stateTableSeated, 32)
 

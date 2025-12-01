@@ -4539,12 +4539,14 @@ class GetUserInfoResponse extends $pb.GeneratedMessage {
     $core.String? nickname,
     $fixnum.Int64? created,
     $fixnum.Int64? lastLogin,
+    $core.String? payoutAddress,
   }) {
     final result = create();
     if (userId != null) result.userId = userId;
     if (nickname != null) result.nickname = nickname;
     if (created != null) result.created = created;
     if (lastLogin != null) result.lastLogin = lastLogin;
+    if (payoutAddress != null) result.payoutAddress = payoutAddress;
     return result;
   }
 
@@ -4565,6 +4567,7 @@ class GetUserInfoResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nickname')
     ..aInt64(3, _omitFieldNames ? '' : 'created')
     ..aInt64(4, _omitFieldNames ? '' : 'lastLogin')
+    ..aOS(5, _omitFieldNames ? '' : 'payoutAddress')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -4621,6 +4624,15 @@ class GetUserInfoResponse extends $pb.GeneratedMessage {
   $core.bool hasLastLogin() => $_has(3);
   @$pb.TagNumber(4)
   void clearLastLogin() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get payoutAddress => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set payoutAddress($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasPayoutAddress() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPayoutAddress() => $_clearField(5);
 }
 
 const $core.bool _omitFieldNames =

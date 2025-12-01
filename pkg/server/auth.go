@@ -191,6 +191,13 @@ func (a *authState) loadAuthStateFromDB(ctx context.Context) error {
 
 		a.uidToNickname[userID] = u.Nickname
 
+		if u.PayoutAddress.Valid {
+			addr := strings.TrimSpace(u.PayoutAddress.String)
+			if addr != "" {
+				a.uidToPayoutAddr[userID] = addr
+			}
+		}
+
 		// Initialize metadata
 		meta := UserMetadata{
 			Nickname:  u.Nickname,
@@ -435,6 +442,11 @@ func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerr
 		}
 		s.auth.uidToPayoutAddr[userID] = addrStr
 		s.auth.mu.Unlock()
+
+		// Persist payout address to database for long-term storage.
+		if err := s.db.UpdateAuthUserPayoutAddress(ctx, userID.String(), addrStr); err != nil {
+			s.log.Warnf("Failed to update payout address: %v", err)
+		}
 	}
 
 	// Update last login in database
@@ -468,11 +480,15 @@ func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerr
 		}, nil
 	}
 	token := fmt.Sprintf("sess_%d_%x", time.Now().Unix(), tokenBytes)
+
+	// Derive current payout address hint (may have been loaded from DB or just set).
+	payoutAddr := s.auth.payoutAddrHint(userID)
+
 	s.auth.mu.Lock()
 	s.auth.sessions[token] = sessionInfo{
 		userID:     userID,
 		nickname:   nickname,
-		payoutAddr: addrStr,
+		payoutAddr: payoutAddr,
 		created:    time.Now(),
 	}
 	s.auth.mu.Unlock()
@@ -482,7 +498,7 @@ func (s *Server) Login(ctx context.Context, req *pokerrpc.LoginRequest) (*pokerr
 		Token:         token,
 		UserId:        userID.String(),
 		Nickname:      nickname,
-		PayoutAddress: s.auth.payoutAddrHint(userID),
+		PayoutAddress: payoutAddr,
 	}, nil
 }
 
@@ -517,15 +533,17 @@ func (s *Server) GetUserInfo(ctx context.Context, req *pokerrpc.GetUserInfoReque
 	meta, ok := s.auth.userMetadata[session.userID]
 	if !ok {
 		return &pokerrpc.GetUserInfoResponse{
-			UserId:   session.userID.String(),
-			Nickname: session.nickname,
+			UserId:        session.userID.String(),
+			Nickname:      session.nickname,
+			PayoutAddress: session.payoutAddr,
 		}, nil
 	}
 
 	return &pokerrpc.GetUserInfoResponse{
-		UserId:    session.userID.String(),
-		Nickname:  meta.Nickname,
-		Created:   meta.Created.Unix(),
-		LastLogin: meta.LastLogin.Unix(),
+		UserId:        session.userID.String(),
+		Nickname:      meta.Nickname,
+		Created:       meta.Created.Unix(),
+		LastLogin:     meta.LastLogin.Unix(),
+		PayoutAddress: session.payoutAddr,
 	}, nil
 }

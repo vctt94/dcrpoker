@@ -20,12 +20,7 @@ import (
 type mockDB struct{}
 
 func (m *mockDB) Close() error { return nil }
-func (m *mockDB) GetPlayerBalance(context.Context, string) (int64, error) {
-	return 0, nil
-}
-func (m *mockDB) UpdatePlayerBalance(context.Context, string, int64, string, string) error {
-	return nil
-}
+
 func (m *mockDB) UpsertSnapshot(context.Context, db.Snapshot) error { return nil }
 func (m *mockDB) GetSnapshot(context.Context, string) (*db.Snapshot, error) {
 	return nil, fmt.Errorf("not found")
@@ -49,6 +44,9 @@ func (m *mockDB) GetAuthUserByUserID(context.Context, string) (*db.AuthUser, err
 	return nil, fmt.Errorf("not found")
 }
 func (m *mockDB) UpdateAuthUserLastLogin(context.Context, string) error { return nil }
+func (m *mockDB) UpdateAuthUserPayoutAddress(context.Context, string, string) error {
+	return nil
+}
 func (m *mockDB) ListAllAuthUsers(context.Context) ([]db.AuthUser, error) {
 	return nil, nil
 }

@@ -393,7 +393,7 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 		pc.log.Warnf("failed to persist session for %s: %v", nickname, err)
 	}
 
-	pc.persistPayoutAddress(resp.PayoutAddress)
+	pc.PersistPayoutAddress(resp.PayoutAddress)
 
 	return &LoginResponse{
 		Token:         resp.Token,
@@ -439,7 +439,7 @@ func (pc *PokerClient) configFilePath() string {
 
 // persistPayoutAddress writes the verified payout address into the shared
 // client config so subsequent runs can reuse it without prompting the user.
-func (pc *PokerClient) persistPayoutAddress(addr string) {
+func (pc *PokerClient) PersistPayoutAddress(addr string) {
 	addr = strings.TrimSpace(addr)
 	if addr == "" {
 		return
@@ -635,6 +635,22 @@ func (pc *PokerClient) ResumeSession(ctx context.Context) (*SessionData, error) 
 	if resp.UserId != expectedUserID {
 		if err := pc.ClearSession(); err != nil {
 			pc.log.Warnf("failed clearing mismatched session: %v", err)
+		}
+		return nil, nil
+	}
+
+	// If both local config and server session report a payout address, but
+	// they differ, treat the session as invalid so the user is forced to go
+	// through the Sign Address flow again. The local config is the source of
+	// truth; equality means the address is already verified and does not need
+	// to be re-signed.
+	localPayout := strings.TrimSpace(pc.PayoutAddress())
+	serverPayout := strings.TrimSpace(resp.GetPayoutAddress())
+	if localPayout != "" && serverPayout != "" && localPayout != serverPayout {
+		pc.log.Warnf("payout address mismatch (local=%s, server=%s); clearing session to require re-signing",
+			localPayout, serverPayout)
+		if err := pc.ClearSession(); err != nil {
+			pc.log.Warnf("failed clearing session on payout mismatch: %v", err)
 		}
 		return nil, nil
 	}

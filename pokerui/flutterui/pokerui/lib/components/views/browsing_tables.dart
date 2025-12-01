@@ -159,10 +159,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
           itemBuilder: (context, index) {
             final t = tables[index];
             final full = t.currentPlayers >= t.maxPlayers;
-            final needAtoms = t.buyInAtoms > 0 ? t.buyInAtoms : t.minBalanceAtoms;
-            final canAfford = widget.model.myAtomsBalance >= needAtoms;
-            // final canJoin = !full && canAfford;
-            final canJoin = true;
+            final canJoin = !full;
             final statusColor = t.gameStarted ? Colors.green : Colors.orange;
             final statusText = t.gameStarted ? 'In Progress' : 'Waiting';
 
@@ -222,11 +219,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                               style: const TextStyle(color: Colors.white70)),
                         ),
                         Tooltip(
-                          message: canJoin
-                              ? 'Join this table'
-                              : full
-                                  ? 'Table is full'
-                                  : 'Insufficient balance',
+                          message: canJoin ? 'Join this table' : 'Table is full',
                           child: ElevatedButton(
                             onPressed: canJoin ? () => widget.model.joinTable(t.id) : null,
                             style: ElevatedButton.styleFrom(

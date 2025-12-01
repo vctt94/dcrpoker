@@ -22,8 +22,6 @@ import (
 // Database is the minimal surface the server needs from the storage layer.
 type Database interface {
 	// ---- Players / wallet ----
-	GetPlayerBalance(ctx context.Context, playerID string) (int64, error)
-	UpdatePlayerBalance(ctx context.Context, playerID string, amount int64, transactionType, description string) error
 	UpsertSnapshot(ctx context.Context, s db.Snapshot) error
 	GetSnapshot(ctx context.Context, tableID string) (*db.Snapshot, error)
 	// ---- Tables (configuration) ----
@@ -42,6 +40,7 @@ type Database interface {
 	GetAuthUserByNickname(ctx context.Context, nickname string) (*db.AuthUser, error)
 	GetAuthUserByUserID(ctx context.Context, userID string) (*db.AuthUser, error)
 	UpdateAuthUserLastLogin(ctx context.Context, userID string) error
+	UpdateAuthUserPayoutAddress(ctx context.Context, userID, payoutAddress string) error
 	ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error)
 
 	// ---- Close ----
@@ -122,16 +121,8 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 	sort.Slice(parts, func(i, j int) bool { return parts[i].Seat < parts[j].Seat })
 
 	for _, p := range parts {
-		// Use durable wallet balance (not table chips)
-		dcrBalance, err := s.db.GetPlayerBalance(ctx, p.PlayerID)
-		if err != nil {
-			s.log.Errorf("GetPlayerBalance(%s): %v", p.PlayerID, err)
-			dcrBalance = 0
-		}
-
 		user := poker.NewUser(p.PlayerID, table, &poker.AddUserOptions{
-			DisplayName:       s.displayNameFor(p.PlayerID),
-			DCRAccountBalance: dcrBalance,
+			DisplayName: s.displayNameFor(p.PlayerID),
 		})
 
 		// Set the seat from the database record

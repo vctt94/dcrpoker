@@ -3840,6 +3840,7 @@ type GetUserInfoResponse struct {
 	Nickname      string                 `protobuf:"bytes,2,opt,name=nickname,proto3" json:"nickname,omitempty"`
 	Created       int64                  `protobuf:"varint,3,opt,name=created,proto3" json:"created,omitempty"`
 	LastLogin     int64                  `protobuf:"varint,4,opt,name=last_login,json=lastLogin,proto3" json:"last_login,omitempty"`
+	PayoutAddress string                 `protobuf:"bytes,5,opt,name=payout_address,json=payoutAddress,proto3" json:"payout_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3900,6 +3901,13 @@ func (x *GetUserInfoResponse) GetLastLogin() int64 {
 		return x.LastLogin
 	}
 	return 0
+}
+
+func (x *GetUserInfoResponse) GetPayoutAddress() string {
+	if x != nil {
+		return x.PayoutAddress
+	}
+	return ""
 }
 
 var File_poker_proto protoreflect.FileDescriptor
@@ -4172,13 +4180,14 @@ const file_poker_proto_rawDesc = "" +
 	"\x0eLogoutResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\"*\n" +
 	"\x12GetUserInfoRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x83\x01\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xaa\x01\n" +
 	"\x13GetUserInfoResponse\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\bnickname\x18\x02 \x01(\tR\bnickname\x12\x18\n" +
 	"\acreated\x18\x03 \x01(\x03R\acreated\x12\x1d\n" +
 	"\n" +
-	"last_login\x18\x04 \x01(\x03R\tlastLogin*i\n" +
+	"last_login\x18\x04 \x01(\x03R\tlastLogin\x12%\n" +
+	"\x0epayout_address\x18\x05 \x01(\tR\rpayoutAddress*i\n" +
 	"\tGamePhase\x12\v\n" +
 	"\aWAITING\x10\x00\x12\x14\n" +
 	"\x10NEW_HAND_DEALING\x10\x01\x12\f\n" +
@@ -4252,19 +4261,14 @@ const file_poker_proto_rawDesc = "" +
 	"\bCheckBet\x12\x16.poker.CheckBetRequest\x1a\x17.poker.CheckBetResponse\"\x00\x12I\n" +
 	"\fGetGameState\x12\x1a.poker.GetGameStateRequest\x1a\x1b.poker.GetGameStateResponse\"\x00\x12I\n" +
 	"\fEvaluateHand\x12\x1a.poker.EvaluateHandRequest\x1a\x1b.poker.EvaluateHandResponse\"\x00\x12O\n" +
-	"\x0eGetLastWinners\x12\x1c.poker.GetLastWinnersRequest\x1a\x1d.poker.GetLastWinnersResponse\"\x002\xe0\x06\n" +
+	"\x0eGetLastWinners\x12\x1c.poker.GetLastWinnersRequest\x1a\x1d.poker.GetLastWinnersResponse\"\x002\x88\x05\n" +
 	"\fLobbyService\x12F\n" +
 	"\vCreateTable\x12\x19.poker.CreateTableRequest\x1a\x1a.poker.CreateTableResponse\"\x00\x12@\n" +
 	"\tJoinTable\x12\x17.poker.JoinTableRequest\x1a\x18.poker.JoinTableResponse\"\x00\x12C\n" +
 	"\n" +
 	"LeaveTable\x12\x18.poker.LeaveTableRequest\x1a\x19.poker.LeaveTableResponse\"\x00\x12@\n" +
 	"\tGetTables\x12\x17.poker.GetTablesRequest\x1a\x18.poker.GetTablesResponse\"\x00\x12d\n" +
-	"\x15GetPlayerCurrentTable\x12#.poker.GetPlayerCurrentTableRequest\x1a$.poker.GetPlayerCurrentTableResponse\"\x00\x12C\n" +
-	"\n" +
-	"GetBalance\x12\x18.poker.GetBalanceRequest\x1a\x19.poker.GetBalanceResponse\"\x00\x12L\n" +
-	"\rUpdateBalance\x12\x1b.poker.UpdateBalanceRequest\x1a\x1c.poker.UpdateBalanceResponse\"\x00\x12C\n" +
-	"\n" +
-	"ProcessTip\x12\x18.poker.ProcessTipRequest\x1a\x19.poker.ProcessTipResponse\"\x00\x12O\n" +
+	"\x15GetPlayerCurrentTable\x12#.poker.GetPlayerCurrentTableRequest\x1a$.poker.GetPlayerCurrentTableResponse\"\x00\x12O\n" +
 	"\x0eSetPlayerReady\x12\x1c.poker.SetPlayerReadyRequest\x1a\x1d.poker.SetPlayerReadyResponse\"\x00\x12U\n" +
 	"\x10SetPlayerUnready\x12\x1e.poker.SetPlayerUnreadyRequest\x1a\x1f.poker.SetPlayerUnreadyResponse\"\x00\x12Y\n" +
 	"\x17StartNotificationStream\x12%.poker.StartNotificationStreamRequest\x1a\x13.poker.Notification\"\x000\x012\xd0\x02\n" +
@@ -4390,45 +4394,39 @@ var file_poker_proto_depIdxs = []int32{
 	25, // 34: poker.LobbyService.LeaveTable:input_type -> poker.LeaveTableRequest
 	27, // 35: poker.LobbyService.GetTables:input_type -> poker.GetTablesRequest
 	45, // 36: poker.LobbyService.GetPlayerCurrentTable:input_type -> poker.GetPlayerCurrentTableRequest
-	30, // 37: poker.LobbyService.GetBalance:input_type -> poker.GetBalanceRequest
-	32, // 38: poker.LobbyService.UpdateBalance:input_type -> poker.UpdateBalanceRequest
-	34, // 39: poker.LobbyService.ProcessTip:input_type -> poker.ProcessTipRequest
-	41, // 40: poker.LobbyService.SetPlayerReady:input_type -> poker.SetPlayerReadyRequest
-	43, // 41: poker.LobbyService.SetPlayerUnready:input_type -> poker.SetPlayerUnreadyRequest
-	36, // 42: poker.LobbyService.StartNotificationStream:input_type -> poker.StartNotificationStreamRequest
-	54, // 43: poker.AuthService.RequestLoginCode:input_type -> poker.RequestLoginCodeRequest
-	51, // 44: poker.AuthService.Register:input_type -> poker.RegisterRequest
-	53, // 45: poker.AuthService.Login:input_type -> poker.LoginRequest
-	57, // 46: poker.AuthService.Logout:input_type -> poker.LogoutRequest
-	59, // 47: poker.AuthService.GetUserInfo:input_type -> poker.GetUserInfoRequest
-	5,  // 48: poker.PokerService.StartGameStream:output_type -> poker.GameUpdate
-	48, // 49: poker.PokerService.ShowCards:output_type -> poker.ShowCardsResponse
-	50, // 50: poker.PokerService.HideCards:output_type -> poker.HideCardsResponse
-	7,  // 51: poker.PokerService.MakeBet:output_type -> poker.MakeBetResponse
-	13, // 52: poker.PokerService.CallBet:output_type -> poker.CallBetResponse
-	9,  // 53: poker.PokerService.FoldBet:output_type -> poker.FoldBetResponse
-	11, // 54: poker.PokerService.CheckBet:output_type -> poker.CheckBetResponse
-	15, // 55: poker.PokerService.GetGameState:output_type -> poker.GetGameStateResponse
-	17, // 56: poker.PokerService.EvaluateHand:output_type -> poker.EvaluateHandResponse
-	19, // 57: poker.PokerService.GetLastWinners:output_type -> poker.GetLastWinnersResponse
-	22, // 58: poker.LobbyService.CreateTable:output_type -> poker.CreateTableResponse
-	24, // 59: poker.LobbyService.JoinTable:output_type -> poker.JoinTableResponse
-	26, // 60: poker.LobbyService.LeaveTable:output_type -> poker.LeaveTableResponse
-	28, // 61: poker.LobbyService.GetTables:output_type -> poker.GetTablesResponse
-	46, // 62: poker.LobbyService.GetPlayerCurrentTable:output_type -> poker.GetPlayerCurrentTableResponse
-	31, // 63: poker.LobbyService.GetBalance:output_type -> poker.GetBalanceResponse
-	33, // 64: poker.LobbyService.UpdateBalance:output_type -> poker.UpdateBalanceResponse
-	35, // 65: poker.LobbyService.ProcessTip:output_type -> poker.ProcessTipResponse
-	42, // 66: poker.LobbyService.SetPlayerReady:output_type -> poker.SetPlayerReadyResponse
-	44, // 67: poker.LobbyService.SetPlayerUnready:output_type -> poker.SetPlayerUnreadyResponse
-	37, // 68: poker.LobbyService.StartNotificationStream:output_type -> poker.Notification
-	55, // 69: poker.AuthService.RequestLoginCode:output_type -> poker.RequestLoginCodeResponse
-	52, // 70: poker.AuthService.Register:output_type -> poker.RegisterResponse
-	56, // 71: poker.AuthService.Login:output_type -> poker.LoginResponse
-	58, // 72: poker.AuthService.Logout:output_type -> poker.LogoutResponse
-	60, // 73: poker.AuthService.GetUserInfo:output_type -> poker.GetUserInfoResponse
-	48, // [48:74] is the sub-list for method output_type
-	22, // [22:48] is the sub-list for method input_type
+	41, // 37: poker.LobbyService.SetPlayerReady:input_type -> poker.SetPlayerReadyRequest
+	43, // 38: poker.LobbyService.SetPlayerUnready:input_type -> poker.SetPlayerUnreadyRequest
+	36, // 39: poker.LobbyService.StartNotificationStream:input_type -> poker.StartNotificationStreamRequest
+	54, // 40: poker.AuthService.RequestLoginCode:input_type -> poker.RequestLoginCodeRequest
+	51, // 41: poker.AuthService.Register:input_type -> poker.RegisterRequest
+	53, // 42: poker.AuthService.Login:input_type -> poker.LoginRequest
+	57, // 43: poker.AuthService.Logout:input_type -> poker.LogoutRequest
+	59, // 44: poker.AuthService.GetUserInfo:input_type -> poker.GetUserInfoRequest
+	5,  // 45: poker.PokerService.StartGameStream:output_type -> poker.GameUpdate
+	48, // 46: poker.PokerService.ShowCards:output_type -> poker.ShowCardsResponse
+	50, // 47: poker.PokerService.HideCards:output_type -> poker.HideCardsResponse
+	7,  // 48: poker.PokerService.MakeBet:output_type -> poker.MakeBetResponse
+	13, // 49: poker.PokerService.CallBet:output_type -> poker.CallBetResponse
+	9,  // 50: poker.PokerService.FoldBet:output_type -> poker.FoldBetResponse
+	11, // 51: poker.PokerService.CheckBet:output_type -> poker.CheckBetResponse
+	15, // 52: poker.PokerService.GetGameState:output_type -> poker.GetGameStateResponse
+	17, // 53: poker.PokerService.EvaluateHand:output_type -> poker.EvaluateHandResponse
+	19, // 54: poker.PokerService.GetLastWinners:output_type -> poker.GetLastWinnersResponse
+	22, // 55: poker.LobbyService.CreateTable:output_type -> poker.CreateTableResponse
+	24, // 56: poker.LobbyService.JoinTable:output_type -> poker.JoinTableResponse
+	26, // 57: poker.LobbyService.LeaveTable:output_type -> poker.LeaveTableResponse
+	28, // 58: poker.LobbyService.GetTables:output_type -> poker.GetTablesResponse
+	46, // 59: poker.LobbyService.GetPlayerCurrentTable:output_type -> poker.GetPlayerCurrentTableResponse
+	42, // 60: poker.LobbyService.SetPlayerReady:output_type -> poker.SetPlayerReadyResponse
+	44, // 61: poker.LobbyService.SetPlayerUnready:output_type -> poker.SetPlayerUnreadyResponse
+	37, // 62: poker.LobbyService.StartNotificationStream:output_type -> poker.Notification
+	55, // 63: poker.AuthService.RequestLoginCode:output_type -> poker.RequestLoginCodeResponse
+	52, // 64: poker.AuthService.Register:output_type -> poker.RegisterResponse
+	56, // 65: poker.AuthService.Login:output_type -> poker.LoginResponse
+	58, // 66: poker.AuthService.Logout:output_type -> poker.LogoutResponse
+	60, // 67: poker.AuthService.GetUserInfo:output_type -> poker.GetUserInfoResponse
+	45, // [45:68] is the sub-list for method output_type
+	22, // [22:45] is the sub-list for method input_type
 	22, // [22:22] is the sub-list for extension type_name
 	22, // [22:22] is the sub-list for extension extendee
 	0,  // [0:22] is the sub-list for field type_name

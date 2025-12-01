@@ -17,12 +17,6 @@ import (
 // stubDB is a minimal in-memory implementation of the Database interface used only for these unit tests.
 type stubDB struct{}
 
-// --- Players / wallet ---
-func (stubDB) GetPlayerBalance(ctx context.Context, _ string) (int64, error) { return 0, nil }
-func (stubDB) UpdatePlayerBalance(ctx context.Context, _ string, _ int64, _ string, _ string) error {
-	return nil
-}
-
 func (stubDB) GetSnapshot(ctx context.Context, _ string) (*db.Snapshot, error) {
 	return nil, nil
 }
@@ -54,6 +48,9 @@ func (stubDB) GetAuthUserByUserID(ctx context.Context, _ string) (*db.AuthUser, 
 	return nil, nil
 }
 func (stubDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error { return nil }
+func (stubDB) UpdateAuthUserPayoutAddress(ctx context.Context, _, _ string) error {
+	return nil
+}
 func (stubDB) ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error) { return nil, nil }
 
 // --- Close ---

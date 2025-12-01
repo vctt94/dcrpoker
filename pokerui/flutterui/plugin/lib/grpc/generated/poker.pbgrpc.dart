@@ -382,28 +382,6 @@ class LobbyServiceClient extends $grpc.Client {
     return $createUnaryCall(_$getPlayerCurrentTable, request, options: options);
   }
 
-  /// Player management
-  $grpc.ResponseFuture<$0.GetBalanceResponse> getBalance(
-    $0.GetBalanceRequest request, {
-    $grpc.CallOptions? options,
-  }) {
-    return $createUnaryCall(_$getBalance, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.UpdateBalanceResponse> updateBalance(
-    $0.UpdateBalanceRequest request, {
-    $grpc.CallOptions? options,
-  }) {
-    return $createUnaryCall(_$updateBalance, request, options: options);
-  }
-
-  $grpc.ResponseFuture<$0.ProcessTipResponse> processTip(
-    $0.ProcessTipRequest request, {
-    $grpc.CallOptions? options,
-  }) {
-    return $createUnaryCall(_$processTip, request, options: options);
-  }
-
   /// Ready state management
   $grpc.ResponseFuture<$0.SetPlayerReadyResponse> setPlayerReady(
     $0.SetPlayerReadyRequest request, {
@@ -456,21 +434,6 @@ class LobbyServiceClient extends $grpc.Client {
       '/poker.LobbyService/GetPlayerCurrentTable',
       ($0.GetPlayerCurrentTableRequest value) => value.writeToBuffer(),
       $0.GetPlayerCurrentTableResponse.fromBuffer);
-  static final _$getBalance =
-      $grpc.ClientMethod<$0.GetBalanceRequest, $0.GetBalanceResponse>(
-          '/poker.LobbyService/GetBalance',
-          ($0.GetBalanceRequest value) => value.writeToBuffer(),
-          $0.GetBalanceResponse.fromBuffer);
-  static final _$updateBalance =
-      $grpc.ClientMethod<$0.UpdateBalanceRequest, $0.UpdateBalanceResponse>(
-          '/poker.LobbyService/UpdateBalance',
-          ($0.UpdateBalanceRequest value) => value.writeToBuffer(),
-          $0.UpdateBalanceResponse.fromBuffer);
-  static final _$processTip =
-      $grpc.ClientMethod<$0.ProcessTipRequest, $0.ProcessTipResponse>(
-          '/poker.LobbyService/ProcessTip',
-          ($0.ProcessTipRequest value) => value.writeToBuffer(),
-          $0.ProcessTipResponse.fromBuffer);
   static final _$setPlayerReady =
       $grpc.ClientMethod<$0.SetPlayerReadyRequest, $0.SetPlayerReadyResponse>(
           '/poker.LobbyService/SetPlayerReady',
@@ -532,29 +495,6 @@ abstract class LobbyServiceBase extends $grpc.Service {
         ($core.List<$core.int> value) =>
             $0.GetPlayerCurrentTableRequest.fromBuffer(value),
         ($0.GetPlayerCurrentTableResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.GetBalanceRequest, $0.GetBalanceResponse>(
-        'GetBalance',
-        getBalance_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.GetBalanceRequest.fromBuffer(value),
-        ($0.GetBalanceResponse value) => value.writeToBuffer()));
-    $addMethod(
-        $grpc.ServiceMethod<$0.UpdateBalanceRequest, $0.UpdateBalanceResponse>(
-            'UpdateBalance',
-            updateBalance_Pre,
-            false,
-            false,
-            ($core.List<$core.int> value) =>
-                $0.UpdateBalanceRequest.fromBuffer(value),
-            ($0.UpdateBalanceResponse value) => value.writeToBuffer()));
-    $addMethod($grpc.ServiceMethod<$0.ProcessTipRequest, $0.ProcessTipResponse>(
-        'ProcessTip',
-        processTip_Pre,
-        false,
-        false,
-        ($core.List<$core.int> value) => $0.ProcessTipRequest.fromBuffer(value),
-        ($0.ProcessTipResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.SetPlayerReadyRequest,
             $0.SetPlayerReadyResponse>(
         'SetPlayerReady',
@@ -624,31 +564,6 @@ abstract class LobbyServiceBase extends $grpc.Service {
 
   $async.Future<$0.GetPlayerCurrentTableResponse> getPlayerCurrentTable(
       $grpc.ServiceCall call, $0.GetPlayerCurrentTableRequest request);
-
-  $async.Future<$0.GetBalanceResponse> getBalance_Pre($grpc.ServiceCall $call,
-      $async.Future<$0.GetBalanceRequest> $request) async {
-    return getBalance($call, await $request);
-  }
-
-  $async.Future<$0.GetBalanceResponse> getBalance(
-      $grpc.ServiceCall call, $0.GetBalanceRequest request);
-
-  $async.Future<$0.UpdateBalanceResponse> updateBalance_Pre(
-      $grpc.ServiceCall $call,
-      $async.Future<$0.UpdateBalanceRequest> $request) async {
-    return updateBalance($call, await $request);
-  }
-
-  $async.Future<$0.UpdateBalanceResponse> updateBalance(
-      $grpc.ServiceCall call, $0.UpdateBalanceRequest request);
-
-  $async.Future<$0.ProcessTipResponse> processTip_Pre($grpc.ServiceCall $call,
-      $async.Future<$0.ProcessTipRequest> $request) async {
-    return processTip($call, await $request);
-  }
-
-  $async.Future<$0.ProcessTipResponse> processTip(
-      $grpc.ServiceCall call, $0.ProcessTipRequest request);
 
   $async.Future<$0.SetPlayerReadyResponse> setPlayerReady_Pre(
       $grpc.ServiceCall $call,

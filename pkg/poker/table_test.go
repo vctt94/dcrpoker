@@ -637,7 +637,6 @@ func TestConcurrency_SafeSnapshotsAndBalanceUpdates(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		for ctx.Err() == nil {
-			_ = tbl.SetUserDCRAccountBalance("u1", time.Now().UnixNano()%1000)
 		}
 		close(done)
 	}()

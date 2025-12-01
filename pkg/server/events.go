@@ -48,28 +48,27 @@ func (ts *TableSnapshot) playerIDs() []string {
 
 // PlayerSnapshot represents an immutable snapshot of player state
 type PlayerSnapshot struct {
-	ID                string
-	Name              string
-	TableSeat         int
-	Balance           int64
-	Hand              []poker.Card
-	DCRAccountBalance int64
-	IsReady           bool
-	EscrowID          string
-	EscrowReady       bool
-	PresignComplete   bool
-	IsDisconnected    bool
-	HasFolded         bool
-	IsAllIn           bool
-	IsDealer          bool
-	IsSmallBlind      bool
-	IsBigBlind        bool
-	IsTurn            bool
-	GameState         string
-	HandDescription   string
-	HasBet            int64
-	StartingBalance   int64
-	LastAction        time.Time
+	ID              string
+	Name            string
+	TableSeat       int
+	Balance         int64
+	Hand            []poker.Card
+	IsReady         bool
+	EscrowID        string
+	EscrowReady     bool
+	PresignComplete bool
+	IsDisconnected  bool
+	HasFolded       bool
+	IsAllIn         bool
+	IsDealer        bool
+	IsSmallBlind    bool
+	IsBigBlind      bool
+	IsTurn          bool
+	GameState       string
+	HandDescription string
+	HasBet          int64
+	StartingBalance int64
+	LastAction      time.Time
 }
 
 // TableState represents table-level state

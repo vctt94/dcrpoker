@@ -215,16 +215,9 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 		}
 	}
 
-	// DCR account balance is independent of chip bets; this just returns the wallet balance.
-	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-
 	return &pokerrpc.MakeBetResponse{
-		Success:    true,
-		Message:    "Bet placed successfully",
-		NewBalance: balance,
+		Success: true,
+		Message: "Bet placed successfully",
 	}, nil
 }
 

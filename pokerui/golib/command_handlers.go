@@ -630,16 +630,6 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 		}
 		return map[string]string{"status": "left"}, nil
 
-	case CTGetPokerBalance:
-		if cc.c == nil {
-			return nil, fmt.Errorf("poker client not initialized")
-		}
-		balance, err := cc.c.GetBalance(cc.ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get balance: %v", err)
-		}
-		return map[string]int64{"balance": balance}, nil
-
 	case CTGetPlayerCurrentTable:
 		if cc.c == nil {
 			return nil, fmt.Errorf("poker client not initialized")
@@ -1003,6 +993,8 @@ func handleSetPayoutAddress(handle uint32, req setPayoutAddressReq) (interface{}
 	if err != nil {
 		return nil, fmt.Errorf("failed to set payout address: %v", err)
 	}
+
+	cc.c.PersistPayoutAddress(addr)
 
 	return map[string]any{
 		"ok":      true,

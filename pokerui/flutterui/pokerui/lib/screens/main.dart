@@ -80,33 +80,22 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                             padding: const EdgeInsets.all(16.0),
                             child: Row(
                               children: [
-                                const Icon(Icons.account_balance_wallet, color: Colors.amber),
-                                const SizedBox(width: 8),
-                                Text(
-                                  "Balance: ${(pokerModel.myAtomsBalance / 1e8).toStringAsFixed(4)} DCR",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Spacer(),
                                 Icon(
                                   pokerModel.state != PokerState.idle
                                       ? Icons.check_circle
                                       : Icons.cloud_off,
-                                  color: pokerModel.state != PokerState.idle 
-                                      ? Colors.green 
+                                  color: pokerModel.state != PokerState.idle
+                                      ? Colors.green
                                       : Colors.red,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  pokerModel.state != PokerState.idle 
-                                      ? "Connected" 
+                                  pokerModel.state != PokerState.idle
+                                      ? "Connected"
                                       : "Disconnected",
                                   style: TextStyle(
-                                    color: pokerModel.state != PokerState.idle 
-                                        ? Colors.green 
+                                    color: pokerModel.state != PokerState.idle
+                                        ? Colors.green
                                         : Colors.red,
                                     fontWeight: FontWeight.bold,
                                   ),

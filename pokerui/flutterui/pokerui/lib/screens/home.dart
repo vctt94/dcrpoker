@@ -65,7 +65,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                   child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    // 1) Top area: balance and connection status
+                    // 1) Top area: connection status
                     Center(
                       child: Container(
                         width: MediaQuery.of(context).size.width * 0.85,
@@ -79,17 +79,6 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                             padding: const EdgeInsets.all(16.0),
                             child: Row(
                               children: [
-                                const Icon(Icons.account_balance_wallet, color: Colors.amber),
-                                const SizedBox(width: 8),
-                                Text(
-                                  "Balance: ${(pokerModel.myAtomsBalance / 1e8).toStringAsFixed(4)} DCR",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Spacer(),
                                 Icon(
                                   pokerModel.state != PokerState.idle
                                       ? Icons.check_circle

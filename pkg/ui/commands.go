@@ -26,22 +26,6 @@ type CommandDispatcher struct {
 
 // Command methods on the dispatcher
 
-func (d *CommandDispatcher) getBalanceCmd() tea.Cmd {
-	return func() tea.Msg {
-		balance, err := d.pc.GetBalance(d.ctx)
-		if err != nil {
-			return errorMsg(err)
-		}
-		// Return as balance updated notification
-		return notificationMsg(&pokerrpc.Notification{
-			Type:       pokerrpc.NotificationType_BALANCE_UPDATED,
-			PlayerId:   d.clientID,
-			NewBalance: balance,
-			Message:    "Balance retrieved",
-		})
-	}
-}
-
 func (d *CommandDispatcher) getTablesCmd() tea.Cmd {
 	return func() tea.Msg {
 		tables, err := d.pc.GetTables(d.ctx)

@@ -1195,6 +1195,7 @@ const GetUserInfoResponse$json = {
     {'1': 'nickname', '3': 2, '4': 1, '5': 9, '10': 'nickname'},
     {'1': 'created', '3': 3, '4': 1, '5': 3, '10': 'created'},
     {'1': 'last_login', '3': 4, '4': 1, '5': 3, '10': 'lastLogin'},
+    {'1': 'payout_address', '3': 5, '4': 1, '5': 9, '10': 'payoutAddress'},
   ],
 };
 
@@ -1202,4 +1203,5 @@ const GetUserInfoResponse$json = {
 final $typed_data.Uint8List getUserInfoResponseDescriptor = $convert.base64Decode(
     'ChNHZXRVc2VySW5mb1Jlc3BvbnNlEhcKB3VzZXJfaWQYASABKAlSBnVzZXJJZBIaCghuaWNrbm'
     'FtZRgCIAEoCVIIbmlja25hbWUSGAoHY3JlYXRlZBgDIAEoA1IHY3JlYXRlZBIdCgpsYXN0X2xv'
-    'Z2luGAQgASgDUglsYXN0TG9naW4=');
+    'Z2luGAQgASgDUglsYXN0TG9naW4SJQoOcGF5b3V0X2FkZHJlc3MYBSABKAlSDXBheW91dEFkZH'
+    'Jlc3M=');

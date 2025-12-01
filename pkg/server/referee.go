@@ -1667,6 +1667,9 @@ func (s *Server) SetPayoutAddress(ctx context.Context, req *pokerrpc.SetPayoutAd
 	if err := s.db.UpsertAuthUser(ctx, sess.nickname, sess.userID.String()); err != nil {
 		s.log.Warnf("failed to upsert auth user when setting payout: %v", err)
 	}
+	if err := s.db.UpdateAuthUserPayoutAddress(ctx, sess.userID.String(), addrStr); err != nil {
+		s.log.Warnf("failed to update payout address when setting payout: %v", err)
+	}
 	if err := s.db.UpdateAuthUserLastLogin(ctx, sess.userID.String()); err != nil {
 		s.log.Warnf("failed to update last login on payout set: %v", err)
 	}

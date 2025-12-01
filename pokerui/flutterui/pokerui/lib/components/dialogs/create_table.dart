@@ -147,11 +147,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Wallet: ${_toDcr(widget.model.myAtomsBalance).toStringAsFixed(4)} DCR',
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-            ),
           ],
         ),
       ),
@@ -235,4 +230,3 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
     if (mounted) Navigator.of(context).pop();
   }
 }
-

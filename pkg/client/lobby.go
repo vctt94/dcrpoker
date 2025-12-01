@@ -223,49 +223,6 @@ func (pc *PokerClient) GetPlayerCurrentTable(ctx context.Context) (string, error
 	return resp.TableId, nil
 }
 
-// GetBalance returns the current balance for the player
-func (pc *PokerClient) GetBalance(ctx context.Context) (int64, error) {
-	resp, err := pc.LobbyService.GetBalance(ctx, &pokerrpc.GetBalanceRequest{
-		PlayerId: pc.ID.String(),
-	})
-	if err != nil {
-		return 0, err
-	}
-	return resp.Balance, nil
-}
-
-// UpdateBalance updates the player's balance
-func (pc *PokerClient) UpdateBalance(ctx context.Context, amount int64, description string) (int64, error) {
-	resp, err := pc.LobbyService.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    pc.ID.String(),
-		Amount:      amount,
-		Description: description,
-	})
-	if err != nil {
-		return 0, err
-	}
-	return resp.NewBalance, nil
-}
-
-// ProcessTip processes a tip from this player to another player
-func (pc *PokerClient) ProcessTip(ctx context.Context, toPlayerID string, amount int64, message string) (int64, error) {
-	resp, err := pc.LobbyService.ProcessTip(ctx, &pokerrpc.ProcessTipRequest{
-		FromPlayerId: pc.ID.String(),
-		ToPlayerId:   toPlayerID,
-		Amount:       amount,
-		Message:      message,
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	if !resp.Success {
-		return 0, fmt.Errorf("failed to process tip: %s", resp.Message)
-	}
-
-	return resp.NewBalance, nil
-}
-
 // SetPlayerReady sets the player ready status
 func (pc *PokerClient) SetPlayerReady(ctx context.Context) error {
 	tableID := pc.GetCurrentTableID()

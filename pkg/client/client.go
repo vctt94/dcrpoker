@@ -203,10 +203,6 @@ func newClient(ctx context.Context, cfg *ClientConfig) (*PokerClient, error) {
 		return nil, fmt.Errorf("failed to dial with options: %v", err)
 	}
 
-	if err := client.initializeAccount(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize account: %v", err)
-	}
-
 	return client, nil
 }
 
@@ -222,10 +218,6 @@ func newClientWithDialOptions(ctx context.Context, cfg *ClientConfig, dialTarget
 
 	if err := client.dialWithOptions(dialTarget, dialOpts...); err != nil {
 		return nil, fmt.Errorf("failed to dial with options: %v", err)
-	}
-
-	if err := client.initializeAccount(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize account: %v", err)
 	}
 
 	return client, nil
@@ -378,30 +370,6 @@ func (pc *PokerClient) PayoutAddress() string {
 	pc.RLock()
 	defer pc.RUnlock()
 	return pc.cfg.PayoutAddress
-}
-
-// initializeAccount ensures the client has an account with the server
-func (pc *PokerClient) initializeAccount(ctx context.Context) error {
-	// Make sure we have an account
-	balanceResp, err := pc.LobbyService.GetBalance(ctx, &pokerrpc.GetBalanceRequest{
-		PlayerId: pc.ID.String(),
-	})
-	if err != nil {
-		// Initialize account with deposit
-		updateResp, err := pc.LobbyService.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    pc.ID.String(),
-			Amount:      1000,
-			Description: "Initial deposit",
-		})
-		if err != nil {
-			return fmt.Errorf("could not initialize balance: %v", err)
-		}
-		pc.log.Debugf("Initialized DCR account balance: %d", updateResp.NewBalance)
-		return nil
-	}
-
-	pc.log.Debugf("Current DCR account balance: %d", balanceResp.Balance)
-	return nil
 }
 
 // reconnect attempts to reconnect to the server and restart the notification stream

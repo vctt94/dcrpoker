@@ -1499,16 +1499,15 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	usersCopy := make([]User, 0, len(t.users))
 	for _, user := range t.users {
 		userCopy := User{
-			ID:                user.ID,
-			Name:              user.Name,
-			DCRAccountBalance: user.DCRAccountBalance,
-			TableSeat:         user.TableSeat,
-			IsReady:           user.IsReady,
-			IsDisconnected:    user.IsDisconnected,
-			JoinedAt:          user.JoinedAt,
-			EscrowID:          user.EscrowID,
-			EscrowReady:       user.EscrowReady,
-			PresignComplete:   user.PresignComplete,
+			ID:              user.ID,
+			Name:            user.Name,
+			TableSeat:       user.TableSeat,
+			IsReady:         user.IsReady,
+			IsDisconnected:  user.IsDisconnected,
+			JoinedAt:        user.JoinedAt,
+			EscrowID:        user.EscrowID,
+			EscrowReady:     user.EscrowReady,
+			PresignComplete: user.PresignComplete,
 		}
 		usersCopy = append(usersCopy, userCopy)
 	}
@@ -1535,22 +1534,6 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 		Users:  usersCopy,
 		Game:   gameSnapshot,
 	}
-}
-
-// SetUserDCRAccountBalance safely updates the DCRAccountBalance of a user seated at the table.
-// It acquires the table lock to synchronize concurrent access so that readers (e.g. state snapshots)
-// don't race with writers like JoinTable.
-func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	u, ok := t.users[userID]
-	if !ok {
-		return fmt.Errorf("user not found at table")
-	}
-
-	u.DCRAccountBalance = newBalance
-	return nil
 }
 
 // XX We need to properly fix this restore for clients. and properly restore game state from sm

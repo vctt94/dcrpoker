@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
@@ -357,6 +356,7 @@ func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) 
 
 	return &pokerrpc.GetTablesResponse{Tables: tables}, nil
 }
+
 func (s *Server) GetPlayerCurrentTable(ctx context.Context, req *pokerrpc.GetPlayerCurrentTableRequest) (*pokerrpc.GetPlayerCurrentTableResponse, error) {
 	// Get table references with server lock
 	tableRefs := s.getAllTables()
@@ -387,57 +387,6 @@ func (s *Server) findActiveTableForPlayer(playerID string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func (s *Server) GetBalance(ctx context.Context, req *pokerrpc.GetBalanceRequest) (*pokerrpc.GetBalanceResponse, error) {
-	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		// If you want precise classification, expose a sentinel from db package.
-		// For now, map any error to NotFound if it mentions "player not found".
-		if strings.Contains(strings.ToLower(err.Error()), "player not found") {
-			return nil, status.Error(codes.NotFound, "player not found")
-		}
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return &pokerrpc.GetBalanceResponse{Balance: balance}, nil
-}
-
-func (s *Server) UpdateBalance(ctx context.Context, req *pokerrpc.UpdateBalanceRequest) (*pokerrpc.UpdateBalanceResponse, error) {
-	// typ then description per new signature
-	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, req.Amount, "balance_update", req.Description); err != nil {
-		return nil, err
-	}
-
-	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-
-	return &pokerrpc.UpdateBalanceResponse{
-		NewBalance: balance,
-		Message:    "Balance updated successfully",
-	}, nil
-}
-
-func (s *Server) ProcessTip(ctx context.Context, req *pokerrpc.ProcessTipRequest) (*pokerrpc.ProcessTipResponse, error) {
-	// debit sender, credit recipient
-	if err := s.db.UpdatePlayerBalance(ctx, req.FromPlayerId, -req.Amount, "tip_sent", req.Message); err != nil {
-		return nil, err
-	}
-	if err := s.db.UpdatePlayerBalance(ctx, req.ToPlayerId, req.Amount, "tip_received", req.Message); err != nil {
-		return nil, err
-	}
-
-	balance, err := s.db.GetPlayerBalance(ctx, req.ToPlayerId)
-	if err != nil {
-		return nil, err
-	}
-
-	return &pokerrpc.ProcessTipResponse{
-		Success:    true,
-		Message:    "Tip processed successfully",
-		NewBalance: balance,
-	}, nil
 }
 
 func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerReadyRequest) (*pokerrpc.SetPlayerReadyResponse, error) {
@@ -503,13 +452,12 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 	}
 	s.eventProcessor.PublishEvent(event)
 
-	// If all players are ready and the game hasn't started yet
-	// notify players that presigning is required
+	// If all players are ready and the game hasn't started yet, either:
+	//   - for escrow-backed tables (BuyIn > 0), ensure presigning is complete; or
+	//   - for non-escrow tables (BuyIn == 0), start immediately.
 	if allReady && !gameStarted {
-		// For escrow-backed tables, verify presigning is complete before starting
+		matchID := req.TableId
 		if cfg.BuyIn > 0 {
-			// The matchID for poker tables is the tableID
-			matchID := req.TableId
 			complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
 			if !complete {
 				s.log.Infof("All players ready but presigning not complete for table %s: %d/%d seats", req.TableId, completedSeats, totalSeats)
@@ -526,6 +474,9 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 				}, nil
 			}
 		}
+
+		// At this point either no buy-in is required, or presigning is complete.
+		s.maybeStartGameAfterPresign(table, req.TableId, matchID, req.PlayerId)
 	}
 
 	return &pokerrpc.SetPlayerReadyResponse{

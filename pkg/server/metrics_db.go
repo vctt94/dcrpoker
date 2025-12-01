@@ -16,20 +16,6 @@ type metricsDB struct {
 
 func (m *metricsDB) Close() error { return m.inner.Close() }
 
-func (m *metricsDB) GetPlayerBalance(ctx context.Context, playerID string) (int64, error) {
-	start := time.Now()
-	v, err := m.inner.GetPlayerBalance(ctx, playerID)
-	m.observe(start, err)
-	return v, err
-}
-
-func (m *metricsDB) UpdatePlayerBalance(ctx context.Context, playerID string, amount int64, transactionType, description string) error {
-	start := time.Now()
-	err := m.inner.UpdatePlayerBalance(ctx, playerID, amount, transactionType, description)
-	m.observe(start, err)
-	return err
-}
-
 func (m *metricsDB) UpsertSnapshot(ctx context.Context, s db.Snapshot) error {
 	start := time.Now()
 	err := m.inner.UpsertSnapshot(ctx, s)
@@ -117,6 +103,13 @@ func (m *metricsDB) GetAuthUserByUserID(ctx context.Context, userID string) (*db
 func (m *metricsDB) UpdateAuthUserLastLogin(ctx context.Context, userID string) error {
 	start := time.Now()
 	err := m.inner.UpdateAuthUserLastLogin(ctx, userID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) UpdateAuthUserPayoutAddress(ctx context.Context, userID, payoutAddress string) error {
+	start := time.Now()
+	err := m.inner.UpdateAuthUserPayoutAddress(ctx, userID, payoutAddress)
 	m.observe(start, err)
 	return err
 }
