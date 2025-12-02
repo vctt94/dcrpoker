@@ -355,6 +355,14 @@ class PokerModel extends ChangeNotifier {
   final Map<String, bool> playersShowingCards = {};
   bool get myCardsShown => playersShowingCards[playerId] ?? false;
 
+  // Payout address bound to the authenticated session on the server (empty if not signed).
+  String _authedPayoutAddress = '';
+  String get authedPayoutAddress => _authedPayoutAddress;
+  bool get hasAuthedPayoutAddress => _authedPayoutAddress.trim().isNotEmpty;
+  void updateAuthedPayoutAddress(String addr) {
+    _authedPayoutAddress = addr.trim();
+  }
+
   // Settlement presigning state
   bool _presignInProgress = false;
   String _presignError = '';
@@ -744,6 +752,13 @@ class PokerModel extends ChangeNotifier {
     String boundEscrowId = '';
     bool boundEscrowReady = false;
     try {
+      if (!hasAuthedPayoutAddress) {
+        successMessage = '';
+        errorMessage =
+            'Bind escrow failed: set and verify a payout address on the Sign Address screen before binding.';
+        notifyListeners();
+        return;
+      }
       // Server determines the seat automatically from the caller's position
       final resp = await Golib.bindEscrow(
         tableId: tableId,
@@ -793,6 +808,10 @@ class PokerModel extends ChangeNotifier {
       } else if (raw.contains('escrow not found')) {
         errorMessage =
             'Bind escrow failed: this escrow session is no longer known by the referee. Please open or select a different escrow.';
+      } else if (raw.toLowerCase().contains('payout address not set') ||
+          raw.toLowerCase().contains('sign address')) {
+        errorMessage =
+            'Bind escrow failed: set and verify a payout address on the Sign Address screen before binding.';
       } else {
         errorMessage = 'Bind escrow failed: $raw';
       }

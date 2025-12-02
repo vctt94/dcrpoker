@@ -7,7 +7,7 @@ import 'package:pokerui/client_init.dart';
 
 class LoginScreen extends StatefulWidget {
   final Config config;
-  final Function(String nickname) onLoginSuccess;
+  final Function(LoginResponse resp) onLoginSuccess;
 
   const LoginScreen(
       {super.key, required this.config, required this.onLoginSuccess});
@@ -79,9 +79,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Try to login first
       try {
-        final loginResp = await Golib.login(LoginRequest(nickname));
-        // Login successful
-        widget.onLoginSuccess(loginResp.nickname);
+          final loginResp = await Golib.login(LoginRequest(nickname));
+          // Login successful
+          widget.onLoginSuccess(loginResp);
       } catch (loginError) {
         // If login fails with "nickname not found", try to register
         final errorMsg = loginError.toString().toLowerCase();
@@ -90,7 +90,7 @@ class _LoginScreenState extends State<LoginScreen> {
           await Golib.register(RegisterRequest(nickname));
           // After registration, login
           final loginResp = await Golib.login(LoginRequest(nickname));
-          widget.onLoginSuccess(loginResp.nickname);
+          widget.onLoginSuccess(loginResp);
         } else {
           // Other login errors
           setState(() {

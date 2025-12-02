@@ -339,7 +339,7 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 	}
 
 	if len(cands) == 0 {
-		return nil, nil
+		return []map[string]interface{}{}, nil
 	}
 
 	ref := pc.Referee(token)
@@ -393,7 +393,7 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 	}
 
 	if len(out) == 0 {
-		return nil, nil
+		return []map[string]interface{}{}, nil
 	}
 
 	sort.Slice(out, func(i, j int) bool {

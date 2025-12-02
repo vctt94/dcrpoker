@@ -16,8 +16,58 @@ class InLobbyView extends StatelessWidget {
   }
 
   Future<void> _showBindDialog(BuildContext ctx, UiTable t) async {
-    final escrowCtrl = TextEditingController();
+    if (!model.hasAuthedPayoutAddress) {
+      if (!ctx.mounted) return;
+      await showDialog(
+        context: ctx,
+        builder: (dctx) => AlertDialog(
+          title: const Text('Sign Address Required'),
+          content: const Text(
+              'Bind escrow needs a verified payout address. Please sign an address before binding or opening a new escrow.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx),
+              child: const Text('Not now'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dctx);
+                Navigator.pushNamed(ctx, '/sign-address');
+              },
+              child: const Text('Go to Sign Address'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     final escrows = await model.listCachedEscrows();
+    if (escrows.isEmpty) {
+      if (!ctx.mounted) return;
+      await showDialog(
+        context: ctx,
+        builder: (dctx) => AlertDialog(
+          title: const Text('No Escrows Available'),
+          content: const Text(
+              'You need to open and fund an escrow before you can bind it to this table.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dctx),
+              child: const Text('Not now'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dctx);
+                Navigator.pushNamed(ctx, '/open-escrow');
+              },
+              child: const Text('Open Escrow'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    final escrowCtrl = TextEditingController();
     String? selectedOutpoint = escrows.isNotEmpty
         ? '${escrows.first['funding_txid'] ?? ''}:${(escrows.first['funding_vout'] ?? 0).toString()}'
         : null;

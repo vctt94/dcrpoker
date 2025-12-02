@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:golib_plugin/golib_plugin.dart';
+import 'package:golib_plugin/definitions.dart';
 import 'package:pokerui/components/shared_layout.dart';
 
 class OpenEscrowScreen extends StatefulWidget {
@@ -17,14 +18,20 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
   final _compPubController = TextEditingController();
   final _statusEscrowIdController = TextEditingController();
   String? _keyIndex;
-  bool _isGenerating = false;
   bool _isOpening = false;
   String? _error;
   bool _needsPayoutAddress = false;
+  String? _payoutAddress;
   Map<String, dynamic>? _result;
   Map<String, dynamic>? _status;
   String? _statusError;
   bool _statusLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ensurePayoutAddress();
+  }
 
   @override
   void dispose() {
@@ -36,6 +43,12 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     super.dispose();
   }
 
+  bool _isPayoutMissingError(String msg) {
+    final lower = msg.toLowerCase();
+    return lower.contains('payout address not set') ||
+        lower.contains('sign address');
+  }
+
   int? _atomsFromDcr(String v) {
     final cleaned = v.trim();
     if (cleaned.isEmpty) return null;
@@ -44,49 +57,59 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     return (parsed * 1e8).round();
   }
 
-  Future<void> _generateKey() async {
-    setState(() {
-      _isGenerating = true;
-      _error = null;
-      _result = null;
-    });
+  Future<bool> _ensurePayoutAddress() async {
+    if ((_payoutAddress ?? '').trim().isNotEmpty) {
+      return true;
+    }
     try {
-      final res = await Golib.generateSettlementSessionKey();
-      _compPrivController.text = res['priv'] ?? '';
-      _compPubController.text = res['pub'] ?? '';
-      _keyIndex = res['index'];
+      // Prefer the payout address bound to the authenticated session.
+      LoginResponse? session;
+      try {
+        session = await Golib.resumeSession();
+      } catch (_) {
+        session = null;
+      }
+      final serverAddr = session?.address.trim() ?? '';
+      final addr = serverAddr.isNotEmpty
+          ? serverAddr
+          : (await Golib.getPayoutAddress()).trim();
+      if (!mounted) return addr.isNotEmpty;
+      setState(() {
+        _payoutAddress = addr;
+        _needsPayoutAddress = addr.isEmpty;
+      });
+      return addr.isNotEmpty;
     } catch (e) {
-      setState(() {
-        _error = 'Failed to generate key: $e';
-      });
-    } finally {
-      setState(() {
-        _isGenerating = false;
-      });
+      if (mounted) {
+        setState(() {
+          _needsPayoutAddress = true;
+          _error = null;
+        });
+      }
+      return false;
     }
   }
 
   Future<void> _openEscrow() async {
     final betAtoms = _atomsFromDcr(_betDcrController.text);
     final csvBlocks = int.tryParse(_csvBlocksController.text.trim());
-    final compPub = _compPubController.text.trim();
-    final keyIndexStr = _keyIndex;
+    var compPub = _compPubController.text.trim();
+    var keyIndexStr = _keyIndex;
 
     if (betAtoms == null || betAtoms <= 0) {
       setState(() => _error = 'Enter a bet amount > 0');
       return;
     }
-    if (compPub.isEmpty) {
-      setState(() => _error = 'Provide a compressed session pubkey');
-      return;
-    }
-    if (keyIndexStr == null || keyIndexStr.isEmpty) {
-      setState(() => _error = 'Generate a session key first');
-      return;
-    }
-    final keyIndex = int.tryParse(keyIndexStr);
-    if (keyIndex == null) {
-      setState(() => _error = 'Invalid key index');
+
+    final hasPayoutAddress = await _ensurePayoutAddress();
+    if (!hasPayoutAddress) {
+      if (mounted) {
+        setState(() {
+          _error = null;
+          _needsPayoutAddress = true;
+          _isOpening = false;
+        });
+      }
       return;
     }
 
@@ -98,6 +121,33 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     });
 
     try {
+      // Auto-generate session key if not already set
+      if (compPub.isEmpty || keyIndexStr == null || keyIndexStr.isEmpty) {
+        final res = await Golib.generateSettlementSessionKey();
+        compPub = res['pub'] ?? '';
+        keyIndexStr = res['index'] ?? '';
+        _compPrivController.text = res['priv'] ?? '';
+        _compPubController.text = compPub;
+        _keyIndex = keyIndexStr;
+      }
+
+      if (compPub.isEmpty || keyIndexStr.isEmpty) {
+        setState(() {
+          _error = 'Failed to generate session key';
+          _isOpening = false;
+        });
+        return;
+      }
+
+      final keyIndex = int.tryParse(keyIndexStr);
+      if (keyIndex == null) {
+        setState(() {
+          _error = 'Invalid key index';
+          _isOpening = false;
+        });
+        return;
+      }
+
       final res = await Golib.openEscrow(
         betAtoms: betAtoms,
         compPubkey: compPub,
@@ -110,9 +160,14 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     } catch (e) {
       setState(() {
         final msg = e.toString();
-        _error = msg;
-        _needsPayoutAddress =
-            msg.toLowerCase().contains('payout address not set');
+        // If payout address is not set, show the sign address message directly.
+        if (_isPayoutMissingError(msg)) {
+          _error = null;
+          _needsPayoutAddress = true;
+        } else {
+          _error = msg;
+          _needsPayoutAddress = false;
+        }
       });
     } finally {
       setState(() {
@@ -170,39 +225,10 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Fund an escrow before joining a table. Verify payout address on the Sign Address screen first.',
+                'Fund an escrow before joining a table. Verify payout address on the Sign Address screen first. A session key will be automatically generated when opening an escrow.',
                 style: TextStyle(color: Colors.white, fontSize: 15),
               ),
               const SizedBox(height: 16),
-              Row(
-                children: [
-                  ElevatedButton(
-                    onPressed: _isGenerating ? null : _generateKey,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal,
-                      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
-                    ),
-                    child: _isGenerating
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          )
-                        : const Text('Generate Session Key'),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Text(
-                      'Keep the private key safe; it is required for presign/finalization.',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
               _label('Compressed Pubkey (33B hex)'),
               TextField(
                 controller: _compPubController,

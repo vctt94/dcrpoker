@@ -384,24 +384,25 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 
 	pc.setSessionToken(resp.Token)
 
+	// Local payout address is the source of truth; never overwrite it with what the server reports.
+	localPayout := strings.TrimSpace(pc.PayoutAddress())
+
 	// Persist session for future resumes. Do not fail login if persistence fails.
 	session := &SessionData{
 		Token:         resp.Token,
 		UserID:        resp.UserId,
 		Nickname:      resp.Nickname,
-		PayoutAddress: resp.PayoutAddress,
+		PayoutAddress: localPayout,
 	}
 	if err := pc.SaveSession(session); err != nil {
 		pc.log.Warnf("failed to persist session for %s: %v", nickname, err)
 	}
 
-	pc.PersistPayoutAddress(resp.PayoutAddress)
-
 	return &LoginResponse{
 		Token:         resp.Token,
 		UserID:        resp.UserId,
 		Nickname:      resp.Nickname,
-		PayoutAddress: resp.PayoutAddress,
+		PayoutAddress: localPayout,
 	}, nil
 }
 

@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'package:pokerui/components/shared_layout.dart';
+import 'package:pokerui/models/poker.dart';
+import 'package:provider/provider.dart';
 import 'package:pokerui/config.dart';
 import 'package:path/path.dart' as p;
 
@@ -115,6 +117,9 @@ class _SignAddressScreenState extends State<SignAddressScreen> {
         });
         return;
       }
+      // Update authed payout address in the model so escrow checks use server-bound value.
+      final model = mounted ? Provider.of<PokerModel?>(context, listen: false) : null;
+      model?.updateAuthedPayoutAddress(resp.address);
       setState(() {
         _success = 'Address verified and saved: ${resp.address}';
         _addressHint = resp.address;
