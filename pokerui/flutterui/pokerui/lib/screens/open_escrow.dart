@@ -16,16 +16,12 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
   final _csvBlocksController = TextEditingController(text: '64');
   final _compPrivController = TextEditingController();
   final _compPubController = TextEditingController();
-  final _statusEscrowIdController = TextEditingController();
   String? _keyIndex;
   bool _isOpening = false;
   String? _error;
   bool _needsPayoutAddress = false;
   String? _payoutAddress;
   Map<String, dynamic>? _result;
-  Map<String, dynamic>? _status;
-  String? _statusError;
-  bool _statusLoading = false;
 
   @override
   void initState() {
@@ -39,7 +35,6 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     _csvBlocksController.dispose();
     _compPrivController.dispose();
     _compPubController.dispose();
-    _statusEscrowIdController.dispose();
     super.dispose();
   }
 
@@ -126,9 +121,12 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
         final res = await Golib.generateSettlementSessionKey();
         compPub = res['pub'] ?? '';
         keyIndexStr = res['index'] ?? '';
-        _compPrivController.text = res['priv'] ?? '';
-        _compPubController.text = compPub;
-        _keyIndex = keyIndexStr;
+        final priv = res['priv'] ?? '';
+        setState(() {
+          _compPrivController.text = priv;
+          _compPubController.text = compPub;
+          _keyIndex = keyIndexStr;
+        });
       }
 
       if (compPub.isEmpty || keyIndexStr.isEmpty) {
@@ -176,36 +174,6 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     }
   }
 
-  Future<void> _checkStatus() async {
-    final escrowID = _statusEscrowIdController.text.trim();
-    if (escrowID.isEmpty) {
-      setState(() {
-        _statusError = 'Enter an escrow ID';
-        _status = null;
-      });
-      return;
-    }
-    setState(() {
-      _statusLoading = true;
-      _statusError = null;
-      _status = null;
-    });
-    try {
-      final res = await Golib.getEscrowStatus(escrowID);
-      setState(() {
-        _status = res;
-      });
-    } catch (e) {
-      setState(() {
-        _statusError = e.toString();
-      });
-    } finally {
-      setState(() {
-        _statusLoading = false;
-      });
-    }
-  }
-
   Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
         child: Text(
@@ -228,39 +196,6 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
                 'Fund an escrow before joining a table. Verify payout address on the Sign Address screen first. A session key will be automatically generated when opening an escrow.',
                 style: TextStyle(color: Colors.white, fontSize: 15),
               ),
-              const SizedBox(height: 16),
-              _label('Compressed Pubkey (33B hex)'),
-              TextField(
-                controller: _compPubController,
-                decoration: const InputDecoration(
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                  hintText: '02...',
-                ),
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 8),
-              _label('Session Private Key (hex)'),
-              TextField(
-                controller: _compPrivController,
-                decoration: const InputDecoration(
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                  hintText: 'Save securely',
-                ),
-                style: const TextStyle(color: Colors.black),
-                maxLines: 2,
-              ),
-              if (_keyIndex != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Key index: $_keyIndex (store with escrow for recovery)',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                ),
               const SizedBox(height: 16),
               _label('Bet Amount (DCR)'),
               TextField(
@@ -405,53 +340,13 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
                       )
                     : const Text('Open Escrow'),
               ),
-              const SizedBox(height: 24),
-              const Text(
-                'Escrow Status',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _statusEscrowIdController,
-                decoration: const InputDecoration(
-                  labelText: 'Escrow ID',
-                  hintText: 'escrow_...',
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                ),
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 8),
-              if (_statusError != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SelectableText(
-                    _statusError!,
-                    style: const TextStyle(color: Colors.redAccent),
-                  ),
-                ),
-              ElevatedButton(
-                onPressed: _statusLoading ? null : _checkStatus,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blueGrey,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: _statusLoading
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text('Check status'),
-              ),
-              if (_status != null)
+              const SizedBox(height: 16),
+              if (_compPubController.text.trim().isNotEmpty ||
+                  _compPrivController.text.trim().isNotEmpty ||
+                  (_keyIndex ?? '').isNotEmpty)
                 Container(
                   width: double.infinity,
-                  margin: const EdgeInsets.only(top: 12),
+                  margin: const EdgeInsets.only(top: 8),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1B1E2C),
@@ -461,19 +356,20 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Current status',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      const Text('Session Key',
+                          style: TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 8),
-                      _statusRow('Confs', _status!['confs']),
-                      _statusRow('UTXO count', _status!['utxo_count']),
-                      _statusRow('Funding tx', _status!['funding_txid']),
-                      _statusRow('Vout', _status!['funding_vout']),
-                      _statusRow('Amount (atoms)', _status!['amount_atoms']),
-                      _statusRow('CSV blocks', _status!['csv_blocks']),
-                      _statusRow('Mature for CSV', _status!['mature_for_csv']),
-                      _statusRow('Required confs', _status!['required_confirmations']),
-                      if (_status!['updated_at_unix'] != null && _status!['updated_at_unix'] != 0)
-                        _statusRow('Updated at (unix)', _status!['updated_at_unix']),
+                      _keyValueRow('Compressed Pubkey', _compPubController.text.trim()),
+                      _keyValueRow('Session Private Key', _compPrivController.text.trim()),
+                      if ((_keyIndex ?? '').isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'Key index: $_keyIndex (store with escrow for recovery)',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -484,21 +380,26 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     );
   }
 
-  Widget _statusRow(String label, dynamic value) {
+  Widget _keyValueRow(String label, String value) {
+    if (value.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 130,
+            width: 150,
             child: Text(label, style: const TextStyle(color: Colors.white70)),
           ),
           Expanded(
             child: SelectableText(
-              value == null ? '' : value.toString(),
+              value,
               style: const TextStyle(color: Colors.white),
             ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy, color: Colors.white70),
+            onPressed: () => Clipboard.setData(ClipboardData(text: value)),
           ),
         ],
       ),

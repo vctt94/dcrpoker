@@ -173,26 +173,107 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
 
   String _stateLabel(_EscrowEntry e) {
     final live = e.liveStatus;
-    if (live == null) return 'Status unknown';
-    if (live.utxoCount == 0) return 'Seen in mempool';
-    if (live.matureForCsv) return 'Refundable';
-    return 'Locked';
+    
+    if (live != null) {
+      // Check server-provided state first (most authoritative)
+      final fState = (live.fundingState ?? '').toLowerCase();
+      if (fState.isNotEmpty) {
+        switch (fState) {
+          case 'escrow_state_unfunded':
+            return 'Not funded';
+          case 'escrow_state_mempool':
+            return 'Seen in mempool';
+          case 'escrow_state_confirming':
+            return 'Waiting for confirmations';
+          case 'escrow_state_invalid':
+            return 'Invalid funding';
+          case 'escrow_state_spent':
+            return 'Spent';
+          case 'escrow_state_csv_matured':
+            return 'Expired';
+          case 'escrow_state_ready':
+            return 'Locked';
+        }
+      }
+      // Check server-provided matureForCsv flag
+      if (live.matureForCsv) return 'Expired';
+      
+      // Fall back to derived state from live data
+      if (live.utxoCount == 0 || (live.fundingTxid ?? '').isEmpty) return 'Not funded';
+      if (live.utxoCount > 1) return 'Invalid funding';
+      if (live.confs == 0) return 'Seen in mempool';
+      final required = live.requiredConfs ?? 0;
+      if (required > 0 && live.confs < required) return 'Waiting for confirmations';
+      return 'Locked';
+    }
+
+    // No live status - check if CSV expired using cached data
+    if (_csvExpired(e)) return 'Expired';
+
+    final cachedStatus = e.status?.trim() ?? '';
+    if (cachedStatus.isNotEmpty) {
+      return cachedStatus[0].toUpperCase() + cachedStatus.substring(1);
+    }
+    return 'Not funded';
   }
 
   Color _stateColor(_EscrowEntry e) {
     final live = e.liveStatus;
-    if (live == null) return Colors.white70;
-    if (live.matureForCsv) return Colors.greenAccent;
-    return Colors.orangeAccent;
+    
+    if (live != null) {
+      // Check server-provided state first (most authoritative)
+      final fState = (live.fundingState ?? '').toLowerCase();
+      if (fState == 'escrow_state_csv_matured') return Colors.redAccent;
+      if (fState == 'escrow_state_ready') return Colors.greenAccent;
+      
+      // Check server-provided matureForCsv flag
+      if (live.matureForCsv) return Colors.redAccent;
+      
+      // Check if escrow is confirmed/ready based on confirmations
+      if (live.utxoCount == 1 && live.confs > 0) {
+        final required = live.requiredConfs ?? 0;
+        if (required == 0 || live.confs >= required) {
+          return Colors.greenAccent;
+        }
+      }
+      return Colors.orangeAccent;
+    }
+
+    // No live status - check if CSV expired using cached data
+    if (_csvExpired(e)) return Colors.redAccent;
+    return Colors.white70;
   }
 
   bool _isRefundable(_EscrowEntry e) {
     final live = e.liveStatus;
+    
+    // Prefer server-provided matureForCsv flag
     if (live != null && live.matureForCsv) return true;
-    final csv = e.csvBlocks ?? 0;
+    
+    // Fall back to client-side calculation if no live status
+    if (live == null && _csvExpired(e)) return true;
+    
+    // Also check using confirmations
+    final csv = e.csvBlocks ?? live?.csvBlocks ?? 0;
     if (csv <= 0) return false;
     final confs = e.confirmedConfs ?? live?.confs ?? 0;
     return confs >= csv;
+  }
+
+  bool _csvExpired(_EscrowEntry e) {
+    final csv = e.csvBlocks ?? e.liveStatus?.csvBlocks ?? 0;
+    if (csv <= 0) return false;
+    final fundingHeight = e.confirmedConfs;
+    final bestHeight = e.liveStatus?.bestHeight;
+    if (fundingHeight != null &&
+        fundingHeight > 0 &&
+        bestHeight != null &&
+        bestHeight > 0 &&
+        bestHeight - fundingHeight >= csv) {
+      return true;
+    }
+    final liveConfs = e.liveStatus?.confs ?? 0;
+    return liveConfs >= csv;
   }
 
   Future<void> _openRefundDialog(_EscrowEntry e) async {
@@ -583,6 +664,9 @@ class _EscrowLiveStatus {
   final int? updatedAt;
   final String? fundingTxid;
   final int? fundingVout;
+  // Optional server-provided hints for status/height.
+  final String? fundingState;
+  final int? bestHeight;
 
   _EscrowLiveStatus({
     required this.confs,
@@ -594,6 +678,8 @@ class _EscrowLiveStatus {
     this.updatedAt,
     this.fundingTxid,
     this.fundingVout,
+    this.fundingState,
+    this.bestHeight,
   });
 
   factory _EscrowLiveStatus.fromJson(Map<String, dynamic> json) {
@@ -608,6 +694,8 @@ class _EscrowLiveStatus {
       updatedAt: _asInt(json['updated_at_unix']),
       fundingTxid: _asString(json['funding_txid']),
       fundingVout: _asInt(json['funding_vout']),
+      fundingState: _asString(json['funding_state']),
+      bestHeight: _asInt(json['best_height']) ?? _asInt(json['current_height']),
     );
   }
 }
