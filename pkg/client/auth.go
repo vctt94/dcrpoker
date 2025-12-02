@@ -382,6 +382,8 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 		}
 	}
 
+	pc.setSessionToken(resp.Token)
+
 	// Persist session for future resumes. Do not fail login if persistence fails.
 	session := &SessionData{
 		Token:         resp.Token,
@@ -591,6 +593,7 @@ func (pc *PokerClient) ClearSession() error {
 	if path == "" {
 		return nil
 	}
+	pc.setSessionToken("")
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
@@ -660,6 +663,7 @@ func (pc *PokerClient) ResumeSession(ctx context.Context) (*SessionData, error) 
 	if resp.Nickname != "" {
 		session.Nickname = resp.Nickname
 	}
+	pc.setSessionToken(session.Token)
 
 	if err := pc.SaveSession(session); err != nil {
 		pc.log.Warnf("failed to persist session refresh: %v", err)

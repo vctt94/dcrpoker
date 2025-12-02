@@ -118,6 +118,7 @@ func (pc *PokerClient) runGameStreamLoop(ctx context.Context, tableID string) {
 func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig) (string, error) {
 	// Convert poker.TableConfig to RPC CreateTableRequest
 	timeBankSeconds := int32(config.TimeBank.Seconds())
+	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:        pc.ID.String(),
 		SmallBlind:      config.SmallBlind,
@@ -154,6 +155,7 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 
 // JoinTable joins an existing poker table and tracks the table ID
 func (pc *PokerClient) JoinTable(ctx context.Context, tableID string) error {
+	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.JoinTable(ctx, &pokerrpc.JoinTableRequest{
 		PlayerId: pc.ID.String(),
 		TableId:  tableID,
@@ -186,6 +188,7 @@ func (pc *PokerClient) LeaveTable(ctx context.Context) error {
 	// Stop game stream first
 	pc.stopGameStream()
 
+	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.LeaveTable(ctx, &pokerrpc.LeaveTableRequest{
 		PlayerId: pc.ID.String(),
 		TableId:  tableID,
@@ -231,6 +234,7 @@ func (pc *PokerClient) SetPlayerReady(ctx context.Context) error {
 		return fmt.Errorf("not currently in a table")
 	}
 
+	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
 		PlayerId: pc.ID.String(),
 		TableId:  tableID,
@@ -254,6 +258,7 @@ func (pc *PokerClient) SetPlayerUnready(ctx context.Context) error {
 		return fmt.Errorf("not currently in a table")
 	}
 
+	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.SetPlayerUnready(ctx, &pokerrpc.SetPlayerUnreadyRequest{
 		PlayerId: pc.ID.String(),
 		TableId:  tableID,

@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 )
 
 // LoadClientConfig loads the client config and creates ClientConfig with LogBackend
@@ -99,6 +100,9 @@ type PokerClient struct {
 	UpdatesCh       chan tea.Msg
 	ErrorsCh        chan error
 	NotificationsCh chan *pokerrpc.Notification
+
+	// Auth session
+	sessionToken string
 
 	// Game streaming
 	gameStream       pokerrpc.PokerService_StartGameStreamClient
@@ -370,6 +374,30 @@ func (pc *PokerClient) PayoutAddress() string {
 	pc.RLock()
 	defer pc.RUnlock()
 	return pc.cfg.PayoutAddress
+}
+
+// withSessionToken returns a context carrying the current session token, when present.
+func (pc *PokerClient) withSessionToken(ctx context.Context) context.Context {
+	if ctx == nil {
+		return context.Background()
+	}
+	token := pc.sessionTokenValue()
+	if token == "" {
+		return ctx
+	}
+	return metadata.AppendToOutgoingContext(ctx, "token", token)
+}
+
+func (pc *PokerClient) sessionTokenValue() string {
+	pc.RLock()
+	defer pc.RUnlock()
+	return pc.sessionToken
+}
+
+func (pc *PokerClient) setSessionToken(token string) {
+	pc.Lock()
+	pc.sessionToken = strings.TrimSpace(token)
+	pc.Unlock()
 }
 
 // reconnect attempts to reconnect to the server and restart the notification stream
