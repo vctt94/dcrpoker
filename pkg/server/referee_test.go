@@ -259,6 +259,7 @@ func mkEscrow(t *testing.T, uidStr, txid string, vout uint32, pkScriptHex, redee
 	for i := 1; i < 33; i++ {
 		compPubkey[i] = byte(i) // fill with test data
 	}
+	bound := &chainwatcher.EscrowUTXO{Txid: txid, Vout: vout, Value: amount, PkScriptHex: pkScriptHex}
 	return &refereeEscrowSession{
 		EscrowID:        txid,
 		OwnerUID:        uid,
@@ -267,8 +268,17 @@ func mkEscrow(t *testing.T, uidStr, txid string, vout uint32, pkScriptHex, redee
 		PkScriptHex:     pkScriptHex,
 		RedeemScriptHex: redeemHex,
 		AmountAtoms:     amount,
-		BoundUTXO:       &chainwatcher.EscrowUTXO{Txid: txid, Vout: vout, Value: amount, PkScriptHex: pkScriptHex},
-		CompPubkey:      compPubkey,
+		BoundUTXO:       cloneUTXO(bound),
+		LatestFunding: chainwatcher.DepositUpdate{
+			PkScriptHex: pkScriptHex,
+			Confs:       escrowRequiredConfirmations,
+			UTXOCount:   1,
+			OK:          true,
+			UTXOs:       []*chainwatcher.EscrowUTXO{bound},
+		},
+		fundingState: escrowStateReady,
+		HadFunding:   true,
+		CompPubkey:   compPubkey,
 	}
 }
 

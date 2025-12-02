@@ -88,21 +88,7 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(b1.lc, p1, 10_000)
-	setBalance(b1.lc, p2, 10_000)
 
 	// Create table and join both
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -263,21 +249,7 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(pid string, want int64) {
-		rb, _ := b1.lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		cur := int64(0)
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := b1.lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(p1, 10_000)
-	setBalance(p2, 10_000)
 
 	// Create table, join, ready
 	cr, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -457,21 +429,7 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(b1.lc, p1, 10_000)
-	setBalance(b1.lc, p2, 10_000)
 
 	// Create table and join
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -669,21 +627,7 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed wallet balances
-	setBalance := func(pid string, want int64) {
-		rb, _ := b1.lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := b1.lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(p1, 10_000)
-	setBalance(p2, 10_000)
 
 	// Create table and join second player
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -903,21 +847,7 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(b1.lc, p1, 10_000)
-	setBalance(b1.lc, p2, 10_000)
 
 	// Create table and join both
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -27,6 +28,7 @@ import (
 	"github.com/decred/dcrd/wire"
 	"github.com/vctt94/pokerbisonrelay/pkg/chainwatcher"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
+	"github.com/vctt94/pokerbisonrelay/pkg/statemachine"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -40,6 +42,18 @@ const DefaultSettlementFeeAtoms uint64 = 10_000
 
 // MaxEscrowAtoms caps per-player escrow to avoid oversized pots.
 const MaxEscrowAtoms uint64 = 100_000_000 // 1 DCR
+
+const (
+	escrowRequiredConfirmations = uint32(1)
+
+	escrowStateUnfunded   = "ESCROW_STATE_UNFUNDED"
+	escrowStateMempool    = "ESCROW_STATE_MEMPOOL"
+	escrowStateConfirming = "ESCROW_STATE_CONFIRMING"
+	escrowStateReady      = "ESCROW_STATE_READY"
+	escrowStateCsvMatured = "ESCROW_STATE_CSV_MATURED"
+	escrowStateSpent      = "ESCROW_STATE_SPENT"
+	escrowStateInvalid    = "ESCROW_STATE_INVALID"
+)
 
 // schnorrMatchKey keys escrow/presign state by table + session.
 type schnorrMatchKey struct {
@@ -107,6 +121,10 @@ type refereeEscrowSession struct {
 	WatcherUnsub  func()
 	LatestFunding chainwatcher.DepositUpdate
 
+	fundingState       string
+	fundingStateReason string
+	HadFunding         bool
+
 	// Bound input once ensureBoundFunding succeeds.
 	BoundUTXO *chainwatcher.EscrowUTXO
 }
@@ -118,6 +136,55 @@ func cloneUTXO(u *chainwatcher.EscrowUTXO) *chainwatcher.EscrowUTXO {
 	}
 	clone := *u
 	return &clone
+}
+
+func cloneDepositUpdate(u chainwatcher.DepositUpdate) chainwatcher.DepositUpdate {
+	dup := u
+	if len(u.UTXOs) > 0 {
+		dup.UTXOs = make([]*chainwatcher.EscrowUTXO, len(u.UTXOs))
+		for i, utxo := range u.UTXOs {
+			dup.UTXOs[i] = cloneUTXO(utxo)
+		}
+	} else {
+		dup.UTXOs = nil
+	}
+	return dup
+}
+
+func (es *refereeEscrowSession) updateFundingState(state, reason string, update chainwatcher.DepositUpdate, bound *chainwatcher.EscrowUTXO) bool {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+	changed := es.fundingState != state || es.fundingStateReason != reason
+	es.fundingState = state
+	es.fundingStateReason = reason
+	es.LatestFunding = cloneDepositUpdate(update)
+	if update.UTXOCount > 0 {
+		es.HadFunding = true
+	}
+	if bound != nil {
+		es.BoundUTXO = cloneUTXO(bound)
+	} else if state != escrowStateReady && state != escrowStateCsvMatured {
+		es.BoundUTXO = nil
+	}
+	return changed
+}
+
+func (es *refereeEscrowSession) fundingStateSnapshot() (state, reason string, bound *chainwatcher.EscrowUTXO) {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	return es.fundingState, es.fundingStateReason, cloneUTXO(es.BoundUTXO)
+}
+
+func (es *refereeEscrowSession) hadFunding() bool {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	return es.HadFunding
+}
+
+func (es *refereeEscrowSession) latestFundingCopy() chainwatcher.DepositUpdate {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	return cloneDepositUpdate(es.LatestFunding)
 }
 
 type escrowSnapshot struct {
@@ -362,6 +429,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pokerrpc.OpenEscrowRequest
 		CSVBlocks:       req.CsvBlocks,
 		RedeemScriptHex: hex.EncodeToString(redeem),
 		PkScriptHex:     pkScriptHex,
+		fundingState:    escrowStateUnfunded,
 	}
 
 	// Register in referee state.
@@ -370,11 +438,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pokerrpc.OpenEscrowRequest
 	s.referee.mu.Unlock()
 
 	// Subscribe to funding updates if watcher available.
-	if s.chainWatcher != nil {
-		updates, unsub := s.chainWatcher.Subscribe(pkScriptHex)
-		es.WatcherUnsub = unsub
-		go s.trackEscrowFunding(es, updates)
-	}
+	s.subscribeEscrow(es)
 	// Bind immediately if already funded.
 	es.mu.RLock()
 	lf := es.LatestFunding
@@ -507,7 +571,15 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 		}
 		u, err := s.chainWatcher.LookupUTXO(outpoint, pkHex)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "utxo not found on chain: %v", err)
+			switch {
+			case errors.Is(err, chainwatcher.ErrOutpointSpent):
+				return nil, status.Error(codes.FailedPrecondition, "escrow funding output has already been spent; this escrow cannot be reused")
+			case errors.Is(err, chainwatcher.ErrTxNotFound),
+				errors.Is(err, chainwatcher.ErrVoutNotFound):
+				return nil, status.Errorf(codes.InvalidArgument, "escrow funding outpoint %s does not exist on chain", outpoint)
+			default:
+				return nil, status.Errorf(codes.Unknown, "lookup escrow funding outpoint %s: %v", outpoint, err)
+			}
 		}
 		var compPub []byte
 		if len(redeem) >= 35 && redeem[0] == txscript.OP_IF && redeem[1] == txscript.OP_DATA_33 {
@@ -529,21 +601,24 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 			CSVBlocks:       req.CsvBlocks,
 			RedeemScriptHex: req.RedeemScriptHex,
 			PkScriptHex:     pkHex,
-			BoundUTXO:       u,
-			LatestFunding: chainwatcher.DepositUpdate{
-				PkScriptHex: pkHex,
-				Confs:       u.Confs,
-				UTXOCount:   1,
-				OK:          true,
-				At:          time.Now(),
-				UTXOs:       []*chainwatcher.EscrowUTXO{u},
-			},
+			fundingState:    escrowStateUnfunded,
 		}
+		es.LatestFunding = chainwatcher.DepositUpdate{
+			PkScriptHex: pkHex,
+			Confs:       u.Confs,
+			UTXOCount:   1,
+			OK:          true,
+			At:          time.Now(),
+			UTXOs:       []*chainwatcher.EscrowUTXO{u},
+		}
+		decision := classifyEscrowFundingState(es.AmountAtoms, es.CSVBlocks, escrowRequiredConfirmations, true, es.LatestFunding)
+		es.updateFundingState(decision.state, decision.reason, es.LatestFunding, decision.bound)
 		escrowID = es.EscrowID
 		s.referee.mu.Lock()
 		s.referee.escrows[escrowID] = es
 		s.referee.mu.Unlock()
 	}
+	s.subscribeEscrow(es)
 	matchID := strings.TrimSpace(req.GetMatchId())
 	if matchID == "" && tableID != "" {
 		// For WTA poker, tableID alone is the matchID (no sessionID suffix needed)
@@ -586,7 +661,15 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 		// Query watcher directly.
 		u, err := s.chainWatcher.LookupUTXO(outpoint, pkHex)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "utxo not found on chain: %v", err)
+			switch {
+			case errors.Is(err, chainwatcher.ErrOutpointSpent):
+				return nil, status.Error(codes.FailedPrecondition, "escrow funding output has already been spent; this escrow cannot be reused")
+			case errors.Is(err, chainwatcher.ErrTxNotFound),
+				errors.Is(err, chainwatcher.ErrVoutNotFound):
+				return nil, status.Errorf(codes.InvalidArgument, "escrow funding outpoint %s does not exist on chain", outpoint)
+			default:
+				return nil, status.Errorf(codes.Unknown, "lookup escrow funding outpoint %s: %v", outpoint, err)
+			}
 		}
 		es.mu.Lock()
 		es.RedeemScriptHex = req.RedeemScriptHex
@@ -610,23 +693,64 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 		return nil, status.Errorf(codes.FailedPrecondition, "escrow not funded: %v", err)
 	}
 
-	// Bind state.
+	// Bind state into escrow session.
 	es.mu.Lock()
 	es.TableID = tableID
 	es.SessionID = sessionID
 	es.SeatIndex = seat
 	ready := es.BoundUTXO != nil && es.BoundUTXO.Value == es.AmountAtoms
 	es.mu.Unlock()
-	s.referee.mu.Lock()
-	if s.referee.matchEscrows[matchID] == nil {
-		s.referee.matchEscrows[matchID] = make(map[uint32]string)
-	}
-	if existing := s.referee.matchEscrows[matchID][seat]; existing != "" && existing != escrowID {
+
+	// Seat binding semantics:
+	// - If seat has no prior escrow, bind normally.
+	// - If seat already bound to the same escrow, treat as idempotent.
+	// - If seat bound to a different escrow, allow changing only when:
+	//     * the table game has not started, and
+	//     * presigning has not started/completed for this match.
+	s.referee.mu.RLock()
+	existing := s.referee.matchEscrows[matchID][seat]
+	hasPresigs := len(s.referee.presigns[matchID]) > 0
+	hasPresignComplete := len(s.referee.presignComplete[matchID]) > 0
+	s.referee.mu.RUnlock()
+
+	if existing != "" && existing != escrowID {
+		allowChange := false
+		if table, ok := s.getTable(tableID); ok && table != nil && !table.IsGameStarted() && !hasPresigs && !hasPresignComplete {
+			allowChange = true
+		}
+		if !allowChange {
+			return nil, status.Errorf(codes.FailedPrecondition, "seat %d already bound to escrow %s; cannot change after presigning or game start", seat, existing)
+		}
+
+		// Clear prior binding from matchEscrows and its escrow session metadata.
+		s.referee.mu.Lock()
+		if s.referee.matchEscrows[matchID] != nil && s.referee.matchEscrows[matchID][seat] == existing {
+			delete(s.referee.matchEscrows[matchID], seat)
+		}
+		oldEscrow := s.referee.escrows[existing]
+		if s.referee.matchEscrows[matchID] == nil {
+			s.referee.matchEscrows[matchID] = make(map[uint32]string)
+		}
+		s.referee.matchEscrows[matchID][seat] = escrowID
 		s.referee.mu.Unlock()
-		return nil, status.Errorf(codes.AlreadyExists, "seat %d already bound", seat)
+
+		if oldEscrow != nil {
+			oldEscrow.mu.Lock()
+			if oldEscrow.TableID == tableID && oldEscrow.SeatIndex == seat {
+				oldEscrow.TableID = ""
+				oldEscrow.SessionID = ""
+				oldEscrow.SeatIndex = 0
+			}
+			oldEscrow.mu.Unlock()
+		}
+	} else {
+		s.referee.mu.Lock()
+		if s.referee.matchEscrows[matchID] == nil {
+			s.referee.matchEscrows[matchID] = make(map[uint32]string)
+		}
+		s.referee.matchEscrows[matchID][seat] = escrowID
+		s.referee.mu.Unlock()
 	}
-	s.referee.matchEscrows[matchID][seat] = escrowID
-	s.referee.mu.Unlock()
 
 	// Notify the user's state machine about the escrow binding (similar to SendReady pattern).
 	if err := callerUser.SendEscrowBound(escrowID, ready); err != nil {
@@ -701,6 +825,9 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 		return status.Error(codes.InvalidArgument, "table_id required")
 	}
 
+	// Track expected seat count for this match based on the table config.
+	expectedSeats := 0
+
 	sessionID := strings.TrimSpace(hello.SessionId)
 	seat := hello.SeatIndex
 	// For WTA poker, tableID alone is the matchID (sessionID is optional/ignored)
@@ -731,6 +858,9 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 		return status.Error(codes.NotFound, "table not found for escrow binding")
 	}
 	cfg := table.GetConfig()
+	if cfg.MaxPlayers > 0 {
+		expectedSeats = int(cfg.MaxPlayers)
+	}
 	if cfg.BuyIn > 0 && es.AmountAtoms != uint64(cfg.BuyIn) {
 		return status.Errorf(codes.FailedPrecondition, "escrow amount %d must equal table buy-in %d", es.AmountAtoms, cfg.BuyIn)
 	}
@@ -746,7 +876,18 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 		}
 	}
 	// Enforce presign only when table is "full": all escrows for the match
-	// are funded and bound to a single UTXO (2-6 players).
+	// are funded and bound to a single UTXO. When the table exposes a max
+	// player count, require that many seats; otherwise fall back to the
+	// generic 2-6 range enforced by readyMatchEscrows.
+	if expectedSeats > 0 {
+		s.referee.mu.RLock()
+		currentSeats := len(s.referee.matchEscrows[matchID])
+		s.referee.mu.RUnlock()
+		if currentSeats != expectedSeats {
+			return status.Errorf(codes.FailedPrecondition, "match seats not filled (have %d, need %d)", currentSeats, expectedSeats)
+		}
+	}
+
 	allEscrows, err := s.readyMatchEscrows(matchID)
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "match not ready for presign: %v", err)
@@ -853,85 +994,228 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 	}
 }
 
+type escrowFundingEvent struct {
+	update chainwatcher.DepositUpdate
+}
+
+type escrowFundingFSM struct {
+	server                *Server
+	session               *refereeEscrowSession
+	requiredConfirmations uint32
+}
+
+type escrowFundingDecision struct {
+	state  string
+	bound  *chainwatcher.EscrowUTXO
+	reason string
+}
+
+func classifyEscrowFundingState(amount uint64, csvBlocks uint32, requiredConfs uint32, hadFunding bool, update chainwatcher.DepositUpdate) escrowFundingDecision {
+	if update.UTXOCount == 0 {
+		if hadFunding {
+			return escrowFundingDecision{
+				state:  escrowStateSpent,
+				reason: "escrow funding output has already been spent",
+			}
+		}
+		return escrowFundingDecision{state: escrowStateUnfunded}
+	}
+	if update.UTXOCount > 1 {
+		return escrowFundingDecision{
+			state:  escrowStateInvalid,
+			reason: fmt.Sprintf("expected a single funding UTXO, found %d", update.UTXOCount),
+		}
+	}
+	if len(update.UTXOs) != 1 {
+		return escrowFundingDecision{
+			state:  escrowStateInvalid,
+			reason: "escrow funding update missing UTXO details",
+		}
+	}
+	utxo := update.UTXOs[0]
+	if utxo.Value != amount {
+		return escrowFundingDecision{
+			state:  escrowStateInvalid,
+			reason: fmt.Sprintf("expected funding %d but found %d", amount, utxo.Value),
+		}
+	}
+	if update.Confs == 0 {
+		return escrowFundingDecision{state: escrowStateMempool}
+	}
+	if update.Confs < requiredConfs {
+		return escrowFundingDecision{state: escrowStateConfirming}
+	}
+	if csvBlocks > 0 && update.Confs >= csvBlocks {
+		return escrowFundingDecision{state: escrowStateCsvMatured, bound: utxo}
+	}
+	return escrowFundingDecision{state: escrowStateReady, bound: utxo}
+}
+
+func (f *escrowFundingFSM) runStateLoop(in <-chan any, currentState string) statemachine.StateFn[escrowFundingFSM] {
+	for ev := range in {
+		evt, ok := ev.(*escrowFundingEvent)
+		if !ok {
+			continue
+		}
+		decision := f.evaluate(evt.update)
+		next := f.applyDecisionAndDetermineNext(decision, evt.update, currentState)
+		if next != nil {
+			return next
+		}
+	}
+	return nil
+}
+
+func (f *escrowFundingFSM) evaluate(update chainwatcher.DepositUpdate) escrowFundingDecision {
+	hadFunding := f.session.hadFunding()
+	return classifyEscrowFundingState(f.session.AmountAtoms, f.session.CSVBlocks, f.requiredConfirmations, hadFunding, update)
+}
+
+func (f *escrowFundingFSM) applyDecisionAndDetermineNext(dec escrowFundingDecision, update chainwatcher.DepositUpdate, currentState string) statemachine.StateFn[escrowFundingFSM] {
+	changed := f.session.updateFundingState(dec.state, dec.reason, update, dec.bound)
+	if changed {
+		f.notifyStateChange(dec.state, update, dec.bound, dec.reason)
+	}
+	if dec.state == currentState {
+		return nil
+	}
+	return f.stateFuncFor(dec.state)
+}
+
+func (f *escrowFundingFSM) stateFuncFor(state string) statemachine.StateFn[escrowFundingFSM] {
+	switch state {
+	case escrowStateUnfunded:
+		return stateEscrowUnfunded
+	case escrowStateMempool:
+		return stateEscrowMempool
+	case escrowStateConfirming:
+		return stateEscrowConfirming
+	case escrowStateReady:
+		return stateEscrowReady
+	case escrowStateCsvMatured:
+		return stateEscrowCsvMatured
+	case escrowStateSpent:
+		return stateEscrowSpent
+	case escrowStateInvalid:
+		return stateEscrowInvalid
+	default:
+		return stateEscrowUnfunded
+	}
+}
+
+func (f *escrowFundingFSM) notifyStateChange(state string, update chainwatcher.DepositUpdate, bound *chainwatcher.EscrowUTXO, reason string) {
+	if f == nil || f.server == nil || f.session == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"type":                   "escrow_funding",
+		"escrow_id":              f.session.EscrowID,
+		"confs":                  update.Confs,
+		"utxo_count":             update.UTXOCount,
+		"csv_blocks":             f.session.CSVBlocks,
+		"required_confirmations": escrowRequiredConfirmations,
+		"mature_for_csv":         update.Confs >= f.session.CSVBlocks && f.session.CSVBlocks > 0,
+		"funding_state":          state,
+		"escrow_ready":           state == escrowStateReady,
+		"ready":                  state == escrowStateReady,
+		"ok":                     update.OK,
+	}
+	if len(update.UTXOs) >= 1 {
+		payload["funding_txid"] = update.UTXOs[0].Txid
+		payload["funding_vout"] = update.UTXOs[0].Vout
+		if update.Confs > 0 {
+			payload["confirmed_height"] = update.Confs
+		}
+		payload["amount_atoms"] = update.UTXOs[0].Value
+	} else {
+		payload["amount_atoms"] = f.session.AmountAtoms
+	}
+	if reason != "" {
+		payload["error"] = reason
+	}
+	if msg, err := json.Marshal(payload); err == nil {
+		f.server.notifyPlayer(f.session.OwnerUID.String(), &pokerrpc.Notification{
+			Type:     pokerrpc.NotificationType_ESCROW_FUNDING,
+			Message:  string(msg),
+			PlayerId: f.session.OwnerUID.String(),
+		})
+	} else {
+		f.server.log.Warnf("trackEscrowFunding: marshal payload: %v", err)
+	}
+	if state == escrowStateInvalid {
+		f.server.log.Warnf("escrow funding invalid id=%s reason=%s", f.session.EscrowID, reason)
+	}
+}
+
+func (f *escrowFundingFSM) runStateLoopForState(state string, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoop(in, state)
+}
+
+func stateEscrowUnfunded(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateUnfunded, in)
+}
+
+func stateEscrowMempool(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateMempool, in)
+}
+
+func stateEscrowConfirming(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateConfirming, in)
+}
+
+func stateEscrowReady(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateReady, in)
+}
+
+func stateEscrowCsvMatured(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateCsvMatured, in)
+}
+
+func stateEscrowSpent(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateSpent, in)
+}
+
+func stateEscrowInvalid(f *escrowFundingFSM, in <-chan any) statemachine.StateFn[escrowFundingFSM] {
+	return f.runStateLoopForState(escrowStateInvalid, in)
+}
+
 // trackEscrowFunding records funding updates into the escrow session.
 func (s *Server) trackEscrowFunding(es *refereeEscrowSession, updates <-chan chainwatcher.DepositUpdate) {
-	for u := range updates {
-		es.mu.Lock()
-		prevConfs := es.LatestFunding.Confs
-		prevUTXOCount := es.LatestFunding.UTXOCount
-		es.LatestFunding = u
-		s.log.Debugf("escrow funding update id=%s confs=%d utxos=%d prevConfs=%d", es.EscrowID, u.Confs, u.UTXOCount, prevConfs)
-		// Auto-bind when exactly one UTXO and at least 1 conf.
-		if u.UTXOCount == 1 && u.Confs >= 1 && len(u.UTXOs) == 1 {
-			if u.UTXOs[0].Value == es.AmountAtoms {
-				es.BoundUTXO = cloneUTXO(u.UTXOs[0])
-			} else {
-				es.BoundUTXO = nil
-			}
-		} else if u.UTXOCount != 1 {
-			es.BoundUTXO = nil
-		}
-		es.mu.Unlock()
-
-		if u.UTXOCount > 1 && u.UTXOCount != prevUTXOCount {
-			payload := map[string]interface{}{
-				"type":       "escrow_funding",
-				"escrow_id":  es.EscrowID,
-				"utxo_count": u.UTXOCount,
-				"error":      fmt.Sprintf("expected a single funding UTXO, found %d", u.UTXOCount),
-			}
-			if msg, err := json.Marshal(payload); err == nil {
-				s.notifyPlayer(es.OwnerUID.String(), &pokerrpc.Notification{
-					Type:     pokerrpc.NotificationType_ESCROW_FUNDING,
-					Message:  string(msg),
-					PlayerId: es.OwnerUID.String(),
-				})
-			} else {
-				s.log.Warnf("trackEscrowFunding: marshal multi-utxo payload: %v", err)
-			}
-		}
-
-		// Emit funding status updates to the escrow owner so the UI can refresh
-		// cached escrow metadata without polling. Notify once on first sighting
-		// (mempool) and once on first confirmation to reduce noise.
-		shouldNotify := (prevUTXOCount == 0 && u.UTXOCount >= 1) || (u.Confs == 1 && prevConfs < 1)
-		if shouldNotify {
-			amountAtoms := es.AmountAtoms
-			if len(u.UTXOs) >= 1 {
-				amountAtoms = u.UTXOs[0].Value
-			}
-			payload := map[string]interface{}{
-				"type":                   "escrow_funding",
-				"escrow_id":              es.EscrowID,
-				"confs":                  u.Confs,
-				"utxo_count":             u.UTXOCount,
-				"csv_blocks":             es.CSVBlocks,
-				"required_confirmations": uint32(1),
-				"mature_for_csv":         u.Confs >= es.CSVBlocks,
-				"amount_atoms":           amountAtoms,
-			}
-			if len(u.UTXOs) >= 1 {
-				payload["funding_txid"] = u.UTXOs[0].Txid
-				payload["funding_vout"] = u.UTXOs[0].Vout
-				if u.Confs > 0 {
-					payload["confirmed_height"] = u.Confs // height unavailable; best-effort marker
-				}
-			}
-			msg, err := json.Marshal(payload)
-			if err != nil {
-				s.log.Warnf("trackEscrowFunding: marshal payload: %v", err)
-				continue
-			}
-			s.notifyPlayer(es.OwnerUID.String(), &pokerrpc.Notification{
-				Type:     pokerrpc.NotificationType_ESCROW_FUNDING,
-				Message:  string(msg),
-				PlayerId: es.OwnerUID.String(),
-			})
-			s.log.Debugf("escrow funding notify id=%s confs=%d utxos=%d", es.EscrowID, u.Confs, u.UTXOCount)
-
-		}
-
+	if es == nil {
+		return
 	}
+	fsmCtx := &escrowFundingFSM{
+		server:                s,
+		session:               es,
+		requiredConfirmations: escrowRequiredConfirmations,
+	}
+	machine := statemachine.New(fsmCtx, stateEscrowUnfunded, 32)
+	machine.Start(context.Background())
+	initial := es.latestFundingCopy()
+	if initial.UTXOCount > 0 || initial.OK || !initial.At.IsZero() {
+		machine.Send(&escrowFundingEvent{update: initial})
+	}
+	for u := range updates {
+		machine.Send(&escrowFundingEvent{update: u})
+	}
+	machine.Stop()
+}
+
+func (s *Server) subscribeEscrow(es *refereeEscrowSession) {
+	if es == nil || es.PkScriptHex == "" || s.chainWatcher == nil {
+		return
+	}
+	es.mu.Lock()
+	if es.WatcherUnsub != nil {
+		es.mu.Unlock()
+		return
+	}
+	es.mu.Unlock()
+	updates, unsub := s.chainWatcher.Subscribe(es.PkScriptHex)
+	es.mu.Lock()
+	es.WatcherUnsub = unsub
+	es.mu.Unlock()
+	go s.trackEscrowFunding(es, updates)
 }
 
 // GetFinalizeBundle returns the winning branch draft and presign artifacts.
@@ -952,6 +1236,7 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pokerrpc.GetFinaliz
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "match not ready: %v", err)
 	}
+	escrowsLen := len(escrows)
 
 	// Map table seat to branch index (branches are indexed by sorted UTXO order, not seat order)
 	branch, err := s.seatToBranchIndex(matchID, tableSeat)
@@ -963,28 +1248,35 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pokerrpc.GetFinaliz
 		return nil, status.Errorf(codes.InvalidArgument, "branch %d (from seat %d) out of range (n=%d)", branch, tableSeat, len(escrows))
 	}
 
-	// Fetch presigns + gamma for requested branch.
+	// Fetch presigns + gamma for requested branch. We must read the presigns
+	// map while holding the referee mutex to avoid racing concurrent writes
+	// from storePresigs.
 	s.referee.mu.RLock()
-	pres := s.referee.presigns[matchID][branch]
 	gammaHex := s.referee.branchGamma[matchID][branch]
+	presMap := s.referee.presigns[matchID][branch]
+	seatsMap := s.referee.matchEscrows[matchID]
+
+	var inputs []*refereePreSignCtx
+	for _, ctx := range presMap {
+		inputs = append(inputs, ctx)
+	}
+	s.log.Debugf("GetFinalizeBundle: match=%s branch=%d seatsMap=%d presCount=%d escrowsLen=%d",
+		matchID, branch, len(seatsMap), len(inputs), escrowsLen)
 	s.referee.mu.RUnlock()
+
 	if gammaHex == "" {
 		return nil, status.Errorf(codes.FailedPrecondition, "gamma not cached for match %s branch %d", matchID, branch)
 	}
-	if len(pres) == 0 {
+	if len(inputs) == 0 {
 		return nil, status.Errorf(codes.FailedPrecondition, "no presigs stored for match %s branch %d", matchID, branch)
 	}
 
-	// Collect inputs sorted by input index for determinism.
-	var inputs []*refereePreSignCtx
-	for _, ctx := range pres {
-		inputs = append(inputs, ctx)
-	}
+	// Sort inputs by input index for determinism.
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].InputIndex < inputs[j].InputIndex })
 
 	// Ensure we have one presig per escrow/input.
-	if len(inputs) != len(escrows) {
-		return nil, status.Errorf(codes.FailedPrecondition, "presigs incomplete for branch %d: have %d, want %d", branch, len(inputs), len(escrows))
+	if len(inputs) != escrowsLen {
+		return nil, status.Errorf(codes.FailedPrecondition, "presigs incomplete for branch %d: have %d, want %d", branch, len(inputs), escrowsLen)
 	}
 
 	resp := &pokerrpc.GetFinalizeBundleResponse{
@@ -1152,9 +1444,8 @@ func (s *Server) GetEscrowStatus(ctx context.Context, req *pokerrpc.GetEscrowSta
 	resp := &pokerrpc.GetEscrowStatusResponse{
 		EscrowId:              es.EscrowID,
 		CsvBlocks:             es.CSVBlocks,
-		RequiredConfirmations: 1,
+		RequiredConfirmations: escrowRequiredConfirmations,
 		AmountAtoms:           es.AmountAtoms,
-		PkScriptHex:           es.PkScriptHex,
 	}
 
 	es.mu.RLock()
@@ -1189,16 +1480,15 @@ func (s *Server) TestBindEscrowFunding(escrowID, txid string, vout uint32, amoun
 		return
 	}
 	u := &chainwatcher.EscrowUTXO{Txid: txid, Vout: vout, Value: amount, PkScriptHex: es.PkScriptHex}
-	es.mu.Lock()
-	es.LatestFunding = chainwatcher.DepositUpdate{
+	update := chainwatcher.DepositUpdate{
 		PkScriptHex: es.PkScriptHex,
 		Confs:       1,
 		UTXOCount:   1,
 		OK:          true,
 		UTXOs:       []*chainwatcher.EscrowUTXO{u},
 	}
-	es.BoundUTXO = cloneUTXO(u)
-	es.mu.Unlock()
+	decision := classifyEscrowFundingState(amount, es.CSVBlocks, escrowRequiredConfirmations, true, update)
+	es.updateFundingState(decision.state, decision.reason, update, decision.bound)
 }
 
 // TestBindEscrowToMatch binds an escrow to a match/seat and table user model (testing only).
@@ -1335,6 +1625,11 @@ func (s *Server) seatToBranchIndex(matchID string, tableSeat int32) (int32, erro
 	}
 
 	return -1, fmt.Errorf("table seat %d not found in match escrows", tableSeat)
+}
+
+// BranchIndexForSeat exposes the internal seat-to-branch mapping used by settlements.
+func (s *Server) BranchIndexForSeat(matchID string, tableSeat int32) (int32, error) {
+	return s.seatToBranchIndex(matchID, tableSeat)
 }
 
 // IsPresigningComplete checks if all seats bound to a match have completed presigning.
@@ -1502,19 +1797,36 @@ func ensureBoundFunding(es *refereeEscrowSession) (*chainwatcher.EscrowUTXO, err
 	if es == nil {
 		return nil, fmt.Errorf("nil escrow")
 	}
-	es.mu.RLock()
-	bound := cloneUTXO(es.BoundUTXO)
-	amt := es.AmountAtoms
-	es.mu.RUnlock()
-	if bound != nil && bound.Value == amt {
+	state, reason, bound := es.fundingStateSnapshot()
+	if state == escrowStateReady {
+		if bound == nil {
+			return nil, fmt.Errorf("escrow ready but bound funding missing")
+		}
+		if bound.Value != es.AmountAtoms {
+			return nil, fmt.Errorf("funding amount mismatch: have %d want %d", bound.Value, es.AmountAtoms)
+		}
 		return bound, nil
 	}
-	if err := enforceSingleFunding(es); err != nil {
-		return nil, err
+	msg := reason
+	if msg == "" {
+		switch state {
+		case escrowStateUnfunded:
+			msg = "escrow has never been funded"
+		case escrowStateMempool:
+			msg = "escrow funding still in mempool"
+		case escrowStateConfirming:
+			msg = "escrow funding waiting for confirmations"
+		case escrowStateCsvMatured:
+			msg = "escrow funding expired (CSV matured)"
+		case escrowStateSpent:
+			msg = "escrow funding output already spent"
+		case escrowStateInvalid:
+			msg = "escrow funding invalid (multi-utxo or amount mismatch)"
+		default:
+			msg = fmt.Sprintf("escrow not ready (%s)", state)
+		}
 	}
-	es.mu.RLock()
-	defer es.mu.RUnlock()
-	return cloneUTXO(es.BoundUTXO), nil
+	return nil, fmt.Errorf(msg)
 }
 
 func shortIDFromString(s string) (zkidentity.ShortID, error) {

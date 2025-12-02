@@ -35,12 +35,16 @@ const (
 	CTStartPreSign       CmdType = 0x0c
 	CTBindEscrow         CmdType = 0x0d
 	// Archive current session key into historic dir using match_id
-	CTArchiveSessionKey CmdType = 0x0e
-	CTDeriveSessionKey  CmdType = 0x0f
-	CTGetEscrowStatus   CmdType = 0x30
-	CTGetEscrowHistory  CmdType = 0x31
-	CTGetFinalizeBundle CmdType = 0x32 // Get gamma + presigs for settlement finalization
-	CTGetEscrowById     CmdType = 0x33 // Get single escrow info by ID (includes comp_priv)
+	CTArchiveSessionKey   CmdType = 0x0e
+	CTDeriveSessionKey    CmdType = 0x0f
+	CTGetEscrowStatus     CmdType = 0x30
+	CTGetEscrowHistory    CmdType = 0x31
+	CTGetFinalizeBundle   CmdType = 0x32 // Get gamma + presigs for settlement finalization
+	CTGetEscrowById       CmdType = 0x33 // Get single escrow info by ID (includes comp_priv)
+	CTGetBindableEscrows  CmdType = 0x34 // Get currently bindable escrows
+	CTRefundEscrow        CmdType = 0x35 // Build CSV refund tx for a historic escrow
+	CTUpdateEscrowHistory CmdType = 0x36
+	CTDeleteEscrowHistory CmdType = 0x37
 
 	// Poker-specific commands
 	CTGetPlayerCurrentTable   CmdType = 0x10
@@ -72,6 +76,7 @@ const (
 	CTResumeSession    CmdType = 0x28
 	CTRequestLoginCode CmdType = 0x29
 	CTSetPayoutAddress CmdType = 0x2a
+	CTGetPayoutAddress CmdType = 0x2b
 
 	CTCreateLockFile        CmdType = 0x60
 	CTCloseLockFile         CmdType = 0x61
@@ -240,6 +245,18 @@ func call(cmd *cmd) *CmdResult {
 		var req setPayoutAddressReq
 		if decode(&req) {
 			v, err = handleSetPayoutAddress(uint32(cmd.ClientHandle), req)
+		}
+
+	case CTGetPayoutAddress:
+		{
+			cmtx.Lock()
+			cc := cs[uint32(cmd.ClientHandle)]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				v, err = nil, fmt.Errorf("poker client not initialized")
+			} else {
+				v = map[string]string{"payout_address": cc.c.PayoutAddress()}
+			}
 		}
 
 	case CTLogout:

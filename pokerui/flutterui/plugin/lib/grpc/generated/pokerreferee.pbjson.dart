@@ -140,7 +140,6 @@ const GetEscrowStatusResponse$json = {
     {'1': 'funding_txid', '3': 6, '4': 1, '5': 9, '10': 'fundingTxid'},
     {'1': 'funding_vout', '3': 7, '4': 1, '5': 13, '10': 'fundingVout'},
     {'1': 'amount_atoms', '3': 8, '4': 1, '5': 4, '10': 'amountAtoms'},
-    {'1': 'pk_script_hex', '3': 9, '4': 1, '5': 9, '10': 'pkScriptHex'},
     {'1': 'csv_blocks', '3': 10, '4': 1, '5': 13, '10': 'csvBlocks'},
     {
       '1': 'required_confirmations',
@@ -159,10 +158,10 @@ final $typed_data.Uint8List getEscrowStatusResponseDescriptor = $convert.base64D
     'QKBWNvbmZzGAIgASgNUgVjb25mcxIdCgp1dHhvX2NvdW50GAMgASgNUgl1dHhvQ291bnQSDgoC'
     'b2sYBCABKAhSAm9rEiYKD3VwZGF0ZWRfYXRfdW5peBgFIAEoA1INdXBkYXRlZEF0VW5peBIhCg'
     'xmdW5kaW5nX3R4aWQYBiABKAlSC2Z1bmRpbmdUeGlkEiEKDGZ1bmRpbmdfdm91dBgHIAEoDVIL'
-    'ZnVuZGluZ1ZvdXQSIQoMYW1vdW50X2F0b21zGAggASgEUgthbW91bnRBdG9tcxIiCg1wa19zY3'
-    'JpcHRfaGV4GAkgASgJUgtwa1NjcmlwdEhleBIdCgpjc3ZfYmxvY2tzGAogASgNUgljc3ZCbG9j'
-    'a3MSNQoWcmVxdWlyZWRfY29uZmlybWF0aW9ucxgLIAEoDVIVcmVxdWlyZWRDb25maXJtYXRpb2'
-    '5zEiQKDm1hdHVyZV9mb3JfY3N2GAwgASgIUgxtYXR1cmVGb3JDc3Y=');
+    'ZnVuZGluZ1ZvdXQSIQoMYW1vdW50X2F0b21zGAggASgEUgthbW91bnRBdG9tcxIdCgpjc3ZfYm'
+    'xvY2tzGAogASgNUgljc3ZCbG9ja3MSNQoWcmVxdWlyZWRfY29uZmlybWF0aW9ucxgLIAEoDVIV'
+    'cmVxdWlyZWRDb25maXJtYXRpb25zEiQKDm1hdHVyZV9mb3JfY3N2GAwgASgIUgxtYXR1cmVGb3'
+    'JDc3Y=');
 
 @$core.Deprecated('Use publishSessionKeyRequestDescriptor instead')
 const PublishSessionKeyRequest$json = {

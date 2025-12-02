@@ -74,22 +74,7 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 	defer boot1.conn.Close()
 	defer boot1.grpc.Stop()
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "player1", "player2"
-	setBalance(boot1.lc, p1, 10_000)
-	setBalance(boot1.lc, p2, 10_000)
-
 	// Create table and join players
 	tableResp, err := boot1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      p1,

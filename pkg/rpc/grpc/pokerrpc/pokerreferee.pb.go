@@ -443,7 +443,6 @@ type GetEscrowStatusResponse struct {
 	FundingTxid           string                 `protobuf:"bytes,6,opt,name=funding_txid,json=fundingTxid,proto3" json:"funding_txid,omitempty"`
 	FundingVout           uint32                 `protobuf:"varint,7,opt,name=funding_vout,json=fundingVout,proto3" json:"funding_vout,omitempty"`
 	AmountAtoms           uint64                 `protobuf:"varint,8,opt,name=amount_atoms,json=amountAtoms,proto3" json:"amount_atoms,omitempty"`
-	PkScriptHex           string                 `protobuf:"bytes,9,opt,name=pk_script_hex,json=pkScriptHex,proto3" json:"pk_script_hex,omitempty"`
 	CsvBlocks             uint32                 `protobuf:"varint,10,opt,name=csv_blocks,json=csvBlocks,proto3" json:"csv_blocks,omitempty"`
 	RequiredConfirmations uint32                 `protobuf:"varint,11,opt,name=required_confirmations,json=requiredConfirmations,proto3" json:"required_confirmations,omitempty"`
 	MatureForCsv          bool                   `protobuf:"varint,12,opt,name=mature_for_csv,json=matureForCsv,proto3" json:"mature_for_csv,omitempty"`
@@ -535,13 +534,6 @@ func (x *GetEscrowStatusResponse) GetAmountAtoms() uint64 {
 		return x.AmountAtoms
 	}
 	return 0
-}
-
-func (x *GetEscrowStatusResponse) GetPkScriptHex() string {
-	if x != nil {
-		return x.PkScriptHex
-	}
-	return ""
 }
 
 func (x *GetEscrowStatusResponse) GetCsvBlocks() uint32 {
@@ -1649,7 +1641,7 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\boutpoint\x18\t \x01(\tR\boutpoint\"K\n" +
 	"\x16GetEscrowStatusRequest\x12\x1b\n" +
 	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12\x14\n" +
-	"\x05token\x18\x02 \x01(\tR\x05token\"\xac\x03\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"\x88\x03\n" +
 	"\x17GetEscrowStatusResponse\x12\x1b\n" +
 	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12\x14\n" +
 	"\x05confs\x18\x02 \x01(\rR\x05confs\x12\x1d\n" +
@@ -1659,8 +1651,7 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\x0fupdated_at_unix\x18\x05 \x01(\x03R\rupdatedAtUnix\x12!\n" +
 	"\ffunding_txid\x18\x06 \x01(\tR\vfundingTxid\x12!\n" +
 	"\ffunding_vout\x18\a \x01(\rR\vfundingVout\x12!\n" +
-	"\famount_atoms\x18\b \x01(\x04R\vamountAtoms\x12\"\n" +
-	"\rpk_script_hex\x18\t \x01(\tR\vpkScriptHex\x12\x1d\n" +
+	"\famount_atoms\x18\b \x01(\x04R\vamountAtoms\x12\x1d\n" +
 	"\n" +
 	"csv_blocks\x18\n" +
 	" \x01(\rR\tcsvBlocks\x125\n" +

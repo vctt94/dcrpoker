@@ -32,40 +32,54 @@ class InLobbyView extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('Table ${_short(t.id)} • Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR'),
+                Text(
+                    'Table ${_short(t.id)} • Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR'),
                 const SizedBox(height: 12),
                 if (escrows.isNotEmpty)
                   DropdownButtonFormField<String>(
                     value: selectedOutpoint,
-                    decoration: const InputDecoration(labelText: 'Choose funding outpoint'),
+                    decoration: const InputDecoration(
+                        labelText: 'Choose funding outpoint'),
                     items: escrows
                         .map((e) => DropdownMenuItem(
-                              value: '${e['funding_txid'] ?? ''}:${(e['funding_vout'] ?? 0).toString()}',
-                              child: Text('${_short(e['funding_txid'] ?? '')}:${e['funding_vout'] ?? 0} • ${(e['funded_amount'] ?? 0) / 1e8} DCR'),
+                              value:
+                                  '${e['funding_txid'] ?? ''}:${(e['funding_vout'] ?? 0).toString()}',
+                              child: Text(
+                                  '${_short(e['funding_txid'] ?? '')}:${e['funding_vout'] ?? 0} • ${(e['funded_amount'] ?? 0) / 1e8} DCR'),
                             ))
                         .toList(),
                     onChanged: (v) => selectedOutpoint = v,
                   ),
                 TextFormField(
                   controller: escrowCtrl,
-                  decoration: const InputDecoration(labelText: 'Outpoint txid:vout (override)'),
+                  decoration: const InputDecoration(
+                      labelText: 'Outpoint txid:vout (override)'),
                   validator: (v) {
-                    final chosen = (selectedOutpoint ?? '').trim().isNotEmpty ? selectedOutpoint : v?.trim();
-                    return (chosen == null || chosen.isEmpty) ? 'Outpoint required' : null;
+                    final chosen = (selectedOutpoint ?? '').trim().isNotEmpty
+                        ? selectedOutpoint
+                        : v?.trim();
+                    return (chosen == null || chosen.isEmpty)
+                        ? 'Outpoint required'
+                        : null;
                   },
                 ),
               ],
             ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+            TextButton(
+                onPressed: () => Navigator.pop(dctx),
+                child: const Text('Cancel')),
             ElevatedButton(
               onPressed: () async {
                 if (!(formKey.currentState?.validate() ?? false)) return;
                 Navigator.pop(dctx);
                 await model.bindEscrow(
                   tableId: t.id,
-                  outpoint: (escrowCtrl.text.trim().isNotEmpty ? escrowCtrl.text.trim() : selectedOutpoint) ?? '',
+                  outpoint: (escrowCtrl.text.trim().isNotEmpty
+                          ? escrowCtrl.text.trim()
+                          : selectedOutpoint) ??
+                      '',
                 );
               },
               child: const Text('Bind'),
@@ -106,7 +120,8 @@ class InLobbyView extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 720),
           child: Card(
             color: const Color(0xFF1B1E2C),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -116,11 +131,17 @@ class InLobbyView extends StatelessWidget {
                     children: [
                       const Icon(Icons.table_restaurant, color: Colors.blue),
                       const SizedBox(width: 8),
-                      Text('Table ${_short(table.id)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white)),
+                      Text('Table ${_short(table.id)}',
+                          style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white)),
                       const Spacer(),
                       Chip(
                         label: Text(model.iAmReady ? 'Ready' : 'Not Ready'),
-                        backgroundColor: model.iAmReady ? Colors.green.shade700 : Colors.orange.shade700,
+                        backgroundColor: model.iAmReady
+                            ? Colors.green.shade700
+                            : Colors.orange.shade700,
                         labelStyle: const TextStyle(color: Colors.white),
                       ),
                     ],
@@ -133,27 +154,34 @@ class InLobbyView extends StatelessWidget {
                   const SizedBox(height: 12),
                   const Divider(color: Colors.white24),
                   const SizedBox(height: 8),
-                  const Text('Players', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                  const Text('Players',
+                      style: TextStyle(
+                          color: Colors.white70, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   if (gamePlayers.isEmpty)
-                    const Text('Waiting for players...', style: TextStyle(color: Colors.white54))
+                    const Text('Waiting for players...',
+                        style: TextStyle(color: Colors.white54))
                   else
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: gamePlayers.map((p) => _buildPlayerPill(p, model.playerId)).toList(),
+                      children: gamePlayers
+                          .map((p) => _buildPlayerPill(p, model.playerId))
+                          .toList(),
                     ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
                       ElevatedButton(
-                        onPressed: model.iAmReady ? model.setUnready : model.setReady,
+                        onPressed:
+                            model.iAmReady ? model.setUnready : model.setReady,
                         child: Text(model.iAmReady ? 'Unready' : 'Ready'),
                       ),
                       const Spacer(),
                       TextButton(
                         onPressed: model.leaveTable,
-                        style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+                        style: TextButton.styleFrom(
+                            foregroundColor: Colors.redAccent),
                         child: const Text('Leave Table'),
                       ),
                     ],
@@ -163,7 +191,8 @@ class InLobbyView extends StatelessWidget {
                   _buildEscrowStatePanel(context, table, model),
                   const SizedBox(height: 12),
                   // Game start status
-                  if (table.buyInAtoms > 0) _buildGameStartStatus(model, gamePlayers),
+                  if (table.buyInAtoms > 0)
+                    _buildGameStartStatus(model, gamePlayers),
                 ],
               ),
             ),
@@ -188,7 +217,9 @@ class InLobbyView extends StatelessWidget {
           color: Colors.white10,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: p.isReady ? Colors.greenAccent : Colors.orangeAccent.withOpacity(0.6),
+            color: p.isReady
+                ? Colors.greenAccent
+                : Colors.orangeAccent.withOpacity(0.6),
             width: isMe ? 2 : 1,
           ),
         ),
@@ -205,7 +236,9 @@ class InLobbyView extends StatelessWidget {
             Text(_playerLabel(p), style: const TextStyle(color: Colors.white)),
             if (isMe) ...[
               const SizedBox(width: 6),
-              const Text('(you)', style: TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
+              const Text('(you)',
+                  style:
+                      TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
             ],
             // Status indicators
             const SizedBox(width: 8),
@@ -216,7 +249,7 @@ class InLobbyView extends StatelessWidget {
               filled: p.escrowId.isNotEmpty && p.escrowReady,
             ),
             const SizedBox(width: 4),
-            // Presign indicator  
+            // Presign indicator
             _buildMiniIndicator(
               icon: Icons.draw,
               color: presignColor,
@@ -228,7 +261,8 @@ class InLobbyView extends StatelessWidget {
     );
   }
 
-  Widget _buildMiniIndicator({required IconData icon, required Color color, required bool filled}) {
+  Widget _buildMiniIndicator(
+      {required IconData icon, required Color color, required bool filled}) {
     return Container(
       width: 20,
       height: 20,
@@ -251,14 +285,21 @@ class InLobbyView extends StatelessWidget {
     } else {
       parts.add('⏳ Escrow pending');
     }
+    if (p.escrowState.isNotEmpty) {
+      parts.add('State: ${_friendlyEscrowState(p.escrowState)}');
+    }
     parts.add(p.presignComplete ? '✓ Presigned' : '○ Not presigned');
     return parts.join('\n');
   }
 
-  Widget _buildEscrowStatePanel(BuildContext context, UiTable table, PokerModel model) {
+  Widget _buildEscrowStatePanel(
+      BuildContext context, UiTable table, PokerModel model) {
     final myEscrowId = model.cachedEscrowId;
     final myEscrowReady = model.cachedEscrowReady;
+    final myEscrowState = model.cachedEscrowState;
     final presignCompleted = model.presignCompleted;
+    final canChangeEscrow =
+        !table.gameStarted && !presignCompleted && !model.presignInProgress;
 
     if (myEscrowId.isEmpty) {
       // No escrow bound
@@ -274,13 +315,18 @@ class InLobbyView extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.warning_amber, size: 20, color: Colors.orange.shade400),
+                Icon(Icons.warning_amber,
+                    size: 20, color: Colors.orange.shade400),
                 const SizedBox(width: 8),
-                Text('Escrow Required', style: TextStyle(color: Colors.orange.shade400, fontWeight: FontWeight.bold)),
+                Text('Escrow Required',
+                    style: TextStyle(
+                        color: Colors.orange.shade400,
+                        fontWeight: FontWeight.bold)),
               ],
             ),
             const SizedBox(height: 8),
-            const Text('Bind an escrow to participate in this table.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+            const Text('Bind an escrow to participate in this table.',
+                style: TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(height: 12),
             OutlinedButton.icon(
               onPressed: () => _showBindDialog(context, table),
@@ -297,8 +343,10 @@ class InLobbyView extends StatelessWidget {
     }
 
     // Escrow is bound - show detailed status
-    final escrowShort = myEscrowId.length > 12 ? '${myEscrowId.substring(0, 8)}...' : myEscrowId;
-    
+    final escrowShort = myEscrowId.length > 12
+        ? '${myEscrowId.substring(0, 8)}...'
+        : myEscrowId;
+
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -309,7 +357,11 @@ class InLobbyView extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Settlement Status', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13)),
+          const Text('Settlement Status',
+              style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13)),
           const SizedBox(height: 12),
           // Escrow status row
           _buildStatusRow(
@@ -317,8 +369,28 @@ class InLobbyView extends StatelessWidget {
             label: 'Escrow',
             value: escrowShort,
             status: myEscrowReady ? 'Funded' : 'Pending',
-            statusColor: myEscrowReady ? Colors.greenAccent : Colors.amberAccent,
+            statusColor:
+                myEscrowReady ? Colors.greenAccent : Colors.amberAccent,
           ),
+          if (myEscrowState.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(Icons.timeline, size: 16, color: Colors.white54),
+                const SizedBox(width: 8),
+                const Text('State: ',
+                    style: TextStyle(color: Colors.white54, fontSize: 13)),
+                Text(
+                  _friendlyEscrowState(myEscrowState),
+                  style: TextStyle(
+                    color: _escrowStateColor(myEscrowState),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 8),
           // Presign status row (handled automatically by golib)
           _buildStatusRow(
@@ -328,6 +400,18 @@ class InLobbyView extends StatelessWidget {
             status: presignCompleted ? '✓' : '○',
             statusColor: presignCompleted ? Colors.greenAccent : Colors.white54,
           ),
+          if (canChangeEscrow) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _showBindDialog(context, table),
+              icon: const Icon(Icons.swap_horiz, size: 16),
+              label: const Text('Change Escrow'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.lightBlueAccent,
+                side: const BorderSide(color: Colors.lightBlueAccent),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -344,9 +428,11 @@ class InLobbyView extends StatelessWidget {
       children: [
         Icon(icon, size: 16, color: Colors.white54),
         const SizedBox(width: 8),
-        Text('$label: ', style: const TextStyle(color: Colors.white54, fontSize: 13)),
+        Text('$label: ',
+            style: const TextStyle(color: Colors.white54, fontSize: 13)),
         Expanded(
-          child: Text(value, style: const TextStyle(color: Colors.white, fontSize: 13)),
+          child: Text(value,
+              style: const TextStyle(color: Colors.white, fontSize: 13)),
         ),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -354,7 +440,11 @@ class InLobbyView extends StatelessWidget {
             color: statusColor.withOpacity(0.15),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Text(status, style: TextStyle(color: statusColor, fontSize: 12, fontWeight: FontWeight.bold)),
+          child: Text(status,
+              style: TextStyle(
+                  color: statusColor,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold)),
         ),
       ],
     );
@@ -365,11 +455,13 @@ class InLobbyView extends StatelessWidget {
     final minPlayers = 2;
     final hasEnoughPlayers = players.length >= minPlayers;
     final allReady = players.every((p) => p.isReady);
-    final allEscrowsFunded = players.every((p) => p.escrowId.isNotEmpty && p.escrowReady);
+    final allEscrowsFunded =
+        players.every((p) => p.escrowId.isNotEmpty && p.escrowReady);
     final allPresigned = players.every((p) => p.presignComplete);
 
     final readyCount = players.where((p) => p.isReady).length;
-    final escrowCount = players.where((p) => p.escrowId.isNotEmpty && p.escrowReady).length;
+    final escrowCount =
+        players.where((p) => p.escrowId.isNotEmpty && p.escrowReady).length;
     final presignCount = players.where((p) => p.presignComplete).length;
     final totalPlayers = players.length;
 
@@ -412,7 +504,8 @@ class InLobbyView extends StatelessWidget {
           Icon(statusIcon, size: 18, color: statusColor),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(statusMessage, style: TextStyle(color: statusColor, fontSize: 13)),
+            child: Text(statusMessage,
+                style: TextStyle(color: statusColor, fontSize: 13)),
           ),
           // Progress indicator
           if (!allPresigned && allReady && allEscrowsFunded)
@@ -427,5 +520,42 @@ class InLobbyView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _friendlyEscrowState(String state) {
+    switch (state) {
+      case 'ESCROW_STATE_READY':
+        return 'Ready';
+      case 'ESCROW_STATE_MEMPOOL':
+        return 'Mempool';
+      case 'ESCROW_STATE_CONFIRMING':
+        return 'Confirming';
+      case 'ESCROW_STATE_CSV_MATURED':
+        return 'CSV matured';
+      case 'ESCROW_STATE_SPENT':
+        return 'Spent';
+      case 'ESCROW_STATE_INVALID':
+        return 'Invalid';
+      case 'ESCROW_STATE_UNFUNDED':
+        return 'Unfunded';
+      default:
+        return state;
+    }
+  }
+
+  Color _escrowStateColor(String state) {
+    switch (state) {
+      case 'ESCROW_STATE_READY':
+        return Colors.greenAccent;
+      case 'ESCROW_STATE_MEMPOOL':
+      case 'ESCROW_STATE_CONFIRMING':
+        return Colors.amberAccent;
+      case 'ESCROW_STATE_CSV_MATURED':
+      case 'ESCROW_STATE_SPENT':
+      case 'ESCROW_STATE_INVALID':
+        return Colors.redAccent;
+      default:
+        return Colors.white54;
+    }
   }
 }

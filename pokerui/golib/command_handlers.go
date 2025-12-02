@@ -196,7 +196,7 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				PKScriptHex:     resp.PkScriptHex,
 				CSVBlocks:       uint32(req.CSVBlocks),
 				Status:          "opened",
-				KeyIndex:        uint32(req.KeyIndex), // cache derivation index (not the private key itself)
+				KeyIndex:        uint32(req.KeyIndex),
 			}
 			if err := cc.c.CacheEscrowInfo(info); err != nil && cc.log != nil {
 				cc.log.Warnf("failed to cache escrow info %s: %v", resp.EscrowId, err)
@@ -244,7 +244,6 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				"funding_txid":           resp.GetFundingTxid(),
 				"funding_vout":           resp.GetFundingVout(),
 				"amount_atoms":           resp.GetAmountAtoms(),
-				"pk_script_hex":          resp.GetPkScriptHex(),
 				"csv_blocks":             resp.GetCsvBlocks(),
 				"required_confirmations": resp.GetRequiredConfirmations(),
 				"mature_for_csv":         resp.GetMatureForCsv(),
@@ -264,6 +263,158 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				return nil, err
 			}
 			return hist, nil
+		}
+
+	case CTGetBindableEscrows:
+		{
+			cmtx.Lock()
+			cc := cs[handle]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				return nil, fmt.Errorf("client not initialized")
+			}
+			if cc.Token == "" {
+				return nil, fmt.Errorf("no session token; login first")
+			}
+			escrows, err := cc.c.GetBindableEscrows(cc.ctx, cc.Token)
+			if err != nil {
+				return nil, err
+			}
+			return escrows, nil
+		}
+
+	case CTRefundEscrow:
+		{
+			var req struct {
+				EscrowID  string `json:"escrow_id"`
+				DestAddr  string `json:"dest_addr"`
+				FeeAtoms  uint64 `json:"fee_atoms"`
+				CSVBlocks uint32 `json:"csv_blocks"`
+				UtxoValue uint64 `json:"utxo_value,omitempty"`
+			}
+			if err := decodeStrict(cmd.Payload, &req); err != nil {
+				return nil, fmt.Errorf("refund escrow payload: %w", err)
+			}
+			if strings.TrimSpace(req.EscrowID) == "" {
+				return nil, fmt.Errorf("refund escrow requires escrow_id")
+			}
+			if strings.TrimSpace(req.DestAddr) == "" {
+				return nil, fmt.Errorf("refund escrow requires dest_addr")
+			}
+			cmtx.Lock()
+			cc := cs[handle]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				return nil, fmt.Errorf("client not initialized")
+			}
+			feeAtoms := req.FeeAtoms
+			if feeAtoms == 0 {
+				feeAtoms = 20000
+			}
+			res, err := cc.c.RefundEscrow(req.EscrowID, req.DestAddr, feeAtoms, req.CSVBlocks, req.UtxoValue)
+			if err != nil {
+				return nil, err
+			}
+			return res, nil
+		}
+
+	case CTUpdateEscrowHistory:
+		{
+			var payload map[string]interface{}
+			if err := json.Unmarshal(cmd.Payload, &payload); err != nil {
+				return nil, fmt.Errorf("update escrow history payload: %v", err)
+			}
+			escrowIDRaw, ok := payload["escrow_id"]
+			if !ok {
+				return nil, fmt.Errorf("update escrow history payload missing escrow_id")
+			}
+			escrowID := strings.TrimSpace(fmt.Sprint(escrowIDRaw))
+			if escrowID == "" {
+				return nil, fmt.Errorf("update escrow history payload missing escrow_id")
+			}
+			info := &client.EscrowInfo{EscrowID: escrowID}
+			if txid, ok := payload["funding_txid"].(string); ok {
+				info.FundingTxid = strings.TrimSpace(txid)
+			}
+			if v, exists := payload["funding_vout"]; exists {
+				switch vv := v.(type) {
+				case float64:
+					info.FundingVout = uint32(vv)
+				case int:
+					info.FundingVout = uint32(vv)
+				case int32:
+					info.FundingVout = uint32(vv)
+				case int64:
+					info.FundingVout = uint32(vv)
+				}
+			}
+			if amount, exists := payload["funded_amount"]; exists {
+				switch av := amount.(type) {
+				case float64:
+					info.FundedAmount = uint64(av)
+				case int:
+					info.FundedAmount = uint64(av)
+				case int32:
+					info.FundedAmount = uint64(av)
+				case int64:
+					info.FundedAmount = uint64(av)
+				}
+			}
+			if redeem, ok := payload["redeem_script_hex"].(string); ok {
+				info.RedeemScriptHex = strings.TrimSpace(redeem)
+			}
+			if pk, ok := payload["pk_script_hex"].(string); ok {
+				info.PKScriptHex = strings.TrimSpace(pk)
+			}
+			if csv, exists := payload["csv_blocks"]; exists {
+				switch cv := csv.(type) {
+				case float64:
+					info.CSVBlocks = uint32(cv)
+				case int:
+					info.CSVBlocks = uint32(cv)
+				case int32:
+					info.CSVBlocks = uint32(cv)
+				case int64:
+					info.CSVBlocks = uint32(cv)
+				}
+			}
+			if status, ok := payload["status"].(string); ok {
+				info.Status = strings.TrimSpace(status)
+			}
+			cmtx.Lock()
+			cc := cs[handle]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				return nil, fmt.Errorf("client not initialized")
+			}
+			if err := cc.c.UpdateEscrowHistory(info); err != nil {
+				return nil, err
+			}
+			return map[string]string{"status": "updated"}, nil
+		}
+
+	case CTDeleteEscrowHistory:
+		{
+			var req struct {
+				EscrowID string `json:"escrow_id"`
+			}
+			if err := decodeStrict(cmd.Payload, &req); err != nil {
+				return nil, fmt.Errorf("delete escrow history payload: %w", err)
+			}
+			escrowID := strings.TrimSpace(req.EscrowID)
+			if escrowID == "" {
+				return nil, fmt.Errorf("delete escrow history payload missing escrow_id")
+			}
+			cmtx.Lock()
+			cc := cs[handle]
+			cmtx.Unlock()
+			if cc == nil || cc.c == nil {
+				return nil, fmt.Errorf("client not initialized")
+			}
+			if err := cc.c.DeleteEscrowHistory(escrowID); err != nil {
+				return nil, err
+			}
+			return map[string]string{"status": "deleted"}, nil
 		}
 
 	case CTGetEscrowById:

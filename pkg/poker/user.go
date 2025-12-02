@@ -1,6 +1,7 @@
 package poker
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -72,16 +73,17 @@ func NewUser(id string, table *Table, opts *AddUserOptions) *User {
 	}
 
 	user := &User{
-		ID:            id,
-		Name:          cfg.DisplayName,
-		table:         table,
-		TableSeat:     -1, // -1 indicates unseated
-		IsReady:       false,
-		JoinedAt:      time.Now(),
-		EscrowID:      cfg.EscrowID,
-		EscrowReady:   cfg.EscrowReady,
+		ID:          id,
+		Name:        cfg.DisplayName,
+		table:       table,
+		TableSeat:   -1, // -1 indicates unseated
+		IsReady:     false,
+		JoinedAt:    time.Now(),
+		EscrowID:    cfg.EscrowID,
+		EscrowReady: cfg.EscrowReady,
 	}
 	user.sm = statemachine.New(user, stateTableSeated, 32)
+	user.sm.Start(context.Background())
 
 	return user
 }

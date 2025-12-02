@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -43,6 +44,15 @@ type ChainWatcher struct {
 	known   map[string]map[string]*EscrowUTXO          // pkHex -> (txid:vout -> utxo)
 }
 
+var (
+	// ErrTxNotFound indicates the transaction does not exist on chain.
+	ErrTxNotFound = errors.New("tx not found")
+	// ErrVoutNotFound indicates the requested output index is out of range for the tx.
+	ErrVoutNotFound = errors.New("vout not found")
+	// ErrOutpointSpent indicates the tx/vout existed but is no longer unspent.
+	ErrOutpointSpent = errors.New("outpoint already spent")
+)
+
 func NewChainWatcher(log slog.Logger, c *rpcclient.Client) *ChainWatcher {
 	return &ChainWatcher{
 		log:     log,
@@ -72,9 +82,21 @@ func (w *ChainWatcher) LookupUTXO(outpoint string, pkScriptHex string) (*EscrowU
 	if err := chainhash.Decode(&h, parts[0]); err != nil {
 		return nil, fmt.Errorf("invalid txid")
 	}
-	res, err := w.dcrd.GetTxOut(context.Background(), &h, uint32(vout), 0, true)
+	ctx := context.Background()
+
+	// First attempt to fetch current UTXO view.
+	res, err := w.dcrd.GetTxOut(ctx, &h, uint32(vout), 0, true)
 	if err != nil || res == nil {
-		return nil, fmt.Errorf("txout not found")
+		// Distinguish between "never existed" and "already spent".
+		vtx, errTx := w.dcrd.GetRawTransactionVerbose(ctx, &h)
+		if errTx != nil || vtx == nil {
+			return nil, ErrTxNotFound
+		}
+		if int(vout) >= len(vtx.Vout) {
+			return nil, ErrVoutNotFound
+		}
+		// Tx and vout exist but there is no unspent output at this index.
+		return nil, ErrOutpointSpent
 	}
 	// Verify pkScript matches if we have one.
 	if scriptBytes != nil {

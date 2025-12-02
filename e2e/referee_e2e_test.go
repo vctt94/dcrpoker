@@ -37,12 +37,7 @@ func TestRefereePresignFlow(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Prepare two players with balances.
-	players := []string{"alice", "bob"}
 	buyIn := settlementTestBuyIn()
-	for _, p := range players {
-		env.SetBalance(ctx, p, int64(buyIn)*2)
-	}
 
 	// Create table (2 players).
 	tableID := env.CreateTableWithBuyIn(ctx, "alice", 2, 2, int64(buyIn))
@@ -136,10 +131,14 @@ func TestRefereePresignFlow(t *testing.T) {
 		t.Fatal("presign timed out (second)")
 	}
 
+	expectedBranch, err := env.PokerSrv.BranchIndexForSeat(matchID, 0)
+	require.NoError(t, err)
+
 	// Winner (alice) fetches finalize bundle for seat 0.
 	bundle, err := refAlice.GetFinalizeBundle(ctx, matchID, 0)
 	require.NoError(t, err)
-	assertFinalizeBundle(t, bundle, matchID, 0, []string{"TsRnk22spGQJTpKFcRBc281rmfNFpywh337", "TsgsQwSZTkbXPGdFBg5z3wthjkQs1EeKcJ5"}, amount, 2)
+	require.Equal(t, expectedBranch, bundle.Branch)
+	assertFinalizeBundle(t, bundle, matchID, expectedBranch, []string{"TsRnk22spGQJTpKFcRBc281rmfNFpywh337", "TsgsQwSZTkbXPGdFBg5z3wthjkQs1EeKcJ5"}, amount, 2)
 }
 
 // TestRefereePresignFlowSixPlayers exercises presign/finalize with a full 6-max table.
@@ -161,9 +160,6 @@ func TestRefereePresignFlowSixPlayers(t *testing.T) {
 	}
 
 	buyIn := settlementTestBuyIn()
-	for _, p := range players {
-		env.SetBalance(ctx, p, int64(buyIn)*2)
-	}
 	tableID := env.CreateTableWithBuyIn(ctx, "p1", 6, 6, int64(buyIn))
 	sessionID := "sess6"
 	matchID := tableID + "|" + sessionID
@@ -246,11 +242,15 @@ func TestRefereePresignFlowSixPlayers(t *testing.T) {
 		}
 	}
 
-	// Winner seat 3 fetches finalize bundle.
 	winnerSeat := int32(3)
+	expectedBranch, err := env.PokerSrv.BranchIndexForSeat(matchID, winnerSeat)
+	require.NoError(t, err)
+
+	// Winner seat 3 fetches finalize bundle.
 	bundle, err := seats[winnerSeat].ref.GetFinalizeBundle(ctx, matchID, winnerSeat)
 	require.NoError(t, err)
-	assertFinalizeBundle(t, bundle, matchID, winnerSeat, payouts, amount, len(seats))
+	require.Equal(t, expectedBranch, bundle.Branch)
+	assertFinalizeBundle(t, bundle, matchID, expectedBranch, payouts, amount, len(seats))
 }
 
 // assertFinalizeBundle verifies structural correctness of the finalize bundle.
@@ -318,12 +318,7 @@ func TestGetFinalizeBundleForWinner(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Prepare two players with balances.
-	players := []string{"alice", "bob"}
 	buyIn := settlementTestBuyIn()
-	for _, p := range players {
-		env.SetBalance(ctx, p, int64(buyIn)*2)
-	}
 
 	// Create table (2 players).
 	tableID := env.CreateTableWithBuyIn(ctx, "alice", 2, 2, int64(buyIn))
@@ -422,7 +417,9 @@ func TestGetFinalizeBundleForWinner(t *testing.T) {
 
 		// Verify finalize bundle structure.
 		require.Equal(t, matchID, bundle.MatchId)
-		require.Equal(t, winnerSeat, bundle.Branch)
+		expectedBranch, err := env.PokerSrv.BranchIndexForSeat(matchID, winnerSeat)
+		require.NoError(t, err, "BranchIndexForSeat should succeed")
+		require.Equal(t, expectedBranch, bundle.Branch)
 		require.NotEmpty(t, bundle.DraftTxHex, "DraftTxHex should be present")
 		require.NotEmpty(t, bundle.GammaHex, "GammaHex (adaptor secret) should be present")
 		require.Len(t, bundle.Inputs, 2, "Should have presigs for both inputs")
@@ -451,7 +448,9 @@ func TestGetFinalizeBundleForWinner(t *testing.T) {
 
 		// Verify finalize bundle structure.
 		require.Equal(t, matchID, bundle.MatchId)
-		require.Equal(t, winnerSeat, bundle.Branch)
+		expectedBranch, err := env.PokerSrv.BranchIndexForSeat(matchID, winnerSeat)
+		require.NoError(t, err, "BranchIndexForSeat should succeed")
+		require.Equal(t, expectedBranch, bundle.Branch)
 		require.NotEmpty(t, bundle.DraftTxHex, "DraftTxHex should be present")
 		require.NotEmpty(t, bundle.GammaHex, "GammaHex (adaptor secret) should be present")
 		require.Len(t, bundle.Inputs, 2, "Should have presigs for both inputs")
@@ -501,8 +500,6 @@ func TestSettlementMatchIDFromTable(t *testing.T) {
 	ctx := context.Background()
 
 	buyIn := settlementTestBuyIn()
-	env.SetBalance(ctx, "alice", int64(buyIn)*2)
-	env.SetBalance(ctx, "bob", int64(buyIn)*2)
 
 	tableID := env.CreateTableWithBuyIn(ctx, "alice", 2, 2, int64(buyIn))
 
@@ -621,8 +618,6 @@ func TestGameDoesNotStartWithoutPresign(t *testing.T) {
 	bobPlayerID := bobUID.String()
 
 	buyIn := settlementTestBuyIn()
-	env.SetBalance(ctx, alicePlayerID, int64(buyIn)*2)
-	env.SetBalance(ctx, bobPlayerID, int64(buyIn)*2)
 
 	// Seed auth sessions with tokens and payout addresses.
 	env.PokerSrv.TestSeedSession("alice-token", aliceUID, "TsRnk22spGQJTpKFcRBc281rmfNFpywh337", "alice")

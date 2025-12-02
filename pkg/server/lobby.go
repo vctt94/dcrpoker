@@ -198,6 +198,47 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	}, nil
 }
 
+// clearEscrowBindingForSeat removes any referee escrow binding for the given
+// table/match and seat. It also clears the bound table/seat metadata from the
+// escrow session itself, while keeping the escrow session available for
+// refunds or reuse.
+func (s *Server) clearEscrowBindingForSeat(tableID string, seat uint32) {
+	if s.referee == nil {
+		return
+	}
+
+	matchID := tableID
+
+	s.referee.mu.Lock()
+	seats := s.referee.matchEscrows[matchID]
+	if seats == nil {
+		s.referee.mu.Unlock()
+		return
+	}
+
+	escrowID := seats[seat]
+	if escrowID == "" {
+		s.referee.mu.Unlock()
+		return
+	}
+
+	delete(seats, seat)
+	es := s.referee.escrows[escrowID]
+	s.referee.mu.Unlock()
+
+	if es == nil {
+		return
+	}
+
+	es.mu.Lock()
+	if es.TableID == tableID && es.SeatIndex == seat {
+		es.TableID = ""
+		es.SessionID = ""
+		es.SeatIndex = 0
+	}
+	es.mu.Unlock()
+}
+
 func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest) (*pokerrpc.LeaveTableResponse, error) {
 	table, ok := s.getTable(req.TableId)
 	if !ok {
@@ -226,6 +267,12 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 			Success: true,
 			Message: fmt.Sprintf("You have been disconnected but your seat is reserved because you have chips remaining."),
 		}, nil
+	}
+
+	// No active game: fully leave table and clear any escrow bindings for this seat.
+	// This allows the player to re-bind a different escrow if they rejoin later.
+	if user.TableSeat >= 0 {
+		s.clearEscrowBindingForSeat(req.TableId, uint32(user.TableSeat))
 	}
 
 	// Otherwise, remove completely from the table runtime first

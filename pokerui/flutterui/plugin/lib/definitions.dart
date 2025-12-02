@@ -1218,6 +1218,44 @@ abstract class PluginPlatform {
     return _asJsonListOrWrap(res);
   }
 
+  Future<List<dynamic>> getBindableEscrows() async {
+    final res = await asyncCall(CTGetBindableEscrows, {});
+    return _asJsonListOrWrap(res);
+  }
+
+  Future<String> getPayoutAddress() async {
+    final res = await asyncCall(CTGetPayoutAddress, {});
+    final m = _asJsonMap(res);
+    final v = m['payout_address'];
+    return v == null ? '' : v.toString();
+  }
+
+  Future<Map<String, dynamic>> refundEscrow({
+    required String escrowId,
+    required String destAddr,
+    int feeAtoms = 20000,
+    int csvBlocks = 64,
+    int? utxoValue,
+  }) async {
+    final payload = {
+      'escrow_id': escrowId,
+      'dest_addr': destAddr,
+      'fee_atoms': feeAtoms,
+      'csv_blocks': csvBlocks,
+      if (utxoValue != null && utxoValue > 0) 'utxo_value': utxoValue,
+    };
+    final res = await asyncCall(CTRefundEscrow, payload);
+    return _asJsonMap(res);
+  }
+
+  Future<void> updateEscrowHistory(Map<String, dynamic> escrowInfo) async {
+    await asyncCall(CTUpdateEscrowHistory, escrowInfo);
+  }
+
+  Future<void> deleteEscrowHistory(String escrowId) async {
+    await asyncCall(CTDeleteEscrowHistory, {'escrow_id': escrowId});
+  }
+
   Future<Map<String, dynamic>> getEscrowById(String escrowId) async {
     final res = await asyncCall(CTGetEscrowById, {'escrow_id': escrowId});
     return _asJsonMap(res);
@@ -1388,6 +1426,10 @@ const int CTGetEscrowStatus = 0x30;
 const int CTGetEscrowHistory = 0x31;
 const int CTGetFinalizeBundle = 0x32;
 const int CTGetEscrowById = 0x33;
+const int CTGetBindableEscrows = 0x34;
+const int CTRefundEscrow = 0x35;
+const int CTUpdateEscrowHistory = 0x36;
+const int CTDeleteEscrowHistory = 0x37;
 
 // Poker-specific commands
 const int CTGetPlayerCurrentTable = 0x10;
@@ -1420,6 +1462,7 @@ const int CTLogout = 0x26;
 const int CTResumeSession = 0x28;
 const int CTRequestLoginCode = 0x29;
 const int CTSetPayoutAddress = 0x2a;
+const int CTGetPayoutAddress = 0x2b;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =

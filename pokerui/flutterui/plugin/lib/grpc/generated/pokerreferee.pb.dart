@@ -596,7 +596,6 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     $core.String? fundingTxid,
     $core.int? fundingVout,
     $fixnum.Int64? amountAtoms,
-    $core.String? pkScriptHex,
     $core.int? csvBlocks,
     $core.int? requiredConfirmations,
     $core.bool? matureForCsv,
@@ -610,7 +609,6 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     if (fundingTxid != null) result.fundingTxid = fundingTxid;
     if (fundingVout != null) result.fundingVout = fundingVout;
     if (amountAtoms != null) result.amountAtoms = amountAtoms;
-    if (pkScriptHex != null) result.pkScriptHex = pkScriptHex;
     if (csvBlocks != null) result.csvBlocks = csvBlocks;
     if (requiredConfirmations != null)
       result.requiredConfirmations = requiredConfirmations;
@@ -642,7 +640,6 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     ..a<$fixnum.Int64>(
         8, _omitFieldNames ? '' : 'amountAtoms', $pb.PbFieldType.OU6,
         defaultOrMaker: $fixnum.Int64.ZERO)
-    ..aOS(9, _omitFieldNames ? '' : 'pkScriptHex')
     ..aI(10, _omitFieldNames ? '' : 'csvBlocks', fieldType: $pb.PbFieldType.OU3)
     ..aI(11, _omitFieldNames ? '' : 'requiredConfirmations',
         fieldType: $pb.PbFieldType.OU3)
@@ -741,39 +738,30 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
   @$pb.TagNumber(8)
   void clearAmountAtoms() => $_clearField(8);
 
-  @$pb.TagNumber(9)
-  $core.String get pkScriptHex => $_getSZ(8);
-  @$pb.TagNumber(9)
-  set pkScriptHex($core.String value) => $_setString(8, value);
-  @$pb.TagNumber(9)
-  $core.bool hasPkScriptHex() => $_has(8);
-  @$pb.TagNumber(9)
-  void clearPkScriptHex() => $_clearField(9);
-
   @$pb.TagNumber(10)
-  $core.int get csvBlocks => $_getIZ(9);
+  $core.int get csvBlocks => $_getIZ(8);
   @$pb.TagNumber(10)
-  set csvBlocks($core.int value) => $_setUnsignedInt32(9, value);
+  set csvBlocks($core.int value) => $_setUnsignedInt32(8, value);
   @$pb.TagNumber(10)
-  $core.bool hasCsvBlocks() => $_has(9);
+  $core.bool hasCsvBlocks() => $_has(8);
   @$pb.TagNumber(10)
   void clearCsvBlocks() => $_clearField(10);
 
   @$pb.TagNumber(11)
-  $core.int get requiredConfirmations => $_getIZ(10);
+  $core.int get requiredConfirmations => $_getIZ(9);
   @$pb.TagNumber(11)
-  set requiredConfirmations($core.int value) => $_setUnsignedInt32(10, value);
+  set requiredConfirmations($core.int value) => $_setUnsignedInt32(9, value);
   @$pb.TagNumber(11)
-  $core.bool hasRequiredConfirmations() => $_has(10);
+  $core.bool hasRequiredConfirmations() => $_has(9);
   @$pb.TagNumber(11)
   void clearRequiredConfirmations() => $_clearField(11);
 
   @$pb.TagNumber(12)
-  $core.bool get matureForCsv => $_getBF(11);
+  $core.bool get matureForCsv => $_getBF(10);
   @$pb.TagNumber(12)
-  set matureForCsv($core.bool value) => $_setBool(11, value);
+  set matureForCsv($core.bool value) => $_setBool(10, value);
   @$pb.TagNumber(12)
-  $core.bool hasMatureForCsv() => $_has(11);
+  $core.bool hasMatureForCsv() => $_has(10);
   @$pb.TagNumber(12)
   void clearMatureForCsv() => $_clearField(12);
 }

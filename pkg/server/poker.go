@@ -130,7 +130,7 @@ func (s *Server) publishTableSnapshotEvent(tableID string, snapshot *TableSnapsh
 	}
 
 	s.eventProcessor.PublishEvent(&GameEvent{
-		Type:          pokerrpc.NotificationType_UNKNOWN,
+		Type:          pokerrpc.NotificationType_GAME_STATE_UPDATED,
 		TableID:       tableID,
 		PlayerIDs:     snapshot.playerIDs(),
 		Timestamp:     time.Now(),

@@ -49,10 +49,6 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 	ctx := context.Background()
 
 	players := []string{"alice", "bob", "carol"}
-	initialBankroll := int64(10_000) // satoshi-style units (1e-8 DCR)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Alice creates a new table that acts like a Sit'n'Go (auto-start when all
 	// players are ready).
@@ -111,11 +107,7 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 		return gameState.CurrentPlayer != ""
 	}, 3*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP with a current player")
 
-	// Quick sanity check of balances after table creation/join.
-	// Buy-ins are now escrow-backed; legacy balances should remain untouched.
-	for _, p := range players {
-		assert.Equal(t, initialBankroll, env.GetBalance(ctx, p), "unexpected balance change for %s", p)
-	}
+	// Buy-ins are now escrow-backed; DCR balances are no longer used.
 
 	// ACTION ROUND -------------------------------------------------------------
 	// First player to act (after BB) opens with a 100 bet
@@ -175,21 +167,7 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 	}
 	assert.Equal(t, 2, activePlayers, "expected 2 active players")
 
-	// FINISHING ACTIONS --------------------------------------------------------
-	// Alice tips Carol 150 for good sportsmanship using the real tip handler.
-	_, err = env.LobbyClient.ProcessTip(ctx, &pokerrpc.ProcessTipRequest{
-		FromPlayerId: "alice",
-		ToPlayerId:   "carol",
-		Amount:       150,
-		Message:      "good fold",
-	})
 	require.NoError(t, err)
-
-	// Verify balances post-tip.
-	aliceBal := env.GetBalance(ctx, "alice")
-	carolBal := env.GetBalance(ctx, "carol")
-	assert.Equal(t, initialBankroll-150, aliceBal)
-	assert.Equal(t, initialBankroll+150, carolBal)
 }
 
 // -----------------------------------------------------------------------------
@@ -206,10 +184,6 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Setup players with initial bankrolls
 	players := []string{"player1", "player2", "player3", "player4"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Player1 creates a table for 4 players (BuyIn: 0 to avoid escrow requirement in tests)
 	tableID := env.CreateTableWithBuyIn(ctx, "player1", 4, 4, 0)
@@ -469,10 +443,6 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 
 	// Setup players
 	players := []string{"active1", "active2", "timeout"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Create table with short timebank
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -574,10 +544,6 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 
 	// Setup players
 	players := []string{"active1", "active2", "timeout"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Create table with short timebank
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -686,10 +652,6 @@ func TestBasicTableAndReadiness(t *testing.T) {
 
 	// Setup players with initial bankrolls
 	players := []string{"player1", "player2", "player3", "player4"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Player1 creates a table for 4 players
 	tableID := env.CreateStandardTable(ctx, "player1", 4, 4)
@@ -746,10 +708,6 @@ func TestBasicBetting(t *testing.T) {
 
 	// Setup 3 players
 	players := []string{"p1", "p2", "p3"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Create and join table
 	tableID := env.CreateStandardTable(ctx, "p1", 3, 3)
@@ -905,10 +863,6 @@ func TestStartingChipsDefault(t *testing.T) {
 
 	// Setup players
 	players := []string{"player1", "player2", "player3"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Create table with StartingChips set to 0 to test default logic
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -1009,10 +963,6 @@ func TestStartingChipsDefaultWithZeroBuyIn(t *testing.T) {
 
 	// Setup players
 	players := []string{"player1", "player2"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Create table with both StartingChips and BuyIn set to 0
 	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -1120,9 +1070,6 @@ func TestThreePlayersAutoplayOneHand(t *testing.T) {
 
 	// Setup 3 players and bankroll
 	players := []string{"a3", "b3", "c3"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create a 3-max table and join remaining players
 	tableID := env.CreateStandardTable(ctx, players[0], 3, 3)
@@ -1245,10 +1192,6 @@ func TestMultipleConsecutiveHandsActionsInRoundBug(t *testing.T) {
 
 	// Setup 2 players for heads-up
 	players := []string{"heads1", "heads2"}
-	initialBankroll := int64(10_000)
-	for _, p := range players {
-		env.SetBalance(ctx, p, initialBankroll)
-	}
 
 	// Create heads-up table
 	tableID := env.CreateStandardTable(ctx, "heads1", 2, 2)
@@ -1438,10 +1381,6 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 			players := []string{"p1", "p2"}
 			const stack = int64(1_000)
 
-			for _, p := range players {
-				env.SetBalance(ctx, p, 10_000) // wallet outside table
-			}
-
 			// NOTE: AutoStartMs=0 to maximize overlap/race in workers.
 			// BuyIn: 0 to avoid escrow requirement in tests
 			createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -1583,9 +1522,6 @@ func TestShortStackBlindAllIn(t *testing.T) {
 	// Setup: Create a table with small starting chips (15) relative to blinds (SB=10, BB=20)
 	// This forces one player to go all-in when posting BB
 	players := []string{"player1", "player2"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create table with starting chips (15) less than big blind (20)
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -1702,9 +1638,6 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Setup 3 players with small stacks to facilitate all-in
 		players := []string{"player1", "player2", "player3"}
-		for _, p := range players {
-			env.SetBalance(ctx, p, 10_000)
-		}
 
 		// Create table with small starting chips (100) and blinds
 		// BuyIn: 0 to avoid escrow requirement in tests
@@ -1776,9 +1709,6 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Setup 3 players
 		players := []string{"player1", "player2", "player3"}
-		for _, p := range players {
-			env.SetBalance(ctx, p, 10_000)
-		}
 
 		// Create table
 		// BuyIn: 0 to avoid escrow requirement in tests
@@ -1895,9 +1825,6 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Setup 3 players
 		players := []string{"player1", "player2", "player3"}
-		for _, p := range players {
-			env.SetBalance(ctx, p, 10_000)
-		}
 
 		// Create table with long auto-start delay to avoid race
 		// BuyIn: 0 to avoid escrow requirement in tests
@@ -2008,9 +1935,6 @@ func TestHeadsUpAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 
 	// Setup 2 players
 	players := []string{"player1", "player2"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create table with small stacks to facilitate all-in
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -2143,9 +2067,6 @@ func TestThreePlayerAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 
 	// Setup 3 players
 	players := []string{"player1", "player2", "player3"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create table with small stacks to facilitate all-in
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -2331,9 +2252,6 @@ func TestPartialAllIn_OneFolded_AutoAdvanceStreets(t *testing.T) {
 
 	// Setup 3 players
 	players := []string{"player1", "player2", "player3"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create table
 	// BuyIn: 0 to avoid escrow requirement in tests
@@ -2486,9 +2404,6 @@ func TestGameOver_WinnerTakesAll(t *testing.T) {
 
 	// Setup 2 players with small stacks
 	players := []string{"alice", "bob"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create table with small starting chips (100 each)
 	// Use shorter auto-start to speed up test if we need multiple hands
@@ -2636,9 +2551,6 @@ func TestUnequalStacksAllIn_AutoAdvancePartialMatch(t *testing.T) {
 
 	// Setup 2 players
 	players := []string{"rich_player", "poor_player"}
-	for _, p := range players {
-		env.SetBalance(ctx, p, 10_000)
-	}
 
 	// Create table with moderate stacks - small blinds so all-in doesn't eliminate anyone
 	// BuyIn: 0 to avoid escrow requirement in tests

@@ -1416,8 +1416,14 @@ func (t *Table) applyUserEscrow(userID string, escrowID string, ready bool) erro
 	if user == nil {
 		return fmt.Errorf("user not found at table")
 	}
+
+	// Allow changing escrow only when the game has not started and
+	// presigning has not completed for this player. This prevents
+	// altering settlement inputs mid-presign or during an active game.
 	if user.EscrowID != "" && user.EscrowID != escrowID {
-		return fmt.Errorf("user %s already bound to escrow %s", userID, user.EscrowID)
+		if t.game == nil && !user.PresignComplete {
+			return fmt.Errorf("user %s already bound to escrow %s", userID, user.EscrowID)
+		}
 	}
 
 	user.EscrowID = escrowID

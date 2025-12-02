@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +14,6 @@ import (
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/lockfile"
-	"github.com/companyzero/bisonrelay/rates"
 	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/slog"
@@ -517,13 +515,6 @@ type runState struct {
 	ClientRunning bool `json:"client_running"`
 }
 
-// escrowState represents escrow information
-type escrowState struct {
-	EscrowId       string `json:"escrow_id"`
-	DepositAddress string `json:"deposit_address"`
-	PkScriptHex    string `json:"pk_script_hex"`
-}
-
 // clientCtx represents a client context
 type clientCtx struct {
 	ID     zkidentity.ShortID
@@ -532,22 +523,10 @@ type clientCtx struct {
 	ctx    context.Context
 	chat   types.ChatServiceClient
 	cancel func()
-	runMtx sync.Mutex
-	runErr error
 
-	log          slog.Logger
-	certConfChan chan bool
-
-	httpClient *http.Client
-	rates      *rates.Rates
-
-	// expirationDays are the expiration days provided by the server when
-	// connected
-	expirationDays uint64
+	log slog.Logger
 
 	Token string
-
-	serverState atomic.Value
 
 	presignMu     sync.Mutex
 	presignActive map[string]bool
@@ -562,9 +541,6 @@ var (
 	// The following are debug vars.
 	sigUrgCount       atomic.Uint64
 	isServerConnected atomic.Bool
-
-	// Global escrow state for demo purposes
-	es *escrowState
 )
 
 // parseJoinWRPayload parses the join waiting room payload

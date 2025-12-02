@@ -178,6 +178,7 @@ const (
 	NotificationType_MESSAGE                          NotificationType = 29 // generic informational message (e.g., settlement status)
 	NotificationType_SETTLEMENT_BROADCAST             NotificationType = 30 // settlement transaction broadcasted
 	NotificationType_PRESIGN_PENDING                  NotificationType = 31 // presigning required before game can start
+	NotificationType_GAME_STATE_UPDATED               NotificationType = 32 // game state synchronization event (for state updates, not notifications)
 )
 
 // Enum value maps for NotificationType.
@@ -215,6 +216,7 @@ var (
 		29: "MESSAGE",
 		30: "SETTLEMENT_BROADCAST",
 		31: "PRESIGN_PENDING",
+		32: "GAME_STATE_UPDATED",
 	}
 	NotificationType_value = map[string]int32{
 		"UNKNOWN":                          0,
@@ -249,6 +251,7 @@ var (
 		"MESSAGE":                          29,
 		"SETTLEMENT_BROADCAST":             30,
 		"PRESIGN_PENDING":                  31,
+		"GAME_STATE_UPDATED":               32,
 	}
 )
 
@@ -4202,7 +4205,7 @@ const file_poker_proto_rawDesc = "" +
 	"\x14PLAYER_STATE_IN_GAME\x10\x02\x12\x17\n" +
 	"\x13PLAYER_STATE_ALL_IN\x10\x03\x12\x17\n" +
 	"\x13PLAYER_STATE_FOLDED\x10\x04\x12\x15\n" +
-	"\x11PLAYER_STATE_LEFT\x10\x05*\x9f\x05\n" +
+	"\x11PLAYER_STATE_LEFT\x10\x05*\xb7\x05\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x11\n" +
 	"\rPLAYER_JOINED\x10\x01\x12\x0f\n" +
@@ -4238,7 +4241,8 @@ const file_poker_proto_rawDesc = "" +
 	"\x0eESCROW_FUNDING\x10\x1c\x12\v\n" +
 	"\aMESSAGE\x10\x1d\x12\x18\n" +
 	"\x14SETTLEMENT_BROADCAST\x10\x1e\x12\x13\n" +
-	"\x0fPRESIGN_PENDING\x10\x1f*\xa8\x01\n" +
+	"\x0fPRESIGN_PENDING\x10\x1f\x12\x16\n" +
+	"\x12GAME_STATE_UPDATED\x10 *\xa8\x01\n" +
 	"\bHandRank\x12\r\n" +
 	"\tHIGH_CARD\x10\x00\x12\b\n" +
 	"\x04PAIR\x10\x01\x12\f\n" +

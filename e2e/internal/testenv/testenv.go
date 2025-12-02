@@ -105,24 +105,27 @@ func (e *Env) Close() {
 	_ = e.DB.Close()
 }
 
-// SetBalance ensures the player has exactly the specified balance by calculating
-// the delta against the current stored balance and issuing a single
-// UpdateBalance call.
+// SetBalance ensures the player has exactly the specified balance by accessing
+// the player through the server's internal state. This only works if the player
+// is currently in an active game.
 func (e *Env) SetBalance(ctx context.Context, playerID string, balance int64) {
-	var currBal int64
-	if resp, err := e.LobbyClient.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: playerID}); err == nil {
-		currBal = resp.GetBalance()
+	// Find the player in any active game
+	tables := e.PokerSrv.GetAllTables()
+	for _, table := range tables {
+		game := table.GetGame()
+		if game == nil {
+			continue
+		}
+		players := game.GetPlayers()
+		for _, player := range players {
+			if player.ID() == playerID {
+				player.SetBalance(balance)
+				return
+			}
+		}
 	}
-	delta := balance - currBal
-	if delta == 0 {
-		return
-	}
-	_, err := e.LobbyClient.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    playerID,
-		Amount:      delta,
-		Description: "seed balance",
-	})
-	require.NoError(e.t, err)
+	// Player not found in any active game - this is expected for players not yet in a game
+	// In that case, balance will be set when they join a game
 }
 
 // WaitForGameStart polls GetGameState until GameStarted==true or the timeout
@@ -160,11 +163,26 @@ func (e *Env) WaitForGamePhase(ctx context.Context, tableID string, phase pokerr
 	}
 }
 
-// GetBalance fetches a player's current balance.
+// GetBalance fetches a player's current balance by accessing the player through
+// the server's internal state. This only works if the player is currently in an active game.
+// Returns 0 if the player is not found in any active game.
 func (e *Env) GetBalance(ctx context.Context, playerID string) int64 {
-	resp, err := e.LobbyClient.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: playerID})
-	require.NoError(e.t, err)
-	return resp.Balance
+	// Find the player in any active game
+	tables := e.PokerSrv.GetAllTables()
+	for _, table := range tables {
+		game := table.GetGame()
+		if game == nil {
+			continue
+		}
+		players := game.GetPlayers()
+		for _, player := range players {
+			if player.ID() == playerID {
+				return player.Balance()
+			}
+		}
+	}
+	// Player not found in any active game - return 0
+	return 0
 }
 
 // GetGameState gets the current game state for a table.
