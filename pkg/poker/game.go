@@ -1096,10 +1096,15 @@ func (g *Game) SetPlayers(users []*User) {
 		// Create player using constructor to ensure state machine is initialized
 		player := NewPlayer(user.ID, user.Name, g.config.StartingChips)
 
-		// Copy table-level state from user
+		// Copy table-level state from user (acquire user lock to read fields)
+		user.mu.RLock()
+		tableSeat := user.TableSeat
+		isReady := user.IsReady
+		user.mu.RUnlock()
+
 		player.mu.Lock()
-		player.tableSeat = user.TableSeat
-		player.isReady = user.IsReady
+		player.tableSeat = tableSeat
+		player.isReady = isReady
 		player.lastAction = time.Now() // Set current time since User doesn't have LastAction
 		// Wire timebank scheduling
 		player.timebankDelay = g.config.TimeBank
@@ -1128,21 +1133,33 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 	// Rebuild g.players in users' seat order, reusing objects when possible
 	newPlayers := make([]*Player, 0, len(users))
 	for _, u := range users {
-		if p := byID[u.ID]; p != nil {
+		// Acquire user lock to read fields
+		u.mu.RLock()
+		userID := u.ID
+		userName := u.Name
+		tableSeat := u.TableSeat
+		isReady := u.IsReady
+		u.mu.RUnlock()
+
+		if p := byID[userID]; p != nil {
 			// Reset existing player for new hand while preserving balance
 			_ = p.ResetForNewHand(p.balance)
-			p.tableSeat = u.TableSeat
-			p.isReady = u.IsReady
+			p.mu.Lock()
+			p.tableSeat = tableSeat
+			p.isReady = isReady
 			p.timebankDelay = g.config.TimeBank
 			p.playerEventChan = g.playerEventChan
+			p.mu.Unlock()
 			newPlayers = append(newPlayers, p)
 		} else {
 			// New seat joined between hands
-			np := NewPlayer(u.ID, u.Name, g.config.StartingChips)
-			np.tableSeat = u.TableSeat
-			np.isReady = u.IsReady
+			np := NewPlayer(userID, userName, g.config.StartingChips)
+			np.mu.Lock()
+			np.tableSeat = tableSeat
+			np.isReady = isReady
 			np.timebankDelay = g.config.TimeBank
 			np.playerEventChan = g.playerEventChan
+			np.mu.Unlock()
 			newPlayers = append(newPlayers, np)
 		}
 	}

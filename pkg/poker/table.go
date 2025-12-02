@@ -352,7 +352,9 @@ func (t *Table) handleGameOver(winnerID string) {
 	var winnerSeat int32 = -1
 	for _, u := range users {
 		if u.ID == winnerID {
+			u.mu.RLock()
 			winnerSeat = int32(u.TableSeat)
+			u.mu.RUnlock()
 			break
 		}
 	}
@@ -391,40 +393,19 @@ func (t *Table) allPlayersReady() bool {
 	}
 	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
-		if !u.IsReady {
-			return false
-		}
-		if requireEscrow && u.EscrowID == "" {
-			return false
-		}
-		if u.EscrowID != "" && !u.EscrowReady {
-			return false
-		}
-	}
-	return true
-}
+		u.mu.RLock()
+		isReady := u.IsReady
+		escrowID := u.EscrowID
+		escrowReady := u.EscrowReady
+		u.mu.RUnlock()
 
-// allPlayersReadyForGameStart checks if all players are ready to start the game.
-// For escrow-backed tables, this also requires presigning to be complete.
-func (t *Table) allPlayersReadyForGameStart() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	if len(t.users) < t.config.MinPlayers {
-		return false
-	}
-	requireEscrow := t.config.BuyIn > 0
-	for _, u := range t.users {
-		if !u.IsReady {
+		if !isReady {
 			return false
 		}
-		if requireEscrow && u.EscrowID == "" {
+		if requireEscrow && escrowID == "" {
 			return false
 		}
-		if u.EscrowID != "" && !u.EscrowReady {
-			return false
-		}
-		// For escrow-backed tables, presigning must be complete
-		if requireEscrow && !u.PresignComplete {
+		if escrowID != "" && !escrowReady {
 			return false
 		}
 	}
@@ -588,7 +569,29 @@ func (t *Table) GetTableStateString() string {
 func (t *Table) CheckAllPlayersReady() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.allPlayersReadyLocked()
+	// Requires: t.mu held
+	if len(t.users) < t.config.MinPlayers {
+		return false
+	}
+	requireEscrow := t.config.BuyIn > 0
+	for _, u := range t.users {
+		u.mu.RLock()
+		isReady := u.IsReady
+		escrowID := u.EscrowID
+		escrowReady := u.EscrowReady
+		u.mu.RUnlock()
+
+		if !isReady {
+			return false
+		}
+		if requireEscrow && escrowID == "" {
+			return false
+		}
+		if escrowID != "" && !escrowReady {
+			return false
+		}
+	}
+	return true
 }
 
 // CheckAllPlayersReadyForGameStart checks if all players are ready to start the game.
@@ -596,47 +599,30 @@ func (t *Table) CheckAllPlayersReady() bool {
 func (t *Table) CheckAllPlayersReadyForGameStart() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.allPlayersReadyForGameStartLocked()
-}
-
-func (t *Table) allPlayersReadyLocked() bool {
-	mustHeld(&t.mu)
+	// Requires: t.mu held
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
 	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
-		if !u.IsReady {
-			return false
-		}
-		if requireEscrow && u.EscrowID == "" {
-			return false
-		}
-		if u.EscrowID != "" && !u.EscrowReady {
-			return false
-		}
-	}
-	return true
-}
+		u.mu.RLock()
+		isReady := u.IsReady
+		escrowID := u.EscrowID
+		escrowReady := u.EscrowReady
+		presignComplete := u.PresignComplete
+		u.mu.RUnlock()
 
-func (t *Table) allPlayersReadyForGameStartLocked() bool {
-	mustHeld(&t.mu)
-	if len(t.users) < t.config.MinPlayers {
-		return false
-	}
-	requireEscrow := t.config.BuyIn > 0
-	for _, u := range t.users {
-		if !u.IsReady {
+		if !isReady {
 			return false
 		}
-		if requireEscrow && u.EscrowID == "" {
+		if requireEscrow && escrowID == "" {
 			return false
 		}
-		if u.EscrowID != "" && !u.EscrowReady {
+		if escrowID != "" && !escrowReady {
 			return false
 		}
 		// For escrow-backed tables, presigning must be complete
-		if requireEscrow && !u.PresignComplete {
+		if requireEscrow && !presignComplete {
 			return false
 		}
 	}
@@ -649,8 +635,29 @@ func (t *Table) StartGame() error {
 	defer t.mu.Unlock()
 
 	// 1) Ensure readiness under the table lock.
-	if t.GetTableStateString() != "PLAYERS_READY" && !t.allPlayersReadyLocked() {
-		return fmt.Errorf("cannot start game: not enough ready players")
+	// Requires: t.mu held
+	if t.GetTableStateString() != "PLAYERS_READY" {
+		if len(t.users) < t.config.MinPlayers {
+			return fmt.Errorf("cannot start game: not enough ready players")
+		}
+		requireEscrow := t.config.BuyIn > 0
+		for _, u := range t.users {
+			u.mu.RLock()
+			isReady := u.IsReady
+			escrowID := u.EscrowID
+			escrowReady := u.EscrowReady
+			u.mu.RUnlock()
+
+			if !isReady {
+				return fmt.Errorf("cannot start game: not enough ready players")
+			}
+			if requireEscrow && escrowID == "" {
+				return fmt.Errorf("cannot start game: not enough ready players")
+			}
+			if escrowID != "" && !escrowReady {
+				return fmt.Errorf("cannot start game: not enough ready players")
+			}
+		}
 	}
 	if len(t.users) < t.config.MinPlayers {
 		return fmt.Errorf("not enough players to start game")
@@ -1246,12 +1253,18 @@ func (t *Table) AddUser(user *User) error {
 	}
 
 	// Auto-assign seat if TableSeat is -1 (unseated)
-	if user.TableSeat < 0 {
+	user.mu.RLock()
+	userTableSeat := user.TableSeat
+	user.mu.RUnlock()
+	if userTableSeat < 0 {
 		// Find the next available seat
 		occupied := make(map[int]bool)
 		for _, u := range t.users {
-			if u.TableSeat >= 0 {
-				occupied[u.TableSeat] = true
+			u.mu.RLock()
+			uTableSeat := u.TableSeat
+			u.mu.RUnlock()
+			if uTableSeat >= 0 {
+				occupied[uTableSeat] = true
 			}
 		}
 		seat := -1
@@ -1264,7 +1277,9 @@ func (t *Table) AddUser(user *User) error {
 		if seat == -1 {
 			return fmt.Errorf("no available seats")
 		}
+		user.mu.Lock()
 		user.TableSeat = seat
+		user.mu.Unlock()
 	}
 
 	t.users[user.ID] = user
@@ -1296,7 +1311,10 @@ func (t *Table) SetSeatEscrowState(seat int, escrowID string, ready bool) (strin
 	t.mu.RLock()
 	var user *User
 	for _, u := range t.users {
-		if u.TableSeat == seat {
+		u.mu.RLock()
+		uTableSeat := u.TableSeat
+		u.mu.RUnlock()
+		if uTableSeat == seat {
 			user = u
 			break
 		}
@@ -1306,7 +1324,9 @@ func (t *Table) SetSeatEscrowState(seat int, escrowID string, ready bool) (strin
 		return "", false, fmt.Errorf("no player at seat %d", seat)
 	}
 	userID := user.ID
+	user.mu.RLock()
 	changed := user.EscrowID != escrowID || user.EscrowReady != ready
+	user.mu.RUnlock()
 	t.mu.RUnlock()
 
 	if !changed {
@@ -1326,7 +1346,10 @@ func (t *Table) GetUserAtSeat(seat int) *User {
 	defer t.mu.RUnlock()
 
 	for _, u := range t.users {
-		if u.TableSeat == seat {
+		u.mu.RLock()
+		uTableSeat := u.TableSeat
+		u.mu.RUnlock()
+		if uTableSeat == seat {
 			return u
 		}
 	}
@@ -1395,55 +1418,67 @@ func (t *Table) sendTableEvent(ev any) (err error) {
 // applyUserReady mutates readiness under lock; caller must trigger FSM transitions.
 func (t *Table) applyUserReady(userID string, ready bool) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	user := t.users[userID]
 	if user == nil {
+		t.mu.Unlock()
 		return fmt.Errorf("user not found at table")
 	}
-
+	// Acquire user lock to write field
+	user.mu.Lock()
 	user.IsReady = ready
+	user.mu.Unlock()
 	t.lastAction = time.Now()
+	t.mu.Unlock()
 	return nil
 }
 
 // applyUserEscrow mutates escrow binding under lock; caller must trigger FSM transitions.
 func (t *Table) applyUserEscrow(userID string, escrowID string, ready bool) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	user := t.users[userID]
 	if user == nil {
+		t.mu.Unlock()
 		return fmt.Errorf("user not found at table")
 	}
+	game := t.game
+	t.mu.Unlock()
 
+	// Acquire user lock to read and write fields
+	user.mu.Lock()
 	// Allow changing escrow only when the game has not started and
 	// presigning has not completed for this player. This prevents
 	// altering settlement inputs mid-presign or during an active game.
 	if user.EscrowID != "" && user.EscrowID != escrowID {
-		if t.game == nil && !user.PresignComplete {
+		if game == nil && !user.PresignComplete {
+			user.mu.Unlock()
 			return fmt.Errorf("user %s already bound to escrow %s", userID, user.EscrowID)
 		}
 	}
 
 	user.EscrowID = escrowID
 	user.EscrowReady = ready
+	user.mu.Unlock()
+
+	t.mu.Lock()
 	t.lastAction = time.Now()
+	t.mu.Unlock()
 	return nil
 }
 
 // applyUserPresignComplete marks presigning complete under lock.
 func (t *Table) applyUserPresignComplete(userID string) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	user := t.users[userID]
 	if user == nil {
+		t.mu.Unlock()
 		return fmt.Errorf("user not found at table")
 	}
-
+	// Acquire user lock to write field
+	user.mu.Lock()
 	user.PresignComplete = true
+	user.mu.Unlock()
 	t.lastAction = time.Now()
+	t.mu.Unlock()
 	return nil
 }
 
