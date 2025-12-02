@@ -9,7 +9,7 @@ import (
 )
 
 // collectPlayerSnapshot collects an immutable snapshot of player state
-func (s *Server) collectPlayerSnapshot(user *poker.User, gameSnapshot *poker.GameStateSnapshot) *PlayerSnapshot {
+func (s *Server) collectPlayerSnapshot(user *poker.UserSnapshot, gameSnapshot *poker.GameStateSnapshot) *PlayerSnapshot {
 	snapshot := &PlayerSnapshot{
 		ID:              user.ID,
 		Name:            user.Name,
@@ -95,8 +95,8 @@ func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 	// Collect player snapshots (may access game/player locks)
 	// Use the safe User copies from the snapshot to avoid race conditions
 	players := make([]*PlayerSnapshot, 0, len(tableSnapshot.Users))
-	for _, safeUser := range tableSnapshot.Users {
-		playerSnapshot := s.collectPlayerSnapshot(&safeUser, gameSnapshot)
+	for i := range tableSnapshot.Users {
+		playerSnapshot := s.collectPlayerSnapshot(&tableSnapshot.Users[i], gameSnapshot)
 		players = append(players, playerSnapshot)
 	}
 

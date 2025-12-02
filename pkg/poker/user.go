@@ -27,6 +27,19 @@ type User struct {
 	PresignComplete bool // Whether settlement presigning is complete
 }
 
+// UserSnapshot represents a snapshot of user state without mutex for safe concurrent access
+type UserSnapshot struct {
+	ID              string
+	Name            string
+	TableSeat       int
+	IsReady         bool
+	IsDisconnected  bool
+	JoinedAt        time.Time
+	EscrowID        string
+	EscrowReady     bool
+	PresignComplete bool
+}
+
 // fired when users join/leave or toggle ready; state may move to/from PLAYERS_READY
 type evUsersChanged struct{}
 

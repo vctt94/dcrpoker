@@ -1492,7 +1492,7 @@ func (t *Table) SetPlayerPresignComplete(userID string) error {
 // TableStateSnapshot represents a point-in-time snapshot of table state for safe concurrent access
 type TableStateSnapshot struct {
 	Config TableConfig
-	Users  []User
+	Users  []UserSnapshot
 	Game   GameStateSnapshot // Nested game state snapshot if game is active
 }
 
@@ -1502,9 +1502,10 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	t.mu.RLock()
 
 	// Create a deep copy of users to avoid race conditions
-	usersCopy := make([]User, 0, len(t.users))
+	usersCopy := make([]UserSnapshot, 0, len(t.users))
 	for _, user := range t.users {
-		userCopy := User{
+		user.mu.RLock()
+		userCopy := UserSnapshot{
 			ID:              user.ID,
 			Name:            user.Name,
 			TableSeat:       user.TableSeat,
@@ -1515,6 +1516,7 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 			EscrowReady:     user.EscrowReady,
 			PresignComplete: user.PresignComplete,
 		}
+		user.mu.RUnlock()
 		usersCopy = append(usersCopy, userCopy)
 	}
 
