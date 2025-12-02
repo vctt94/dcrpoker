@@ -82,10 +82,21 @@ func (s *Server) authSessionCount() int {
 }
 
 // TestSeedSession seeds an auth session for tests without wallet login.
+// It also creates the auth user in the database so foreign key constraints are satisfied.
 func (s *Server) TestSeedSession(token string, uid zkidentity.ShortID, payoutAddr, nickname string) {
 	if s.auth == nil {
 		s.auth = newAuthState(s.db)
 	}
+
+	// Create auth user in database (required for foreign key constraints)
+	ctx := context.Background()
+	if err := s.db.UpsertAuthUser(ctx, nickname, uid.String()); err != nil {
+		// Log but don't fail - this is a test helper
+		if s.log != nil {
+			s.log.Errorf("TestSeedSession: failed to create auth user %s: %v", uid.String(), err)
+		}
+	}
+
 	s.auth.mu.Lock()
 	s.auth.sessions[token] = sessionInfo{
 		userID:     uid,

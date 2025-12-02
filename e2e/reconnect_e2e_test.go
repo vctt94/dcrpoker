@@ -43,6 +43,12 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		// Seed auth users required by the tables.host_id foreign key.
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
@@ -215,6 +221,12 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 	start := func(t *testing.T) *boot {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
+
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
@@ -383,6 +395,11 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 	start := func(t *testing.T) *boot {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
+
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
@@ -581,6 +598,12 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 	start := func(t *testing.T) *boot {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
+
+		// Seed auth users so CreateTable/JoinTable satisfy FK constraints on tables.host_id.
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
@@ -801,6 +824,11 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 	start := func(t *testing.T) *boot {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
+
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
 
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)

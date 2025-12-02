@@ -43,6 +43,12 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		// Seed auth users required by tables.host_id foreign key.
+		seedCtx := context.Background()
+		for _, pid := range []string{"player1", "player2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)

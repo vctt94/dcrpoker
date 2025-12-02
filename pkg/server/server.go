@@ -135,17 +135,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize database: %v", err)
 	}
 
-	// Initialize and start the gRPC poker server
-	grpcServer, grpcLis, err := SetupGRPCServer(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort, db, cfg.LogBackend)
-	if err != nil {
-		// Clean up the DB if we fail to start gRPC.
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to setup gRPC server: %v", err)
-	}
-
 	pokerServer := &Server{
-		grpcServer:    grpcServer,
-		grpcLis:       grpcLis,
 		log:           cfg.LogBackend.Logger("SERVER"),
 		logBackend:    cfg.LogBackend,
 		db:            db,
@@ -162,11 +152,38 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		pokerServer.log.Warnf("dcrd/chainwatcher not initialized: %v", err)
 	}
 
+	// Build TLS credentials and listener.
+	creds, grpcLis, err := buildGRPCCredsAndListener(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to setup gRPC listener: %v", err)
+	}
+
+	// Create gRPC server with TLS credentials, keepalives, and auth middleware.
+	serverOpts := []grpc.ServerOption{
+		grpc.Creds(creds),
+		grpc.MaxConcurrentStreams(1000),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 7 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.ChainUnaryInterceptor(authUnaryInterceptor(pokerServer)),
+	}
+
+	grpcServer := grpc.NewServer(serverOpts...)
+	pokerServer.grpcServer = grpcServer
+	pokerServer.grpcLis = grpcLis
+
 	// Initialize and register the poker server
 	pokerrpc.RegisterLobbyServiceServer(grpcServer, pokerServer)
 	pokerrpc.RegisterPokerServiceServer(grpcServer, pokerServer)
 	pokerrpc.RegisterAuthServiceServer(grpcServer, pokerServer)
 	pokerrpc.RegisterPokerRefereeServer(grpcServer, pokerServer)
+
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
@@ -240,8 +257,8 @@ func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
 	return serverCfg, nil
 }
 
-// SetupGRPCServer sets up and returns a configured GRPC server with TLS
-func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Database, logBackend *logging.LogBackend) (*grpc.Server, net.Listener, error) {
+// buildGRPCCredsAndListener prepares TLS credentials and a TCP listener for the gRPC server.
+func buildGRPCCredsAndListener(datadir, certFile, keyFile, serverAddress string) (credentials.TransportCredentials, net.Listener, error) {
 	// Determine certificate and key file paths
 	grpcCertFile := certFile
 	grpcKeyFile := keyFile
@@ -268,20 +285,6 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 		return nil, nil, fmt.Errorf("failed to load TLS credentials: %v", err)
 	}
 
-	// Create gRPC server with TLS credentials and production-avg keepalives
-	grpcServer := grpc.NewServer(
-		grpc.Creds(creds),
-		grpc.MaxConcurrentStreams(1000),
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    30 * time.Second,
-			Timeout: 7 * time.Second,
-		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
-	)
-
 	// Normalize localhost/127.0.0.1 to :: to listen on all interfaces
 	// This allows connections from other computers on the network
 	normalizedAddress := serverAddress
@@ -299,6 +302,31 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to listen for gRPC poker server: %v", err)
 	}
+
+	return creds, grpcLis, nil
+}
+
+// SetupGRPCServer sets up and returns a configured GRPC server with TLS.
+// This function is kept for backward compatibility; it does not wire auth
+// interceptors. NewServer configures its own server with middleware.
+func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Database, logBackend *logging.LogBackend) (*grpc.Server, net.Listener, error) {
+	creds, grpcLis, err := buildGRPCCredsAndListener(datadir, certFile, keyFile, serverAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	grpcServer := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.MaxConcurrentStreams(1000),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 7 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 
 	return grpcServer, grpcLis, nil
 }

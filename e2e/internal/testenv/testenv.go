@@ -4,9 +4,11 @@ import (
 	"context"
 	"net"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/companyzero/bisonrelay/zkidentity"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vctt94/bisonbotkit/logging"
@@ -14,6 +16,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -31,6 +34,10 @@ type Env struct {
 
 	dialOpts   []grpc.DialOption
 	dialTarget string
+
+	// Test session management
+	sessionsMu sync.Mutex
+	sessions   map[string]string // playerID -> token
 }
 
 // NewLogBackend creates a LogBackend for testing.
@@ -94,6 +101,7 @@ func New(t *testing.T) *Env {
 		PokerClient: pokerrpc.NewPokerServiceClient(conn),
 		dialOpts:    dialOpts,
 		dialTarget:  dialTarget,
+		sessions:    make(map[string]string),
 	}
 }
 
@@ -199,9 +207,22 @@ func (e *Env) CreateStandardTable(ctx context.Context, creatorID string, minPlay
 }
 
 // CreateTableWithBuyIn creates a table with the provided buy-in/stack values.
+// It automatically creates a test session for the creator if one doesn't exist.
+// The creatorID parameter can be a simple string like "alice"; it will be converted
+// to the ShortID string representation for the request.
 func (e *Env) CreateTableWithBuyIn(ctx context.Context, creatorID string, minPlayers, maxPlayers int, buyIn int64) string {
+	// Ensure test session exists for the creator
+	e.EnsureTestSession(ctx, creatorID, creatorID)
+
+	// Create context with token metadata
+	ctx = e.ContextWithToken(ctx, creatorID)
+
+	// Convert playerID to ShortID string representation for the request
+	// The server validates that req.PlayerId matches sess.userID.String()
+	playerIDStr := PlayerIDToShortIDString(creatorID)
+
 	createResp, err := e.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
-		PlayerId:      creatorID,
+		PlayerId:      playerIDStr,
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    int32(minPlayers),
@@ -217,6 +238,66 @@ func (e *Env) CreateTableWithBuyIn(ctx context.Context, creatorID string, minPla
 	return createResp.TableId
 }
 
+// CreateTable is a helper that wraps LobbyClient.CreateTable with automatic token
+// authentication and ShortID conversion. The playerID parameter can be a simple
+// string like "alice"; it will be converted to the ShortID string representation.
+// This is a convenience wrapper for tests that need custom table parameters.
+func (e *Env) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest) (*pokerrpc.CreateTableResponse, error) {
+	// Ensure test session exists
+	e.EnsureTestSession(ctx, req.PlayerId, req.PlayerId)
+
+	// Create context with token metadata
+	ctx = e.ContextWithToken(ctx, req.PlayerId)
+
+	// Convert playerID to ShortID string representation
+	playerIDStr := PlayerIDToShortIDString(req.PlayerId)
+
+	// Create a copy of the request with the converted playerID
+	reqCopy := *req
+	reqCopy.PlayerId = playerIDStr
+
+	// Use a pointer to avoid copying the mutex
+	return e.LobbyClient.CreateTable(ctx, &reqCopy)
+}
+
+// JoinTable is a helper that wraps LobbyClient.JoinTable with automatic token
+// authentication and ShortID conversion. The playerID parameter can be a simple
+// string like "alice"; it will be converted to the ShortID string representation.
+func (e *Env) JoinTable(ctx context.Context, playerID, tableID string) (*pokerrpc.JoinTableResponse, error) {
+	// Ensure test session exists
+	e.EnsureTestSession(ctx, playerID, playerID)
+
+	// Create context with token metadata
+	ctx = e.ContextWithToken(ctx, playerID)
+
+	// Convert playerID to ShortID string representation
+	playerIDStr := PlayerIDToShortIDString(playerID)
+
+	return e.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
+		PlayerId: playerIDStr,
+		TableId:  tableID,
+	})
+}
+
+// SetPlayerReady is a helper that wraps LobbyClient.SetPlayerReady with automatic
+// token authentication and ShortID conversion. The playerID parameter can be a
+// simple string like "alice"; it will be converted to the ShortID string representation.
+func (e *Env) SetPlayerReady(ctx context.Context, playerID, tableID string) (*pokerrpc.SetPlayerReadyResponse, error) {
+	// Ensure test session exists
+	e.EnsureTestSession(ctx, playerID, playerID)
+
+	// Create context with token metadata
+	ctx = e.ContextWithToken(ctx, playerID)
+
+	// Convert playerID to ShortID string representation
+	playerIDStr := PlayerIDToShortIDString(playerID)
+
+	return e.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+		PlayerId: playerIDStr,
+		TableId:  tableID,
+	})
+}
+
 // DialOptions returns dial options for creating additional clients that share
 // the in-memory gRPC server used by this env.
 func (e *Env) DialOptions() []grpc.DialOption {
@@ -226,4 +307,78 @@ func (e *Env) DialOptions() []grpc.DialOption {
 // DialTarget returns the dial target to use with DialOptions.
 func (e *Env) DialTarget() string {
 	return e.dialTarget
+}
+
+// RegisterTestUser registers a test user directly in the auth_users table.
+// This is required for operations that have foreign key constraints on auth_users.
+// For simple test IDs (like "alice", "player1"), use the same string for both userID and nickname.
+// This bypasses normal registration validation to allow any string ID for testing.
+func (e *Env) RegisterTestUser(ctx context.Context, userID, nickname string) error {
+	return e.DB.UpsertAuthUser(ctx, nickname, userID)
+}
+
+// PlayerIDToShortIDString converts a playerID string to its ShortID string representation.
+// This uses the same deterministic logic as EnsureTestSession to ensure consistency.
+// Tests should use this when making RPC calls that require a PlayerId matching the session's userID.
+func PlayerIDToShortIDString(playerID string) string {
+	var uid zkidentity.ShortID
+	if err := uid.FromString(playerID); err != nil {
+		// If not a valid ShortID, create a deterministic one
+		var buf [32]byte
+		copy(buf[:], playerID)
+		if len(playerID) < 32 {
+			for i := len(playerID); i < 32; i++ {
+				buf[i] = playerID[i%len(playerID)]
+			}
+		}
+		uid = zkidentity.ShortID(buf)
+	}
+	return uid.String()
+}
+
+// EnsureTestSession creates a test session for a player if one doesn't exist.
+func (e *Env) EnsureTestSession(ctx context.Context, playerID, nickname string) string {
+	e.sessionsMu.Lock()
+	defer e.sessionsMu.Unlock()
+
+	if token, exists := e.sessions[playerID]; exists {
+		return token
+	}
+
+	// Create a deterministic ShortID from the playerID
+	var uid zkidentity.ShortID
+	if err := uid.FromString(playerID); err != nil {
+		// If not a valid ShortID, create a deterministic one
+		var buf [32]byte
+		copy(buf[:], playerID)
+		if len(playerID) < 32 {
+			for i := len(playerID); i < 32; i++ {
+				buf[i] = playerID[i%len(playerID)]
+			}
+		}
+		uid = zkidentity.ShortID(buf)
+	}
+
+	token := "test-token-" + playerID
+	if nickname == "" {
+		nickname = playerID
+	}
+
+	e.PokerSrv.TestSeedSession(token, uid, "", nickname)
+	e.sessions[playerID] = token
+	return token
+}
+
+// ContextWithToken returns a context with the token for the given playerID in metadata.
+func (e *Env) ContextWithToken(ctx context.Context, playerID string) context.Context {
+	e.sessionsMu.Lock()
+	token, exists := e.sessions[playerID]
+	e.sessionsMu.Unlock()
+
+	if !exists {
+		// Auto-create session if it doesn't exist
+		token = e.EnsureTestSession(ctx, playerID, playerID)
+	}
+
+	return metadata.AppendToOutgoingContext(ctx, "token", token)
 }

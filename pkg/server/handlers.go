@@ -400,7 +400,6 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 						Value: card.GetValue(),
 					}
 				}
-				gsh.server.log.Debugf("GameStateHandler: showing %d cards to player %s", len(player.Hand), ps.ID)
 			}
 		} else if tableSnapshot.GameSnapshot.Phase == pokerrpc.GamePhase_SHOWDOWN {
 			// Show other players' cards only during showdown

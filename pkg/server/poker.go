@@ -372,14 +372,24 @@ func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateReq
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	// Build game state using GameStateHandler (same logic as StartGameStream)
-	// Use empty string as requestingPlayerID to get general game state without player-specific card visibility
+	// Build game state using GameStateHandler (same logic as StartGameStream).
+	// If the caller is authenticated (token present and valid), use the
+	// session user ID as the requesting player to reveal their own hole cards.
+	// Otherwise, fall back to req.PlayerId (or empty for a table-level view).
 	gsh := NewGameStateHandler(s)
 	tableSnapshot, err := s.collectTableSnapshot(req.TableId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to collect table snapshot: %v", err))
 	}
-	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, req.PlayerId)
+
+	requestingPlayerID := req.PlayerId
+	if token := extractTokenFromMetadata(ctx); token != "" {
+		if sess, ok := s.sessionForToken(token); ok {
+			requestingPlayerID = sess.userID.String()
+		}
+	}
+
+	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, requestingPlayerID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build game state: %v", err))
 	}

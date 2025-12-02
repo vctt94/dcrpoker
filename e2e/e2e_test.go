@@ -53,7 +53,8 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 	// Alice creates a new table that acts like a Sit'n'Go (auto-start when all
 	// players are ready).
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "alice")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "alice",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -70,19 +71,13 @@ func TestSitAndGoEndToEnd(t *testing.T) {
 
 	// Bob & Carol join the table.
 	for _, p := range []string{"bob", "carol"} {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	// Everyone marks themselves as ready.
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -184,25 +179,23 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Setup players with initial bankrolls
 	players := []string{"player1", "player2", "player3", "player4"}
+	playerIDs := make(map[string]string, len(players))
+	for _, p := range players {
+		playerIDs[p] = testenv.PlayerIDToShortIDString(p)
+	}
 
 	// Player1 creates a table for 4 players (BuyIn: 0 to avoid escrow requirement in tests)
 	tableID := env.CreateTableWithBuyIn(ctx, "player1", 4, 4, 0)
 
 	// All players join the table
 	for _, p := range players[1:] { // Skip player1 who already created the table
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	// All players mark themselves as ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -231,45 +224,45 @@ func TestCompleteHandFlow(t *testing.T) {
 	// In 4-player game: player1=dealer, player2=SB, player3=BB, player4=UTG (acts first)
 
 	// Player4 calls the big blind
-	waitForTurn("player4", 2*time.Second)
+	waitForTurn(playerIDs["player4"], 2*time.Second)
 	_, err := env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player4",
+		PlayerId: playerIDs["player4"],
 		TableId:  tableID,
 		Amount:   20,
 	})
 	require.NoError(t, err)
 
 	// Player1 raises
-	waitForTurn("player1", 2*time.Second)
+	waitForTurn(playerIDs["player1"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player1",
+		PlayerId: playerIDs["player1"],
 		TableId:  tableID,
 		Amount:   60, // Raising to 60
 	})
 	require.NoError(t, err)
 
 	// Player2 calls the raise (SB needs to add 50 more to existing 10)
-	waitForTurn("player2", 2*time.Second)
+	waitForTurn(playerIDs["player2"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player2",
+		PlayerId: playerIDs["player2"],
 		TableId:  tableID,
 		Amount:   60,
 	})
 	require.NoError(t, err)
 
 	// Player3 calls the raise (BB needs to add 40 more to existing 20)
-	waitForTurn("player3", 2*time.Second)
+	waitForTurn(playerIDs["player3"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player3",
+		PlayerId: playerIDs["player3"],
 		TableId:  tableID,
 		Amount:   60,
 	})
 	require.NoError(t, err)
 
 	// Player4 calls the raise
-	waitForTurn("player4", 2*time.Second)
+	waitForTurn(playerIDs["player4"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player4",
+		PlayerId: playerIDs["player4"],
 		TableId:  tableID,
 		Amount:   60,
 	})
@@ -289,43 +282,43 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Post-flop betting starts with small blind (player2)
 	// Player2 checks
-	waitForTurn("player2", 2*time.Second)
+	waitForTurn(playerIDs["player2"], 2*time.Second)
 	_, err = env.PokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
-		PlayerId: "player2",
+		PlayerId: playerIDs["player2"],
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
 
 	// Player3 bets 100
-	waitForTurn("player3", 2*time.Second)
+	waitForTurn(playerIDs["player3"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player3",
+		PlayerId: playerIDs["player3"],
 		TableId:  tableID,
 		Amount:   100,
 	})
 	require.NoError(t, err)
 
 	// Player4 calls
-	waitForTurn("player4", 2*time.Second)
+	waitForTurn(playerIDs["player4"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player4",
+		PlayerId: playerIDs["player4"],
 		TableId:  tableID,
 		Amount:   100,
 	})
 	require.NoError(t, err)
 
 	// Player1 folds
-	waitForTurn("player1", 2*time.Second)
+	waitForTurn(playerIDs["player1"], 2*time.Second)
 	_, err = env.PokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
-		PlayerId: "player1",
+		PlayerId: playerIDs["player1"],
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
 
 	// Player2 folds
-	waitForTurn("player2", 2*time.Second)
+	waitForTurn(playerIDs["player2"], 2*time.Second)
 	_, err = env.PokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
-		PlayerId: "player2",
+		PlayerId: playerIDs["player2"],
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
@@ -344,18 +337,18 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Only player3 and player4 remain
 	// Player3 bets 200
-	waitForTurn("player3", 2*time.Second)
+	waitForTurn(playerIDs["player3"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player3",
+		PlayerId: playerIDs["player3"],
 		TableId:  tableID,
 		Amount:   200,
 	})
 	require.NoError(t, err)
 
 	// Player4 calls
-	waitForTurn("player4", 2*time.Second)
+	waitForTurn(playerIDs["player4"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player4",
+		PlayerId: playerIDs["player4"],
 		TableId:  tableID,
 		Amount:   200,
 	})
@@ -374,26 +367,26 @@ func TestCompleteHandFlow(t *testing.T) {
 	assert.Equal(t, 5, len(state.CommunityCards), "expected 5 community cards after river")
 
 	// Player3 checks
-	waitForTurn("player3", 2*time.Second)
+	waitForTurn(playerIDs["player3"], 2*time.Second)
 	_, err = env.PokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
-		PlayerId: "player3",
+		PlayerId: playerIDs["player3"],
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
 
 	// Player4 bets 300
-	waitForTurn("player4", 2*time.Second)
+	waitForTurn(playerIDs["player4"], 2*time.Second)
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "player4",
+		PlayerId: playerIDs["player4"],
 		TableId:  tableID,
 		Amount:   300,
 	})
 	require.NoError(t, err)
 
 	// Player3 folds
-	waitForTurn("player3", 2*time.Second)
+	waitForTurn(playerIDs["player3"], 2*time.Second)
 	_, err = env.PokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
-		PlayerId: "player3",
+		PlayerId: playerIDs["player3"],
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
@@ -413,7 +406,7 @@ func TestCompleteHandFlow(t *testing.T) {
 
 	// Verify Player4 won the pot
 	assert.Equal(t, 1, len(winners.Winners), "expected 1 winner")
-	assert.Equal(t, "player4", winners.Winners[0].PlayerId, "expected player4 to win")
+	assert.Equal(t, playerIDs["player4"], winners.Winners[0].PlayerId, "expected player4 to win")
 
 	// Calculate expected pot programmatically to avoid magic numbers
 	// Pre-flop: all 4 players bet 60 each = 240
@@ -443,10 +436,15 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 
 	// Setup players
 	players := []string{"active1", "active2", "timeout"}
+	playerIDs := make(map[string]string, len(players))
+	for _, p := range players {
+		playerIDs[p] = testenv.PlayerIDToShortIDString(p)
+	}
 
 	// Create table with short timebank
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "active1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:        "active1",
 		SmallBlind:      10,
 		BigBlind:        20,
@@ -463,18 +461,12 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 
 	// All players join and mark ready
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -496,14 +488,14 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 
 	// active1 and active2 make their moves
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "active1",
+		PlayerId: playerIDs["active1"],
 		TableId:  tableID,
 		Amount:   20,
 	})
 	require.NoError(t, err)
 
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "active2",
+		PlayerId: playerIDs["active2"],
 		TableId:  tableID,
 		Amount:   20,
 	})
@@ -515,13 +507,13 @@ func TestPlayerTimeoutAutoCheckOrFold(t *testing.T) {
 	require.Eventually(t, func() bool {
 		state := env.GetGameState(ctx, tableID)
 		// Check if the timeout player has been auto-checked (turn should have advanced)
-		return state.CurrentPlayer != "timeout"
+		return state.CurrentPlayer != playerIDs["timeout"]
 	}, 8*time.Second, 100*time.Millisecond, "timeout player should be auto-checked")
 
 	// Check if player was auto-checked or auto-folded based on their position
 	state := env.GetGameState(ctx, tableID)
 	for _, player := range state.Players {
-		if player.Id == "timeout" {
+		if player.Id == playerIDs["timeout"] {
 			// The timeout player should have been auto-checked since they already have the required bet (big blind = 20)
 			// but if they needed to put in more money, they would have been auto-folded
 			// In this case, as the big blind, they should have been auto-checked since currentBet (20) == their bet (20)
@@ -542,12 +534,15 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Setup players
 	players := []string{"active1", "active2", "timeout"}
-
+	playerIDs := make(map[string]string)
+	playerIDs["active1"] = testenv.PlayerIDToShortIDString("active1")
+	playerIDs["active2"] = testenv.PlayerIDToShortIDString("active2")
+	playerIDs["timeout"] = testenv.PlayerIDToShortIDString("timeout")
 	// Create table with short timebank
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "active1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:        "active1",
 		SmallBlind:      10,
 		BigBlind:        20,
@@ -564,18 +559,12 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 
 	// All players join and mark ready
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -598,10 +587,10 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	// active1 calls the big blind (20)
 	require.Eventually(t, func() bool {
 		st := env.GetGameState(ctx, tableID)
-		return st.CurrentPlayer == "active1"
+		return st.CurrentPlayer == playerIDs["active1"]
 	}, 2*time.Second, 10*time.Millisecond, "active1 should be current player")
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "active1",
+		PlayerId: playerIDs["active1"],
 		TableId:  tableID,
 		Amount:   20,
 	})
@@ -610,10 +599,10 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	// active2 raises to 50
 	require.Eventually(t, func() bool {
 		st := env.GetGameState(ctx, tableID)
-		return st.CurrentPlayer == "active2"
+		return st.CurrentPlayer == playerIDs["active2"]
 	}, 2*time.Second, 10*time.Millisecond, "active2 should be current player")
 	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-		PlayerId: "active2",
+		PlayerId: playerIDs["active2"],
 		TableId:  tableID,
 		Amount:   50,
 	})
@@ -624,7 +613,7 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	require.Eventually(t, func() bool {
 		state := env.GetGameState(ctx, tableID)
 		// Check if the timeout player has been auto-folded (turn should have advanced)
-		return state.CurrentPlayer != "timeout"
+		return state.CurrentPlayer != playerIDs["timeout"]
 	}, 8*time.Second, 100*time.Millisecond, "timeout player should be auto-folded")
 
 	// Check if player was auto-folded (since they cannot check - they need to call the raise)
@@ -632,7 +621,7 @@ func TestPlayerTimeoutAutoFoldWhenCannotCheck(t *testing.T) {
 	t.Logf("Game state after timeout - Current bet: %d, Pot: %d", state.CurrentBet, state.Pot)
 	for _, player := range state.Players {
 		t.Logf("Player %s: Bet=%d, Folded=%t", player.Id, player.CurrentBet, player.Folded)
-		if player.Id == "timeout" {
+		if player.Id == playerIDs["timeout"] {
 			assert.True(t, player.Folded, "timeout player should have been auto-folded since they cannot check (need to call raise)")
 		}
 	}
@@ -658,10 +647,7 @@ func TestBasicTableAndReadiness(t *testing.T) {
 
 	// All players join the table
 	for _, p := range players[1:] { // Skip player1 who already created the table
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -673,10 +659,7 @@ func TestBasicTableAndReadiness(t *testing.T) {
 
 	// Set players ready one by one and check state
 	for i, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 
 		// Check that player is marked as ready
@@ -712,19 +695,13 @@ func TestBasicBetting(t *testing.T) {
 	// Create and join table
 	tableID := env.CreateStandardTable(ctx, "p1", 3, 3)
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	// Set all players ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -866,7 +843,8 @@ func TestStartingChipsDefault(t *testing.T) {
 
 	// Create table with StartingChips set to 0 to test default logic
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -882,18 +860,12 @@ func TestStartingChipsDefault(t *testing.T) {
 
 	// All players join and mark ready
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -965,7 +937,8 @@ func TestStartingChipsDefaultWithZeroBuyIn(t *testing.T) {
 	players := []string{"player1", "player2"}
 
 	// Create table with both StartingChips and BuyIn set to 0
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -980,18 +953,12 @@ func TestStartingChipsDefaultWithZeroBuyIn(t *testing.T) {
 	tableID := createResp.TableId
 
 	// Player2 joins
-	_, err = env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: "player2",
-		TableId:  tableID,
-	})
+	_, err = env.JoinTable(ctx, "player2", tableID)
 	require.NoError(t, err)
 
 	// Both players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -1022,7 +989,7 @@ func TestStartingChipsDefaultWithZeroBuyIn(t *testing.T) {
 
 	// In heads-up pre-flop, small blind (dealer) acts first, which is correct poker rules
 	// So player1 (SB) should act first
-	expectedCurrentPlayer := "player1" // SB acts first in heads-up preflop
+	expectedCurrentPlayer := testenv.PlayerIDToShortIDString("player1") // SB acts first in heads-up preflop
 	assert.Equal(t, expectedCurrentPlayer, state.CurrentPlayer, "Small blind should act first in heads-up preflop")
 
 	// Player1 (SB) raises to 40
@@ -1074,13 +1041,13 @@ func TestThreePlayersAutoplayOneHand(t *testing.T) {
 	// Create a 3-max table and join remaining players
 	tableID := env.CreateStandardTable(ctx, players[0], 3, 3)
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{PlayerId: p, TableId: tableID})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	// Everyone ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{PlayerId: p, TableId: tableID})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -1197,18 +1164,12 @@ func TestMultipleConsecutiveHandsActionsInRoundBug(t *testing.T) {
 	tableID := env.CreateStandardTable(ctx, "heads1", 2, 2)
 
 	// Player2 joins
-	_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: "heads2",
-		TableId:  tableID,
-	})
+	_, err := env.JoinTable(ctx, "heads2", tableID)
 	require.NoError(t, err)
 
 	// Both players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -1383,7 +1344,8 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 
 			// NOTE: AutoStartMs=0 to maximize overlap/race in workers.
 			// BuyIn: 0 to avoid escrow requirement in tests
-			createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+			ctx = env.ContextWithToken(ctx, "p1")
+			createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 				PlayerId:      "p1",
 				SmallBlind:    10,
 				BigBlind:      20,
@@ -1398,15 +1360,11 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 			require.NoError(t, err)
 			tableID := createResp.TableId
 
-			_, err = env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-				PlayerId: "p2", TableId: tableID,
-			})
+			_, err = env.JoinTable(ctx, "p2", tableID)
 			require.NoError(t, err)
 
 			for _, p := range players {
-				_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-					PlayerId: p, TableId: tableID,
-				})
+				_, err := env.SetPlayerReady(ctx, p, tableID)
 				require.NoError(t, err)
 			}
 
@@ -1418,9 +1376,11 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 				defer cancel()
 				// Small initial delay to allow previous turn to complete (async FSM processing)
 				time.Sleep(10 * time.Millisecond)
+				// Convert player ID to ShortID string representation for comparison
+				pidShortID := testenv.PlayerIDToShortIDString(pid)
 				for {
 					st := env.GetGameState(ctx, tableID)
-					if st.CurrentPlayer == pid && st.Phase == pokerrpc.GamePhase_PRE_FLOP {
+					if st.CurrentPlayer == pidShortID && st.Phase == pokerrpc.GamePhase_PRE_FLOP {
 						return
 					}
 					select {
@@ -1434,15 +1394,21 @@ func TestFoldUncalledRaise_RaceySettlement(t *testing.T) {
 
 			// P1 raises to 100 total (creates uncalled headroom vs BB=20).
 			waitTurn("p1", 500*time.Millisecond)
-			_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-				PlayerId: "p1", TableId: tableID, Amount: 100, // “to 100” semantics
+			// Convert player ID to ShortID string and use correct context with token
+			p1ShortID := testenv.PlayerIDToShortIDString("p1")
+			ctxP1 := env.ContextWithToken(ctx, "p1")
+			_, err = env.PokerClient.MakeBet(ctxP1, &pokerrpc.MakeBetRequest{
+				PlayerId: p1ShortID, TableId: tableID, Amount: 100, // “to 100” semantics
 			})
 			require.NoError(t, err)
 
 			// Without letting P2 act/call, we immediately fold with P2.
 			waitTurn("p2", 500*time.Millisecond)
-			_, err = env.PokerClient.FoldBet(ctx, &pokerrpc.FoldBetRequest{
-				PlayerId: "p2", TableId: tableID,
+			// Convert player ID to ShortID string and use correct context with token
+			p2ShortID := testenv.PlayerIDToShortIDString("p2")
+			ctxP2 := env.ContextWithToken(ctx, "p2")
+			_, err = env.PokerClient.FoldBet(ctxP2, &pokerrpc.FoldBetRequest{
+				PlayerId: p2ShortID, TableId: tableID,
 			})
 			require.NoError(t, err)
 
@@ -1525,7 +1491,8 @@ func TestShortStackBlindAllIn(t *testing.T) {
 
 	// Create table with starting chips (15) less than big blind (20)
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -1541,18 +1508,12 @@ func TestShortStackBlindAllIn(t *testing.T) {
 	tableID := createResp.TableId
 
 	// player2 joins
-	_, err = env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: "player2",
-		TableId:  tableID,
-	})
+	_, err = env.JoinTable(ctx, "player2", tableID)
 	require.NoError(t, err)
 
 	// Both players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -1641,7 +1602,8 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Create table with small starting chips (100) and blinds
 		// BuyIn: 0 to avoid escrow requirement in tests
-		createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		ctx = env.ContextWithToken(ctx, "player1")
+		createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      "player1",
 			SmallBlind:    10,
 			BigBlind:      20,
@@ -1658,19 +1620,13 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Other players join
 		for _, p := range players[1:] {
-			_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-				PlayerId: p,
-				TableId:  tableID,
-			})
+			_, err := env.JoinTable(ctx, p, tableID)
 			require.NoError(t, err)
 		}
 
 		// All players mark ready
 		for _, p := range players {
-			_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-				PlayerId: p,
-				TableId:  tableID,
-			})
+			_, err := env.SetPlayerReady(ctx, p, tableID)
 			require.NoError(t, err)
 		}
 
@@ -1678,18 +1634,59 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 		env.WaitForGameStart(ctx, tableID, 3*time.Second)
 		env.WaitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
 
-		// All players go all-in (100 chips each)
-		for _, p := range players {
+		// Drive betting turn-by-turn so each seated player actually goes all-in.
+		// Using the current player from game state avoids rejected bets due to
+		// "not your turn" or mismatched player IDs.
+		allInDeadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(allInDeadline) {
+			state := env.GetGameState(ctx, tableID)
+			if state.Phase == pokerrpc.GamePhase_SHOWDOWN {
+				break
+			}
+
+			allInCount := 0
+			for _, p := range state.Players {
+				if p.IsAllIn {
+					allInCount++
+				}
+			}
+			if allInCount == len(players) {
+				break
+			}
+
+			currentPlayerID := state.CurrentPlayer
+			var currentPlayer *pokerrpc.Player
+			for _, p := range state.Players {
+				if p.Id == currentPlayerID {
+					currentPlayer = p
+					break
+				}
+			}
+			require.NotNil(t, currentPlayer, "current player should be in game state")
+
+			// MakeBet expects an absolute bet; push the player's full stack.
+			targetBet := currentPlayer.CurrentBet + currentPlayer.Balance
 			_, err := env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
-				PlayerId: p,
+				PlayerId: currentPlayerID,
 				TableId:  tableID,
-				Amount:   100,
+				Amount:   targetBet,
 			})
-			// May fail for some players if they're not current - that's expected
 			if err == nil {
-				t.Logf("Player %s went all-in", p)
+				t.Logf("Player %s went all-in", currentPlayerID)
+			}
+
+			time.Sleep(20 * time.Millisecond)
+		}
+
+		// Confirm everyone is marked all-in before waiting for auto fast-forward.
+		state := env.GetGameState(ctx, tableID)
+		allInCount := 0
+		for _, p := range state.Players {
+			if p.IsAllIn {
+				allInCount++
 			}
 		}
+		require.Equal(t, len(players), allInCount, "all players should be all-in")
 
 		// When all players are all-in, game should fast-forward to SHOWDOWN
 		require.Eventually(t, func() bool {
@@ -1712,7 +1709,8 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Create table
 		// BuyIn: 0 to avoid escrow requirement in tests
-		createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		ctx = env.ContextWithToken(ctx, "player1")
+		createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      "player1",
 			SmallBlind:    10,
 			BigBlind:      20,
@@ -1729,19 +1727,13 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Other players join
 		for _, p := range players[1:] {
-			_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-				PlayerId: p,
-				TableId:  tableID,
-			})
+			_, err := env.JoinTable(ctx, p, tableID)
 			require.NoError(t, err)
 		}
 
 		// All players mark ready
 		for _, p := range players {
-			_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-				PlayerId: p,
-				TableId:  tableID,
-			})
+			_, err := env.SetPlayerReady(ctx, p, tableID)
 			require.NoError(t, err)
 		}
 
@@ -1828,7 +1820,8 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Create table with long auto-start delay to avoid race
 		// BuyIn: 0 to avoid escrow requirement in tests
-		createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		ctx = env.ContextWithToken(ctx, "player1")
+		createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      "player1",
 			SmallBlind:    10,
 			BigBlind:      20,
@@ -1845,19 +1838,13 @@ func TestBettingRound_Completes_On_AllIn_And_Folds(t *testing.T) {
 
 		// Other players join
 		for _, p := range players[1:] {
-			_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-				PlayerId: p,
-				TableId:  tableID,
-			})
+			_, err := env.JoinTable(ctx, p, tableID)
 			require.NoError(t, err)
 		}
 
 		// All players mark ready
 		for _, p := range players {
-			_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-				PlayerId: p,
-				TableId:  tableID,
-			})
+			_, err := env.SetPlayerReady(ctx, p, tableID)
 			require.NoError(t, err)
 		}
 
@@ -1938,7 +1925,8 @@ func TestHeadsUpAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 
 	// Create table with small stacks to facilitate all-in
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -1954,18 +1942,12 @@ func TestHeadsUpAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 	tableID := createResp.TableId
 
 	// Player2 joins
-	_, err = env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: "player2",
-		TableId:  tableID,
-	})
+	_, err = env.JoinTable(ctx, "player2", tableID)
 	require.NoError(t, err)
 
 	// Both players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -2070,7 +2052,8 @@ func TestThreePlayerAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 
 	// Create table with small stacks to facilitate all-in
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -2087,19 +2070,13 @@ func TestThreePlayerAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 
 	// Other players join
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	// All players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -2255,7 +2232,8 @@ func TestPartialAllIn_OneFolded_AutoAdvanceStreets(t *testing.T) {
 
 	// Create table
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "player1",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -2272,19 +2250,13 @@ func TestPartialAllIn_OneFolded_AutoAdvanceStreets(t *testing.T) {
 
 	// Other players join
 	for _, p := range players[1:] {
-		_, err := env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.JoinTable(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
 	// All players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -2408,7 +2380,8 @@ func TestGameOver_WinnerTakesAll(t *testing.T) {
 	// Create table with small starting chips (100 each)
 	// Use shorter auto-start to speed up test if we need multiple hands
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "alice")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "alice",
 		SmallBlind:    10,
 		BigBlind:      20,
@@ -2424,18 +2397,12 @@ func TestGameOver_WinnerTakesAll(t *testing.T) {
 	tableID := createResp.TableId
 
 	// Join bob
-	_, err = env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: "bob",
-		TableId:  tableID,
-	})
+	_, err = env.JoinTable(ctx, "bob", tableID)
 	require.NoError(t, err)
 
 	// Both players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 
@@ -2554,7 +2521,8 @@ func TestUnequalStacksAllIn_AutoAdvancePartialMatch(t *testing.T) {
 
 	// Create table with moderate stacks - small blinds so all-in doesn't eliminate anyone
 	// BuyIn: 0 to avoid escrow requirement in tests
-	createResp, err := env.LobbyClient.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+	ctx = env.ContextWithToken(ctx, "rich_player")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      "rich_player",
 		SmallBlind:    5,
 		BigBlind:      10,
@@ -2574,18 +2542,12 @@ func TestUnequalStacksAllIn_AutoAdvancePartialMatch(t *testing.T) {
 	// Rich player will have 990 after small blind, poor player 980 after big blind
 
 	// Join poor player
-	_, err = env.LobbyClient.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-		PlayerId: "poor_player",
-		TableId:  tableID,
-	})
+	_, err = env.JoinTable(ctx, "poor_player", tableID)
 	require.NoError(t, err)
 
 	// Both players mark ready
 	for _, p := range players {
-		_, err := env.LobbyClient.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
-			PlayerId: p,
-			TableId:  tableID,
-		})
+		_, err := env.SetPlayerReady(ctx, p, tableID)
 		require.NoError(t, err)
 	}
 

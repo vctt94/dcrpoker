@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/companyzero/bisonrelay/zkidentity"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server/internal/db"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -31,6 +33,37 @@ func (ts *TestServer) GetGameForTable(tableID string) *poker.Game {
 		return table.GetGame()
 	}
 	return nil
+}
+
+// CreateTestSession creates a test session and returns a context with the token in metadata.
+// This is a convenience helper for tests that need authenticated contexts.
+func (ts *TestServer) CreateTestSession(ctx context.Context, playerID, nickname string) (context.Context, string) {
+	// For simple test IDs, try to parse as ShortID first, otherwise create a deterministic one
+	var uid zkidentity.ShortID
+	if err := uid.FromString(playerID); err != nil {
+		// If it's not a valid ShortID format, create a deterministic one from the string
+		// This allows tests to use simple string IDs like "player1", "alice", etc.
+		var buf [32]byte
+		copy(buf[:], playerID)
+		if len(playerID) < 32 {
+			// Pad with repeated playerID to fill the buffer
+			for i := len(playerID); i < 32; i++ {
+				buf[i] = playerID[i%len(playerID)]
+			}
+		}
+		uid = zkidentity.ShortID(buf)
+	}
+
+	token := "test-token-" + playerID
+	if nickname == "" {
+		nickname = playerID
+	}
+
+	ts.TestSeedSession(token, uid, "", nickname)
+
+	// Add token to context metadata
+	md := metadata.New(map[string]string{"token": token})
+	return metadata.NewIncomingContext(ctx, md), token
 }
 
 // InMemoryDB implements the Database interface for testing.
@@ -371,6 +404,9 @@ func TestPokerService(t *testing.T) {
 		player1ID := "player1"
 		player2ID := "player2"
 
+		// Create test session for player1
+		ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
+
 		// Test successful table creation
 		resp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 			PlayerId:      player1ID,
@@ -436,6 +472,9 @@ func TestPokerService(t *testing.T) {
 		ctx := context.Background()
 		player1ID := "player1"
 		player2ID := "player2"
+
+		// Create test session for player1
+		ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
 
 		// Create table
 		createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -527,6 +566,9 @@ func TestPokerGameFlow(t *testing.T) {
 	bob := "bob"
 	charlie := "charlie"
 
+	// Create test session for alice
+	ctx, _ = server.CreateTestSession(ctx, alice, alice)
+
 	// Alice creates a table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      alice,
@@ -616,6 +658,9 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 	host := "host"
 	player := "player"
 
+	// Create test session for host
+	ctx, _ = server.CreateTestSession(ctx, host, host)
+
 	// Host creates table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      host,
@@ -671,6 +716,9 @@ func TestHeadsUpPostflopActorIsBB(t *testing.T) {
 
 	p1 := "p1"
 	p2 := "p2"
+
+	// Create test session for p1
+	ctx, _ = server.CreateTestSession(ctx, p1, p1)
 
 	// Create HU table (5/10)
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -765,6 +813,9 @@ func TestBetValidation_UnderBetRejected(t *testing.T) {
 	p1 := "p1"
 	p2 := "p2"
 
+	// Create test session for p1
+	ctx, _ = server.CreateTestSession(ctx, p1, p1)
+
 	// Create heads-up table (SB=5, BB=10).
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      p1,
@@ -836,6 +887,9 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 
 	p1 := "p1"
 	p2 := "p2"
+
+	// Create test session for p1
+	ctx, _ = server.CreateTestSession(ctx, p1, p1)
 
 	// Create table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -985,6 +1039,9 @@ func TestNonHostLeavesTable(t *testing.T) {
 	host := "host"
 	player := "player"
 
+	// Create test session for host
+	ctx, _ = server.CreateTestSession(ctx, host, host)
+
 	// Host creates table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      host,
@@ -1068,6 +1125,9 @@ func TestJoinTable(t *testing.T) {
 
 	player1ID := "player1"
 	player2ID := "player2"
+
+	// Create test session for player1
+	ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
 
 	// Create table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
