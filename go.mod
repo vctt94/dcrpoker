@@ -8,7 +8,14 @@ require (
 	github.com/chehsunliu/poker v0.1.0
 	github.com/companyzero/bisonrelay v0.2.4-0.20250321132913-c1cc5b0fd438
 	github.com/davecgh/go-spew v1.1.1
+	github.com/decred/dcrd/chaincfg/chainhash v1.0.4
+	github.com/decred/dcrd/chaincfg/v3 v3.2.1
+	github.com/decred/dcrd/crypto/blake256 v1.1.0
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
 	github.com/decred/dcrd/dcrutil/v4 v4.0.2
+	github.com/decred/dcrd/rpcclient/v8 v8.0.1
+	github.com/decred/dcrd/txscript/v4 v4.1.1
+	github.com/decred/dcrd/wire v1.7.0
 	github.com/decred/slog v1.2.0
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
@@ -31,14 +38,15 @@ require (
 	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/decred/base58 v1.0.5 // indirect
 	github.com/decred/dcrd/bech32 v1.1.3 // indirect
-	github.com/decred/dcrd/chaincfg/chainhash v1.0.4 // indirect
-	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
+	github.com/decred/dcrd/blockchain/stake/v5 v5.0.1 // indirect
 	github.com/decred/dcrd/crypto/ripemd160 v1.0.2 // indirect
+	github.com/decred/dcrd/database/v3 v3.0.2 // indirect
 	github.com/decred/dcrd/dcrec v1.0.1 // indirect
 	github.com/decred/dcrd/dcrec/edwards/v2 v2.0.3 // indirect
-	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0 // indirect
-	github.com/decred/dcrd/txscript/v4 v4.1.1 // indirect
-	github.com/decred/dcrd/wire v1.7.0 // indirect
+	github.com/decred/dcrd/dcrjson/v4 v4.1.0 // indirect
+	github.com/decred/dcrd/gcs/v4 v4.1.0 // indirect
+	github.com/decred/dcrd/rpc/jsonrpc/types/v4 v4.3.0 // indirect
+	github.com/decred/go-socks v1.1.0 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jrick/logrotate v1.1.2 // indirect
