@@ -310,3 +310,27 @@ func (u *User) SendUnready() error {
 	sm.Send(evUnready{})
 	return nil
 }
+
+// GetSnapshot returns an atomic snapshot of user state for safe concurrent access
+func (u *User) GetSnapshot() UserSnapshot {
+	u.mu.RLock()
+	defer u.mu.RUnlock()
+	return UserSnapshot{
+		ID:              u.ID,
+		Name:            u.Name,
+		TableSeat:       u.TableSeat,
+		IsReady:         u.IsReady,
+		IsDisconnected:  u.IsDisconnected,
+		JoinedAt:        u.JoinedAt,
+		EscrowID:        u.EscrowID,
+		EscrowReady:     u.EscrowReady,
+		PresignComplete: u.PresignComplete,
+	}
+}
+
+// SetTableSeat sets the table seat (for external access)
+func (u *User) SetTableSeat(seat int) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.TableSeat = seat
+}

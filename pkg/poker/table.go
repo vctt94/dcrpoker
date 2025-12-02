@@ -1539,19 +1539,7 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	// Create a deep copy of users to avoid race conditions
 	usersCopy := make([]UserSnapshot, 0, len(t.users))
 	for _, user := range t.users {
-		user.mu.RLock()
-		userCopy := UserSnapshot{
-			ID:              user.ID,
-			Name:            user.Name,
-			TableSeat:       user.TableSeat,
-			IsReady:         user.IsReady,
-			IsDisconnected:  user.IsDisconnected,
-			JoinedAt:        user.JoinedAt,
-			EscrowID:        user.EscrowID,
-			EscrowReady:     user.EscrowReady,
-			PresignComplete: user.PresignComplete,
-		}
-		user.mu.RUnlock()
+		userCopy := user.GetSnapshot()
 		usersCopy = append(usersCopy, userCopy)
 	}
 

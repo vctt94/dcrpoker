@@ -126,7 +126,7 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		})
 
 		// Set the seat from the database record
-		user.TableSeat = p.Seat
+		user.SetTableSeat(p.Seat)
 
 		// Add the user to the table model
 		if err := table.AddUser(user); err != nil {

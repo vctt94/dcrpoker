@@ -271,8 +271,9 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 
 	// No active game: fully leave table and clear any escrow bindings for this seat.
 	// This allows the player to re-bind a different escrow if they rejoin later.
-	if user.TableSeat >= 0 {
-		s.clearEscrowBindingForSeat(req.TableId, uint32(user.TableSeat))
+	userSnap := user.GetSnapshot()
+	if userSnap.TableSeat >= 0 {
+		s.clearEscrowBindingForSeat(req.TableId, uint32(userSnap.TableSeat))
 	}
 
 	// Otherwise, remove completely from the table runtime first
@@ -450,15 +451,19 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		return nil, status.Error(codes.NotFound, "player not at table")
 	}
 	cfg := table.GetConfig()
-	if cfg.BuyIn > 0 && user.EscrowID == "" {
+
+	// Get user snapshot to safely read fields without races
+	userSnap := user.GetSnapshot()
+
+	if cfg.BuyIn > 0 && userSnap.EscrowID == "" {
 		return nil, status.Error(codes.FailedPrecondition, "escrow required for this table")
 	}
-	if user.EscrowID != "" {
+	if userSnap.EscrowID != "" {
 		s.referee.mu.RLock()
-		es := s.referee.escrows[user.EscrowID]
+		es := s.referee.escrows[userSnap.EscrowID]
 		s.referee.mu.RUnlock()
 		if es == nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "escrow %s not found for player", user.EscrowID)
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow %s not found for player", userSnap.EscrowID)
 		}
 		if cfg.BuyIn > 0 && es.AmountAtoms != uint64(cfg.BuyIn) {
 			return nil, status.Errorf(codes.FailedPrecondition, "escrow amount %d must equal table buy-in %d", es.AmountAtoms, cfg.BuyIn)
@@ -471,8 +476,8 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		if es.TableID == "" {
 			es.TableID = req.TableId
 		}
-		if es.SeatIndex == 0 && user.TableSeat >= 0 {
-			es.SeatIndex = uint32(user.TableSeat)
+		if es.SeatIndex == 0 && userSnap.TableSeat >= 0 {
+			es.SeatIndex = uint32(userSnap.TableSeat)
 		}
 		s.referee.mu.Unlock()
 	}
