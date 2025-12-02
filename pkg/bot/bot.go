@@ -2,13 +2,11 @@ package bot
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/zkidentity"
-	"github.com/decred/dcrd/dcrutil/v4"
 	kit "github.com/vctt94/bisonbotkit"
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 )
@@ -38,17 +36,13 @@ func (s *State) HandlePM(ctx context.Context, bot *kit.Bot, pm *types.ReceivedPM
 	cmd := strings.ToLower(tokens[0])
 	var uid zkidentity.ShortID
 	uid.FromBytes(pm.Uid)
-	playerID := uid.String()
+	// playerID := uid.String()
 
 	switch cmd {
 	case "balance":
-		balance, err := s.db.GetPlayerBalance(ctx, playerID)
-		if err != nil {
-			bot.SendPM(ctx, pm.Nick, "Error checking balance: "+err.Error())
-			return
-		}
-		bot.SendPM(ctx, pm.Nick, fmt.Sprintf("Your current balance is: %.8f DCR",
-			dcrutil.Amount(balance).ToCoin()))
+
+		// bot.SendPM(ctx, pm.Nick, fmt.Sprintf("Your current balance is: %.8f DCR",
+		// 	dcrutil.Amount(balance).ToCoin()))
 
 	case "help":
 		s.handleHelp(ctx, bot, pm)
