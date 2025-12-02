@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 // Env holds the runtime components that make up a fully functional instance of
@@ -252,12 +253,11 @@ func (e *Env) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest)
 	// Convert playerID to ShortID string representation
 	playerIDStr := PlayerIDToShortIDString(req.PlayerId)
 
-	// Create a copy of the request with the converted playerID
-	reqCopy := *req
+	// Clone the request to avoid copying the mutex
+	reqCopy := proto.Clone(req).(*pokerrpc.CreateTableRequest)
 	reqCopy.PlayerId = playerIDStr
 
-	// Use a pointer to avoid copying the mutex
-	return e.LobbyClient.CreateTable(ctx, &reqCopy)
+	return e.LobbyClient.CreateTable(ctx, reqCopy)
 }
 
 // JoinTable is a helper that wraps LobbyClient.JoinTable with automatic token
