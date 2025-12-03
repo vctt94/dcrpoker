@@ -1269,6 +1269,29 @@ class PokerModel extends ChangeNotifier {
     }
   }
 
+  pr.HandRank parseHandRank(dynamic hrRaw) {
+    if (hrRaw is pr.HandRank) {
+      return hrRaw;
+    }
+    if (hrRaw is num) {
+      return pr.HandRank.valueOf(hrRaw.toInt()) ?? pr.HandRank.HIGH_CARD;
+    }
+    if (hrRaw is String) {
+      final parsed = int.tryParse(hrRaw);
+      if (parsed != null) {
+        return pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
+      }
+      final normalized = hrRaw.toUpperCase();
+      final stripped = normalized.startsWith('HAND_RANK_')
+          ? normalized.substring('HAND_RANK_'.length)
+          : normalized;
+      final match = pr.HandRank.values
+          .firstWhereOrNull((h) => h.name.toUpperCase() == stripped);
+      return match ?? pr.HandRank.HIGH_CARD;
+    }
+    return pr.HandRank.HIGH_CARD;
+  }
+
   UiWinner? _winnerFromDynamic(dynamic w) {
     try {
       final winnerJsonStr = jsonEncode(w);
@@ -1282,16 +1305,7 @@ class PokerModel extends ChangeNotifier {
             ? winningsRaw.toInt()
             : int.tryParse('$winningsRaw') ?? 0;
         final hrRaw = w['handRank'] ?? w['hand_rank'] ?? w['rank'];
-        pr.HandRank handRank = pr.HandRank.HIGH_CARD;
-        if (hrRaw is int) {
-          handRank = pr.HandRank.valueOf(hrRaw) ?? pr.HandRank.HIGH_CARD;
-        }
-        if (hrRaw is String) {
-          final parsed = int.tryParse(hrRaw);
-          if (parsed != null) {
-            handRank = pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
-          }
-        }
+        final handRank = parseHandRank(hrRaw);
         final bestHandRaw = w['bestHand'] ?? w['best_hand'] ?? [];
         final List<pr.Card> bestHand = [];
         if (bestHandRaw is List) {
