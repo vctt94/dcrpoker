@@ -6,13 +6,18 @@ import 'cards.dart';
 
 // Canvas-based table and player drawing utilities for CustomPainter usage
 
-void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadius) {
-  // Table surface
+void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadiusX, double tableRadiusY) {
+  // Table surface - draw as ellipse
   final tablePaint = Paint()
     ..color = const Color(0xFF0D4F3C)
     ..style = PaintingStyle.fill;
   
-  canvas.drawCircle(Offset(centerX, centerY), tableRadius, tablePaint);
+  final tableRect = Rect.fromCenter(
+    center: Offset(centerX, centerY),
+    width: tableRadiusX * 2,
+    height: tableRadiusY * 2,
+  );
+  canvas.drawOval(tableRect, tablePaint);
   
   // Table border
   final borderPaint = Paint()
@@ -20,7 +25,7 @@ void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableR
     ..style = PaintingStyle.stroke
     ..strokeWidth = 8;
   
-  canvas.drawCircle(Offset(centerX, centerY), tableRadius, borderPaint);
+  canvas.drawOval(tableRect, borderPaint);
 }
 
 void drawPlayers(
@@ -30,7 +35,8 @@ void drawPlayers(
   UiGameState gameState,
   double centerX,
   double centerY,
-  double tableRadius,
+  double tableRadiusX,
+  double tableRadiusY,
   int showdownStartMs,
   Size size,
 ) {
@@ -68,9 +74,11 @@ void drawPlayers(
       }
     }
     
-    // Clamp player positions to stay within viewport bounds
-    final rawX = centerX + (tableRadius + 50) * math.cos(angle);
-    final rawY = centerY + (tableRadius + 50) * math.sin(angle);
+    // Position players on ellipse perimeter
+    // For ellipse: x = centerX + radiusX * cos(angle), y = centerY + radiusY * sin(angle)
+    final playerOffset = 50.0; // Distance from table edge
+    final rawX = centerX + (tableRadiusX + playerOffset) * math.cos(angle);
+    final rawY = centerY + (tableRadiusY + playerOffset) * math.sin(angle);
     // Ensure players don't get cut off at edges (with padding for badges/cards)
     final padding = playerRadius + 60.0; // Extra space for badges and cards
     final playerX = rawX.clamp(padding, size.width - padding);
@@ -268,7 +276,6 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
   );
 
   final layouts = <BadgeLayout>[];
-  double totalWidth = -gap;
   for (final badge in badges) {
     final painter = TextPainter(
       text: TextSpan(text: badge.label, style: textStyle),
@@ -276,7 +283,6 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
     )..layout();
     final width = painter.width + horizontalPadding * 2;
     layouts.add(BadgeLayout(badge, painter, width));
-    totalWidth += width + gap;
   }
 
   // Position badges to the right of the player circle, 30 degrees south (downward)
@@ -324,7 +330,8 @@ void drawCurrentTimebank(
   String currentPlayerId,
   double centerX,
   double centerY,
-  double tableRadius,
+  double tableRadiusX,
+  double tableRadiusY,
 ) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -356,8 +363,9 @@ void drawCurrentTimebank(
   }
 
   const playerRadius = 30.0;
-  final playerX = centerX + (tableRadius + 50) * math.cos(angle);
-  final playerY = centerY + (tableRadius + 50) * math.sin(angle);
+  const playerOffset = 50.0;
+  final playerX = centerX + (tableRadiusX + playerOffset) * math.cos(angle);
+  final playerY = centerY + (tableRadiusY + playerOffset) * math.sin(angle);
 
   final tbText = TextPainter(
     text: TextSpan(
@@ -369,14 +377,63 @@ void drawCurrentTimebank(
 
   final badgeW = tbText.width + 12;
   const badgeH = 18.0;
-  // Prefer to the right of the seat; fallback to left if clipping.
-  double bx = playerX + playerRadius + 12;
-  double by = playerY - badgeH / 2;
-  if (bx + badgeW > size.width - 4) {
-    bx = playerX - playerRadius - 12 - badgeW;
+  
+  // Position timebank above role badges (consistent for all players)
+  final isHero = (idx == heroIndex);
+  double bx, by;
+  
+  // Calculate where role badges are positioned (same logic as drawRoleBadges)
+  const spacingFromCircle = 8.0;
+  const angleRadians = math.pi / 6; // 30 degrees
+  const distanceFromCenter = playerRadius + spacingFromCircle;
+  final badgeLeftEdgeX = playerX + distanceFromCenter * math.cos(angleRadians);
+  final badgeLeftEdgeY = playerY + distanceFromCenter * math.sin(angleRadians);
+  
+  // Calculate total width of badges for current player
+  final currentPlayer = players[idx];
+  final badges = <String>[];
+  if (currentPlayer.isDealer) badges.add('D');
+  if (currentPlayer.isSmallBlind) badges.add('SB');
+  if (currentPlayer.isBigBlind) badges.add('BB');
+  if (currentPlayer.isAllIn) badges.add('ALL-IN');
+  
+  double totalBadgeWidth = 0.0;
+  const roleBadgeHeight = 18.0;
+  const horizontalPadding = 8.0;
+  const gap = 5.0;
+  const textStyle = TextStyle(
+    color: Colors.black,
+    fontSize: 11,
+    fontWeight: FontWeight.w900,
+  );
+  
+  for (final badgeLabel in badges) {
+    final painter = TextPainter(
+      text: TextSpan(text: badgeLabel, style: textStyle),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    totalBadgeWidth += painter.width + horizontalPadding * 2;
+    if (badgeLabel != badges.last) {
+      totalBadgeWidth += gap;
+    }
   }
+  
+  // Position timebank above the badges, centered on the badge area
+  if (totalBadgeWidth == 0) return; // No badges, don't show timebank
+  
+  // Center timebank on the badge area, with left margin (more for hero)
+  final leftMargin = isHero ? 15.0 : 0.0;
+  bx = badgeLeftEdgeX + (totalBadgeWidth - badgeW) / 2 - leftMargin;
+  // Position above badges with a gap - larger gap for hero to avoid buttons
+  final gapAboveBadges = isHero ? 30.0 : 4.0;
+  final badgeCenterY = badgeLeftEdgeY - roleBadgeHeight / 2;
+  by = badgeCenterY - gapAboveBadges - badgeH;
+  
+  // Ensure timebank doesn't clip at screen edges
+  if (bx < 2) bx = 2;
+  if (bx + badgeW > size.width - 2) bx = size.width - badgeW - 2;
   if (by < 2) by = 2;
-  if (by + badgeH > size.height - 2) by = size.height - 2 - badgeH;
+  if (by + badgeH > size.height - 2) by = size.height - badgeH - 2;
 
   final badgeRect = RRect.fromRectAndRadius(
     Rect.fromLTWH(bx, by, badgeW, badgeH),
@@ -422,7 +479,7 @@ Rect pokerViewportRect(Size size) {
   return Rect.fromLTWH(left, top, w, h);
 }
 
-Map<String, Offset> seatPositionsFor(List<UiPlayer> ps, String heroId, Offset center, double ringRadius) {
+Map<String, Offset> seatPositionsFor(List<UiPlayer> ps, String heroId, Offset center, double ringRadiusX, double ringRadiusY) {
   final map = <String, Offset>{};
   if (ps.isEmpty) return map;
   final count = ps.length;
@@ -445,8 +502,9 @@ Map<String, Offset> seatPositionsFor(List<UiPlayer> ps, String heroId, Offset ce
         angle = (i * 2 * math.pi) / count;
       }
     }
-    final x = center.dx + (ringRadius) * math.cos(angle);
-    final y = center.dy + (ringRadius) * math.sin(angle);
+    // Position on ellipse perimeter
+    final x = center.dx + ringRadiusX * math.cos(angle);
+    final y = center.dy + ringRadiusY * math.sin(angle);
     map[ps[i].id] = Offset(x, y - playerRadius);
   }
   return map;

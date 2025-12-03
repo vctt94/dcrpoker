@@ -19,8 +19,9 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
       final size = c.biggest;
       final box = _pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
-      final seats = seatPositionsFor(players, heroId, center, tableRadius + 50);
+      final tableRadiusX = (box.width * 0.4).clamp(100.0, 200.0);
+      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
+      final seats = seatPositionsFor(players, heroId, center, tableRadiusX + 50, tableRadiusY + 50);
 
       final widgets = <Widget>[];
       for (final p in players) {

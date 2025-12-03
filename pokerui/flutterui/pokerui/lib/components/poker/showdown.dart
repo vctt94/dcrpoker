@@ -238,12 +238,13 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
       final size = c.biggest;
       final box = pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
+      final tableRadiusX = (box.width * 0.4).clamp(100.0, 200.0);
+      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
 
       final chipWidgets = <Widget>[];
       if (winners.isNotEmpty && game.players.isNotEmpty) {
         final targets = seatPositionsFor(
-            game.players, widget.model.playerId, center, tableRadius + 50);
+            game.players, widget.model.playerId, center, tableRadiusX + 50, tableRadiusY + 50);
         final potOrigin = _potLabelCenterInBox(box);
 
         for (int i = 0; i < winners.length; i++) {
