@@ -46,25 +46,7 @@ class ShowdownView extends StatelessWidget {
       return pl.name.isNotEmpty ? pl.name : _pLabel(pid);
     }
 
-    String winnerDesc(String pid, pr.HandRank rank) {
-      final pl = players.firstWhere((p) => p.id == pid,
-          orElse: () => const UiPlayer(
-                id: '',
-                name: '',
-                balance: 0,
-                hand: [],
-                currentBet: 0,
-                folded: false,
-                isTurn: false,
-                isAllIn: false,
-                isDealer: false,
-                isSmallBlind: false,
-                isBigBlind: false,
-                isReady: false,
-                handDesc: '',
-                isDisconnected: true,
-              ));
-      if (pl.handDesc.isNotEmpty) return pl.handDesc;
+    String winnerDesc(pr.HandRank rank) {
       switch (rank) {
         case pr.HandRank.HIGH_CARD:
           return 'High Card';
@@ -142,7 +124,7 @@ class ShowdownView extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                             ),
                             Text(
-                              winnerDesc(w.playerId, w.handRank),
+                              winnerDesc(w.handRank),
                               style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,

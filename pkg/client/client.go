@@ -636,10 +636,7 @@ func (pc *PokerClient) setGameStreamConnectionState(connected bool, reason error
 	pc.Unlock()
 
 	var msg string
-	if connected {
-		msg = "game stream restored"
-		pc.log.Infof("game stream connected")
-	} else {
+	if !connected {
 		msg = "game stream disconnected"
 		if reason != nil {
 			msg = fmt.Sprintf("game stream disconnected: %v", reason)
