@@ -982,7 +982,14 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 		if !ok {
 			return status.Errorf(codes.InvalidArgument, "unknown branch %d", ps.Branch)
 		}
-		if err := s.storePresigs(matchID, ps.Branch, uid, draft, ps.Presigs); err != nil {
+		// Use the escrow's session pubkey (X = xG) when verifying presigs.
+		es.mu.RLock()
+		compPubkey := append([]byte(nil), es.CompPubkey...)
+		es.mu.RUnlock()
+		if len(compPubkey) != 33 {
+			return status.Errorf(codes.FailedPrecondition, "escrow %s missing session pubkey", es.EscrowID)
+		}
+		if err := s.storePresigs(matchID, ps.Branch, uid, compPubkey, draft, ps.Presigs); err != nil {
 			return status.Errorf(codes.InvalidArgument, "presig verify: %v", err)
 		}
 		// Ack success for this branch.
@@ -1659,8 +1666,129 @@ func (s *Server) IsPresigningComplete(matchID string) (complete bool, completedS
 	return completedSeats == totalSeats, completedSeats, totalSeats
 }
 
+// addPoints returns R+S as a *secp256k1.PublicKey using Jacobian add and affine conversion.
+func addPoints(R, S *secp256k1.PublicKey) (*secp256k1.PublicKey, error) {
+	var rj, sj, sum secp256k1.JacobianPoint
+	R.AsJacobian(&rj)
+	S.AsJacobian(&sj)
+	// sum = rj + sj (Jacobian)
+	secp256k1.AddNonConst(&rj, &sj, &sum)
+	// Infinity if Z == 0 in Jacobian coords.
+	if sum.Z.IsZero() {
+		return nil, fmt.Errorf("R' is point at infinity")
+	}
+	// Convert in place to affine, then build a PublicKey.
+	sum.ToAffine()
+	var ax, ay secp256k1.FieldVal
+	ax.Set(&sum.X)
+	ay.Set(&sum.Y)
+	return secp256k1.NewPublicKey(&ax, &ay), nil
+}
+
+// verifyPresig cryptographically verifies an adaptor presignature.
+// Verifies: R' = kG + T where kG = s'G + eX
+// This is equivalent to checking: kG == R' - T
+// where: e = H(r_x || m), X is the session pubkey, T is the adaptor point.
+func (s *Server) verifyPresig(ps *pokerrpc.PreSignature, in presignInput, compPubkey []byte) error {
+	if len(ps.RPrimeCompactHex) == 0 || len(ps.SPrimeHex) == 0 {
+		return fmt.Errorf("missing presig data for %s", ps.InputId)
+	}
+
+	// Decode R' (compressed point)
+	rb, err := hex.DecodeString(ps.RPrimeCompactHex)
+	if err != nil || len(rb) != 33 {
+		return fmt.Errorf("invalid r' for %s", ps.InputId)
+	}
+	if rb[0] != 0x02 {
+		return fmt.Errorf("r' must be even-Y (0x02) for %s", ps.InputId)
+	}
+
+	// Decode s' (scalar)
+	sb, err := hex.DecodeString(ps.SPrimeHex)
+	if err != nil || len(sb) != 32 {
+		return fmt.Errorf("invalid s' for %s", ps.InputId)
+	}
+
+	// Decode T (adaptor point)
+	tb, err := hex.DecodeString(in.AdaptorPointHex)
+	if err != nil || len(tb) != 33 {
+		return fmt.Errorf("invalid adaptor point for %s", ps.InputId)
+	}
+
+	// Decode m (sighash)
+	mBytes, err := hex.DecodeString(in.SighashHex)
+	if err != nil || len(mBytes) != 32 {
+		return fmt.Errorf("invalid sighash for %s", ps.InputId)
+	}
+
+	// Parse points
+	Rp, err := secp256k1.ParsePubKey(rb)
+	if err != nil {
+		return fmt.Errorf("parse R': %w", err)
+	}
+	T, err := secp256k1.ParsePubKey(tb)
+	if err != nil {
+		return fmt.Errorf("parse T: %w", err)
+	}
+	X, err := secp256k1.ParsePubKey(compPubkey)
+	if err != nil {
+		return fmt.Errorf("parse session pubkey: %w", err)
+	}
+
+	// Compute e = H(r_x || m)
+	var r32 [32]byte
+	copy(r32[:], rb[1:33])
+	eBytes := blake256.Sum256(append(r32[:], mBytes...))
+	var e secp256k1.ModNScalar
+	if overflow := e.SetByteSlice(eBytes[:]); overflow {
+		return fmt.Errorf("e overflow for %s", ps.InputId)
+	}
+
+	// Parse s'
+	var sPrime secp256k1.ModNScalar
+	if overflow := sPrime.SetByteSlice(sb); overflow {
+		return fmt.Errorf("s' overflow for %s", ps.InputId)
+	}
+
+	// Compute k·G = s'·G + e·X
+	spb := sPrime.Bytes()
+	spk := secp256k1.PrivKeyFromBytes(spb[:]).PubKey()
+	var Xj secp256k1.JacobianPoint
+	X.AsJacobian(&Xj)
+	var out secp256k1.JacobianPoint
+	secp256k1.ScalarMultNonConst(&e, &Xj, &out)
+	out.ToAffine()
+	Ex := secp256k1.NewPublicKey(&out.X, &out.Y)
+	kGPoint, err := addPoints(spk, Ex)
+	if err != nil {
+		return fmt.Errorf("kG is infinity for %s: %w", ps.InputId, err)
+	}
+
+	// Compute R' - T
+	var tj secp256k1.JacobianPoint
+	T.AsJacobian(&tj)
+	tj.Y.Negate(1)
+	var rj secp256k1.JacobianPoint
+	Rp.AsJacobian(&rj)
+	var diff secp256k1.JacobianPoint
+	secp256k1.AddNonConst(&rj, &tj, &diff)
+	if diff.Z.IsZero() {
+		return fmt.Errorf("R'-T is infinity for %s", ps.InputId)
+	}
+	diff.ToAffine()
+	rMinusT := secp256k1.NewPublicKey(&diff.X, &diff.Y)
+
+	// Verify: kG == R' - T (which is equivalent to R' = kG + T)
+	if !bytes.Equal(kGPoint.SerializeCompressed(), rMinusT.SerializeCompressed()) {
+		return fmt.Errorf("adaptor signature verification failed for %s: kG != R'-T (R' != kG + T)", ps.InputId)
+	}
+
+	return nil
+}
+
 // storePresigs verifies and stores presign artifacts for a branch.
-func (s *Server) storePresigs(matchID string, branch int32, uid zkidentity.ShortID, draft branchDraft, presigs []*pokerrpc.PreSignature) error {
+// compPubkey is the 33-byte compressed session pubkey X = xG for the caller.
+func (s *Server) storePresigs(matchID string, branch int32, uid zkidentity.ShortID, compPubkey []byte, draft branchDraft, presigs []*pokerrpc.PreSignature) error {
 	inputs := make(map[string]presignInput)
 	ownerCount := 0
 	for _, in := range draft.Inputs {
@@ -1693,6 +1821,12 @@ func (s *Server) storePresigs(matchID string, branch int32, uid zkidentity.Short
 		if in.OwnerUID != uid {
 			return fmt.Errorf("input %s not owned by caller", ps.InputId)
 		}
+
+		// Cryptographically verify the presignature before storing.
+		if err := s.verifyPresig(ps, in, compPubkey); err != nil {
+			return fmt.Errorf("presig verification failed for %s: %w", ps.InputId, err)
+		}
+
 		rb, err := hex.DecodeString(ps.RPrimeCompactHex)
 		if err != nil || len(rb) != 33 {
 			return fmt.Errorf("invalid r' for %s", ps.InputId)

@@ -121,12 +121,20 @@ func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID, sess
 		return err
 	}
 
+	// Track expected branches and which have been acknowledged by VerifyOk.
+	// The server sends NeedPreSigs once per branch before any VerifyOk,
+	// so we discover the full branch set from NeedPreSigs messages.
+	branches := make(map[int32]bool) // branch -> acked
+
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
 			return err
 		}
 		if need := msg.GetNeedPreSigs(); need != nil {
+			if _, ok := branches[need.Branch]; !ok {
+				branches[need.Branch] = false
+			}
 			pres, err := buildPresigs(xPrivHex, need)
 			if err != nil {
 				return err
@@ -145,10 +153,27 @@ func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID, sess
 			return fmt.Errorf("referee error: %s", errMsg.Error)
 		}
 		if ok := msg.GetVerifyOk(); ok != nil {
-			// Presign finished for all branches.
-			// Close the send direction to signal EOF to the server.
-			_ = stream.CloseSend()
-			return nil
+			// Mark this branch as acknowledged.
+			if _, exists := branches[ok.Branch]; !exists {
+				branches[ok.Branch] = true
+			} else {
+				branches[ok.Branch] = true
+			}
+
+			// Check if all known branches have been acknowledged.
+			allAcked := len(branches) > 0
+			for _, acked := range branches {
+				if !acked {
+					allAcked = false
+					break
+				}
+			}
+			if allAcked {
+				// Presign finished for all branches for this seat.
+				// Close the send direction to signal EOF to the server.
+				_ = stream.CloseSend()
+				return nil
+			}
 		}
 	}
 }
