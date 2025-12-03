@@ -437,3 +437,65 @@ func TestSettlementBranchIndexBug(t *testing.T) {
 	require.Equal(t, winnerScript, tx.TxOut[0].PkScript,
 		"transaction should pay to seat 1 (the winner), but currently pays to the wrong address")
 }
+
+// TestCleanupMatchState ensures match cleanup marks escrows spent and clears
+// per-match bookkeeping so the same UTXO cannot be reused.
+func TestCleanupMatchState(t *testing.T) {
+	const matchID = "cleanup-match"
+	const amount = uint64(2_000_000)
+
+	srv := newTestServerWithState(t)
+
+	_, esc1 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000001", "tok1", "aaaa", 0, amount)
+	_, esc2 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000002", "tok2", "bbbb", 1, amount)
+
+	// Bind escrows to the match and seed presign metadata.
+	srv.referee.matchEscrows[matchID] = map[uint32]string{0: esc1, 1: esc2}
+	srv.referee.presigns[matchID] = map[int32]map[string]*refereePreSignCtx{
+		0: {"aaaa:0": {InputID: "aaaa:0"}},
+	}
+	srv.referee.branchGamma[matchID] = map[int32]string{0: "gamma"}
+	srv.referee.presignComplete[matchID] = map[uint32]bool{0: true, 1: true}
+
+	// Record table metadata and watcher unsubscribe hooks so cleanup can clear them.
+	es1 := srv.referee.escrows[esc1]
+	es2 := srv.referee.escrows[esc2]
+	es1.TableID = matchID
+	es1.SeatIndex = 0
+	es2.TableID = matchID
+	es2.SeatIndex = 1
+
+	var unsub1Called, unsub2Called bool
+	es1.WatcherUnsub = func() { unsub1Called = true }
+	es2.WatcherUnsub = func() { unsub2Called = true }
+
+	srv.cleanupMatchState(matchID)
+
+	_, ok := srv.referee.matchEscrows[matchID]
+	require.False(t, ok, "match escrows should be cleared")
+	_, ok = srv.referee.presigns[matchID]
+	require.False(t, ok, "presigns should be cleared")
+	_, ok = srv.referee.branchGamma[matchID]
+	require.False(t, ok, "branch gamma should be cleared")
+	_, ok = srv.referee.presignComplete[matchID]
+	require.False(t, ok, "presign completion should be cleared")
+
+	require.True(t, unsub1Called, "watcher unsubscribe should run for escrow 1")
+	require.True(t, unsub2Called, "watcher unsubscribe should run for escrow 2")
+
+	es1.mu.RLock()
+	require.Empty(t, es1.TableID)
+	require.Zero(t, es1.SeatIndex)
+	require.Nil(t, es1.BoundUTXO)
+	es1.mu.RUnlock()
+	_, err := ensureBoundFunding(es1)
+	require.ErrorContains(t, err, "spent")
+
+	es2.mu.RLock()
+	require.Empty(t, es2.TableID)
+	require.Zero(t, es2.SeatIndex)
+	require.Nil(t, es2.BoundUTXO)
+	es2.mu.RUnlock()
+	_, err = ensureBoundFunding(es2)
+	require.ErrorContains(t, err, "spent")
+}

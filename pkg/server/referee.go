@@ -1413,9 +1413,76 @@ func (s *Server) FinalizeAndBroadcastSettlement(ctx context.Context, matchID str
 	s.log.Infof("Settlement broadcast successful: matchID=%s winnerSeat=%d branch=%d txid=%s",
 		matchID, winnerSeat, bundle.Branch, txid)
 
-	// TODO: Persist settlement outcome and clean up escrow/presign state.
+	// Stop tracking the settled match to prevent reusing the same escrow/UTXO.
+	// This also clears presign state and bound table metadata.
+	s.cleanupMatchState(matchID)
 
 	return txid, nil
+}
+
+// cleanupMatchState releases all presign + escrow bindings for a match after it
+// has finished/settled. This prevents reusing an already-spent escrow UTXO and
+// stops the chain watcher from tracking it further.
+func (s *Server) cleanupMatchState(matchID string) {
+	if s.referee == nil || matchID == "" {
+		return
+	}
+
+	// Snapshot escrow IDs so we can clean them after releasing the match maps.
+	s.referee.mu.Lock()
+	seats := s.referee.matchEscrows[matchID]
+	var escrowIDs []string
+	for _, eid := range seats {
+		if eid != "" {
+			escrowIDs = append(escrowIDs, eid)
+		}
+	}
+	delete(s.referee.matchEscrows, matchID)
+	delete(s.referee.presigns, matchID)
+	delete(s.referee.branchGamma, matchID)
+	delete(s.referee.presignComplete, matchID)
+	s.referee.mu.Unlock()
+
+	for _, escrowID := range escrowIDs {
+		s.resetEscrowState(escrowID)
+	}
+}
+
+// resetEscrowState marks an escrow as spent and detaches it from any table so
+// it cannot be reused after settlement.
+func (s *Server) resetEscrowState(escrowID string) {
+	if s.referee == nil || escrowID == "" {
+		return
+	}
+
+	s.referee.mu.RLock()
+	es := s.referee.escrows[escrowID]
+	s.referee.mu.RUnlock()
+	if es == nil {
+		return
+	}
+
+	// Unsubscribe from chain watcher outside of the mutex to avoid deadlocks.
+	es.mu.Lock()
+	unsub := es.WatcherUnsub
+	es.WatcherUnsub = nil
+	pkHex := es.PkScriptHex
+	es.TableID = ""
+	es.SessionID = ""
+	es.SeatIndex = 0
+	es.mu.Unlock()
+	if unsub != nil {
+		unsub()
+	}
+
+	// Mark funding as spent and drop the bound UTXO.
+	update := chainwatcher.DepositUpdate{
+		PkScriptHex: pkHex,
+		UTXOCount:   0,
+		OK:          false,
+		At:          time.Now(),
+	}
+	es.updateFundingState(escrowStateSpent, "match settled; escrow spent", update, nil)
 }
 
 // GetEscrowStatus returns funding/conf status for an escrow owned by caller.
