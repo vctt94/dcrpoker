@@ -1013,10 +1013,14 @@ func TestLastPlayerLeavesTableClosure(t *testing.T) {
 	assert.True(t, leaveResp.Success)
 	assert.Contains(t, leaveResp.Message, "table closed")
 
-	// Verify table is removed
-	tablesResp, err = server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
-	require.NoError(t, err)
-	assert.Len(t, tablesResp.Tables, 0)
+	// Verify table is removed (wait for async event processing)
+	require.Eventually(t, func() bool {
+		tablesResp, err := server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
+		if err != nil {
+			return false
+		}
+		return len(tablesResp.Tables) == 0
+	}, 2*time.Second, 10*time.Millisecond, "table should be removed after last player leaves")
 }
 
 func TestNonHostLeavesTable(t *testing.T) {
