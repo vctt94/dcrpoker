@@ -687,11 +687,6 @@ func (s *Server) publishTableRemovedEvent(tableID string) {
 // has been published. The server owns shutdown to avoid self-deadlocks in the
 // table FSM.
 func (s *Server) finalizeTableRemoval(tableID string) {
-	// Ensure cleanup happens once per table.
-	if _, loaded := s.removedTables.LoadOrStore(tableID, struct{}{}); loaded {
-		return
-	}
-
 	// Block on any in-flight snapshot save for this table so we don't delete
 	// the DB row while a GAME_ENDED persistence is writing.
 	v, _ := s.saveMutexes.LoadOrStore(tableID, &sync.Mutex{})
