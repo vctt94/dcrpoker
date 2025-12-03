@@ -123,7 +123,6 @@ func NewPokerUI(ctx context.Context, client *client.PokerClient) *PokerUI {
 func (m *PokerUI) Init() tea.Cmd {
 	// Start a periodic tick to update timebank countdowns
 	return tea.Batch(
-		m.dispatcher.getBalanceCmd(),
 		tea.Tick(16*time.Millisecond, func(t time.Time) tea.Msg { return t }),
 	)
 }
@@ -534,7 +533,7 @@ func (m *PokerUI) handleMainMenuSelection(option string) (stateFn, tea.Cmd) {
 		m.currentView = "joinTable"
 		return m.stateJoinTable, nil
 	case "Check Balance":
-		return m.stateMainMenu, m.dispatcher.getBalanceCmd()
+		return m.stateMainMenu, nil
 	case "Return to Table":
 		currentTableID := m.pc.GetCurrentTableID()
 		if currentTableID != "" {
@@ -557,7 +556,7 @@ func (m *PokerUI) handleGameLobbySelection(option string) (stateFn, tea.Cmd) {
 	case "Leave Table":
 		return m.stateGameLobby, m.dispatcher.leaveTableCmd()
 	case "Check Balance":
-		return m.stateGameLobby, m.dispatcher.getBalanceCmd()
+		return m.stateGameLobby, nil
 	case "Quit":
 		return m.stateGameLobby, tea.Quit
 	}
@@ -765,8 +764,8 @@ func (m *PokerUI) handleNotification(notification *pokerrpc.Notification) tea.Cm
 	case pokerrpc.NotificationType_GAME_ENDED:
 		m.currentState = m.stateGameLobby
 		m.currentView = "gameLobby"
-		m.message = "Game ended"
-		return m.dispatcher.getBalanceCmd()
+		m.message = notification.Message
+		return nil
 
 	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
 		// Store showdown results and immediately reflect SHOWDOWN phase in UI

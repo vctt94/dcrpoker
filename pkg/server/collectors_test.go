@@ -17,12 +17,6 @@ import (
 // stubDB is a minimal in-memory implementation of the Database interface used only for these unit tests.
 type stubDB struct{}
 
-// --- Players / wallet ---
-func (stubDB) GetPlayerBalance(ctx context.Context, _ string) (int64, error) { return 0, nil }
-func (stubDB) UpdatePlayerBalance(ctx context.Context, _ string, _ int64, _ string, _ string) error {
-	return nil
-}
-
 func (stubDB) GetSnapshot(ctx context.Context, _ string) (*db.Snapshot, error) {
 	return nil, nil
 }
@@ -54,6 +48,9 @@ func (stubDB) GetAuthUserByUserID(ctx context.Context, _ string) (*db.AuthUser, 
 	return nil, nil
 }
 func (stubDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error { return nil }
+func (stubDB) UpdateAuthUserPayoutAddress(ctx context.Context, _, _ string) error {
+	return nil
+}
 func (stubDB) ListAllAuthUsers(ctx context.Context) ([]db.AuthUser, error) { return nil, nil }
 
 // --- Close ---
@@ -85,18 +82,27 @@ func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 
 	table := poker.NewTable(cfg)
 
-	if _, err := table.AddNewUser("p1", "p1", 1000, 0); err != nil {
-		t.Fatalf("add user p1: %v", err)
+	user1, err := table.AddNewUser("p1", nil)
+	if err != nil {
+		t.Fatalf("add p1: %v", err)
 	}
-	if _, err := table.AddNewUser("p2", "p2", 1000, 1); err != nil {
-		t.Fatalf("add user p2: %v", err)
+	user1.TableSeat = 0
+	user2, err := table.AddNewUser("p2", nil)
+	if err != nil {
+		t.Fatalf("add p2: %v", err)
 	}
-	if err := table.SetPlayerReady("p1", true); err != nil {
-		t.Fatalf("ready p1: %v", err)
+	user2.TableSeat = 1
+	user := table.GetUser("p1")
+	if user == nil {
+		t.Fatalf("user p1 not found")
 	}
-	if err := table.SetPlayerReady("p2", true); err != nil {
-		t.Fatalf("ready p2: %v", err)
+	user.SendReady()
+
+	user = table.GetUser("p2")
+	if user == nil {
+		t.Fatalf("user p2 not found")
 	}
+	user.SendReady()
 	// advance state machine
 	if !table.CheckAllPlayersReady() {
 		t.Fatal("table should report PLAYERS_READY")

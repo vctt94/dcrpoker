@@ -8,7 +8,7 @@
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
 
 import 'dart:core' as $core;
 
@@ -139,6 +139,16 @@ class NotificationType extends $pb.ProtobufEnum {
       NotificationType._(26, _omitEnumNames ? '' : 'GAME_STREAM_CONNECTED');
   static const NotificationType GAME_STREAM_DISCONNECTED =
       NotificationType._(27, _omitEnumNames ? '' : 'GAME_STREAM_DISCONNECTED');
+  static const NotificationType ESCROW_FUNDING =
+      NotificationType._(28, _omitEnumNames ? '' : 'ESCROW_FUNDING');
+  static const NotificationType MESSAGE =
+      NotificationType._(29, _omitEnumNames ? '' : 'MESSAGE');
+  static const NotificationType SETTLEMENT_BROADCAST =
+      NotificationType._(30, _omitEnumNames ? '' : 'SETTLEMENT_BROADCAST');
+  static const NotificationType PRESIGN_PENDING =
+      NotificationType._(31, _omitEnumNames ? '' : 'PRESIGN_PENDING');
+  static const NotificationType GAME_STATE_UPDATED =
+      NotificationType._(32, _omitEnumNames ? '' : 'GAME_STATE_UPDATED');
 
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
@@ -169,10 +179,15 @@ class NotificationType extends $pb.ProtobufEnum {
     NOTIFICATION_STREAM_DISCONNECTED,
     GAME_STREAM_CONNECTED,
     GAME_STREAM_DISCONNECTED,
+    ESCROW_FUNDING,
+    MESSAGE,
+    SETTLEMENT_BROADCAST,
+    PRESIGN_PENDING,
+    GAME_STATE_UPDATED,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 27);
+      $pb.ProtobufEnum.$_initByValueList(values, 32);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

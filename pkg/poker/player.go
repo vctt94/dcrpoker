@@ -17,6 +17,14 @@ const (
 	PlayerEventTimebankExpired PlayerEventType = iota // Player's per-turn timebank expired
 )
 
+const (
+	ALL_IN_STATE     = "PLAYER_STATE_ALL_IN"
+	FOLDED_STATE     = "PLAYER_STATE_FOLDED"
+	IN_GAME_STATE    = "PLAYER_STATE_IN_GAME"
+	AT_TABLE_STATE   = "PLAYER_STATE_AT_TABLE"
+	LEFT_TABLE_STATE = "PLAYER_STATE_LEFT"
+)
+
 // PlayerEvent represents an event sent from Player to Game
 type PlayerEvent struct {
 	Type     PlayerEventType
@@ -29,10 +37,13 @@ type Player struct {
 	id, name string
 
 	// table-level
-	tableSeat      int
-	isReady        bool
-	isDisconnected bool
-	lastAction     time.Time
+	tableSeat       int
+	isReady         bool
+	isDisconnected  bool
+	escrowID        string
+	escrowReady     bool
+	presignComplete bool
+	lastAction      time.Time
 
 	// Durable attributes (persist across hands)
 	balance         int64
@@ -51,7 +62,6 @@ type Player struct {
 	isTurn       bool
 
 	// NEW: Separated state machines
-	tablePresence     *statemachine.Machine[Player]
 	handParticipation *statemachine.Machine[Player]
 
 	// showdown info
@@ -76,10 +86,6 @@ func NewPlayer(id, name string, balance int64) *Player {
 		lastAction:      time.Now(),
 	}
 
-	// Initialize new separated state machines
-	p.tablePresence = statemachine.New(p, stateTableSeated, 32)
-	p.tablePresence.Start(context.Background())
-
 	// Hand participation FSM starts as nil (no hand active)
 
 	return p
@@ -88,15 +94,9 @@ func NewPlayer(id, name string, balance int64) *Player {
 func (p *Player) Close() {
 	// Grab references to state machines while holding lock
 	p.mu.Lock()
-	tablePresence := p.tablePresence
 	handParticipation := p.handParticipation
 	p.mu.Unlock()
 
-	// Stop state machines without holding player mutex to avoid deadlock
-	// (state machines may need to acquire p.mu during shutdown)
-	if tablePresence != nil {
-		tablePresence.Stop()
-	}
 	if handParticipation != nil {
 		handParticipation.Stop()
 	}
@@ -141,46 +141,6 @@ func (p *Player) HandleStartHand() error {
 	return nil
 }
 
-// HandlePostBlind posts a blind and returns the amount actually posted
-func (p *Player) HandlePostBlind(amount int64) int64 {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-
-	if tp == nil {
-		return 0
-	}
-
-	reply := make(chan int64, 1)
-	tp.Send(evDeductBlind{Amt: amount, Reply: reply})
-	return <-reply
-}
-
-// SendDisconnect sends a disconnect event to the player's state machine
-func (p *Player) SendDisconnect() {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-
-	if tp == nil {
-		return
-	}
-
-	tp.Send(evDisconnect{})
-}
-
-func (p *Player) SendReconnection() {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-
-	if tp == nil {
-		return
-	}
-
-	tp.Send(evReconnect{})
-}
-
 // -------------------------- State functions --------------------------
 
 func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
@@ -208,6 +168,17 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 			case evUnready:
 				p.mu.Lock()
 				p.isReady = false
+				p.mu.Unlock()
+
+			case evEscrowBound:
+				p.mu.Lock()
+				p.escrowID = e.EscrowID
+				p.escrowReady = e.Ready
+				p.mu.Unlock()
+
+			case evPresignComplete:
+				p.mu.Lock()
+				p.presignComplete = true
 				p.mu.Unlock()
 
 			case evDeductBlind:
@@ -419,6 +390,15 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			p.mu.Lock()
 			p.isReady = false
 			p.mu.Unlock()
+		case evEscrowBound:
+			p.mu.Lock()
+			p.escrowID = e.EscrowID
+			p.escrowReady = e.Ready
+			p.mu.Unlock()
+		case evPresignComplete:
+			p.mu.Lock()
+			p.presignComplete = true
+			p.mu.Unlock()
 
 		case evLeave:
 			return stateLeft
@@ -547,82 +527,6 @@ func stateLeft(p *Player, _ <-chan any) PlayerStateFn {
 }
 
 // ===== NEW TABLE PRESENCE STATE FUNCTIONS =====
-
-func stateTableSeated(p *Player, in <-chan any) TablePresenceStateFn {
-	p.mu.Lock()
-	p.isTurn = false
-	p.mu.Unlock()
-
-	timer := time.NewTimer(30 * time.Second)
-	defer timer.Stop()
-
-	for {
-		select {
-		case <-timer.C:
-			timer.Reset(30 * time.Second)
-
-		case ev, ok := <-in:
-			if !ok {
-				return nil
-			}
-			switch e := ev.(type) {
-			case evReady:
-				p.mu.Lock()
-				p.isReady = true
-				p.mu.Unlock()
-
-			case evDeductBlind:
-				// Deduct blind while still at table (before hand participation starts)
-				p.mu.Lock()
-				amount := e.Amt
-				if amount > p.balance {
-					amount = p.balance
-				}
-				if amount > 0 {
-					p.balance -= amount
-					p.currentBet += amount
-					p.lastAction = time.Now()
-				}
-				p.mu.Unlock()
-				// Reply with actual amount deducted
-				if e.Reply != nil {
-					e.Reply <- amount
-				}
-				// Stay in table seated state; hand participation will start separately
-
-			case evBalanceNotification:
-				// Async notification from Game FSM - balance already changed
-				// Can be used for UI updates, logging, etc.
-				// No action needed here
-
-			case evDisconnect:
-				p.mu.Lock()
-				p.isDisconnected = true
-				p.mu.Unlock()
-			case evReconnect:
-				p.mu.Lock()
-				p.isDisconnected = false
-				p.mu.Unlock()
-
-			case evLeave:
-				return stateTableLeft
-
-			default:
-				// Forward hand participation events to hand FSM if it exists
-				p.mu.RLock()
-				hp := p.handParticipation
-				p.mu.RUnlock()
-				if hp != nil {
-					hp.Send(ev)
-				}
-			}
-		}
-	}
-}
-
-func stateTableLeft(p *Player, _ <-chan any) TablePresenceStateFn {
-	return nil // terminal
-}
 
 // ===== NEW HAND PARTICIPATION STATE FUNCTIONS =====
 
@@ -836,14 +740,6 @@ func stateHandFolded(p *Player, in <-chan any) HandParticipationStateFn {
 // ResetForNewHand prepares the player for a new hand.
 // This clears per-hand flags that persisted through showdown.
 func (p *Player) ResetForNewHand(startingChips int64) error {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-
-	if tp == nil {
-		return fmt.Errorf("player state machine not initialized")
-	}
-
 	// Set stack for the new hand (table-sourced).
 	// Clear per-hand flags (these persisted through showdown, now reset for new hand)
 	p.mu.Lock()
@@ -871,15 +767,15 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 func GetPlayerStateString(state PlayerState) string {
 	switch state {
 	case psAtTable:
-		return "AT_TABLE"
+		return AT_TABLE_STATE
 	case psInGame:
-		return "IN_GAME"
+		return IN_GAME_STATE
 	case psAllIn:
-		return "ALL_IN"
+		return ALL_IN_STATE
 	case psFolded:
-		return "FOLDED"
+		return FOLDED_STATE
 	case psLeft:
-		return "LEFT"
+		return LEFT_TABLE_STATE
 	default:
 		return "UNINITIALIZED"
 	}
@@ -894,7 +790,7 @@ func (p *Player) Marshal() *pokerrpc.Player {
 	defer p.mu.RUnlock()
 
 	// Use new state information for more accurate representation
-	handStateStr := p.getCurrentStateString()
+	handStateStr := p.getCurrentState()
 
 	proto := &pokerrpc.Player{
 		Id:              p.id,
@@ -902,15 +798,18 @@ func (p *Player) Marshal() *pokerrpc.Player {
 		Balance:         p.balance,
 		Hand:            nil, // Cards stored in Game.currentHand, not in Player
 		CurrentBet:      p.currentBet,
-		Folded:          handStateStr == "FOLDED",
+		Folded:          handStateStr == pokerrpc.PlayerState_PLAYER_STATE_FOLDED,
 		IsTurn:          p.isTurn,
-		IsAllIn:         handStateStr == "ALL_IN",
+		IsAllIn:         handStateStr == pokerrpc.PlayerState_PLAYER_STATE_ALL_IN,
 		IsDealer:        p.isDealer,
 		IsSmallBlind:    p.isSmallBlind,
 		IsBigBlind:      p.isBigBlind,
 		IsReady:         p.isReady,
 		HandDescription: p.handDescription,
-		PlayerState:     p.getTablePresenceState(),
+		PlayerState:     p.getCurrentState(),
+		EscrowId:        p.escrowID,
+		EscrowReady:     p.escrowReady,
+		PresignComplete: p.presignComplete,
 	}
 
 	return proto
@@ -972,6 +871,27 @@ func (p *Player) IsReady() bool {
 	return p.isReady
 }
 
+// EscrowID returns the bound escrow ID for this player
+func (p *Player) EscrowID() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.escrowID
+}
+
+// EscrowReady returns whether the escrow is funded and ready
+func (p *Player) EscrowReady() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.escrowReady
+}
+
+// PresignComplete returns whether presigning is complete for this player
+func (p *Player) PresignComplete() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.presignComplete
+}
+
 // GetTableSeat returns the table seat (for external access)
 func (p *Player) TableSeat() int {
 	p.mu.RLock()
@@ -1028,38 +948,15 @@ func (p *Player) SetCurrentBet(bet int64) {
 	p.mu.Unlock()
 }
 
-// NotifyBalanceChange sends an async notification to the Player FSM about a balance change.
-// This is called by the Game FSM after directly modifying player.balance.
-// The notification is non-blocking - it's for UI/logging purposes only.
-func (p *Player) NotifyBalanceChange(newBalance, delta int64, reason string) {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-
-	if tp != nil {
-		// Non-blocking send using the statemachine's Send method
-		tp.Send(evBalanceNotification{
-			NewBalance: newBalance,
-			Delta:      delta,
-			Reason:     reason,
-		})
-	}
-}
-
 func (p *Player) StartTurn() {
 	// Send to hand participation FSM if active, otherwise to table presence FSM
 	p.mu.RLock()
 	hp := p.handParticipation
-	tp := p.tablePresence
 	p.mu.RUnlock()
 
 	if hp != nil {
 		reply := make(chan error, 1)
 		hp.Send(evStartTurn{Reply: reply})
-		<-reply // Wait for FSM to process
-	} else if tp != nil {
-		reply := make(chan error, 1)
-		tp.Send(evStartTurn{Reply: reply})
 		<-reply // Wait for FSM to process
 	}
 
@@ -1078,7 +975,6 @@ func (p *Player) EndTurn() {
 	// Send to hand participation FSM if active, otherwise to table presence FSM
 	p.mu.RLock()
 	hp := p.handParticipation
-	tp := p.tablePresence
 	p.mu.RUnlock()
 
 	// Cancel any pending timebank on turn end
@@ -1087,10 +983,6 @@ func (p *Player) EndTurn() {
 	if hp != nil {
 		reply := make(chan error, 1)
 		hp.Send(evEndTurn{Reply: reply})
-		<-reply // Wait for FSM to process
-	} else if tp != nil {
-		reply := make(chan error, 1)
-		tp.Send(evEndTurn{Reply: reply})
 		<-reply // Wait for FSM to process
 	}
 }
@@ -1151,6 +1043,15 @@ type evDeductBlind struct {
 type evReady struct{}
 type evUnready struct{}
 
+// evEscrowBound is sent when escrow is bound/updated for a player
+type evEscrowBound struct {
+	EscrowID string
+	Ready    bool
+}
+
+// evPresignComplete is sent when settlement presigning completes for a player
+type evPresignComplete struct{}
+
 type evStartHand struct{}
 
 type evStartTurn struct {
@@ -1187,27 +1088,6 @@ type evEndHand struct{}
 type evDisconnect struct{}
 type evReconnect struct{}
 type evLeave struct{}
-
-// Ready/unready helpers for table presence FSM.
-func (p *Player) SendReady() {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-	if tp == nil {
-		return
-	}
-	tp.Send(evReady{})
-}
-
-func (p *Player) SendUnready() {
-	p.mu.RLock()
-	tp := p.tablePresence
-	p.mu.RUnlock()
-	if tp == nil {
-		return
-	}
-	tp.Send(evUnready{})
-}
 
 type PlayerStateFn = statemachine.StateFn[Player]
 
@@ -1247,93 +1127,45 @@ const (
 func (p *Player) GetCurrentStateString() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.getCurrentStateString()
+	return p.getCurrentState().String()
 }
 
 // getCurrentStateStringLocked returns the current state string without acquiring locks
 // (assumes caller already holds p.mu.RLock or p.mu.Lock)
-func (p *Player) getCurrentStateString() string {
+func (p *Player) getCurrentState() pokerrpc.PlayerState {
 	mustHeld(&p.mu)
 	// Check per-hand flags FIRST - these persist through showdown even if FSM stops
 	// This is the single source of truth for fold/all-in status
 	if p.hasFolded {
-		return "FOLDED"
+		return pokerrpc.PlayerState_PLAYER_STATE_FOLDED
 	}
 	if p.isAllIn {
-		return "ALL_IN"
+		return pokerrpc.PlayerState_PLAYER_STATE_ALL_IN
 	}
 
 	// If hand participation is active, return hand participation state
 	if p.handParticipation != nil {
 		currentState := p.handParticipation.Current()
 		if currentState == nil {
-			return "TERMINATED"
+			return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
 		}
 
 		// Use function pointer comparison to determine state
 		switch fmt.Sprintf("%p", currentState) {
 		case fmt.Sprintf("%p", stateHandActive):
-			return "IN_GAME"
+			return pokerrpc.PlayerState_PLAYER_STATE_IN_GAME
 		case fmt.Sprintf("%p", stateHandFolded):
-			return "FOLDED" // redundant now, but kept for compatibility
+			return pokerrpc.PlayerState_PLAYER_STATE_FOLDED // redundant now, but kept for compatibility
 		case fmt.Sprintf("%p", stateHandAllIn):
-			return "ALL_IN" // redundant now, but kept for compatibility
+			return pokerrpc.PlayerState_PLAYER_STATE_ALL_IN // redundant now, but kept for compatibility
 		default:
-			return "UNKNOWN"
+			return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
 		}
 	}
 
-	// If no hand participation, return table presence state
-	if p.tablePresence != nil {
-		currentState := p.tablePresence.Current()
-		if currentState == nil {
-			return "TERMINATED"
-		}
-
-		// Use function pointer comparison to determine state
-		switch fmt.Sprintf("%p", currentState) {
-		case fmt.Sprintf("%p", stateTableSeated):
-			return "AT_TABLE"
-		case fmt.Sprintf("%p", stateTableLeft):
-			return "LEFT"
-		default:
-			return "UNKNOWN"
-		}
-	}
-
-	return "NONE"
-}
-
-// GetTablePresenceState returns the current table presence state as a pokerrpc.PlayerState enum
-func (p *Player) GetTablePresenceState() pokerrpc.PlayerState {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.getTablePresenceState()
-}
-
-// getTablePresenceStateLocked returns the table presence state
-func (p *Player) getTablePresenceState() pokerrpc.PlayerState {
-	mustHeld(&p.mu)
-	if p.tablePresence == nil {
-		return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
-	}
-
-	currentState := p.tablePresence.Current()
-	if currentState == nil {
-		return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
-	}
-
-	// Use function pointer comparison to determine state
-	switch fmt.Sprintf("%p", currentState) {
-	case fmt.Sprintf("%p", stateTableSeated):
-		return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
-	case fmt.Sprintf("%p", stateTableLeft):
-		return pokerrpc.PlayerState_PLAYER_STATE_LEFT
-	default:
-		return pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
-	}
+	// When handParticipation is nil, player is at the table (not in a hand)
+	return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
 }
 
 // State function types
-type TablePresenceStateFn = statemachine.StateFn[Player]
 type HandParticipationStateFn = statemachine.StateFn[Player]

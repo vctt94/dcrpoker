@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
@@ -12,21 +14,23 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest) (*pokerrpc.CreateTableResponse, error) {
-	// Get creator's DCR balance
-	creatorBalance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
+// newTableID generates a random 16-byte hex table ID.
+// This serves as both the table identifier and the matchID for Schnorr settlement.
+func newTableID() string {
+	var buf [16]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		// Fallback to timestamp if crypto/rand fails (should never happen)
+		return fmt.Sprintf("%x", time.Now().UnixNano())
 	}
+	return hex.EncodeToString(buf[:])
+}
 
+func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest) (*pokerrpc.CreateTableResponse, error) {
 	// Prevent joining a different table while still seated in an active game.
 	if activeTableID, found := s.findActiveTableForPlayer(req.PlayerId); found {
 		return nil, status.Errorf(codes.FailedPrecondition, "player already in active game at table %s", activeTableID)
 	}
 	s.log.Debugf("Creating table with buy-in %d", req.BuyIn)
-	if creatorBalance < req.BuyIn {
-		return nil, fmt.Errorf("insufficient DCR balance for buy-in: need %d, have %d", req.BuyIn, creatorBalance)
-	}
 
 	// Config
 	timeBank := time.Duration(req.TimeBankSeconds) * time.Second
@@ -52,7 +56,7 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	}
 
 	cfg := poker.TableConfig{
-		ID:               fmt.Sprintf("%d", time.Now().UnixNano()),
+		ID:               newTableID(),
 		Log:              tblLog,
 		GameLog:          gameLog,
 		HostID:           req.PlayerId,
@@ -85,17 +89,14 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	go s.processTableEvents(tableEventChan)
 
 	// Seat creator
-	if _, err := table.AddNewUser(req.PlayerId, req.PlayerId, creatorBalance, 0); err != nil {
+	if _, err := table.AddNewUser(req.PlayerId, &poker.AddUserOptions{
+		DisplayName: s.displayNameFor(req.PlayerId),
+	}); err != nil {
 		return nil, err
 	}
 	// Persist the creator's seat so restarts can restore both participants
 	if err := s.db.SeatPlayer(ctx, cfg.ID, req.PlayerId, 0); err != nil {
 		s.log.Errorf("SeatPlayer (host) failed (table=%s player=%s seat=%d): %v", cfg.ID, req.PlayerId, 0, err)
-	}
-
-	// Deduct buy-in
-	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, -req.BuyIn, "table buy-in", "created table"); err != nil {
-		return nil, err
 	}
 
 	// Register table using concurrent registry
@@ -141,17 +142,8 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 		// game stream and receive the initial snapshot.
 		return &pokerrpc.JoinTableResponse{
 			Success: true,
-			Message: fmt.Sprintf("Reconnected. You have %d DCR balance.", existingUser.DCRAccountBalance),
+			Message: "Reconnected to table.",
 		}, nil
-	}
-
-	// Verify wallet balance.
-	dcrBalance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-	if dcrBalance < config.BuyIn {
-		return &pokerrpc.JoinTableResponse{Success: false, Message: "Insufficient DCR balance for buy-in"}, nil
 	}
 
 	// Pick next free seat.
@@ -182,19 +174,12 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	}
 
 	// Seat player in-memory
-	_, err = table.AddNewUser(req.PlayerId, req.PlayerId, dcrBalance, seat)
-	if err != nil {
+	if _, err := table.AddNewUser(req.PlayerId, &poker.AddUserOptions{
+		DisplayName: s.displayNameFor(req.PlayerId),
+	}); err != nil {
 		rollbackSeat()
 		return &pokerrpc.JoinTableResponse{Success: false, Message: err.Error()}, nil
 	}
-
-	// Deduct buy-in from wallet.
-	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, -config.BuyIn, "table_buy_in", "joined table"); err != nil {
-		table.RemoveUser(req.PlayerId)
-		rollbackSeat()
-		return nil, err
-	}
-	_ = table.SetUserDCRAccountBalance(req.PlayerId, dcrBalance-config.BuyIn)
 
 	// Publish join notification.
 	evt, err := s.buildGameEvent(
@@ -214,6 +199,47 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	}, nil
 }
 
+// clearEscrowBindingForSeat removes any referee escrow binding for the given
+// table/match and seat. It also clears the bound table/seat metadata from the
+// escrow session itself, while keeping the escrow session available for
+// refunds or reuse.
+func (s *Server) clearEscrowBindingForSeat(tableID string, seat uint32) {
+	if s.referee == nil {
+		return
+	}
+
+	matchID := tableID
+
+	s.referee.mu.Lock()
+	seats := s.referee.matchEscrows[matchID]
+	if seats == nil {
+		s.referee.mu.Unlock()
+		return
+	}
+
+	escrowID := seats[seat]
+	if escrowID == "" {
+		s.referee.mu.Unlock()
+		return
+	}
+
+	delete(seats, seat)
+	es := s.referee.escrows[escrowID]
+	s.referee.mu.Unlock()
+
+	if es == nil {
+		return
+	}
+
+	es.mu.Lock()
+	if es.TableID == tableID && es.SeatIndex == seat {
+		es.TableID = ""
+		es.SessionID = ""
+		es.SeatIndex = 0
+	}
+	es.mu.Unlock()
+}
+
 func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest) (*pokerrpc.LeaveTableResponse, error) {
 	table, ok := s.getTable(req.TableId)
 	if !ok {
@@ -229,28 +255,10 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	config := table.GetConfig()
 	isHost := req.PlayerId == config.HostID
 
-	// Check if player has chips in an active game
-	// Snapshot game reference under lock (following locking policy: snapshot pattern)
-	var playerChips int64
-	var gamePlayer *poker.Player
+	// If a game is in progress, keep the seat (disconnect)
 	if table.IsGameStarted() {
-		game := table.GetGame()
-		if game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == req.PlayerId {
-					playerChips = p.Balance()
-					gamePlayer = p
-					break
-				}
-			}
-		}
-	}
+		user.SendDisconnect()
 
-	// If a hand is in progress AND player still has chips, keep the seat (disconnect)
-	if table.IsGameStarted() && playerChips > 0 {
-		if gamePlayer != nil {
-			gamePlayer.SendDisconnect()
-		}
 		if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 			s.publishTableSnapshotEvent(req.TableId, snap)
 		}
@@ -258,8 +266,15 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
-			Message: fmt.Sprintf("You have been disconnected but your seat is reserved. You have %d chips remaining.", playerChips),
+			Message: fmt.Sprintf("You have been disconnected but your seat is reserved because you have chips remaining."),
 		}, nil
+	}
+
+	// No active game: fully leave table and clear any escrow bindings for this seat.
+	// This allows the player to re-bind a different escrow if they rejoin later.
+	userSnap := user.GetSnapshot()
+	if userSnap.TableSeat >= 0 {
+		s.clearEscrowBindingForSeat(req.TableId, uint32(userSnap.TableSeat))
 	}
 
 	// Otherwise, remove completely from the table runtime first
@@ -271,15 +286,6 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	if err := s.db.UnseatPlayer(ctx, req.TableId, req.PlayerId); err != nil {
 		s.log.Errorf("Failed to unseat player in DB: %v", err)
 		// We continue; in-memory removal already happened.
-	}
-
-	// Refund buy-in if no hand has started
-	refundAmount := int64(0)
-	if !table.IsGameStarted() {
-		refundAmount = config.BuyIn
-		if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, refundAmount, "table_refund", "left table"); err != nil {
-			return nil, err
-		}
 	}
 
 	// If the host leaves, transfer host if possible, else close the table
@@ -310,29 +316,15 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 			}
 		}
 
-		// No other players: close table (runtime + DB)
-		if table != nil {
-			table.Close() // Properly clean up all goroutines to prevent leaks
-		}
-		s.tables.Delete(req.TableId)
-		s.saveMutexes.Delete(req.TableId)
+		// No other players: publish removal through the event pipeline.
+		ack := s.publishTableRemovedEvent(req.TableId)
 
-		// Remove table from DB; cascades will clean participants/hands/snapshot
-		if err := s.db.DeleteTable(ctx, req.TableId); err != nil {
-			s.log.Errorf("Failed to delete table in DB: %v", err)
+		// Wait briefly for cleanup so callers/tests see a consistent state.
+		select {
+		case <-ack:
+		case <-time.After(2 * time.Second):
+			s.log.Warnf("timeout waiting for table %s removal", req.TableId)
 		}
-
-		// Notify clients
-		evt, err := s.buildGameEvent(
-			pokerrpc.NotificationType_TABLE_REMOVED,
-			req.TableId,
-			nil,
-		)
-		if err != nil {
-			s.log.Errorf("Failed to build TABLE_REMOVED event: %v", err)
-			return nil, err
-		}
-		s.eventProcessor.PublishEvent(evt)
 
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
@@ -399,6 +391,7 @@ func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) 
 
 	return &pokerrpc.GetTablesResponse{Tables: tables}, nil
 }
+
 func (s *Server) GetPlayerCurrentTable(ctx context.Context, req *pokerrpc.GetPlayerCurrentTableRequest) (*pokerrpc.GetPlayerCurrentTableResponse, error) {
 	// Get table references with server lock
 	tableRefs := s.getAllTables()
@@ -431,57 +424,6 @@ func (s *Server) findActiveTableForPlayer(playerID string) (string, bool) {
 	return "", false
 }
 
-func (s *Server) GetBalance(ctx context.Context, req *pokerrpc.GetBalanceRequest) (*pokerrpc.GetBalanceResponse, error) {
-	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		// If you want precise classification, expose a sentinel from db package.
-		// For now, map any error to NotFound if it mentions "player not found".
-		if strings.Contains(strings.ToLower(err.Error()), "player not found") {
-			return nil, status.Error(codes.NotFound, "player not found")
-		}
-		return nil, status.Error(codes.Internal, err.Error())
-	}
-	return &pokerrpc.GetBalanceResponse{Balance: balance}, nil
-}
-
-func (s *Server) UpdateBalance(ctx context.Context, req *pokerrpc.UpdateBalanceRequest) (*pokerrpc.UpdateBalanceResponse, error) {
-	// typ then description per new signature
-	if err := s.db.UpdatePlayerBalance(ctx, req.PlayerId, req.Amount, "balance_update", req.Description); err != nil {
-		return nil, err
-	}
-
-	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-
-	return &pokerrpc.UpdateBalanceResponse{
-		NewBalance: balance,
-		Message:    "Balance updated successfully",
-	}, nil
-}
-
-func (s *Server) ProcessTip(ctx context.Context, req *pokerrpc.ProcessTipRequest) (*pokerrpc.ProcessTipResponse, error) {
-	// debit sender, credit recipient
-	if err := s.db.UpdatePlayerBalance(ctx, req.FromPlayerId, -req.Amount, "tip_sent", req.Message); err != nil {
-		return nil, err
-	}
-	if err := s.db.UpdatePlayerBalance(ctx, req.ToPlayerId, req.Amount, "tip_received", req.Message); err != nil {
-		return nil, err
-	}
-
-	balance, err := s.db.GetPlayerBalance(ctx, req.ToPlayerId)
-	if err != nil {
-		return nil, err
-	}
-
-	return &pokerrpc.ProcessTipResponse{
-		Success:    true,
-		Message:    "Tip processed successfully",
-		NewBalance: balance,
-	}, nil
-}
-
 func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerReadyRequest) (*pokerrpc.SetPlayerReadyResponse, error) {
 	// Get table reference
 	table, ok := s.getTable(req.TableId)
@@ -490,21 +432,46 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	if err := table.SetPlayerReady(req.PlayerId, true); err != nil {
-		return nil, status.Error(codes.NotFound, err.Error())
+	// Enforce escrow funding when the player has bound an escrow to this table.
+	user := table.GetUser(req.PlayerId)
+	if user == nil {
+		return nil, status.Error(codes.NotFound, "player not at table")
+	}
+	cfg := table.GetConfig()
+
+	// Get user snapshot to safely read fields without races
+	userSnap := user.GetSnapshot()
+
+	if cfg.BuyIn > 0 && userSnap.EscrowID == "" {
+		return nil, status.Error(codes.FailedPrecondition, "escrow required for this table")
+	}
+	if userSnap.EscrowID != "" {
+		s.referee.mu.RLock()
+		es := s.referee.escrows[userSnap.EscrowID]
+		s.referee.mu.RUnlock()
+		if es == nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow %s not found for player", userSnap.EscrowID)
+		}
+		if cfg.BuyIn > 0 && es.AmountAtoms != uint64(cfg.BuyIn) {
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow amount %d must equal table buy-in %d", es.AmountAtoms, cfg.BuyIn)
+		}
+		if _, err := ensureBoundFunding(es); err != nil {
+			return nil, status.Errorf(codes.FailedPrecondition, "escrow not funded: %v", err)
+		}
+		// Record binding into table model to keep FSM readiness in sync.
+		s.referee.mu.Lock()
+		if es.TableID == "" {
+			es.TableID = req.TableId
+		}
+		if es.SeatIndex == 0 && userSnap.TableSeat >= 0 {
+			es.SeatIndex = uint32(userSnap.TableSeat)
+		}
+		s.referee.mu.Unlock()
 	}
 
-	// Inform player FSM (if active) so snapshots reflect readiness via player marshal.
-	if table.IsGameStarted() {
-		if game := table.GetGame(); game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == req.PlayerId {
-					p.SendReady()
-					break
-				}
-			}
-		}
-	}
+	// Inform FSM so snapshots reflect readiness via player marshal.
+	user.SendReady()
+	table.SendPlayerReady(req.PlayerId, true)
 
 	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 		s.publishTableSnapshotEvent(req.TableId, snap)
@@ -523,32 +490,32 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build PLAYER_READY event: %v", err))
 	}
 	s.eventProcessor.PublishEvent(event)
-	// If all players are ready and the game hasn't started yet, start the game
-	if allReady && !gameStarted {
-		// Start game asynchronously to avoid blocking this RPC handler
-		// (StartGame now waits for FSM to reach PRE_FLOP before returning)
-		go func() {
-			if errStart := table.StartGame(); errStart != nil {
-				s.log.Errorf("Failed to start game for table %s: %v", req.TableId, errStart)
-				return
-			}
 
-			// Publish typed GAME_STARTED event *after* the game has been
-			// successfully created so that the emitted snapshot reflects the brand-new
-			// game state (dealer, blinds, current player, etc.). Without this, the first
-			// game update received by the clients would still be in the pre-start state
-			// which prevents the UI from progressing to the actual hand.
-			gameStartedEvent, errGS := s.buildGameEvent(
-				pokerrpc.NotificationType_GAME_STARTED,
-				req.TableId,
-				GameStartedPayload{PlayerIDs: []string{req.PlayerId}},
-			)
-			if errGS != nil {
-				s.log.Errorf("Failed to build GAME_STARTED event: %v", errGS)
-				return
+	// If all players are ready and the game hasn't started yet, either:
+	//   - for escrow-backed tables (BuyIn > 0), ensure presigning is complete; or
+	//   - for non-escrow tables (BuyIn == 0), start immediately.
+	if allReady && !gameStarted {
+		matchID := req.TableId
+		if cfg.BuyIn > 0 {
+			complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
+			if !complete {
+				s.log.Infof("All players ready but presigning not complete for table %s: %d/%d seats", req.TableId, completedSeats, totalSeats)
+				// Notify players that presigning is required
+				s.broadcastNotificationToTable(req.TableId, &pokerrpc.Notification{
+					Type:    pokerrpc.NotificationType_PRESIGN_PENDING,
+					TableId: req.TableId,
+					Message: fmt.Sprintf("Waiting for presigning: %d/%d players complete. Please complete settlement presign.", completedSeats, totalSeats),
+				})
+				return &pokerrpc.SetPlayerReadyResponse{
+					Success:         true,
+					Message:         fmt.Sprintf("Player is ready. Waiting for presigning: %d/%d complete.", completedSeats, totalSeats),
+					AllPlayersReady: allReady,
+				}, nil
 			}
-			s.eventProcessor.PublishEvent(gameStartedEvent)
-		}()
+		}
+
+		// At this point either no buy-in is required, or presigning is complete.
+		s.maybeStartGameAfterPresign(table, req.TableId, matchID, req.PlayerId)
 	}
 
 	return &pokerrpc.SetPlayerReadyResponse{
@@ -556,6 +523,51 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 		Message:         "Player is ready",
 		AllPlayersReady: allReady,
 	}, nil
+}
+
+// maybeStartGameAfterPresign checks if the game should start after presigning completes
+// and starts it if all conditions are met. This is called from both SetPlayerReady
+// and when presigning completes in the referee.
+func (s *Server) maybeStartGameAfterPresign(table *poker.Table, tableID, matchID, playerID string) {
+	allReady := table.CheckAllPlayersReady()
+	gameStarted := table.IsGameStarted()
+	if !allReady || gameStarted {
+		return
+	}
+
+	cfg := table.GetConfig()
+	if cfg.BuyIn > 0 {
+		complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
+		if !complete {
+			s.log.Debugf("Presigning not yet complete for table %s: %d/%d seats", tableID, completedSeats, totalSeats)
+			return
+		}
+		s.log.Infof("Presigning complete for table %s, starting game", tableID)
+	}
+
+	// Start game asynchronously to avoid blocking
+	go func() {
+		if errStart := table.StartGame(); errStart != nil {
+			s.log.Errorf("Failed to start game for table %s: %v", tableID, errStart)
+			return
+		}
+
+		// Publish typed GAME_STARTED event *after* the game has been
+		// successfully created so that the emitted snapshot reflects the brand-new
+		// game state (dealer, blinds, current player, etc.). Without this, the first
+		// game update received by the clients would still be in the pre-start state
+		// which prevents the UI from progressing to the actual hand.
+		gameStartedEvent, errGS := s.buildGameEvent(
+			pokerrpc.NotificationType_GAME_STARTED,
+			tableID,
+			GameStartedPayload{PlayerIDs: []string{playerID}},
+		)
+		if errGS != nil {
+			s.log.Errorf("Failed to build GAME_STARTED event: %v", errGS)
+			return
+		}
+		s.eventProcessor.PublishEvent(gameStartedEvent)
+	}()
 }
 
 func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUnreadyRequest) (*pokerrpc.SetPlayerUnreadyResponse, error) {
@@ -566,21 +578,16 @@ func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUn
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	if err := table.SetPlayerReady(req.PlayerId, false); err != nil {
+	if err := table.SendPlayerReady(req.PlayerId, false); err != nil {
 		return nil, status.Error(codes.NotFound, err.Error())
 	}
 
-	if table.IsGameStarted() {
-		if game := table.GetGame(); game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == req.PlayerId {
-					p.SendUnready()
-					break
-				}
-			}
-		}
+	user := table.GetUser(req.PlayerId)
+	if user == nil {
+		return nil, status.Error(codes.NotFound, "player not at table")
 	}
-
+	user.SendUnready()
+	table.SendPlayerReady(req.PlayerId, false)
 	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 		s.publishTableSnapshotEvent(req.TableId, snap)
 	}
@@ -655,4 +662,99 @@ func (s *Server) processTableEvents(eventChan <-chan poker.TableEvent) {
 		}
 		s.eventProcessor.PublishEvent(ev)
 	}
+}
+
+// removeTableFromRegistry prunes all runtime references for a table that has
+// already been closed. This is triggered when a TABLE_REMOVED event is
+// received, mirroring the explicit handling of TABLE_CREATED.
+func (s *Server) removeTableFromRegistry(tableID string) {
+	s.tables.Delete(tableID)
+	s.saveMutexes.Delete(tableID)
+	s.broadcastMutexes.Delete(tableID)
+	s.gameStreams.Delete(tableID)
+}
+
+// getTableRemovalAck returns a completion channel for a given table removal.
+// The channel is created once per tableID and closed when finalization ends.
+func (s *Server) getTableRemovalAck(tableID string) chan struct{} {
+	ch, _ := s.tableRemovalAcks.LoadOrStore(tableID, make(chan struct{}))
+	return ch.(chan struct{})
+}
+
+// signalTableRemovalDone closes and cleans up the ack channel for a tableID.
+func (s *Server) signalTableRemovalDone(tableID string) {
+	if ch, ok := s.tableRemovalAcks.Load(tableID); ok {
+		c := ch.(chan struct{})
+		select {
+		case <-c:
+		default:
+			close(c)
+		}
+		s.tableRemovalAcks.Delete(tableID)
+	}
+}
+
+// scheduleTableRemoval publishes TABLE_REMOVED after a short grace period to
+// allow late reads of final state (e.g., GetLastWinners) without sprinkling
+// arbitrary sleeps. Returns the removal ack channel for callers to wait on.
+func (s *Server) scheduleTableRemoval(tableID string) <-chan struct{} {
+	const grace = 1 * time.Second
+	timer := time.NewTimer(grace)
+	go func() {
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			s.publishTableRemovedEvent(tableID)
+		case <-s.getTableRemovalAck(tableID):
+			// Already removed elsewhere; skip.
+		}
+	}()
+	return s.getTableRemovalAck(tableID)
+}
+
+// publishTableRemovedEvent enqueues a TABLE_REMOVED event so the event pipeline
+// can notify clients and persist the final snapshot before cleanup.
+func (s *Server) publishTableRemovedEvent(tableID string) <-chan struct{} {
+	ack := s.getTableRemovalAck(tableID)
+
+	evt, err := s.buildGameEvent(
+		pokerrpc.NotificationType_TABLE_REMOVED,
+		tableID,
+		nil,
+	)
+	if err != nil {
+		s.log.Errorf("Failed to build TABLE_REMOVED event: %v", err)
+		return ack
+	}
+	s.eventProcessor.PublishEvent(evt)
+	s.log.Debugf("Published TABLE_REMOVED event for table %s", tableID)
+	return ack
+}
+
+// finalizeTableRemoval performs the irreversible cleanup after TABLE_REMOVED
+// has been published. The server owns shutdown to avoid self-deadlocks in the
+// table FSM.
+func (s *Server) finalizeTableRemoval(tableID string) {
+	// Block on any in-flight snapshot save for this table so we don't delete
+	// the DB row while a GAME_ENDED persistence is writing.
+	v, _ := s.saveMutexes.LoadOrStore(tableID, &sync.Mutex{})
+	saveMutex, _ := v.(*sync.Mutex)
+	saveMutex.Lock()
+	defer saveMutex.Unlock()
+
+	if tbl, ok := s.getTable(tableID); ok && tbl != nil {
+		// Close is idempotent; safe if table already shut down.
+		tbl.Close()
+	}
+
+	// Remove from registry - this makes getTable() return false for this table
+	s.removeTableFromRegistry(tableID)
+
+	// Delete from database
+	if err := s.db.DeleteTable(context.Background(), tableID); err != nil {
+		s.log.Errorf("Failed to delete table %s in DB after TABLE_REMOVED: %v", tableID, err)
+	}
+
+	// Notify waiters (tests/handlers) that removal is complete.
+	s.signalTableRemovalDone(tableID)
 }

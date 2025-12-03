@@ -26,7 +26,7 @@ func main() {
 		Log:            logger,
 		GameLog:        logger,
 		HostID:         "test_host",
-		BuyIn:          1000,
+		BuyIn:          0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinPlayers:     2,
 		MaxPlayers:     3,
 		SmallBlind:     10,
@@ -64,18 +64,28 @@ func main() {
 	}()
 
 	// Add test users
-	table.AddNewUser("player1", "Player 1", 10000, 0)
-	table.AddNewUser("player2", "Player 2", 10000, 1)
+	user1, err := table.AddNewUser("player1", &poker.AddUserOptions{DisplayName: "Player 1"})
+	if err != nil {
+		log.Fatalf("Failed to add player1: %v", err)
+	}
+	user2, err := table.AddNewUser("player2", &poker.AddUserOptions{DisplayName: "Player 2"})
+	if err != nil {
+		log.Fatalf("Failed to add player2: %v", err)
+	}
 
 	// Set players ready
-	table.SetPlayerReady("player1", true)
-	table.SetPlayerReady("player2", true)
+	if err := user1.SendReady(); err != nil {
+		log.Fatalf("Failed to set player1 ready: %v", err)
+	}
+	if err := user2.SendReady(); err != nil {
+		log.Fatalf("Failed to set player2 ready: %v", err)
+	}
 
 	// Trigger state machine to check if all players are ready
 	table.CheckAllPlayersReady()
 
 	// Start game
-	err := table.StartGame()
+	err = table.StartGame()
 	if err != nil {
 		log.Fatalf("Failed to start game: %v", err)
 	}

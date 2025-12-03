@@ -2,6 +2,7 @@ package poker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -41,8 +42,8 @@ func TestNewGame(t *testing.T) {
 
 	// Create test users and set them in the game
 	users := []*User{
-		NewUser("player1", "Player 1", 1000, 0),
-		NewUser("player2", "Player 2", 1000, 1),
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -56,7 +57,7 @@ func TestNewGame(t *testing.T) {
 		if player.balance != 1000 {
 			t.Errorf("Player %d: Expected 1000 balance, got %d", i, player.balance)
 		}
-		if player.GetCurrentStateString() == "FOLDED" {
+		if player.GetCurrentStateString() == FOLDED_STATE {
 			t.Errorf("Player %d: Expected not folded", i)
 		}
 		if player.currentBet != 0 {
@@ -119,8 +120,8 @@ func TestDealCards(t *testing.T) {
 
 	// Create test users and set them in the game
 	users := []*User{
-		NewUser("player1", "Player 1", 100, 0),
-		NewUser("player2", "Player 2", 100, 1),
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -172,8 +173,8 @@ func TestCommunityCards(t *testing.T) {
 
 	// Create test users and set them in the game
 	users := []*User{
-		NewUser("player1", "Player 1", 100, 0),
-		NewUser("player2", "Player 2", 100, 1),
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -235,8 +236,8 @@ func TestShowdown(t *testing.T) {
 
 	// Create test users and set them in the game
 	users := []*User{
-		NewUser("player1", "Player 1", 0, 0), // Start with 0 balance for clean test
-		NewUser("player2", "Player 2", 0, 1),
+		NewUser("player1", nil, nil), // Start with 0 balance for clean test
+		NewUser("player2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -309,9 +310,9 @@ func TestTieBreakerShowdown(t *testing.T) {
 
 	// Create test users and set them in the game
 	users := []*User{
-		NewUser("player1", "Player 1", 0, 0), // Start with 0 balance for clean test
-		NewUser("player2", "Player 2", 0, 1),
-		NewUser("player3", "Player 3", 0, 2),
+		NewUser("player1", nil, nil), // Start with 0 balance for clean test
+		NewUser("player2", nil, nil),
+		NewUser("player3", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -391,8 +392,8 @@ func TestSplitPotShowdown(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("p1", "p1", 0, 0),
-		NewUser("p2", "p2", 0, 1),
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -446,9 +447,9 @@ func TestSidePotShowdown(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("p1", "p1", 0, 0),
-		NewUser("p2", "p2", 0, 1),
-		NewUser("p3", "p3", 0, 2),
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
+		NewUser("p3", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -462,9 +463,10 @@ func TestSidePotShowdown(t *testing.T) {
 	game.potManager.addBet(2, 30, game.players)
 
 	// Hand strengths: p3 wins main, p1 wins side
-	game.players[0].tablePresence.Send(evStartHand{})
-	game.players[1].tablePresence.Send(evStartHand{})
-	game.players[2].tablePresence.Send(evStartHand{})
+	// Initialize hand participation state machines first
+	require.NoError(t, game.players[0].HandleStartHand())
+	require.NoError(t, game.players[1].HandleStartHand())
+	require.NoError(t, game.players[2].HandleStartHand())
 
 	// Give explicit evaluated values via EvaluateHand semantics
 	hv3, err := EvaluateHand([]Card{{suit: Hearts, value: Five}, {suit: Clubs, value: Five}}, []Card{{suit: Diamonds, value: Five}, {suit: Spades, value: Two}, {suit: Hearts, value: Three}, {suit: Clubs, value: Nine}, {suit: Diamonds, value: Queen}}) // trips
@@ -501,7 +503,7 @@ func TestSidePotShowdown(t *testing.T) {
 	for i, p := range game.players {
 		if p != nil {
 			p.mu.RLock()
-			foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
 			handValues[i] = p.handValue
 			p.mu.RUnlock()
 		}
@@ -539,8 +541,8 @@ func TestAutoStartOnNewHandStarted(t *testing.T) {
 
 	// Set players so there are enough to start
 	users := []*User{
-		NewUser("p1", "p1", 0, 0),
-		NewUser("p2", "p2", 0, 1),
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -582,8 +584,8 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("p1", "p1", 0, 0),
-		NewUser("p2", "p2", 0, 1),
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -623,10 +625,11 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 
 	// Wait for all-in state transitions
 	require.Eventually(t, func() bool {
-		return game.players[0].GetCurrentStateString() == "ALL_IN"
+		fmt.Println("player 0 state:", game.players[0].GetCurrentStateString())
+		return game.players[0].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		return game.players[1].GetCurrentStateString() == "ALL_IN"
+		return game.players[1].GetCurrentStateString() == ALL_IN_STATE
 	}, 200*time.Millisecond, 10*time.Millisecond)
 	game.players[0].lastAction = time.Now()
 	game.players[1].lastAction = time.Now()
@@ -661,8 +664,8 @@ func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("short", "short", 0, 0),
-		NewUser("deep", "deep", 0, 1),
+		NewUser("short", nil, nil),
+		NewUser("deep", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -702,8 +705,8 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("sb", "sb", 0, 0),
-		NewUser("bb", "bb", 0, 1),
+		NewUser("sb", nil, nil),
+		NewUser("bb", nil, nil),
 	}
 	g.SetPlayers(users)
 
@@ -756,7 +759,7 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	// Verify SB went all-in
 	assert.Equal(t, int64(0), sbPlayerAfter.Balance, "SB should have 0 balance after going all-in")
 	assert.Equal(t, int64(15), sbPlayerAfter.CurrentBet, "SB should have currentBet of 15 (10 SB + 5 call)")
-	assert.Contains(t, sbPlayerAfter.StateString, "ALL_IN", "SB should be in ALL_IN state")
+	assert.Contains(t, sbPlayerAfter.StateString, ALL_IN_STATE, "SB should be in ALL_IN state")
 
 	// With auto-advance enabled, when one player is all-in and can't match,
 	// the betting round completes and advances to FLOP, resetting currentBet to 0
@@ -773,10 +776,12 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 // preventing the game from getting stuck in SHOWDOWN.
 func TestTimeoutCompletesShowdownAndAutoStarts(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
-	_, _ = tbl.AddNewUser("p1", "P1", 0, 0)
-	_, _ = tbl.AddNewUser("p2", "P2", 0, 1)
-	_ = tbl.SetPlayerReady("p1", true)
-	_ = tbl.SetPlayerReady("p2", true)
+	user1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	user2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+	_ = user1.SendReady()
+	_ = user2.SendReady()
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
 
@@ -837,8 +842,11 @@ func TestIsTurnFlagManagement(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("player1", "Player 1", 1000, 0),
-		NewUser("player2", "Player 2", 1000, 1),
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
+	}
+	for _, u := range users {
+		u.SendReady()
 	}
 	game.SetPlayers(users)
 
@@ -940,9 +948,9 @@ func TestIsTurnFlagOnFold(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("player1", "Player 1", 1000, 0),
-		NewUser("player2", "Player 2", 1000, 1),
-		NewUser("player3", "Player 3", 1000, 2),
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
+		NewUser("player3", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -1052,8 +1060,8 @@ func TestIsTurnFlagOnCheck(t *testing.T) {
 	require.NoError(t, err)
 
 	users := []*User{
-		NewUser("player1", "Player 1", 1000, 0),
-		NewUser("player2", "Player 2", 1000, 1),
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
 	}
 	game.SetPlayers(users)
 
@@ -1155,8 +1163,8 @@ func TestGameStateSnapshotCopiesBlindFlags(t *testing.T) {
 	}
 
 	users := []*User{
-		NewUser("p1", "p1", 0, 0),
-		NewUser("p2", "p2", 0, 1),
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
 	}
 	g.SetPlayers(users)
 
@@ -1218,8 +1226,8 @@ func TestShowdownBugReproduction(t *testing.T) {
 	// Create users with explicit seat assignments for heads-up
 	// In HU: dealer/SB = seat 0, BB = seat 1
 	users := []*User{
-		NewUser("player1", "Player 1", 1060, 0), // Player 1 = dealer/SB
-		NewUser("player2", "Player 2", 940, 1),  // Player 2 = BB
+		NewUser("player1", nil, nil), // Player 1 = dealer/SB
+		NewUser("player2", nil, nil), // Player 2 = BB
 	}
 	game.SetPlayers(users)
 
@@ -1464,8 +1472,8 @@ func TestShowdownTotalPotBug(t *testing.T) {
 
 	// Create test users and set them in the game
 	users := []*User{
-		NewUser("player1", "Player 1", 1000, 0), // SB/Dealer
-		NewUser("player2", "Player 2", 1000, 1), // BB
+		NewUser("player1", nil, nil), // SB/Dealer
+		NewUser("player2", nil, nil), // BB
 	}
 	game.SetPlayers(users)
 
@@ -1589,10 +1597,14 @@ func TestTimebank_AutoFold_Preflop(t *testing.T) {
 	tbl.SetEventChannel(evtChFold)
 
 	// Seat two users and ready
-	require.NoError(t, tbl.AddUser(NewUser("p1", "P1", 0, 0)))
-	require.NoError(t, tbl.AddUser(NewUser("p2", "P2", 0, 1)))
-	require.NoError(t, tbl.SetPlayerReady("p1", true))
-	require.NoError(t, tbl.SetPlayerReady("p2", true))
+	user1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	user2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+
+	// Mark players ready (SendReady now notifies table state machine)
+	user1.SendReady()
+	user2.SendReady()
 
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
@@ -1634,7 +1646,8 @@ func TestTimebank_AutoFold_Preflop(t *testing.T) {
 				continue
 			}
 			if p.ID() == curID {
-				return p.GetCurrentStateString() == "FOLDED"
+				fmt.Println("player state:", p.GetCurrentStateString())
+				return p.GetCurrentStateString() == FOLDED_STATE
 			}
 		}
 		return false
@@ -1664,10 +1677,14 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 	tbl.SetEventChannel(evtChCheck)
 
 	// Seat two users and ready
-	require.NoError(t, tbl.AddUser(NewUser("p1", "P1", 0, 0)))
-	require.NoError(t, tbl.AddUser(NewUser("p2", "P2", 0, 1)))
-	require.NoError(t, tbl.SetPlayerReady("p1", true))
-	require.NoError(t, tbl.SetPlayerReady("p2", true))
+	user1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	user2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+
+	// Mark players ready (SendReady now notifies table state machine)
+	user1.SendReady()
+	user2.SendReady()
 
 	require.True(t, tbl.CheckAllPlayersReady())
 	require.NoError(t, tbl.StartGame())
@@ -1715,5 +1732,5 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 			break
 		}
 	}
-	require.Equal(t, "IN_GAME", state)
+	require.Equal(t, IN_GAME_STATE, state)
 }

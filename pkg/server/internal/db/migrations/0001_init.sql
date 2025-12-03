@@ -1,20 +1,31 @@
--- Players & wallet transactions
 CREATE TABLE IF NOT EXISTS players (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
-    balance    INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    player_id   TEXT NOT NULL,
-    amount      INTEGER NOT NULL,
-    type        TEXT NOT NULL,
-    description TEXT,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (player_id) REFERENCES players(id)
+-- Authentication: user_id is primary key, nickname is just for UI display (not unique)
+CREATE TABLE IF NOT EXISTS auth_users (
+    user_id     TEXT PRIMARY KEY,
+    nickname    TEXT NOT NULL,
+    payout_address TEXT,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_login  TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_auth_users_user_id ON auth_users(user_id);
+
+-- Active sessions (optional, for session management)
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    token       TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    nickname    TEXT NOT NULL,
+    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at  TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES auth_users(user_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
 
 -- Poker tables (configuration; not per-hand/transient state)
 CREATE TABLE IF NOT EXISTS tables (
@@ -31,7 +42,7 @@ CREATE TABLE IF NOT EXISTS tables (
     autostart_ms    INTEGER NOT NULL DEFAULT 0,
     auto_advance_ms INTEGER NOT NULL DEFAULT 1000,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (host_id) REFERENCES players(id)
+    FOREIGN KEY (host_id) REFERENCES auth_users(user_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tables_created_at ON tables(created_at);
@@ -137,25 +148,3 @@ CREATE TABLE IF NOT EXISTS table_snapshots (
     payload     BLOB NOT NULL,
     FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
 );
-
--- Authentication: user_id is primary key, nickname is just for UI display (not unique)
-CREATE TABLE IF NOT EXISTS auth_users (
-    user_id     TEXT PRIMARY KEY,
-    nickname    TEXT NOT NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login  TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_auth_users_user_id ON auth_users(user_id);
-
--- Active sessions (optional, for session management)
-CREATE TABLE IF NOT EXISTS auth_sessions (
-    token       TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL,
-    nickname    TEXT NOT NULL,
-    created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at  TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES auth_users(user_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);

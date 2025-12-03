@@ -109,3 +109,15 @@ type PlayerAllInPayload struct {
 func (PlayerAllInPayload) Kind() pokerrpc.NotificationType {
 	return pokerrpc.NotificationType_PLAYER_ALL_IN
 }
+
+// GameEndedPayload carries information about the game winner and settlement.
+type GameEndedPayload struct {
+	WinnerID   string // Player ID of the game winner
+	WinnerSeat int32  // Seat index of the winner (for settlement branch)
+	MatchID    string // table_id|session_id for referee settlement
+	TotalPot   int64  // Total pot won (in chips)
+}
+
+func (GameEndedPayload) Kind() pokerrpc.NotificationType {
+	return pokerrpc.NotificationType_GAME_ENDED
+}

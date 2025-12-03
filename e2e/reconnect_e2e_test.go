@@ -14,6 +14,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // TestReconnectRestore_ChecksAdvance verifies that after a server restart and reconnect
@@ -42,18 +43,24 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		// Seed auth users required by the tables.host_id foreign key.
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -87,21 +94,7 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(b1.lc, p1, 10_000)
-	setBalance(b1.lc, p2, 10_000)
 
 	// Create table and join both
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -110,7 +103,7 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -228,16 +221,22 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 	start := func(t *testing.T) *boot {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
+
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 		return &boot{db, srv, gs, conn, pokerrpc.NewLobbyServiceClient(conn), pokerrpc.NewPokerServiceClient(conn)}
 	}
@@ -262,21 +261,7 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(pid string, want int64) {
-		rb, _ := b1.lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		cur := int64(0)
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := b1.lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(p1, 10_000)
-	setBalance(p2, 10_000)
 
 	// Create table, join, ready
 	cr, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -285,7 +270,7 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -411,18 +396,23 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -456,21 +446,7 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(b1.lc, p1, 10_000)
-	setBalance(b1.lc, p2, 10_000)
 
 	// Create table and join
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -479,7 +455,7 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -623,18 +599,24 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		// Seed auth users so CreateTable/JoinTable satisfy FK constraints on tables.host_id.
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -668,21 +650,7 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed wallet balances
-	setBalance := func(pid string, want int64) {
-		rb, _ := b1.lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := b1.lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(p1, 10_000)
-	setBalance(p2, 10_000)
 
 	// Create table and join second player
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -691,7 +659,7 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
@@ -857,18 +825,23 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		seedCtx := context.Background()
+		for _, pid := range []string{"p1", "p2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 		gs := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(gs, srv)
 		pokerrpc.RegisterPokerServiceServer(gs, srv)
 		go func() { _ = gs.Serve(lis) }()
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		return &boot{
@@ -902,21 +875,7 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 	b1 := start(t)
 	defer stop(b1)
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "p1", "p2"
-	setBalance(b1.lc, p1, 10_000)
-	setBalance(b1.lc, p2, 10_000)
 
 	// Create table and join both
 	createResp, err := b1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -925,7 +884,7 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,

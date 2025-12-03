@@ -28,8 +28,8 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
   final _form = GlobalKey<FormState>();
 
   // Defaults
-  int _smallBlind = 5;
-  int _bigBlind = 10;
+  int _smallBlind = 10;
+  int _bigBlind = 20;
   int _minPlayers = 2;
   int _maxPlayers = 2;
   String _buyInDcr = '0.0';
@@ -147,11 +147,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Wallet: ${_toDcr(widget.model.myAtomsBalance).toStringAsFixed(4)} DCR',
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.white70),
-            ),
           ],
         ),
       ),
@@ -235,4 +230,3 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
     if (mounted) Navigator.of(context).pop();
   }
 }
-

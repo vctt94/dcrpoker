@@ -14,16 +14,6 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/statemachine"
 )
 
-// fired when users join/leave or toggle ready; state may move to/from PLAYERS_READY
-type evUsersChanged struct{}
-
-// ready/unready requests routed through the table FSM
-type evSetUserReady struct {
-	userID string
-	ready  bool
-	reply  chan<- error
-}
-
 // request to enter GAME_ACTIVE (StartGame / startNewHand)
 type evStartGameReq struct{}
 
@@ -43,31 +33,16 @@ type ActionPayload struct {
 	PlayerID string
 }
 
+// GameEndedPayload carries information about the game winner for settlement.
+type GameEndedPayload struct {
+	WinnerID   string // Player ID of the game winner
+	WinnerSeat int32  // Seat index of the winner (for settlement branch)
+	MatchID    string // Match ID for referee settlement (table_id)
+	TotalPot   int64  // Total pot won (in chips)
+}
+
 // TableStateFn represents a table state function following Rob Pike's pattern
 type TableStateFn = statemachine.StateFn[Table]
-
-// User represents someone seated at the table (not necessarily playing)
-type User struct {
-	ID                string
-	Name              string
-	DCRAccountBalance int64 // DCR account balance (in atoms)
-	TableSeat         int   // Seat position at the table
-	IsReady           bool  // Ready to start/continue games
-	JoinedAt          time.Time
-	IsDisconnected    bool // Whether the user is disconnected
-}
-
-// NewUser creates a new user
-func NewUser(id, name string, dcrAccountBalance int64, seat int) *User {
-	return &User{
-		ID:                id,
-		Name:              name,
-		DCRAccountBalance: dcrAccountBalance,
-		TableSeat:         seat,
-		IsReady:           false,
-		JoinedAt:          time.Now(),
-	}
-}
 
 // TableConfig holds configuration for a new poker table
 type TableConfig struct {
@@ -137,12 +112,14 @@ func (t *Table) PublishEvent(eventType pokerrpc.NotificationType, tableID string
 
 // Table represents a poker table that manages users and delegates game logic to Game
 type Table struct {
+	mu RWLock
+	// State machine - Rob Pike's pattern
+	sm         *statemachine.Machine[Table]
 	log        slog.Logger
 	logBackend *logging.LogBackend
 	config     TableConfig
 	users      map[string]*User // Users seated at the table
 	game       *Game            // Game logic that handles all player management
-	mu         RWLock
 	createdAt  time.Time
 	lastAction time.Time
 	// Event manager for notifications
@@ -153,9 +130,6 @@ type Table struct {
 
 	// Idempotency guard: track which hand (by game round) has been resolved
 	resolvedRound int
-
-	// State machine - Rob Pike's pattern
-	sm *statemachine.Machine[Table]
 
 	// Timeout management
 	timeoutChan chan struct{}
@@ -363,7 +337,21 @@ func (t *Table) handleGameOver(winnerID string) {
 
 	t.mu.RLock()
 	game := t.game
+	tableID := t.config.ID
+	users := t.users
 	t.mu.RUnlock()
+
+	defer func() {
+		// Shutdown the finished game outside table lock to avoid deadlocks.
+		if game != nil {
+			game.Close()
+		}
+
+		// Notify the table state machine that the game has ended.
+		if err := t.sendTableEvent(evGameEnded{}); err != nil {
+			t.log.Warnf("Failed to send evGameEnded after game over: %v", err)
+		}
+	}()
 
 	if game != nil {
 		game.mu.Lock()
@@ -372,18 +360,65 @@ func (t *Table) handleGameOver(winnerID string) {
 		t.log.Debugf("Canceled auto-start timer due to game over")
 	}
 
-	// TODO: settle payouts, remove table, pay winner
+	// Determine winner's seat index for settlement
+	var winnerSeat int32 = -1
+	for _, u := range users {
+		if u.ID == winnerID {
+			u.mu.RLock()
+			winnerSeat = int32(u.TableSeat)
+			u.mu.RUnlock()
+			break
+		}
+	}
+
+	// Calculate total pot from showdown result if available
+	var totalPot int64
+	t.mu.RLock()
+	if t.lastShowdown != nil {
+		totalPot = t.lastShowdown.TotalPot
+	}
+	t.mu.RUnlock()
+
+	// Construct matchID for referee settlement (table_id is the match identifier for SNG)
+	matchID := tableID
+
+	t.log.Infof("Game ended - winner: %s, seat: %d, matchID: %s, totalPot: %d",
+		winnerID, winnerSeat, matchID, totalPot)
+
+	// Publish GAME_ENDED event with settlement info
+	t.PublishEvent(pokerrpc.NotificationType_GAME_ENDED, tableID, GameEndedPayload{
+		WinnerID:   winnerID,
+		WinnerSeat: winnerSeat,
+		MatchID:    matchID,
+		TotalPot:   totalPot,
+	})
+
 }
 
 // Thread-safe readiness check for state fns.
+// This checks if all players are ready and escrows are funded (for FSM transitions).
+// Does NOT check presign - that's a separate check for game start.
 func (t *Table) allPlayersReady() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
+	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
-		if !u.IsReady {
+		u.mu.RLock()
+		isReady := u.IsReady
+		escrowID := u.EscrowID
+		escrowReady := u.EscrowReady
+		u.mu.RUnlock()
+
+		if !isReady {
+			return false
+		}
+		if requireEscrow && escrowID == "" {
+			return false
+		}
+		if escrowID != "" && !escrowReady {
 			return false
 		}
 	}
@@ -403,6 +438,26 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 			if err == nil && t.allPlayersReady() {
 				return tableStatePlayersReady
 			}
+		case evSetUserEscrow:
+			e := ev.(evSetUserEscrow)
+			err := t.applyUserEscrow(e.userID, e.escrowID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
+			// Escrow change may affect readiness; check transitions
+			if err == nil && t.allPlayersReady() {
+				return tableStatePlayersReady
+			}
+		case evSetUserPresignComplete:
+			e := ev.(evSetUserPresignComplete)
+			err := t.applyUserPresignComplete(e.userID)
+			if e.reply != nil {
+				e.reply <- err
+			}
+			// Presign completion may affect readiness; check transitions
+			if err == nil && t.allPlayersReady() {
+				return tableStatePlayersReady
+			}
 		case evUsersChanged:
 			if t.allPlayersReady() {
 				return tableStatePlayersReady
@@ -413,7 +468,7 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 			if t.allPlayersReady() {
 				return tableStateGameActive
 			}
-			// otherwise remain waiting (server shouldn’t call StartGame yet)
+			// otherwise remain waiting (server shouldn't call StartGame yet)
 		case evGameEnded:
 			// already waiting
 		default:
@@ -434,6 +489,22 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 			}
 			if err == nil && !t.allPlayersReady() {
 				return tableStateWaitingForPlayers
+			}
+		case evSetUserEscrow:
+			e := ev.(evSetUserEscrow)
+			err := t.applyUserEscrow(e.userID, e.escrowID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
+			// Escrow change may affect readiness
+			if err == nil && !t.allPlayersReady() {
+				return tableStateWaitingForPlayers
+			}
+		case evSetUserPresignComplete:
+			e := ev.(evSetUserPresignComplete)
+			err := t.applyUserPresignComplete(e.userID)
+			if e.reply != nil {
+				e.reply <- err
 			}
 		case evUsersChanged:
 			if !t.allPlayersReady() {
@@ -458,6 +529,18 @@ func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 		case evSetUserReady:
 			e := ev.(evSetUserReady)
 			err := t.applyUserReady(e.userID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
+		case evSetUserEscrow:
+			e := ev.(evSetUserEscrow)
+			err := t.applyUserEscrow(e.userID, e.escrowID, e.ready)
+			if e.reply != nil {
+				e.reply <- err
+			}
+		case evSetUserPresignComplete:
+			e := ev.(evSetUserPresignComplete)
+			err := t.applyUserPresignComplete(e.userID)
 			if e.reply != nil {
 				e.reply <- err
 			}
@@ -494,22 +577,65 @@ func (t *Table) GetTableStateString() string {
 	}
 }
 
-// CheckAllPlayersReady checks if all players are ready without triggering state machine updates
+// CheckAllPlayersReady checks if all players are ready (and escrows funded for escrow tables).
+// Does NOT include presign check - use CheckAllPlayersReadyForGameStart for that.
 func (t *Table) CheckAllPlayersReady() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	// Just check the current readiness status without triggering state machine updates
-	return t.allPlayersReadyLocked()
-}
-
-func (t *Table) allPlayersReadyLocked() bool {
-	mustHeld(&t.mu)
+	// Requires: t.mu held
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
+	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
-		if !u.IsReady {
+		u.mu.RLock()
+		isReady := u.IsReady
+		escrowID := u.EscrowID
+		escrowReady := u.EscrowReady
+		u.mu.RUnlock()
+
+		if !isReady {
+			return false
+		}
+		if requireEscrow && escrowID == "" {
+			return false
+		}
+		if escrowID != "" && !escrowReady {
+			return false
+		}
+	}
+	return true
+}
+
+// CheckAllPlayersReadyForGameStart checks if all players are ready to start the game.
+// For escrow-backed tables, this also requires presigning to be complete.
+func (t *Table) CheckAllPlayersReadyForGameStart() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	// Requires: t.mu held
+	if len(t.users) < t.config.MinPlayers {
+		return false
+	}
+	requireEscrow := t.config.BuyIn > 0
+	for _, u := range t.users {
+		u.mu.RLock()
+		isReady := u.IsReady
+		escrowID := u.EscrowID
+		escrowReady := u.EscrowReady
+		presignComplete := u.PresignComplete
+		u.mu.RUnlock()
+
+		if !isReady {
+			return false
+		}
+		if requireEscrow && escrowID == "" {
+			return false
+		}
+		if escrowID != "" && !escrowReady {
+			return false
+		}
+		// For escrow-backed tables, presigning must be complete
+		if requireEscrow && !presignComplete {
 			return false
 		}
 	}
@@ -522,8 +648,29 @@ func (t *Table) StartGame() error {
 	defer t.mu.Unlock()
 
 	// 1) Ensure readiness under the table lock.
-	if t.GetTableStateString() != "PLAYERS_READY" && !t.allPlayersReadyLocked() {
-		return fmt.Errorf("cannot start game: not enough ready players")
+	// Requires: t.mu held
+	if t.GetTableStateString() != "PLAYERS_READY" {
+		if len(t.users) < t.config.MinPlayers {
+			return fmt.Errorf("cannot start game: not enough ready players")
+		}
+		requireEscrow := t.config.BuyIn > 0
+		for _, u := range t.users {
+			u.mu.RLock()
+			isReady := u.IsReady
+			escrowID := u.EscrowID
+			escrowReady := u.EscrowReady
+			u.mu.RUnlock()
+
+			if !isReady {
+				return fmt.Errorf("cannot start game: not enough ready players")
+			}
+			if requireEscrow && escrowID == "" {
+				return fmt.Errorf("cannot start game: not enough ready players")
+			}
+			if escrowID != "" && !escrowReady {
+				return fmt.Errorf("cannot start game: not enough ready players")
+			}
+		}
 	}
 	if len(t.users) < t.config.MinPlayers {
 		return fmt.Errorf("not enough players to start game")
@@ -809,7 +956,7 @@ func (t *Table) MakeBet(userID string, amount int64) error {
 
 		// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
 		if cp := t.game.GetCurrentPlayerObject(); cp != nil {
-			if cp.GetCurrentStateString() != "IN_GAME" {
+			if cp.GetCurrentStateString() != IN_GAME_STATE {
 				t.mu.Unlock()
 				return fmt.Errorf("player cannot act in current state")
 			}
@@ -856,6 +1003,14 @@ func (t *Table) GetConfig() TableConfig {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.config
+}
+
+// GetSettlementMatchID returns the matchID to use for Schnorr settlement.
+// For WTA poker, the tableID itself is the matchID (a random 16-byte hex string).
+func (t *Table) GetSettlementMatchID() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.config.ID
 }
 
 // GetGamePhase returns the current phase of the active game, or WAITING.
@@ -954,7 +1109,7 @@ func (t *Table) HandleFold(userID string) error {
 
 	// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
 	if cp := t.game.GetCurrentPlayerObject(); cp != nil {
-		if cp.GetCurrentStateString() != "IN_GAME" {
+		if cp.GetCurrentStateString() != IN_GAME_STATE {
 			t.mu.Unlock()
 			return fmt.Errorf("player cannot act in current state")
 		}
@@ -1068,7 +1223,7 @@ func (t *Table) HandleCheck(userID string) error {
 
 		// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
 		if cp := t.game.GetCurrentPlayerObject(); cp != nil {
-			if cp.GetCurrentStateString() != "IN_GAME" {
+			if cp.GetCurrentStateString() != IN_GAME_STATE {
 				t.mu.Unlock()
 				return fmt.Errorf("player cannot act in current state")
 			}
@@ -1110,6 +1265,36 @@ func (t *Table) AddUser(user *User) error {
 		return fmt.Errorf("user already at table")
 	}
 
+	// Auto-assign seat if TableSeat is -1 (unseated)
+	user.mu.RLock()
+	userTableSeat := user.TableSeat
+	user.mu.RUnlock()
+	if userTableSeat < 0 {
+		// Find the next available seat
+		occupied := make(map[int]bool)
+		for _, u := range t.users {
+			u.mu.RLock()
+			uTableSeat := u.TableSeat
+			u.mu.RUnlock()
+			if uTableSeat >= 0 {
+				occupied[uTableSeat] = true
+			}
+		}
+		seat := -1
+		for i := 0; i < t.config.MaxPlayers; i++ {
+			if !occupied[i] {
+				seat = i
+				break
+			}
+		}
+		if seat == -1 {
+			return fmt.Errorf("no available seats")
+		}
+		user.mu.Lock()
+		user.TableSeat = seat
+		user.mu.Unlock()
+	}
+
 	t.users[user.ID] = user
 	t.lastAction = time.Now()
 
@@ -1119,9 +1304,11 @@ func (t *Table) AddUser(user *User) error {
 	return nil
 }
 
-// AddNewUser creates and adds a new user to the table in one operation
-func (t *Table) AddNewUser(id, name string, dcrAccountBalance int64, seat int) (*User, error) {
-	user := NewUser(id, name, dcrAccountBalance, seat)
+// AddNewUser creates and adds a new user to the table in one operation.
+// Only the zk identity (id) and seat are required; optional metadata such as
+// escrow bindings can be provided via opts.
+func (t *Table) AddNewUser(id string, opts *AddUserOptions) (*User, error) {
+	user := NewUser(id, t, opts)
 	err := t.AddUser(user)
 	if err != nil {
 		return nil, err
@@ -1129,20 +1316,73 @@ func (t *Table) AddNewUser(id, name string, dcrAccountBalance int64, seat int) (
 	return user, nil
 }
 
+// SetSeatEscrowState binds an escrow to a seat and records whether funding is valid.
+// Returns the player ID seated there and whether anything changed.
+// This method routes through the Table FSM for proper state management.
+func (t *Table) SetSeatEscrowState(seat int, escrowID string, ready bool) (string, bool, error) {
+	// First find the user at the seat to get their ID and check if state would change
+	t.mu.RLock()
+	var user *User
+	for _, u := range t.users {
+		u.mu.RLock()
+		uTableSeat := u.TableSeat
+		u.mu.RUnlock()
+		if uTableSeat == seat {
+			user = u
+			break
+		}
+	}
+	if user == nil {
+		t.mu.RUnlock()
+		return "", false, fmt.Errorf("no player at seat %d", seat)
+	}
+	userID := user.ID
+	user.mu.RLock()
+	changed := user.EscrowID != escrowID || user.EscrowReady != ready
+	user.mu.RUnlock()
+	t.mu.RUnlock()
+
+	if !changed {
+		return userID, false, nil
+	}
+
+	// Route through FSM
+	if err := t.SetPlayerEscrow(userID, escrowID, ready); err != nil {
+		return "", false, err
+	}
+	return userID, true, nil
+}
+
+// GetUserAtSeat returns the user seated at the specified seat, or nil if no one is there.
+func (t *Table) GetUserAtSeat(seat int) *User {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	for _, u := range t.users {
+		u.mu.RLock()
+		uTableSeat := u.TableSeat
+		u.mu.RUnlock()
+		if uTableSeat == seat {
+			return u
+		}
+	}
+	return nil
+}
+
 // RemoveUser removes a user from the table
 func (t *Table) RemoveUser(userID string) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
+	sm := t.sm
 	if _, exists := t.users[userID]; !exists {
+		t.mu.Unlock()
 		return fmt.Errorf("user not at table")
 	}
-
 	delete(t.users, userID)
 	t.lastAction = time.Now()
+	t.mu.Unlock()
 
 	// Trigger state machine update to check if we should transition back to WAITING_FOR_PLAYERS
-	t.sm.Send(evUsersChanged{})
+	sm.Send(evUsersChanged{})
 
 	return nil
 }
@@ -1191,20 +1431,72 @@ func (t *Table) sendTableEvent(ev any) (err error) {
 // applyUserReady mutates readiness under lock; caller must trigger FSM transitions.
 func (t *Table) applyUserReady(userID string, ready bool) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	user := t.users[userID]
 	if user == nil {
+		t.mu.Unlock()
 		return fmt.Errorf("user not found at table")
 	}
-
+	// Acquire user lock to write field
+	user.mu.Lock()
 	user.IsReady = ready
+	user.mu.Unlock()
 	t.lastAction = time.Now()
+	t.mu.Unlock()
+	return nil
+}
+
+// applyUserEscrow mutates escrow binding under lock; caller must trigger FSM transitions.
+func (t *Table) applyUserEscrow(userID string, escrowID string, ready bool) error {
+	t.mu.Lock()
+	user := t.users[userID]
+	if user == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("user not found at table")
+	}
+	game := t.game
+	t.mu.Unlock()
+
+	// Acquire user lock to read and write fields
+	user.mu.Lock()
+	// Allow changing escrow only when the game has not started and
+	// presigning has not completed for this player. This prevents
+	// altering settlement inputs mid-presign or during an active game.
+	if user.EscrowID != "" && user.EscrowID != escrowID {
+		if game == nil && !user.PresignComplete {
+			user.mu.Unlock()
+			return fmt.Errorf("user %s already bound to escrow %s", userID, user.EscrowID)
+		}
+	}
+
+	user.EscrowID = escrowID
+	user.EscrowReady = ready
+	user.mu.Unlock()
+
+	t.mu.Lock()
+	t.lastAction = time.Now()
+	t.mu.Unlock()
+	return nil
+}
+
+// applyUserPresignComplete marks presigning complete under lock.
+func (t *Table) applyUserPresignComplete(userID string) error {
+	t.mu.Lock()
+	user := t.users[userID]
+	if user == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("user not found at table")
+	}
+	// Acquire user lock to write field
+	user.mu.Lock()
+	user.PresignComplete = true
+	user.mu.Unlock()
+	t.lastAction = time.Now()
+	t.mu.Unlock()
 	return nil
 }
 
 // SetPlayerReady sets the ready status for a player via the table FSM.
-func (t *Table) SetPlayerReady(userID string, ready bool) error {
+func (t *Table) SendPlayerReady(userID string, ready bool) error {
 	reply := make(chan error, 1)
 	if err := t.sendTableEvent(evSetUserReady{
 		userID: userID,
@@ -1217,10 +1509,38 @@ func (t *Table) SetPlayerReady(userID string, ready bool) error {
 	return <-reply
 }
 
+// SetPlayerEscrow sets escrow binding for a player via the table FSM.
+func (t *Table) SetPlayerEscrow(userID string, escrowID string, ready bool) error {
+	reply := make(chan error, 1)
+	if err := t.sendTableEvent(evSetUserEscrow{
+		userID:   userID,
+		escrowID: escrowID,
+		ready:    ready,
+		reply:    reply,
+	}); err != nil {
+		return err
+	}
+
+	return <-reply
+}
+
+// SetPlayerPresignComplete marks presigning complete for a player via the table FSM.
+func (t *Table) SetPlayerPresignComplete(userID string) error {
+	reply := make(chan error, 1)
+	if err := t.sendTableEvent(evSetUserPresignComplete{
+		userID: userID,
+		reply:  reply,
+	}); err != nil {
+		return err
+	}
+
+	return <-reply
+}
+
 // TableStateSnapshot represents a point-in-time snapshot of table state for safe concurrent access
 type TableStateSnapshot struct {
 	Config TableConfig
-	Users  []User
+	Users  []UserSnapshot
 	Game   GameStateSnapshot // Nested game state snapshot if game is active
 }
 
@@ -1230,17 +1550,9 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	t.mu.RLock()
 
 	// Create a deep copy of users to avoid race conditions
-	usersCopy := make([]User, 0, len(t.users))
+	usersCopy := make([]UserSnapshot, 0, len(t.users))
 	for _, user := range t.users {
-		userCopy := User{
-			ID:                user.ID,
-			Name:              user.Name,
-			DCRAccountBalance: user.DCRAccountBalance,
-			TableSeat:         user.TableSeat,
-			IsReady:           user.IsReady,
-			IsDisconnected:    user.IsDisconnected,
-			JoinedAt:          user.JoinedAt,
-		}
+		userCopy := user.GetSnapshot()
 		usersCopy = append(usersCopy, userCopy)
 	}
 
@@ -1266,22 +1578,6 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 		Users:  usersCopy,
 		Game:   gameSnapshot,
 	}
-}
-
-// SetUserDCRAccountBalance safely updates the DCRAccountBalance of a user seated at the table.
-// It acquires the table lock to synchronize concurrent access so that readers (e.g. state snapshots)
-// don't race with writers like JoinTable.
-func (t *Table) SetUserDCRAccountBalance(userID string, newBalance int64) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	u, ok := t.users[userID]
-	if !ok {
-		return fmt.Errorf("user not found at table")
-	}
-
-	u.DCRAccountBalance = newBalance
-	return nil
 }
 
 // XX We need to properly fix this restore for clients. and properly restore game state from sm

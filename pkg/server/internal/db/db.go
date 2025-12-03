@@ -306,7 +306,6 @@ func splitSQLStatements(s string) []string {
 type Player struct {
 	ID        string
 	Name      string
-	Balance   int64
 	CreatedAt time.Time
 }
 
@@ -403,56 +402,18 @@ func (db *DB) UpsertPlayer(ctx context.Context, id, name string) error {
 
 func (db *DB) GetPlayer(ctx context.Context, id string) (*Player, error) {
 	row := db.QueryRowContext(ctx, `
-		SELECT id, name, balance, created_at
+		SELECT id, name, created_at
 		FROM players
 		WHERE id = ?
 	`, id)
 	var p Player
-	if err := row.Scan(&p.ID, &p.Name, &p.Balance, &p.CreatedAt); err != nil {
+	if err := row.Scan(&p.ID, &p.Name, &p.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("player not found: %s", id)
 		}
 		return nil, err
 	}
 	return &p, nil
-}
-
-func (db *DB) GetPlayerBalance(ctx context.Context, id string) (int64, error) {
-	row := db.QueryRowContext(ctx, `SELECT balance FROM players WHERE id = ?`, id)
-	var bal int64
-	if err := row.Scan(&bal); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, fmt.Errorf("player not found: %s", id)
-		}
-		return 0, err
-	}
-	return bal, nil
-}
-
-// Update wallet balance and record a ledger transaction atomically.
-func (db *DB) UpdatePlayerBalance(ctx context.Context, playerID string, amount int64, typ, description string) error {
-	return db.withTx(ctx, func(tx *sql.Tx) error {
-		// Ensure player exists (default name = id if new).
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO players (id, name, balance)
-			VALUES (?, ?, 0)
-			ON CONFLICT(id) DO NOTHING
-		`, playerID, playerID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			UPDATE players SET balance = balance + ? WHERE id = ?
-		`, amount, playerID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO transactions (player_id, amount, type, description)
-			VALUES (?, ?, ?, ?)
-		`, playerID, amount, typ, description); err != nil {
-			return err
-		}
-		return nil
-	})
 }
 
 // =========================
@@ -541,15 +502,26 @@ func (db *DB) ListTableIDs(ctx context.Context) ([]string, error) {
 // ================================
 
 func (db *DB) SeatPlayer(ctx context.Context, tableID, playerID string, seat int) error {
-	// left_at MUST be NULL for an active seat; UNIQUE(table_id, seat) enforces occupancy.
-	_, err := db.ExecContext(ctx, `
-		INSERT INTO table_participants (table_id, player_id, seat, joined_at, left_at, ready)
-		VALUES (?, ?, ?, CURRENT_TIMESTAMP, NULL, FALSE)
-		ON CONFLICT(table_id, player_id) DO UPDATE SET
-			seat = excluded.seat,
-			left_at = NULL
-	`, tableID, playerID, seat)
-	return err
+	// Ensure a players row exists so FK(table_participants.player_id → players.id) is satisfied.
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO players (id, name)
+			VALUES (?, ?)
+			ON CONFLICT(id) DO NOTHING
+		`, playerID, playerID); err != nil {
+			return err
+		}
+
+		// left_at MUST be NULL for an active seat; UNIQUE(table_id, seat) enforces occupancy.
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO table_participants (table_id, player_id, seat, joined_at, left_at, ready)
+			VALUES (?, ?, ?, CURRENT_TIMESTAMP, NULL, FALSE)
+			ON CONFLICT(table_id, player_id) DO UPDATE SET
+				seat = excluded.seat,
+				left_at = NULL
+		`, tableID, playerID, seat)
+		return err
+	})
 }
 
 func (db *DB) UnseatPlayer(ctx context.Context, tableID, playerID string) error {
@@ -867,10 +839,11 @@ func (db *DB) DeleteSnapshot(ctx context.Context, tableID string) error {
 
 // AuthUser represents a registered user
 type AuthUser struct {
-	Nickname  string
-	UserID    string
-	CreatedAt time.Time
-	LastLogin sql.NullTime
+	Nickname      string
+	UserID        string
+	CreatedAt     time.Time
+	LastLogin     sql.NullTime
+	PayoutAddress sql.NullString
 }
 
 // UpsertAuthUser creates or updates a user registration
@@ -887,12 +860,12 @@ func (db *DB) UpsertAuthUser(ctx context.Context, nickname, userID string) error
 // GetAuthUserByNickname retrieves a user by nickname
 func (db *DB) GetAuthUserByNickname(ctx context.Context, nickname string) (*AuthUser, error) {
 	row := db.QueryRowContext(ctx, `
-		SELECT nickname, user_id, created_at, last_login
+		SELECT nickname, user_id, created_at, last_login, payout_address
 		FROM auth_users
 		WHERE nickname = ?
 	`, nickname)
 	var u AuthUser
-	if err := row.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin, &u.PayoutAddress); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
@@ -904,12 +877,12 @@ func (db *DB) GetAuthUserByNickname(ctx context.Context, nickname string) (*Auth
 // GetAuthUserByUserID retrieves a user by user ID
 func (db *DB) GetAuthUserByUserID(ctx context.Context, userID string) (*AuthUser, error) {
 	row := db.QueryRowContext(ctx, `
-		SELECT nickname, user_id, created_at, last_login
+		SELECT nickname, user_id, created_at, last_login, payout_address
 		FROM auth_users
 		WHERE user_id = ?
 	`, userID)
 	var u AuthUser
-	if err := row.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin); err != nil {
+	if err := row.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin, &u.PayoutAddress); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("user not found")
 		}
@@ -928,10 +901,20 @@ func (db *DB) UpdateAuthUserLastLogin(ctx context.Context, userID string) error 
 	return err
 }
 
+// UpdateAuthUserPayoutAddress updates the persisted payout address for a user.
+func (db *DB) UpdateAuthUserPayoutAddress(ctx context.Context, userID, payoutAddress string) error {
+	_, err := db.ExecContext(ctx, `
+		UPDATE auth_users
+		SET payout_address = ?
+		WHERE user_id = ?
+	`, payoutAddress, userID)
+	return err
+}
+
 // ListAllAuthUsers returns all registered users (for loading on startup)
 func (db *DB) ListAllAuthUsers(ctx context.Context) ([]AuthUser, error) {
 	rows, err := db.QueryContext(ctx, `
-		SELECT nickname, user_id, created_at, last_login
+		SELECT nickname, user_id, created_at, last_login, payout_address
 		FROM auth_users
 		ORDER BY created_at ASC
 	`)
@@ -943,7 +926,7 @@ func (db *DB) ListAllAuthUsers(ctx context.Context) ([]AuthUser, error) {
 	var users []AuthUser
 	for rows.Next() {
 		var u AuthUser
-		if err := rows.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin); err != nil {
+		if err := rows.Scan(&u.Nickname, &u.UserID, &u.CreatedAt, &u.LastLogin, &u.PayoutAddress); err != nil {
 			return nil, err
 		}
 		users = append(users, u)

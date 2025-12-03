@@ -8,7 +8,7 @@
 // ignore_for_file: constant_identifier_names
 // ignore_for_file: curly_braces_in_flow_control_structures
 // ignore_for_file: deprecated_member_use_from_same_package, library_prefixes
-// ignore_for_file: non_constant_identifier_names
+// ignore_for_file: non_constant_identifier_names, prefer_relative_imports
 
 import 'dart:core' as $core;
 
@@ -2590,6 +2590,10 @@ class Notification extends $pb.GeneratedMessage {
     $core.int? countdown,
     $core.Iterable<Winner>? winners,
     Showdown? showdown,
+    $core.String? winnerId,
+    $core.int? winnerSeat,
+    $core.String? matchId,
+    $core.bool? isWinner,
   }) {
     final result = create();
     if (type != null) result.type = type;
@@ -2607,6 +2611,10 @@ class Notification extends $pb.GeneratedMessage {
     if (countdown != null) result.countdown = countdown;
     if (winners != null) result.winners.addAll(winners);
     if (showdown != null) result.showdown = showdown;
+    if (winnerId != null) result.winnerId = winnerId;
+    if (winnerSeat != null) result.winnerSeat = winnerSeat;
+    if (matchId != null) result.matchId = matchId;
+    if (isWinner != null) result.isWinner = isWinner;
     return result;
   }
 
@@ -2642,6 +2650,10 @@ class Notification extends $pb.GeneratedMessage {
         subBuilder: Winner.create)
     ..aOM<Showdown>(15, _omitFieldNames ? '' : 'showdown',
         subBuilder: Showdown.create)
+    ..aOS(16, _omitFieldNames ? '' : 'winnerId')
+    ..aI(17, _omitFieldNames ? '' : 'winnerSeat')
+    ..aOS(18, _omitFieldNames ? '' : 'matchId')
+    ..aOB(19, _omitFieldNames ? '' : 'isWinner')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2789,6 +2801,43 @@ class Notification extends $pb.GeneratedMessage {
   void clearShowdown() => $_clearField(15);
   @$pb.TagNumber(15)
   Showdown ensureShowdown() => $_ensure(14);
+
+  /// Settlement fields for GAME_ENDED notifications
+  @$pb.TagNumber(16)
+  $core.String get winnerId => $_getSZ(15);
+  @$pb.TagNumber(16)
+  set winnerId($core.String value) => $_setString(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasWinnerId() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearWinnerId() => $_clearField(16);
+
+  @$pb.TagNumber(17)
+  $core.int get winnerSeat => $_getIZ(16);
+  @$pb.TagNumber(17)
+  set winnerSeat($core.int value) => $_setSignedInt32(16, value);
+  @$pb.TagNumber(17)
+  $core.bool hasWinnerSeat() => $_has(16);
+  @$pb.TagNumber(17)
+  void clearWinnerSeat() => $_clearField(17);
+
+  @$pb.TagNumber(18)
+  $core.String get matchId => $_getSZ(17);
+  @$pb.TagNumber(18)
+  set matchId($core.String value) => $_setString(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasMatchId() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearMatchId() => $_clearField(18);
+
+  @$pb.TagNumber(19)
+  $core.bool get isWinner => $_getBF(18);
+  @$pb.TagNumber(19)
+  set isWinner($core.bool value) => $_setBool(18, value);
+  @$pb.TagNumber(19)
+  $core.bool hasIsWinner() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearIsWinner() => $_clearField(19);
 }
 
 class Showdown extends $pb.GeneratedMessage {
@@ -2869,6 +2918,10 @@ class Player extends $pb.GeneratedMessage {
     $core.bool? isSmallBlind,
     $core.bool? isBigBlind,
     $core.bool? isDisconnected,
+    $core.String? escrowId,
+    $core.bool? escrowReady,
+    $core.int? tableSeat,
+    $core.bool? presignComplete,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -2886,6 +2939,10 @@ class Player extends $pb.GeneratedMessage {
     if (isSmallBlind != null) result.isSmallBlind = isSmallBlind;
     if (isBigBlind != null) result.isBigBlind = isBigBlind;
     if (isDisconnected != null) result.isDisconnected = isDisconnected;
+    if (escrowId != null) result.escrowId = escrowId;
+    if (escrowReady != null) result.escrowReady = escrowReady;
+    if (tableSeat != null) result.tableSeat = tableSeat;
+    if (presignComplete != null) result.presignComplete = presignComplete;
     return result;
   }
 
@@ -2918,6 +2975,10 @@ class Player extends $pb.GeneratedMessage {
     ..aOB(13, _omitFieldNames ? '' : 'isSmallBlind')
     ..aOB(14, _omitFieldNames ? '' : 'isBigBlind')
     ..aOB(15, _omitFieldNames ? '' : 'isDisconnected')
+    ..aOS(16, _omitFieldNames ? '' : 'escrowId')
+    ..aOB(17, _omitFieldNames ? '' : 'escrowReady')
+    ..aI(18, _omitFieldNames ? '' : 'tableSeat')
+    ..aOB(19, _omitFieldNames ? '' : 'presignComplete')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3066,6 +3127,42 @@ class Player extends $pb.GeneratedMessage {
   $core.bool hasIsDisconnected() => $_has(14);
   @$pb.TagNumber(15)
   void clearIsDisconnected() => $_clearField(15);
+
+  @$pb.TagNumber(16)
+  $core.String get escrowId => $_getSZ(15);
+  @$pb.TagNumber(16)
+  set escrowId($core.String value) => $_setString(15, value);
+  @$pb.TagNumber(16)
+  $core.bool hasEscrowId() => $_has(15);
+  @$pb.TagNumber(16)
+  void clearEscrowId() => $_clearField(16);
+
+  @$pb.TagNumber(17)
+  $core.bool get escrowReady => $_getBF(16);
+  @$pb.TagNumber(17)
+  set escrowReady($core.bool value) => $_setBool(16, value);
+  @$pb.TagNumber(17)
+  $core.bool hasEscrowReady() => $_has(16);
+  @$pb.TagNumber(17)
+  void clearEscrowReady() => $_clearField(17);
+
+  @$pb.TagNumber(18)
+  $core.int get tableSeat => $_getIZ(17);
+  @$pb.TagNumber(18)
+  set tableSeat($core.int value) => $_setSignedInt32(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasTableSeat() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearTableSeat() => $_clearField(18);
+
+  @$pb.TagNumber(19)
+  $core.bool get presignComplete => $_getBF(18);
+  @$pb.TagNumber(19)
+  set presignComplete($core.bool value) => $_setBool(18, value);
+  @$pb.TagNumber(19)
+  $core.bool hasPresignComplete() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearPresignComplete() => $_clearField(19);
 }
 
 class Card extends $pb.GeneratedMessage {
@@ -3928,10 +4025,16 @@ class LoginRequest extends $pb.GeneratedMessage {
   factory LoginRequest({
     $core.String? nickname,
     $core.String? userId,
+    $core.String? address,
+    $core.String? signature,
+    $core.String? code,
   }) {
     final result = create();
     if (nickname != null) result.nickname = nickname;
     if (userId != null) result.userId = userId;
+    if (address != null) result.address = address;
+    if (signature != null) result.signature = signature;
+    if (code != null) result.code = code;
     return result;
   }
 
@@ -3950,6 +4053,9 @@ class LoginRequest extends $pb.GeneratedMessage {
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'nickname')
     ..aOS(2, _omitFieldNames ? '' : 'userId')
+    ..aOS(3, _omitFieldNames ? '' : 'address')
+    ..aOS(4, _omitFieldNames ? '' : 'signature')
+    ..aOS(5, _omitFieldNames ? '' : 'code')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -3988,6 +4094,167 @@ class LoginRequest extends $pb.GeneratedMessage {
   $core.bool hasUserId() => $_has(1);
   @$pb.TagNumber(2)
   void clearUserId() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get address => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set address($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAddress() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAddress() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  $core.String get signature => $_getSZ(3);
+  @$pb.TagNumber(4)
+  set signature($core.String value) => $_setString(3, value);
+  @$pb.TagNumber(4)
+  $core.bool hasSignature() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearSignature() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get code => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set code($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasCode() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearCode() => $_clearField(5);
+}
+
+class RequestLoginCodeRequest extends $pb.GeneratedMessage {
+  factory RequestLoginCodeRequest({
+    $core.String? userId,
+  }) {
+    final result = create();
+    if (userId != null) result.userId = userId;
+    return result;
+  }
+
+  RequestLoginCodeRequest._();
+
+  factory RequestLoginCodeRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory RequestLoginCodeRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RequestLoginCodeRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'userId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RequestLoginCodeRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RequestLoginCodeRequest copyWith(
+          void Function(RequestLoginCodeRequest) updates) =>
+      super.copyWith((message) => updates(message as RequestLoginCodeRequest))
+          as RequestLoginCodeRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RequestLoginCodeRequest create() => RequestLoginCodeRequest._();
+  @$core.override
+  RequestLoginCodeRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static RequestLoginCodeRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RequestLoginCodeRequest>(create);
+  static RequestLoginCodeRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get userId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set userId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasUserId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearUserId() => $_clearField(1);
+}
+
+class RequestLoginCodeResponse extends $pb.GeneratedMessage {
+  factory RequestLoginCodeResponse({
+    $core.String? code,
+    $fixnum.Int64? ttlSec,
+    $core.String? addressHint,
+  }) {
+    final result = create();
+    if (code != null) result.code = code;
+    if (ttlSec != null) result.ttlSec = ttlSec;
+    if (addressHint != null) result.addressHint = addressHint;
+    return result;
+  }
+
+  RequestLoginCodeResponse._();
+
+  factory RequestLoginCodeResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory RequestLoginCodeResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'RequestLoginCodeResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'code')
+    ..aInt64(2, _omitFieldNames ? '' : 'ttlSec')
+    ..aOS(3, _omitFieldNames ? '' : 'addressHint')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RequestLoginCodeResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  RequestLoginCodeResponse copyWith(
+          void Function(RequestLoginCodeResponse) updates) =>
+      super.copyWith((message) => updates(message as RequestLoginCodeResponse))
+          as RequestLoginCodeResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static RequestLoginCodeResponse create() => RequestLoginCodeResponse._();
+  @$core.override
+  RequestLoginCodeResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static RequestLoginCodeResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<RequestLoginCodeResponse>(create);
+  static RequestLoginCodeResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get code => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set code($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasCode() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearCode() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $fixnum.Int64 get ttlSec => $_getI64(1);
+  @$pb.TagNumber(2)
+  set ttlSec($fixnum.Int64 value) => $_setInt64(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTtlSec() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTtlSec() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $core.String get addressHint => $_getSZ(2);
+  @$pb.TagNumber(3)
+  set addressHint($core.String value) => $_setString(2, value);
+  @$pb.TagNumber(3)
+  $core.bool hasAddressHint() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearAddressHint() => $_clearField(3);
 }
 
 class LoginResponse extends $pb.GeneratedMessage {
@@ -3997,6 +4264,7 @@ class LoginResponse extends $pb.GeneratedMessage {
     $core.String? token,
     $core.String? userId,
     $core.String? nickname,
+    $core.String? payoutAddress,
   }) {
     final result = create();
     if (ok != null) result.ok = ok;
@@ -4004,6 +4272,7 @@ class LoginResponse extends $pb.GeneratedMessage {
     if (token != null) result.token = token;
     if (userId != null) result.userId = userId;
     if (nickname != null) result.nickname = nickname;
+    if (payoutAddress != null) result.payoutAddress = payoutAddress;
     return result;
   }
 
@@ -4025,6 +4294,7 @@ class LoginResponse extends $pb.GeneratedMessage {
     ..aOS(3, _omitFieldNames ? '' : 'token')
     ..aOS(4, _omitFieldNames ? '' : 'userId')
     ..aOS(5, _omitFieldNames ? '' : 'nickname')
+    ..aOS(6, _omitFieldNames ? '' : 'payoutAddress')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -4090,6 +4360,15 @@ class LoginResponse extends $pb.GeneratedMessage {
   $core.bool hasNickname() => $_has(4);
   @$pb.TagNumber(5)
   void clearNickname() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.String get payoutAddress => $_getSZ(5);
+  @$pb.TagNumber(6)
+  set payoutAddress($core.String value) => $_setString(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasPayoutAddress() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearPayoutAddress() => $_clearField(6);
 }
 
 class LogoutRequest extends $pb.GeneratedMessage {
@@ -4260,12 +4539,14 @@ class GetUserInfoResponse extends $pb.GeneratedMessage {
     $core.String? nickname,
     $fixnum.Int64? created,
     $fixnum.Int64? lastLogin,
+    $core.String? payoutAddress,
   }) {
     final result = create();
     if (userId != null) result.userId = userId;
     if (nickname != null) result.nickname = nickname;
     if (created != null) result.created = created;
     if (lastLogin != null) result.lastLogin = lastLogin;
+    if (payoutAddress != null) result.payoutAddress = payoutAddress;
     return result;
   }
 
@@ -4286,6 +4567,7 @@ class GetUserInfoResponse extends $pb.GeneratedMessage {
     ..aOS(2, _omitFieldNames ? '' : 'nickname')
     ..aInt64(3, _omitFieldNames ? '' : 'created')
     ..aInt64(4, _omitFieldNames ? '' : 'lastLogin')
+    ..aOS(5, _omitFieldNames ? '' : 'payoutAddress')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -4342,6 +4624,15 @@ class GetUserInfoResponse extends $pb.GeneratedMessage {
   $core.bool hasLastLogin() => $_has(3);
   @$pb.TagNumber(4)
   void clearLastLogin() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $core.String get payoutAddress => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set payoutAddress($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasPayoutAddress() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearPayoutAddress() => $_clearField(5);
 }
 
 const $core.bool _omitFieldNames =

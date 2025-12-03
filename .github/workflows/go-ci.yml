@@ -39,5 +39,5 @@ jobs:
           fi
 
       - name: Go tests (lockcheck, race, repeated)
-        run: go test -tags=lockcheck -v -race ./... -count=3 -timeout 300s
+        run: go test -tags=lockcheck -v -race ./... -count=3 -timeout 600s
 

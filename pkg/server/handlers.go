@@ -1,6 +1,11 @@
 package server
 
 import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
@@ -143,12 +148,57 @@ func (nh *NotificationHandler) handleGameStarted(event *GameEvent) {
 }
 
 func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
-	// If you have a typed payload (e.g., winner summary), assert it here
-	notification := &pokerrpc.Notification{
-		Type:    pokerrpc.NotificationType_GAME_ENDED,
-		TableId: event.TableID,
+	// Extract game ended payload with winner/settlement info
+	pl, ok := event.Payload.(GameEndedPayload)
+	if !ok {
+		nh.server.log.Warnf("GAME_ENDED without GameEndedPayload; sending basic notification (table=%s)", event.TableID)
+		notification := &pokerrpc.Notification{
+			Type:    pokerrpc.NotificationType_GAME_ENDED,
+			TableId: event.TableID,
+			Message: "Game ended",
+		}
+		nh.server.notifyPlayers(event.PlayerIDs, notification)
+		return
 	}
-	nh.server.notifyPlayers(event.PlayerIDs, notification)
+
+	nh.server.log.Infof("Game ended - winner: %s, seat: %d, matchID: %s, pot: %d",
+		pl.WinnerID, pl.WinnerSeat, pl.MatchID, pl.TotalPot)
+
+	// Send personalized notifications to each player
+	for _, playerID := range event.PlayerIDs {
+		isWinner := playerID == pl.WinnerID
+		var message string
+		if isWinner {
+			message = fmt.Sprintf("Congratulations! You won the game with %d chips!", pl.TotalPot)
+		} else {
+			message = fmt.Sprintf("Game over. %s won with %d chips.", pl.WinnerID, pl.TotalPot)
+		}
+
+		notification := &pokerrpc.Notification{
+			Type:       pokerrpc.NotificationType_GAME_ENDED,
+			TableId:    event.TableID,
+			Message:    message,
+			WinnerId:   pl.WinnerID,
+			WinnerSeat: pl.WinnerSeat,
+			MatchId:    pl.MatchID,
+			Amount:     pl.TotalPot,
+			IsWinner:   isWinner,
+		}
+		nh.server.sendNotificationToPlayer(playerID, notification)
+	}
+
+	// Attempt to finalize and broadcast Schnorr settlement if matchID and winner are valid.
+	if pl.WinnerID != "" && pl.MatchID != "" && pl.WinnerSeat >= 0 {
+		go nh.server.trySettlementBroadcast(event.TableID, pl.MatchID, pl.WinnerSeat, pl.WinnerID, event.PlayerIDs)
+	}
+
+	// After the match is finished, remove the table so subsequent RPCs
+	// treat it as gone. Use a short grace period so clients/tests can
+	// query final state (e.g., GetLastWinners) before the table closes.
+	go func(tableID string) {
+		nh.server.scheduleTableRemoval(tableID)
+	}(event.TableID)
+
 }
 
 func (nh *NotificationHandler) handlePlayerReady(event *GameEvent) {
@@ -255,6 +305,13 @@ func NewGameStateHandler(server *Server) *GameStateHandler {
 }
 
 func (gsh *GameStateHandler) HandleEvent(event *GameEvent) {
+	// Skip game state updates for GAME_ENDED events - game is over,
+	// clients should have already received the final state from SHOWDOWN_RESULT.
+	// This prevents unnecessary GetLastWinners calls after game ends.
+	if event.Type == pokerrpc.NotificationType_GAME_ENDED {
+		return
+	}
+
 	// Build game states from the event snapshot
 	gameStates := gsh.buildGameStatesFromSnapshot(event.TableSnapshot)
 	if len(gameStates) > 0 {
@@ -300,10 +357,14 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		var players []*pokerrpc.Player
 		for _, ps := range tableSnapshot.Players {
 			player := &pokerrpc.Player{
-				Id:             ps.ID,
-				IsReady:        ps.IsReady,
-				PlayerState:    pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE,
-				IsDisconnected: ps.IsDisconnected,
+				Id:              ps.ID,
+				Name:            ps.Name,
+				IsReady:         ps.IsReady,
+				IsDisconnected:  ps.IsDisconnected,
+				EscrowId:        ps.EscrowID,
+				EscrowReady:     ps.EscrowReady,
+				PresignComplete: ps.PresignComplete,
+				TableSeat:       int32(ps.TableSeat),
 			}
 			players = append(players, player)
 		}
@@ -325,19 +386,23 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 	for _, ps := range tableSnapshot.Players {
 		player := &pokerrpc.Player{
 			Id:             ps.ID,
+			Name:           ps.Name,
 			Balance:        ps.Balance,
 			IsReady:        ps.IsReady,
 			Folded:         ps.HasFolded,
 			IsAllIn:        ps.IsAllIn,
 			CurrentBet:     ps.HasBet,
-			PlayerState:    toRPCPlayerState(ps.GameState),
 			IsDealer:       ps.IsDealer,
 			IsSmallBlind:   ps.IsSmallBlind,
 			IsBigBlind:     ps.IsBigBlind,
 			IsDisconnected: ps.IsDisconnected,
 			// Use FSM-derived snapshot value. UIs should prefer
 			// GameUpdate.CurrentPlayer for highlighting.
-			IsTurn: ps.IsTurn,
+			IsTurn:          ps.IsTurn,
+			EscrowId:        ps.EscrowID,
+			EscrowReady:     ps.EscrowReady,
+			PresignComplete: ps.PresignComplete,
+			TableSeat:       int32(ps.TableSeat),
 		}
 
 		if ps.ID == requestingPlayerID {
@@ -350,7 +415,6 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 						Value: card.GetValue(),
 					}
 				}
-				gsh.server.log.Debugf("GameStateHandler: showing %d cards to player %s", len(player.Hand), ps.ID)
 			}
 		} else if tableSnapshot.GameSnapshot.Phase == pokerrpc.GamePhase_SHOWDOWN {
 			// Show other players' cards only during showdown
@@ -418,18 +482,78 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 // toRPCPlayerState maps saved state strings to the protobuf enum.
 func toRPCPlayerState(state string) pokerrpc.PlayerState {
 	switch state {
-	case "AT_TABLE":
+	case poker.AT_TABLE_STATE:
 		return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
-	case "IN_GAME":
+	case poker.IN_GAME_STATE:
 		return pokerrpc.PlayerState_PLAYER_STATE_IN_GAME
-	case "ALL_IN":
+	case poker.ALL_IN_STATE:
 		return pokerrpc.PlayerState_PLAYER_STATE_ALL_IN
-	case "FOLDED":
+	case poker.FOLDED_STATE:
 		return pokerrpc.PlayerState_PLAYER_STATE_FOLDED
-	case "LEFT":
+	case poker.LEFT_TABLE_STATE:
 		return pokerrpc.PlayerState_PLAYER_STATE_LEFT
 	default:
 		return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
+	}
+}
+
+// trySettlementBroadcast attempts to finalize and broadcast the Schnorr settlement.
+// It runs asynchronously and notifies players of the result.
+// For non-Schnorr tables (no escrows), this silently returns without action.
+func (s *Server) trySettlementBroadcast(tableID, matchID string, winnerSeat int32, winnerID string, playerIDs []string) {
+	// Check if this match has any escrows bound (i.e., is a Schnorr-enabled table).
+	// If not, silently skip settlement - this is a normal non-escrow game.
+	escrows, err := s.readyMatchEscrows(matchID)
+	if err != nil || len(escrows) == 0 {
+		s.log.Debugf("No escrows for match %s; skipping settlement broadcast (non-Schnorr table)", matchID)
+		return
+	}
+
+	// Verify presigning was completed before attempting settlement.
+	complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
+	if !complete {
+		s.log.Warnf("Settlement skipped for match %s: presigning incomplete (%d/%d seats)", matchID, completedSeats, totalSeats)
+		s.sendNotificationToPlayer(winnerID, &pokerrpc.Notification{
+			Type:    pokerrpc.NotificationType_MESSAGE,
+			TableId: tableID,
+			Message: fmt.Sprintf("Settlement cannot proceed: presigning incomplete (%d/%d players). Game should not have started without presigning.", completedSeats, totalSeats),
+		})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Finalize and broadcast settlement for the winning table seat. Seat-to-branch
+	// mapping is handled inside GetFinalizeBundle so we pass the table seat here.
+	txid, err := s.FinalizeAndBroadcastSettlement(ctx, matchID, winnerSeat)
+	if err != nil {
+		// Settlement failed - presigs incomplete, dcrd not connected, etc.
+		s.log.Warnf("Settlement broadcast failed for match %s: %v", matchID, err)
+
+		// Notify winner they may need to finalize manually
+		s.sendNotificationToPlayer(winnerID, &pokerrpc.Notification{
+			Type:    pokerrpc.NotificationType_MESSAGE,
+			TableId: tableID,
+			Message: fmt.Sprintf("Settlement broadcast failed: %v. You may call GetFinalizeBundle to complete manually.", err),
+		})
+		return
+	}
+
+	// Notify all players of the successful settlement
+	for _, playerID := range playerIDs {
+		var message string
+		if playerID == winnerID {
+			message = fmt.Sprintf("🎉 Settlement broadcasted! Your winnings are on the way. txid=%s", txid)
+		} else {
+			message = fmt.Sprintf("Settlement broadcasted. txid=%s", txid)
+		}
+
+		s.sendNotificationToPlayer(playerID, &pokerrpc.Notification{
+			Type:    pokerrpc.NotificationType_SETTLEMENT_BROADCAST,
+			TableId: tableID,
+			Message: message,
+		})
 	}
 }
 
@@ -444,5 +568,9 @@ func NewPersistenceHandler(server *Server) *PersistenceHandler {
 }
 
 func (ph *PersistenceHandler) SaveTableStateAsync(event *GameEvent) {
+	// TABLE_REMOVED is handled synchronously in the event worker to avoid races.
+	if event.Type == pokerrpc.NotificationType_TABLE_REMOVED {
+		return
+	}
 	ph.server.saveTableStateAsync(event.TableID, string(event.Type))
 }

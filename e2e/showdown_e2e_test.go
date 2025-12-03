@@ -16,6 +16,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 // TestShowdownRestoreBug_HandEvaluationCorrectness verifies that after a server restart
@@ -42,12 +43,17 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
+		// Seed auth users required by tables.host_id foreign key.
+		seedCtx := context.Background()
+		for _, pid := range []string{"player1", "player2"} {
+			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
+		}
+
 		lb, _ := logging.NewLogBackend(logging.LogConfig{DebugLevel: "debug"})
 		srv, err := server.NewTestServer(db, lb)
 		require.NoError(t, err)
 
-		lis, err := net.Listen("tcp", ":0")
-		require.NoError(t, err)
+		lis := bufconn.Listen(1024 * 1024)
 
 		grpcSrv := grpc.NewServer()
 		pokerrpc.RegisterLobbyServiceServer(grpcSrv, srv)
@@ -55,7 +61,8 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 
 		go grpcSrv.Serve(lis)
 
-		conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+		dialer := func(ctx context.Context, _ string) (net.Conn, error) { return lis.Dial() }
+		conn, err := grpc.DialContext(context.Background(), "bufnet", grpc.WithContextDialer(dialer), grpc.WithTransportCredentials(insecure.NewCredentials()))
 		require.NoError(t, err)
 
 		lc := pokerrpc.NewLobbyServiceClient(conn)
@@ -73,22 +80,7 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 	defer boot1.conn.Close()
 	defer boot1.grpc.Stop()
 
-	// Seed balances
-	setBalance := func(lc pokerrpc.LobbyServiceClient, pid string, want int64) {
-		rb, _ := lc.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: pid})
-		var cur int64
-		if rb != nil {
-			cur = rb.Balance
-		}
-		if d := want - cur; d != 0 {
-			_, err := lc.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: d, Description: "seed"})
-			require.NoError(t, err)
-		}
-	}
 	p1, p2 := "player1", "player2"
-	setBalance(boot1.lc, p1, 10_000)
-	setBalance(boot1.lc, p2, 10_000)
-
 	// Create table and join players
 	tableResp, err := boot1.lc.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      p1,
@@ -96,7 +88,7 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         1_000,
+		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,

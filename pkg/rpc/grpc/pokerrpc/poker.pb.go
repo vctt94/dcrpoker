@@ -174,6 +174,11 @@ const (
 	NotificationType_NOTIFICATION_STREAM_DISCONNECTED NotificationType = 25
 	NotificationType_GAME_STREAM_CONNECTED            NotificationType = 26
 	NotificationType_GAME_STREAM_DISCONNECTED         NotificationType = 27
+	NotificationType_ESCROW_FUNDING                   NotificationType = 28 // escrow funding status update for owner only
+	NotificationType_MESSAGE                          NotificationType = 29 // generic informational message (e.g., settlement status)
+	NotificationType_SETTLEMENT_BROADCAST             NotificationType = 30 // settlement transaction broadcasted
+	NotificationType_PRESIGN_PENDING                  NotificationType = 31 // presigning required before game can start
+	NotificationType_GAME_STATE_UPDATED               NotificationType = 32 // game state synchronization event (for state updates, not notifications)
 )
 
 // Enum value maps for NotificationType.
@@ -207,6 +212,11 @@ var (
 		25: "NOTIFICATION_STREAM_DISCONNECTED",
 		26: "GAME_STREAM_CONNECTED",
 		27: "GAME_STREAM_DISCONNECTED",
+		28: "ESCROW_FUNDING",
+		29: "MESSAGE",
+		30: "SETTLEMENT_BROADCAST",
+		31: "PRESIGN_PENDING",
+		32: "GAME_STATE_UPDATED",
 	}
 	NotificationType_value = map[string]int32{
 		"UNKNOWN":                          0,
@@ -237,6 +247,11 @@ var (
 		"NOTIFICATION_STREAM_DISCONNECTED": 25,
 		"GAME_STREAM_CONNECTED":            26,
 		"GAME_STREAM_DISCONNECTED":         27,
+		"ESCROW_FUNDING":                   28,
+		"MESSAGE":                          29,
+		"SETTLEMENT_BROADCAST":             30,
+		"PRESIGN_PENDING":                  31,
+		"GAME_STATE_UPDATED":               32,
 	}
 )
 
@@ -2344,8 +2359,13 @@ type Notification struct {
 	Countdown       int32                  `protobuf:"varint,13,opt,name=countdown,proto3" json:"countdown,omitempty"`
 	Winners         []*Winner              `protobuf:"bytes,14,rep,name=winners,proto3" json:"winners,omitempty"`
 	Showdown        *Showdown              `protobuf:"bytes,15,opt,name=showdown,proto3" json:"showdown,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Settlement fields for GAME_ENDED notifications
+	WinnerId      string `protobuf:"bytes,16,opt,name=winner_id,json=winnerId,proto3" json:"winner_id,omitempty"`        // Player ID of the game winner
+	WinnerSeat    int32  `protobuf:"varint,17,opt,name=winner_seat,json=winnerSeat,proto3" json:"winner_seat,omitempty"` // Seat index of winner (branch for finalization)
+	MatchId       string `protobuf:"bytes,18,opt,name=match_id,json=matchId,proto3" json:"match_id,omitempty"`           // Match ID for referee settlement (table_id|session_id)
+	IsWinner      bool   `protobuf:"varint,19,opt,name=is_winner,json=isWinner,proto3" json:"is_winner,omitempty"`       // True if recipient is the winner (personalized per player)
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Notification) Reset() {
@@ -2483,6 +2503,34 @@ func (x *Notification) GetShowdown() *Showdown {
 	return nil
 }
 
+func (x *Notification) GetWinnerId() string {
+	if x != nil {
+		return x.WinnerId
+	}
+	return ""
+}
+
+func (x *Notification) GetWinnerSeat() int32 {
+	if x != nil {
+		return x.WinnerSeat
+	}
+	return 0
+}
+
+func (x *Notification) GetMatchId() string {
+	if x != nil {
+		return x.MatchId
+	}
+	return ""
+}
+
+func (x *Notification) GetIsWinner() bool {
+	if x != nil {
+		return x.IsWinner
+	}
+	return false
+}
+
 type Showdown struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Winners       []*Winner              `protobuf:"bytes,1,rep,name=winners,proto3" json:"winners,omitempty"`
@@ -2553,6 +2601,10 @@ type Player struct {
 	IsSmallBlind    bool                   `protobuf:"varint,13,opt,name=is_small_blind,json=isSmallBlind,proto3" json:"is_small_blind,omitempty"`                   // True if this player is the small blind for current hand
 	IsBigBlind      bool                   `protobuf:"varint,14,opt,name=is_big_blind,json=isBigBlind,proto3" json:"is_big_blind,omitempty"`                         // True if this player is the big blind for current hand
 	IsDisconnected  bool                   `protobuf:"varint,15,opt,name=is_disconnected,json=isDisconnected,proto3" json:"is_disconnected,omitempty"`               // True if the player is disconnected but seat is reserved
+	EscrowId        string                 `protobuf:"bytes,16,opt,name=escrow_id,json=escrowId,proto3" json:"escrow_id,omitempty"`                                  // Bound escrow ID, if any
+	EscrowReady     bool                   `protobuf:"varint,17,opt,name=escrow_ready,json=escrowReady,proto3" json:"escrow_ready,omitempty"`                        // True when escrow funding is single-UTXO and valid
+	TableSeat       int32                  `protobuf:"varint,18,opt,name=table_seat,json=tableSeat,proto3" json:"table_seat,omitempty"`                              // The seat index (0-based) where this player is seated
+	PresignComplete bool                   `protobuf:"varint,19,opt,name=presign_complete,json=presignComplete,proto3" json:"presign_complete,omitempty"`            // True when settlement presigning is complete for this player
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -2688,6 +2740,34 @@ func (x *Player) GetIsBigBlind() bool {
 func (x *Player) GetIsDisconnected() bool {
 	if x != nil {
 		return x.IsDisconnected
+	}
+	return false
+}
+
+func (x *Player) GetEscrowId() string {
+	if x != nil {
+		return x.EscrowId
+	}
+	return ""
+}
+
+func (x *Player) GetEscrowReady() bool {
+	if x != nil {
+		return x.EscrowReady
+	}
+	return false
+}
+
+func (x *Player) GetTableSeat() int32 {
+	if x != nil {
+		return x.TableSeat
+	}
+	return 0
+}
+
+func (x *Player) GetPresignComplete() bool {
+	if x != nil {
+		return x.PresignComplete
 	}
 	return false
 }
@@ -3365,6 +3445,9 @@ type LoginRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Nickname      string                 `protobuf:"bytes,1,opt,name=nickname,proto3" json:"nickname,omitempty"`
 	UserId        string                 `protobuf:"bytes,2,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // Derived from seed key
+	Address       string                 `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`             // P2PKH address to verify control of
+	Signature     string                 `protobuf:"bytes,4,opt,name=signature,proto3" json:"signature,omitempty"`         // Decred signed message over `address` (base64-encoded compact sig)
+	Code          string                 `protobuf:"bytes,5,opt,name=code,proto3" json:"code,omitempty"`                   // Optional server-provided nonce; signature is over this when set
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3413,6 +3496,131 @@ func (x *LoginRequest) GetUserId() string {
 	return ""
 }
 
+func (x *LoginRequest) GetAddress() string {
+	if x != nil {
+		return x.Address
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetSignature() string {
+	if x != nil {
+		return x.Signature
+	}
+	return ""
+}
+
+func (x *LoginRequest) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+type RequestLoginCodeRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"` // Optional: lets server return address hint for this user
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestLoginCodeRequest) Reset() {
+	*x = RequestLoginCodeRequest{}
+	mi := &file_poker_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestLoginCodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestLoginCodeRequest) ProtoMessage() {}
+
+func (x *RequestLoginCodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_poker_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestLoginCodeRequest.ProtoReflect.Descriptor instead.
+func (*RequestLoginCodeRequest) Descriptor() ([]byte, []int) {
+	return file_poker_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *RequestLoginCodeRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+type RequestLoginCodeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
+	TtlSec        int64                  `protobuf:"varint,2,opt,name=ttl_sec,json=ttlSec,proto3" json:"ttl_sec,omitempty"`
+	AddressHint   string                 `protobuf:"bytes,3,opt,name=address_hint,json=addressHint,proto3" json:"address_hint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RequestLoginCodeResponse) Reset() {
+	*x = RequestLoginCodeResponse{}
+	mi := &file_poker_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RequestLoginCodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RequestLoginCodeResponse) ProtoMessage() {}
+
+func (x *RequestLoginCodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_poker_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RequestLoginCodeResponse.ProtoReflect.Descriptor instead.
+func (*RequestLoginCodeResponse) Descriptor() ([]byte, []int) {
+	return file_poker_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *RequestLoginCodeResponse) GetCode() string {
+	if x != nil {
+		return x.Code
+	}
+	return ""
+}
+
+func (x *RequestLoginCodeResponse) GetTtlSec() int64 {
+	if x != nil {
+		return x.TtlSec
+	}
+	return 0
+}
+
+func (x *RequestLoginCodeResponse) GetAddressHint() string {
+	if x != nil {
+		return x.AddressHint
+	}
+	return ""
+}
+
 type LoginResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ok            bool                   `protobuf:"varint,1,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -3420,13 +3628,14 @@ type LoginResponse struct {
 	Token         string                 `protobuf:"bytes,3,opt,name=token,proto3" json:"token,omitempty"` // Session token
 	UserId        string                 `protobuf:"bytes,4,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
 	Nickname      string                 `protobuf:"bytes,5,opt,name=nickname,proto3" json:"nickname,omitempty"`
+	PayoutAddress string                 `protobuf:"bytes,6,opt,name=payout_address,json=payoutAddress,proto3" json:"payout_address,omitempty"` // Verified payout address bound to this session
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LoginResponse) Reset() {
 	*x = LoginResponse{}
-	mi := &file_poker_proto_msgTypes[50]
+	mi := &file_poker_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3438,7 +3647,7 @@ func (x *LoginResponse) String() string {
 func (*LoginResponse) ProtoMessage() {}
 
 func (x *LoginResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_poker_proto_msgTypes[50]
+	mi := &file_poker_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3451,7 +3660,7 @@ func (x *LoginResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoginResponse.ProtoReflect.Descriptor instead.
 func (*LoginResponse) Descriptor() ([]byte, []int) {
-	return file_poker_proto_rawDescGZIP(), []int{50}
+	return file_poker_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *LoginResponse) GetOk() bool {
@@ -3489,6 +3698,13 @@ func (x *LoginResponse) GetNickname() string {
 	return ""
 }
 
+func (x *LoginResponse) GetPayoutAddress() string {
+	if x != nil {
+		return x.PayoutAddress
+	}
+	return ""
+}
+
 type LogoutRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
@@ -3498,7 +3714,7 @@ type LogoutRequest struct {
 
 func (x *LogoutRequest) Reset() {
 	*x = LogoutRequest{}
-	mi := &file_poker_proto_msgTypes[51]
+	mi := &file_poker_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3510,7 +3726,7 @@ func (x *LogoutRequest) String() string {
 func (*LogoutRequest) ProtoMessage() {}
 
 func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_poker_proto_msgTypes[51]
+	mi := &file_poker_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3523,7 +3739,7 @@ func (x *LogoutRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutRequest.ProtoReflect.Descriptor instead.
 func (*LogoutRequest) Descriptor() ([]byte, []int) {
-	return file_poker_proto_rawDescGZIP(), []int{51}
+	return file_poker_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *LogoutRequest) GetToken() string {
@@ -3542,7 +3758,7 @@ type LogoutResponse struct {
 
 func (x *LogoutResponse) Reset() {
 	*x = LogoutResponse{}
-	mi := &file_poker_proto_msgTypes[52]
+	mi := &file_poker_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3554,7 +3770,7 @@ func (x *LogoutResponse) String() string {
 func (*LogoutResponse) ProtoMessage() {}
 
 func (x *LogoutResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_poker_proto_msgTypes[52]
+	mi := &file_poker_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3567,7 +3783,7 @@ func (x *LogoutResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogoutResponse.ProtoReflect.Descriptor instead.
 func (*LogoutResponse) Descriptor() ([]byte, []int) {
-	return file_poker_proto_rawDescGZIP(), []int{52}
+	return file_poker_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *LogoutResponse) GetOk() bool {
@@ -3586,7 +3802,7 @@ type GetUserInfoRequest struct {
 
 func (x *GetUserInfoRequest) Reset() {
 	*x = GetUserInfoRequest{}
-	mi := &file_poker_proto_msgTypes[53]
+	mi := &file_poker_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3598,7 +3814,7 @@ func (x *GetUserInfoRequest) String() string {
 func (*GetUserInfoRequest) ProtoMessage() {}
 
 func (x *GetUserInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_poker_proto_msgTypes[53]
+	mi := &file_poker_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3611,7 +3827,7 @@ func (x *GetUserInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetUserInfoRequest) Descriptor() ([]byte, []int) {
-	return file_poker_proto_rawDescGZIP(), []int{53}
+	return file_poker_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *GetUserInfoRequest) GetToken() string {
@@ -3627,13 +3843,14 @@ type GetUserInfoResponse struct {
 	Nickname      string                 `protobuf:"bytes,2,opt,name=nickname,proto3" json:"nickname,omitempty"`
 	Created       int64                  `protobuf:"varint,3,opt,name=created,proto3" json:"created,omitempty"`
 	LastLogin     int64                  `protobuf:"varint,4,opt,name=last_login,json=lastLogin,proto3" json:"last_login,omitempty"`
+	PayoutAddress string                 `protobuf:"bytes,5,opt,name=payout_address,json=payoutAddress,proto3" json:"payout_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetUserInfoResponse) Reset() {
 	*x = GetUserInfoResponse{}
-	mi := &file_poker_proto_msgTypes[54]
+	mi := &file_poker_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3645,7 +3862,7 @@ func (x *GetUserInfoResponse) String() string {
 func (*GetUserInfoResponse) ProtoMessage() {}
 
 func (x *GetUserInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_poker_proto_msgTypes[54]
+	mi := &file_poker_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3658,7 +3875,7 @@ func (x *GetUserInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetUserInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetUserInfoResponse) Descriptor() ([]byte, []int) {
-	return file_poker_proto_rawDescGZIP(), []int{54}
+	return file_poker_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *GetUserInfoResponse) GetUserId() string {
@@ -3687,6 +3904,13 @@ func (x *GetUserInfoResponse) GetLastLogin() int64 {
 		return x.LastLogin
 	}
 	return 0
+}
+
+func (x *GetUserInfoResponse) GetPayoutAddress() string {
+	if x != nil {
+		return x.PayoutAddress
+	}
+	return ""
 }
 
 var File_poker_proto protoreflect.FileDescriptor
@@ -3846,7 +4070,7 @@ const file_poker_proto_rawDesc = "" +
 	"\vnew_balance\x18\x03 \x01(\x03R\n" +
 	"newBalance\"=\n" +
 	"\x1eStartNotificationStreamRequest\x12\x1b\n" +
-	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"\x8c\x04\n" +
+	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\"\x82\x05\n" +
 	"\fNotification\x12+\n" +
 	"\x04type\x18\x01 \x01(\x0e2\x17.poker.NotificationTypeR\x04type\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x19\n" +
@@ -3864,10 +4088,15 @@ const file_poker_proto_rawDesc = "" +
 	"\x12game_ready_to_play\x18\f \x01(\bR\x0fgameReadyToPlay\x12\x1c\n" +
 	"\tcountdown\x18\r \x01(\x05R\tcountdown\x12'\n" +
 	"\awinners\x18\x0e \x03(\v2\r.poker.WinnerR\awinners\x12+\n" +
-	"\bshowdown\x18\x0f \x01(\v2\x0f.poker.ShowdownR\bshowdown\"E\n" +
+	"\bshowdown\x18\x0f \x01(\v2\x0f.poker.ShowdownR\bshowdown\x12\x1b\n" +
+	"\twinner_id\x18\x10 \x01(\tR\bwinnerId\x12\x1f\n" +
+	"\vwinner_seat\x18\x11 \x01(\x05R\n" +
+	"winnerSeat\x12\x19\n" +
+	"\bmatch_id\x18\x12 \x01(\tR\amatchId\x12\x1b\n" +
+	"\tis_winner\x18\x13 \x01(\bR\bisWinner\"E\n" +
 	"\bShowdown\x12'\n" +
 	"\awinners\x18\x01 \x03(\v2\r.poker.WinnerR\awinners\x12\x10\n" +
-	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xe0\x03\n" +
+	"\x03pot\x18\x02 \x01(\x03R\x03pot\"\xea\x04\n" +
 	"\x06Player\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -3886,7 +4115,12 @@ const file_poker_proto_rawDesc = "" +
 	"\x0eis_small_blind\x18\r \x01(\bR\fisSmallBlind\x12 \n" +
 	"\fis_big_blind\x18\x0e \x01(\bR\n" +
 	"isBigBlind\x12'\n" +
-	"\x0fis_disconnected\x18\x0f \x01(\bR\x0eisDisconnected\"0\n" +
+	"\x0fis_disconnected\x18\x0f \x01(\bR\x0eisDisconnected\x12\x1b\n" +
+	"\tescrow_id\x18\x10 \x01(\tR\bescrowId\x12!\n" +
+	"\fescrow_ready\x18\x11 \x01(\bR\vescrowReady\x12\x1d\n" +
+	"\n" +
+	"table_seat\x18\x12 \x01(\x05R\ttableSeat\x12)\n" +
+	"\x10presign_complete\x18\x13 \x01(\bR\x0fpresignComplete\"0\n" +
 	"\x04Card\x12\x12\n" +
 	"\x04suit\x18\x01 \x01(\tR\x04suit\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"O\n" +
@@ -3924,28 +4158,39 @@ const file_poker_proto_rawDesc = "" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\"8\n" +
 	"\x10RegisterResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
-	"\x05error\x18\x02 \x01(\tR\x05error\"C\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\x8f\x01\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\bnickname\x18\x01 \x01(\tR\bnickname\x12\x17\n" +
-	"\auser_id\x18\x02 \x01(\tR\x06userId\"\x80\x01\n" +
+	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x18\n" +
+	"\aaddress\x18\x03 \x01(\tR\aaddress\x12\x1c\n" +
+	"\tsignature\x18\x04 \x01(\tR\tsignature\x12\x12\n" +
+	"\x04code\x18\x05 \x01(\tR\x04code\"2\n" +
+	"\x17RequestLoginCodeRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\"j\n" +
+	"\x18RequestLoginCodeResponse\x12\x12\n" +
+	"\x04code\x18\x01 \x01(\tR\x04code\x12\x17\n" +
+	"\attl_sec\x18\x02 \x01(\x03R\x06ttlSec\x12!\n" +
+	"\faddress_hint\x18\x03 \x01(\tR\vaddressHint\"\xa7\x01\n" +
 	"\rLoginResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\x12\x14\n" +
 	"\x05token\x18\x03 \x01(\tR\x05token\x12\x17\n" +
 	"\auser_id\x18\x04 \x01(\tR\x06userId\x12\x1a\n" +
-	"\bnickname\x18\x05 \x01(\tR\bnickname\"%\n" +
+	"\bnickname\x18\x05 \x01(\tR\bnickname\x12%\n" +
+	"\x0epayout_address\x18\x06 \x01(\tR\rpayoutAddress\"%\n" +
 	"\rLogoutRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\" \n" +
 	"\x0eLogoutResponse\x12\x0e\n" +
 	"\x02ok\x18\x01 \x01(\bR\x02ok\"*\n" +
 	"\x12GetUserInfoRequest\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\x83\x01\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"\xaa\x01\n" +
 	"\x13GetUserInfoResponse\x12\x17\n" +
 	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1a\n" +
 	"\bnickname\x18\x02 \x01(\tR\bnickname\x12\x18\n" +
 	"\acreated\x18\x03 \x01(\x03R\acreated\x12\x1d\n" +
 	"\n" +
-	"last_login\x18\x04 \x01(\x03R\tlastLogin*i\n" +
+	"last_login\x18\x04 \x01(\x03R\tlastLogin\x12%\n" +
+	"\x0epayout_address\x18\x05 \x01(\tR\rpayoutAddress*i\n" +
 	"\tGamePhase\x12\v\n" +
 	"\aWAITING\x10\x00\x12\x14\n" +
 	"\x10NEW_HAND_DEALING\x10\x01\x12\f\n" +
@@ -3960,7 +4205,7 @@ const file_poker_proto_rawDesc = "" +
 	"\x14PLAYER_STATE_IN_GAME\x10\x02\x12\x17\n" +
 	"\x13PLAYER_STATE_ALL_IN\x10\x03\x12\x17\n" +
 	"\x13PLAYER_STATE_FOLDED\x10\x04\x12\x15\n" +
-	"\x11PLAYER_STATE_LEFT\x10\x05*\xcf\x04\n" +
+	"\x11PLAYER_STATE_LEFT\x10\x05*\xb7\x05\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x11\n" +
 	"\rPLAYER_JOINED\x10\x01\x12\x0f\n" +
@@ -3992,7 +4237,12 @@ const file_poker_proto_rawDesc = "" +
 	"\x1dNOTIFICATION_STREAM_CONNECTED\x10\x18\x12$\n" +
 	" NOTIFICATION_STREAM_DISCONNECTED\x10\x19\x12\x19\n" +
 	"\x15GAME_STREAM_CONNECTED\x10\x1a\x12\x1c\n" +
-	"\x18GAME_STREAM_DISCONNECTED\x10\x1b*\xa8\x01\n" +
+	"\x18GAME_STREAM_DISCONNECTED\x10\x1b\x12\x12\n" +
+	"\x0eESCROW_FUNDING\x10\x1c\x12\v\n" +
+	"\aMESSAGE\x10\x1d\x12\x18\n" +
+	"\x14SETTLEMENT_BROADCAST\x10\x1e\x12\x13\n" +
+	"\x0fPRESIGN_PENDING\x10\x1f\x12\x16\n" +
+	"\x12GAME_STATE_UPDATED\x10 *\xa8\x01\n" +
 	"\bHandRank\x12\r\n" +
 	"\tHIGH_CARD\x10\x00\x12\b\n" +
 	"\x04PAIR\x10\x01\x12\f\n" +
@@ -4015,23 +4265,19 @@ const file_poker_proto_rawDesc = "" +
 	"\bCheckBet\x12\x16.poker.CheckBetRequest\x1a\x17.poker.CheckBetResponse\"\x00\x12I\n" +
 	"\fGetGameState\x12\x1a.poker.GetGameStateRequest\x1a\x1b.poker.GetGameStateResponse\"\x00\x12I\n" +
 	"\fEvaluateHand\x12\x1a.poker.EvaluateHandRequest\x1a\x1b.poker.EvaluateHandResponse\"\x00\x12O\n" +
-	"\x0eGetLastWinners\x12\x1c.poker.GetLastWinnersRequest\x1a\x1d.poker.GetLastWinnersResponse\"\x002\xe0\x06\n" +
+	"\x0eGetLastWinners\x12\x1c.poker.GetLastWinnersRequest\x1a\x1d.poker.GetLastWinnersResponse\"\x002\x88\x05\n" +
 	"\fLobbyService\x12F\n" +
 	"\vCreateTable\x12\x19.poker.CreateTableRequest\x1a\x1a.poker.CreateTableResponse\"\x00\x12@\n" +
 	"\tJoinTable\x12\x17.poker.JoinTableRequest\x1a\x18.poker.JoinTableResponse\"\x00\x12C\n" +
 	"\n" +
 	"LeaveTable\x12\x18.poker.LeaveTableRequest\x1a\x19.poker.LeaveTableResponse\"\x00\x12@\n" +
 	"\tGetTables\x12\x17.poker.GetTablesRequest\x1a\x18.poker.GetTablesResponse\"\x00\x12d\n" +
-	"\x15GetPlayerCurrentTable\x12#.poker.GetPlayerCurrentTableRequest\x1a$.poker.GetPlayerCurrentTableResponse\"\x00\x12C\n" +
-	"\n" +
-	"GetBalance\x12\x18.poker.GetBalanceRequest\x1a\x19.poker.GetBalanceResponse\"\x00\x12L\n" +
-	"\rUpdateBalance\x12\x1b.poker.UpdateBalanceRequest\x1a\x1c.poker.UpdateBalanceResponse\"\x00\x12C\n" +
-	"\n" +
-	"ProcessTip\x12\x18.poker.ProcessTipRequest\x1a\x19.poker.ProcessTipResponse\"\x00\x12O\n" +
+	"\x15GetPlayerCurrentTable\x12#.poker.GetPlayerCurrentTableRequest\x1a$.poker.GetPlayerCurrentTableResponse\"\x00\x12O\n" +
 	"\x0eSetPlayerReady\x12\x1c.poker.SetPlayerReadyRequest\x1a\x1d.poker.SetPlayerReadyResponse\"\x00\x12U\n" +
 	"\x10SetPlayerUnready\x12\x1e.poker.SetPlayerUnreadyRequest\x1a\x1f.poker.SetPlayerUnreadyResponse\"\x00\x12Y\n" +
-	"\x17StartNotificationStream\x12%.poker.StartNotificationStreamRequest\x1a\x13.poker.Notification\"\x000\x012\xfb\x01\n" +
-	"\vAuthService\x12;\n" +
+	"\x17StartNotificationStream\x12%.poker.StartNotificationStreamRequest\x1a\x13.poker.Notification\"\x000\x012\xd0\x02\n" +
+	"\vAuthService\x12S\n" +
+	"\x10RequestLoginCode\x12\x1e.poker.RequestLoginCodeRequest\x1a\x1f.poker.RequestLoginCodeResponse\x12;\n" +
 	"\bRegister\x12\x16.poker.RegisterRequest\x1a\x17.poker.RegisterResponse\x122\n" +
 	"\x05Login\x12\x13.poker.LoginRequest\x1a\x14.poker.LoginResponse\x125\n" +
 	"\x06Logout\x12\x14.poker.LogoutRequest\x1a\x15.poker.LogoutResponse\x12D\n" +
@@ -4050,7 +4296,7 @@ func file_poker_proto_rawDescGZIP() []byte {
 }
 
 var file_poker_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_poker_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
+var file_poker_proto_msgTypes = make([]protoimpl.MessageInfo, 57)
 var file_poker_proto_goTypes = []any{
 	(GamePhase)(0),                         // 0: poker.GamePhase
 	(PlayerState)(0),                       // 1: poker.PlayerState
@@ -4106,11 +4352,13 @@ var file_poker_proto_goTypes = []any{
 	(*RegisterRequest)(nil),                // 51: poker.RegisterRequest
 	(*RegisterResponse)(nil),               // 52: poker.RegisterResponse
 	(*LoginRequest)(nil),                   // 53: poker.LoginRequest
-	(*LoginResponse)(nil),                  // 54: poker.LoginResponse
-	(*LogoutRequest)(nil),                  // 55: poker.LogoutRequest
-	(*LogoutResponse)(nil),                 // 56: poker.LogoutResponse
-	(*GetUserInfoRequest)(nil),             // 57: poker.GetUserInfoRequest
-	(*GetUserInfoResponse)(nil),            // 58: poker.GetUserInfoResponse
+	(*RequestLoginCodeRequest)(nil),        // 54: poker.RequestLoginCodeRequest
+	(*RequestLoginCodeResponse)(nil),       // 55: poker.RequestLoginCodeResponse
+	(*LoginResponse)(nil),                  // 56: poker.LoginResponse
+	(*LogoutRequest)(nil),                  // 57: poker.LogoutRequest
+	(*LogoutResponse)(nil),                 // 58: poker.LogoutResponse
+	(*GetUserInfoRequest)(nil),             // 59: poker.GetUserInfoRequest
+	(*GetUserInfoResponse)(nil),            // 60: poker.GetUserInfoResponse
 }
 var file_poker_proto_depIdxs = []int32{
 	0,  // 0: poker.GameUpdate.phase:type_name -> poker.GamePhase
@@ -4150,43 +4398,39 @@ var file_poker_proto_depIdxs = []int32{
 	25, // 34: poker.LobbyService.LeaveTable:input_type -> poker.LeaveTableRequest
 	27, // 35: poker.LobbyService.GetTables:input_type -> poker.GetTablesRequest
 	45, // 36: poker.LobbyService.GetPlayerCurrentTable:input_type -> poker.GetPlayerCurrentTableRequest
-	30, // 37: poker.LobbyService.GetBalance:input_type -> poker.GetBalanceRequest
-	32, // 38: poker.LobbyService.UpdateBalance:input_type -> poker.UpdateBalanceRequest
-	34, // 39: poker.LobbyService.ProcessTip:input_type -> poker.ProcessTipRequest
-	41, // 40: poker.LobbyService.SetPlayerReady:input_type -> poker.SetPlayerReadyRequest
-	43, // 41: poker.LobbyService.SetPlayerUnready:input_type -> poker.SetPlayerUnreadyRequest
-	36, // 42: poker.LobbyService.StartNotificationStream:input_type -> poker.StartNotificationStreamRequest
-	51, // 43: poker.AuthService.Register:input_type -> poker.RegisterRequest
-	53, // 44: poker.AuthService.Login:input_type -> poker.LoginRequest
-	55, // 45: poker.AuthService.Logout:input_type -> poker.LogoutRequest
-	57, // 46: poker.AuthService.GetUserInfo:input_type -> poker.GetUserInfoRequest
-	5,  // 47: poker.PokerService.StartGameStream:output_type -> poker.GameUpdate
-	48, // 48: poker.PokerService.ShowCards:output_type -> poker.ShowCardsResponse
-	50, // 49: poker.PokerService.HideCards:output_type -> poker.HideCardsResponse
-	7,  // 50: poker.PokerService.MakeBet:output_type -> poker.MakeBetResponse
-	13, // 51: poker.PokerService.CallBet:output_type -> poker.CallBetResponse
-	9,  // 52: poker.PokerService.FoldBet:output_type -> poker.FoldBetResponse
-	11, // 53: poker.PokerService.CheckBet:output_type -> poker.CheckBetResponse
-	15, // 54: poker.PokerService.GetGameState:output_type -> poker.GetGameStateResponse
-	17, // 55: poker.PokerService.EvaluateHand:output_type -> poker.EvaluateHandResponse
-	19, // 56: poker.PokerService.GetLastWinners:output_type -> poker.GetLastWinnersResponse
-	22, // 57: poker.LobbyService.CreateTable:output_type -> poker.CreateTableResponse
-	24, // 58: poker.LobbyService.JoinTable:output_type -> poker.JoinTableResponse
-	26, // 59: poker.LobbyService.LeaveTable:output_type -> poker.LeaveTableResponse
-	28, // 60: poker.LobbyService.GetTables:output_type -> poker.GetTablesResponse
-	46, // 61: poker.LobbyService.GetPlayerCurrentTable:output_type -> poker.GetPlayerCurrentTableResponse
-	31, // 62: poker.LobbyService.GetBalance:output_type -> poker.GetBalanceResponse
-	33, // 63: poker.LobbyService.UpdateBalance:output_type -> poker.UpdateBalanceResponse
-	35, // 64: poker.LobbyService.ProcessTip:output_type -> poker.ProcessTipResponse
-	42, // 65: poker.LobbyService.SetPlayerReady:output_type -> poker.SetPlayerReadyResponse
-	44, // 66: poker.LobbyService.SetPlayerUnready:output_type -> poker.SetPlayerUnreadyResponse
-	37, // 67: poker.LobbyService.StartNotificationStream:output_type -> poker.Notification
-	52, // 68: poker.AuthService.Register:output_type -> poker.RegisterResponse
-	54, // 69: poker.AuthService.Login:output_type -> poker.LoginResponse
-	56, // 70: poker.AuthService.Logout:output_type -> poker.LogoutResponse
-	58, // 71: poker.AuthService.GetUserInfo:output_type -> poker.GetUserInfoResponse
-	47, // [47:72] is the sub-list for method output_type
-	22, // [22:47] is the sub-list for method input_type
+	41, // 37: poker.LobbyService.SetPlayerReady:input_type -> poker.SetPlayerReadyRequest
+	43, // 38: poker.LobbyService.SetPlayerUnready:input_type -> poker.SetPlayerUnreadyRequest
+	36, // 39: poker.LobbyService.StartNotificationStream:input_type -> poker.StartNotificationStreamRequest
+	54, // 40: poker.AuthService.RequestLoginCode:input_type -> poker.RequestLoginCodeRequest
+	51, // 41: poker.AuthService.Register:input_type -> poker.RegisterRequest
+	53, // 42: poker.AuthService.Login:input_type -> poker.LoginRequest
+	57, // 43: poker.AuthService.Logout:input_type -> poker.LogoutRequest
+	59, // 44: poker.AuthService.GetUserInfo:input_type -> poker.GetUserInfoRequest
+	5,  // 45: poker.PokerService.StartGameStream:output_type -> poker.GameUpdate
+	48, // 46: poker.PokerService.ShowCards:output_type -> poker.ShowCardsResponse
+	50, // 47: poker.PokerService.HideCards:output_type -> poker.HideCardsResponse
+	7,  // 48: poker.PokerService.MakeBet:output_type -> poker.MakeBetResponse
+	13, // 49: poker.PokerService.CallBet:output_type -> poker.CallBetResponse
+	9,  // 50: poker.PokerService.FoldBet:output_type -> poker.FoldBetResponse
+	11, // 51: poker.PokerService.CheckBet:output_type -> poker.CheckBetResponse
+	15, // 52: poker.PokerService.GetGameState:output_type -> poker.GetGameStateResponse
+	17, // 53: poker.PokerService.EvaluateHand:output_type -> poker.EvaluateHandResponse
+	19, // 54: poker.PokerService.GetLastWinners:output_type -> poker.GetLastWinnersResponse
+	22, // 55: poker.LobbyService.CreateTable:output_type -> poker.CreateTableResponse
+	24, // 56: poker.LobbyService.JoinTable:output_type -> poker.JoinTableResponse
+	26, // 57: poker.LobbyService.LeaveTable:output_type -> poker.LeaveTableResponse
+	28, // 58: poker.LobbyService.GetTables:output_type -> poker.GetTablesResponse
+	46, // 59: poker.LobbyService.GetPlayerCurrentTable:output_type -> poker.GetPlayerCurrentTableResponse
+	42, // 60: poker.LobbyService.SetPlayerReady:output_type -> poker.SetPlayerReadyResponse
+	44, // 61: poker.LobbyService.SetPlayerUnready:output_type -> poker.SetPlayerUnreadyResponse
+	37, // 62: poker.LobbyService.StartNotificationStream:output_type -> poker.Notification
+	55, // 63: poker.AuthService.RequestLoginCode:output_type -> poker.RequestLoginCodeResponse
+	52, // 64: poker.AuthService.Register:output_type -> poker.RegisterResponse
+	56, // 65: poker.AuthService.Login:output_type -> poker.LoginResponse
+	58, // 66: poker.AuthService.Logout:output_type -> poker.LogoutResponse
+	60, // 67: poker.AuthService.GetUserInfo:output_type -> poker.GetUserInfoResponse
+	45, // [45:68] is the sub-list for method output_type
+	22, // [22:45] is the sub-list for method input_type
 	22, // [22:22] is the sub-list for extension type_name
 	22, // [22:22] is the sub-list for extension extendee
 	0,  // [0:22] is the sub-list for field type_name
@@ -4203,7 +4447,7 @@ func file_poker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_poker_proto_rawDesc), len(file_poker_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   55,
+			NumMessages:   57,
 			NumExtensions: 0,
 			NumServices:   3,
 		},

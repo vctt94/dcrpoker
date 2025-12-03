@@ -2,19 +2,20 @@ package golib
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/companyzero/bisonrelay/clientrpc/types"
 	"github.com/companyzero/bisonrelay/lockfile"
-	"github.com/companyzero/bisonrelay/rates"
 	"github.com/companyzero/bisonrelay/zkidentity"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/decred/slog"
 	"github.com/vctt94/pokerbisonrelay/pkg/client"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
@@ -43,6 +44,201 @@ type initClient struct {
 	RPCPass           string `json:"rpc_pass"`
 }
 
+// handleEscrowNotification inspects notification messages for escrow funding
+// updates and persists them locally for history/refund flows.
+func handleEscrowNotification(cctx *clientCtx, n *pokerrpc.Notification) {
+	if cctx == nil || cctx.c == nil || n == nil {
+		return
+	}
+	if strings.TrimSpace(n.Message) == "" {
+		return
+	}
+	var payload map[string]interface{}
+	if err := json.Unmarshal([]byte(n.Message), &payload); err != nil {
+		return
+	}
+	typ, _ := payload["type"].(string)
+	if strings.ToLower(strings.TrimSpace(typ)) != "escrow_funding" {
+		return
+	}
+	// Escrow funding updates are broadcast to the whole table so the UI can
+	// highlight other players. Only persist updates that target the local
+	// player to avoid polluting our cached escrow state with someone else's.
+	targetPID := strings.TrimSpace(n.GetPlayerId())
+	if targetPID == "" {
+		if pidRaw, ok := payload["player_id"]; ok {
+			targetPID = strings.TrimSpace(fmt.Sprint(pidRaw))
+		} else if pidRaw, ok := payload["playerId"]; ok {
+			targetPID = strings.TrimSpace(fmt.Sprint(pidRaw))
+		}
+	}
+	if targetPID != "" && targetPID != cctx.ID.String() {
+		return
+	}
+	escrowID, _ := payload["escrow_id"].(string)
+	if strings.TrimSpace(escrowID) == "" {
+		return
+	}
+	info := &client.EscrowInfo{
+		EscrowID: escrowID,
+		Status:   "funding",
+	}
+	if txid, ok := payload["funding_txid"].(string); ok {
+		info.FundingTxid = txid
+	}
+	if vout, ok := payload["funding_vout"].(float64); ok {
+		info.FundingVout = uint32(vout)
+	}
+	if amt, ok := payload["amount_atoms"].(float64); ok {
+		info.FundedAmount = uint64(amt)
+	}
+	if csv, ok := payload["csv_blocks"].(float64); ok {
+		info.CSVBlocks = uint32(csv)
+	}
+	if height, ok := payload["confirmed_height"].(float64); ok && height > 0 {
+		info.ConfirmedHeight = uint32(height)
+		info.Status = "funded"
+	}
+
+	if err := cctx.c.CacheEscrowInfo(info); err != nil && cctx.log != nil {
+		cctx.log.Warnf("escrow cache update failed for %s: %v", escrowID, err)
+	}
+}
+
+// handlePresignNotification triggers auto-presign when server requests it.
+func handlePresignNotification(cctx *clientCtx, n *pokerrpc.Notification) {
+	if cctx == nil || cctx.c == nil || n == nil {
+		return
+	}
+	if n.Type != pokerrpc.NotificationType_PRESIGN_PENDING {
+		return
+	}
+	tableID := strings.TrimSpace(n.TableId)
+	if tableID == "" {
+		return
+	}
+	// Check if we're already processing presign for this table
+	cctx.presignMu.Lock()
+	if cctx.presignActive == nil {
+		cctx.presignActive = make(map[string]bool)
+	}
+	if cctx.presignActive[tableID] {
+		cctx.presignMu.Unlock()
+		return
+	}
+	cctx.presignActive[tableID] = true
+	cctx.presignMu.Unlock()
+	// Trigger auto-presign in a goroutine to avoid blocking notification loop
+	go func() {
+		defer func() {
+			cctx.presignMu.Lock()
+			delete(cctx.presignActive, tableID)
+			cctx.presignMu.Unlock()
+		}()
+		triggerAutoPresign(cctx, tableID)
+	}()
+}
+
+// triggerAutoPresign attempts to start presigning for a table when escrow is ready.
+func triggerAutoPresign(cctx *clientCtx, tableID string) {
+	if cctx == nil || cctx.c == nil {
+		return
+	}
+	if cctx.Token == "" {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: no session token")
+		}
+		return
+	}
+	// Get game state to find player's escrow_id and seat_index
+	ctx, cancel := context.WithTimeout(cctx.ctx, 10*time.Second)
+	defer cancel()
+	gameState, err := cctx.c.PokerService.GetGameState(ctx, &pokerrpc.GetGameStateRequest{
+		TableId:  tableID,
+		PlayerId: cctx.ID.String(),
+	})
+	if err != nil {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: get game state failed: %v", err)
+		}
+		return
+	}
+	gu := gameState.GetGameState()
+	if gu == nil {
+		return
+	}
+	// Find this player's info
+	var playerEscrowID string
+	var seatIndex int32 = -1
+	for _, p := range gu.Players {
+		if p.Id == cctx.ID.String() {
+			playerEscrowID = p.EscrowId
+			seatIndex = p.TableSeat
+			break
+		}
+	}
+	if playerEscrowID == "" || seatIndex < 0 {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: no escrow_id or seat_index for table %s", tableID)
+		}
+		return
+	}
+	// Get escrow info to check if it's ready and get key_index
+	escrowInfo, err := cctx.c.GetEscrowById(playerEscrowID)
+	if err != nil {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: get escrow info failed: %v", err)
+		}
+		return
+	}
+	// Check escrow status
+	status, _ := escrowInfo["status"].(string)
+	if status != "funded" {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: escrow %s not ready (status=%s)", playerEscrowID, status)
+		}
+		return
+	}
+	// Get key_index to derive comp_priv
+	keyIndex, ok := escrowInfo["key_index"].(float64)
+	if !ok || keyIndex <= 0 {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: escrow missing key_index")
+		}
+		return
+	}
+	// Derive session private key
+	compPrivHex, _, err := cctx.c.DeriveSessionKeyAt(uint64(keyIndex))
+	if err != nil {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: derive session key failed: %v", err)
+		}
+		return
+	}
+	// Decode to get comp_pub
+	compPriv, err := hex.DecodeString(compPrivHex)
+	if err != nil || len(compPriv) == 0 {
+		return
+	}
+	compKey := secp256k1.PrivKeyFromBytes(compPriv)
+	compPub := compKey.PubKey().SerializeCompressed()
+	// For poker tables, match_id is the table_id
+	matchID := tableID
+	// Session ID: use escrow_id as session_id
+	sessionID := playerEscrowID
+	// Start presign
+	ref := cctx.c.Referee(cctx.Token)
+	if err := ref.StartPresign(ctx, matchID, tableID, sessionID, uint32(seatIndex), playerEscrowID, compPub, compPrivHex); err != nil {
+		if cctx.log != nil {
+			cctx.log.Debugf("auto-presign: start presign failed: %v", err)
+		}
+		return
+	}
+	if cctx.log != nil {
+		cctx.log.Infof("auto-presign started for table %s escrow %s", tableID, playerEscrowID)
+	}
+}
+
 type createDefaultConfigArgs struct {
 	DataDir         string `json:"datadir"`
 	ServerAddr      string `json:"server_addr"`
@@ -69,13 +265,19 @@ type createWaitingRoom struct {
 }
 
 type openEscrowReq struct {
-	Payout    string `json:"payout"`
-	BetAtoms  int64  `json:"bet_atoms"`
-	CSVBlocks int64  `json:"csv_blocks"`
+	BetAtoms   int64  `json:"bet_atoms"`
+	CSVBlocks  int64  `json:"csv_blocks"`
+	CompPubkey string `json:"comp_pubkey"` // hex-encoded 33-byte session pubkey
+	KeyIndex   int64  `json:"key_index"`
 }
 
 type preSignReq struct {
-	MatchID string `json:"match_id"`
+	MatchID   string `json:"match_id"`
+	TableID   string `json:"table_id"`
+	SessionID string `json:"session_id"`
+	SeatIndex int    `json:"seat_index"`
+	EscrowID  string `json:"escrow_id"`
+	CompPriv  string `json:"comp_priv"` // hex session priv
 }
 
 type joinPokerTable struct {
@@ -111,6 +313,17 @@ type loginResp struct {
 	Token    string `json:"token"`
 	UserID   string `json:"user_id"`
 	Nickname string `json:"nickname"`
+	Address  string `json:"address"`
+}
+
+type setPayoutAddressReq struct {
+	Address   string `json:"address"`
+	Signature string `json:"signature"`
+	Code      string `json:"code"`
+}
+
+type escrowStatusReq struct {
+	EscrowID string `json:"escrow_id"`
 }
 
 type evaluateHand struct {
@@ -133,16 +346,6 @@ type waitingRoom struct {
 	HostID  string    `json:"host_id"`
 	BetAmt  int64     `json:"bet_amt"`
 	Players []*player `json:"players"`
-}
-
-func playerFromServer(sp *pokerrpc.Player) (*player, error) {
-	// Adjust to your actual type/fields.
-	return &player{
-		UID:    sp.Id,
-		Nick:   sp.Name,
-		BetAmt: sp.Balance,
-		Ready:  sp.IsReady,
-	}, nil
 }
 
 // pokerTable represents a poker table DTO for Flutter
@@ -204,6 +407,10 @@ type playerDTO struct {
 	PlayerState     int32      `json:"playerState"` // enum as int
 	IsSmallBlind    bool       `json:"isSmallBlind"`
 	IsBigBlind      bool       `json:"isBigBlind"`
+	EscrowID        string     `json:"escrowId"`
+	EscrowReady     bool       `json:"escrowReady"`
+	TableSeat       int32      `json:"tableSeat"`
+	PresignComplete bool       `json:"presignComplete"`
 }
 
 // gameUpdateDTO represents a game update for JSON marshaling
@@ -256,9 +463,12 @@ func playerToDTO(p *pokerrpc.Player) *playerDTO {
 		IsReady:         p.IsReady,
 		Disconnected:    p.IsDisconnected,
 		HandDescription: p.HandDescription,
-		PlayerState:     int32(p.PlayerState),
 		IsSmallBlind:    p.IsSmallBlind,
 		IsBigBlind:      p.IsBigBlind,
+		EscrowID:        p.EscrowId,
+		EscrowReady:     p.EscrowReady,
+		TableSeat:       p.TableSeat,
+		PresignComplete: p.PresignComplete,
 	}
 }
 
@@ -305,13 +515,6 @@ type runState struct {
 	ClientRunning bool `json:"client_running"`
 }
 
-// escrowState represents escrow information
-type escrowState struct {
-	EscrowId       string `json:"escrow_id"`
-	DepositAddress string `json:"deposit_address"`
-	PkScriptHex    string `json:"pk_script_hex"`
-}
-
 // clientCtx represents a client context
 type clientCtx struct {
 	ID     zkidentity.ShortID
@@ -320,20 +523,13 @@ type clientCtx struct {
 	ctx    context.Context
 	chat   types.ChatServiceClient
 	cancel func()
-	runMtx sync.Mutex
-	runErr error
 
-	log          slog.Logger
-	certConfChan chan bool
+	log slog.Logger
 
-	httpClient *http.Client
-	rates      *rates.Rates
+	Token string
 
-	// expirationDays are the expiration days provided by the server when
-	// connected
-	expirationDays uint64
-
-	serverState atomic.Value
+	presignMu     sync.Mutex
+	presignActive map[string]bool
 }
 
 // Global variables
@@ -345,9 +541,6 @@ var (
 	// The following are debug vars.
 	sigUrgCount       atomic.Uint64
 	isServerConnected atomic.Bool
-
-	// Global escrow state for demo purposes
-	es *escrowState
 )
 
 // parseJoinWRPayload parses the join waiting room payload
@@ -455,6 +648,10 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 
 				switch v := msg.(type) {
 				case *pokerrpc.Notification:
+					// Update local escrow cache when funding updates arrive.
+					handleEscrowNotification(cctx, v)
+					// Trigger auto-presign when server requests it.
+					handlePresignNotification(cctx, v)
 					notify(NTPokerNotification, v, nil)
 				case *pokerrpc.GameUpdate:
 					// Convert GameUpdate to DTO and forward to Flutter

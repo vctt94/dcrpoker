@@ -16,13 +16,6 @@ import (
 // failingDB implements Database and forces UpsertSnapshot to fail to validate server error paths.
 type failingDB struct{}
 
-func (f failingDB) GetPlayerBalance(ctx context.Context, playerID string) (int64, error) {
-	return 0, nil
-}
-func (f failingDB) UpdatePlayerBalance(ctx context.Context, playerID string, amount int64, typ, desc string) error {
-	return nil
-}
-
 // Tables (only what the Server may call during this test)
 func (f failingDB) GetTable(ctx context.Context, id string) (*sdb.Table, error) { return nil, nil }
 func (f failingDB) DeleteTable(ctx context.Context, id string) error            { return nil }
@@ -54,7 +47,10 @@ func (f failingDB) GetAuthUserByNickname(ctx context.Context, _ string) (*sdb.Au
 func (f failingDB) GetAuthUserByUserID(ctx context.Context, _ string) (*sdb.AuthUser, error) {
 	return nil, fmt.Errorf("user not found")
 }
-func (f failingDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error  { return nil }
+func (f failingDB) UpdateAuthUserLastLogin(ctx context.Context, _ string) error { return nil }
+func (f failingDB) UpdateAuthUserPayoutAddress(ctx context.Context, _, _ string) error {
+	return nil
+}
 func (f failingDB) ListAllAuthUsers(ctx context.Context) ([]sdb.AuthUser, error) { return nil, nil }
 
 func (f failingDB) Close() error { return nil }
@@ -101,10 +97,16 @@ func TestSaveTableState_SnapshotFailure(t *testing.T) {
 		AutoAdvanceDelay: 1 * time.Second,
 	}
 	tbl := poker.NewTable(cfg)
-	_, _ = tbl.AddNewUser("p1", "p1", 0, 0)
-	_, _ = tbl.AddNewUser("p2", "p2", 0, 1)
-	_ = tbl.SetPlayerReady("p1", true)
-	_ = tbl.SetPlayerReady("p2", true)
+	user1, err := tbl.AddNewUser("p1", nil)
+	if err != nil {
+		t.Fatalf("add p1: %v", err)
+	}
+	user2, err := tbl.AddNewUser("p2", nil)
+	if err != nil {
+		t.Fatalf("add p2: %v", err)
+	}
+	_ = user1.SendReady()
+	_ = user2.SendReady()
 	if !tbl.CheckAllPlayersReady() {
 		t.Fatal("players should be ready")
 	}

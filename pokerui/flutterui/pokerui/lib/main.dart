@@ -18,6 +18,10 @@ import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
 import 'package:pokerui/screens/startup_error.dart';
 import 'package:pokerui/screens/login.dart';
+import 'package:pokerui/screens/sign_address.dart';
+import 'package:pokerui/screens/open_escrow.dart';
+import 'package:pokerui/screens/refund.dart';
+import 'package:pokerui/screens/escrow_history.dart';
 import 'package:pokerui/client_init.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
@@ -99,6 +103,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   bool _loading = true;
   bool _needsLogin = true;
   String? _nickname;
+  String _authedPayoutAddress = '';
   Object? _lastError;
   List<String> _missingFields = const [];
   StreamSubscription<LocalWaitingRoom>? _wrCreatedSub;
@@ -130,7 +135,30 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     _notificationModel = null;
   }
 
-  Future<void> _bootstrap({String? nickname}) async {
+  Future<void> _handleLogout() async {
+    setState(() {
+      _loading = true;
+      _lastError = null;
+    });
+    try {
+      await Golib.logout();
+    } catch (error, stackTrace) {
+      developer.log('Logout failed', error: error, stackTrace: stackTrace);
+    }
+    _disposeCurrentModel();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _needsLogin = true;
+      _nickname = null;
+      _authedPayoutAddress = '';
+      _attemptedSessionRestore = false;
+      _loading = false;
+    });
+  }
+
+  Future<void> _bootstrap({LoginResponse? loginResp, String? nickname}) async {
     final cfg = _config;
     if (cfg == null) {
       return;
@@ -139,6 +167,10 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     // If nickname is provided, proceed with initialization
     if (nickname != null) {
       _nickname = nickname;
+    }
+    if (loginResp != null) {
+      _nickname = loginResp.nickname;
+      _authedPayoutAddress = loginResp.address;
       _needsLogin = false;
     }
 
@@ -146,7 +178,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     if (_needsLogin) {
       final restored = await _tryRestoreSession(cfg);
       if (restored != null) {
-        _nickname = restored;
+        _nickname = restored.nickname;
+        _authedPayoutAddress = restored.address;
         _needsLogin = false;
       }
     }
@@ -171,6 +204,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       // Note: Client is already initialized in LoginScreen, so PokerModel.fromConfig
       // will reuse the existing client handle
       final pokerModel = await PokerModel.fromConfig(cfg, notificationModel);
+      pokerModel.updateAuthedPayoutAddress(_authedPayoutAddress);
       
       // Authentication already happened in LoginScreen, so we can proceed
       await pokerModel.init();
@@ -259,7 +293,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     );
   }
 
-  Future<String?> _tryRestoreSession(Config cfg) async {
+  Future<LoginResponse?> _tryRestoreSession(Config cfg) async {
     if (_attemptedSessionRestore) {
       return null;
     }
@@ -268,13 +302,10 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     try {
       await initializePokerClient(cfg);
       final resp = await Golib.resumeSession();
-      if (resp == null) {
+      if (resp == null || resp.nickname.isEmpty) {
         return null;
       }
-      if (resp.nickname.isEmpty) {
-        return null;
-      }
-      return resp.nickname;
+      return resp;
     } catch (error, stackTrace) {
       developer.log(
         'Auto session restore failed',
@@ -296,8 +327,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         theme: _theme,
         home: LoginScreen(
           config: cfg!,
-          onLoginSuccess: (nickname) {
-            _bootstrap(nickname: nickname);
+          onLoginSuccess: (resp) {
+            _bootstrap(loginResp: resp);
           },
         ),
       );
@@ -312,8 +343,9 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         providers: [
           ChangeNotifierProvider.value(value: _notificationModel!),
           ChangeNotifierProvider.value(value: _pokerModel!),
+          Provider<Future<void> Function()?>.value(value: _handleLogout),
         ],
-        child: MyApp(cfg),
+        child: MyApp(cfg, onLogout: _handleLogout),
       );
     }
 
@@ -372,13 +404,14 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 
 class MyApp extends StatelessWidget {
   final Config cfg;
-  const MyApp(this.cfg, {super.key});
+  final Future<void> Function()? onLogout;
+  const MyApp(this.cfg, {super.key, this.onLogout});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Pong Game App',
+      title: 'Poker UI',
       theme: ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color.fromARGB(255, 25, 23, 44),
         primaryColor: Colors.blueAccent,
@@ -395,7 +428,10 @@ class MyApp extends StatelessWidget {
         );
       },
       routes: {
-        '/': (context) => const PokerHomeScreen(),
+        '/': (context) => Provider<Future<void> Function()?>.value(
+              value: onLogout,
+              child: const PokerHomeScreen(),
+            ),
         '/settings': (context) => NewConfigScreen(
               model: NewConfigModel.fromConfig(cfg),
               onConfigSaved: () async {
@@ -408,6 +444,10 @@ class MyApp extends StatelessWidget {
               },
             ),
         '/logs': (context) => const LogsScreen(),
+        '/sign-address': (context) => const SignAddressScreen(),
+        '/open-escrow': (context) => const OpenEscrowScreen(),
+        '/refund': (context) => const RefundScreen(),
+        '/escrow-history': (context) => const EscrowHistoryScreen(),
       },
       initialRoute: '/',
     );

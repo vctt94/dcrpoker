@@ -8,6 +8,7 @@ import 'package:pokerui/components/views/idle.dart';
 import 'package:pokerui/components/views/browsing_tables.dart';
 import 'package:pokerui/components/views/in_lobby.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/game_ended.dart';
 import 'package:pokerui/components/views/tournament_over.dart';
 
 class PokerHomeScreen extends StatefulWidget {
@@ -36,6 +37,8 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
         return HandInProgressView(model: model);
       case PokerState.showdown:
         return ShowdownView(model: model);
+      case PokerState.gameEnded:
+        return GameEndedView(model: model);
       case PokerState.tournamentOver:
         return TournamentOverView(model: model);
     }
@@ -45,7 +48,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
   Widget build(BuildContext context) {
     // Only rebuild this widget when the game state changes
     final gameStarted =
-        context.select<PokerModel, bool>((m) => m.state == PokerState.handInProgress || m.state == PokerState.showdown);
+        context.select<PokerModel, bool>((m) => m.state == PokerState.handInProgress || m.state == PokerState.showdown || m.state == PokerState.gameEnded);
 
     return SharedLayout(
       title: "Poker - Home",
@@ -65,7 +68,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                   child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    // 1) Top area: balance and connection status
+                    // 1) Top area: connection status
                     Center(
                       child: Container(
                         width: MediaQuery.of(context).size.width * 0.85,
@@ -79,17 +82,6 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                             padding: const EdgeInsets.all(16.0),
                             child: Row(
                               children: [
-                                const Icon(Icons.account_balance_wallet, color: Colors.amber),
-                                const SizedBox(width: 8),
-                                Text(
-                                  "Balance: ${(pokerModel.myAtomsBalance / 1e8).toStringAsFixed(4)} DCR",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Spacer(),
                                 Icon(
                                   pokerModel.state != PokerState.idle
                                       ? Icons.check_circle
@@ -208,7 +200,37 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                       ),
                     ),
 
-                    // 3) Error message if exists
+                    // 3) Success banner
+                    if (pokerModel.successMessage.isNotEmpty)
+                      Center(
+                        child: Container(
+                          width: MediaQuery.of(context).size.width * 0.85,
+                          margin: const EdgeInsets.only(top: 16.0),
+                          child: Card(
+                            color: Colors.green.shade700,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.check_circle, color: Colors.white),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: SelectableText(
+                                      pokerModel.successMessage,
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    // 4) Error banner
                     if (pokerModel.errorMessage.isNotEmpty)
                       Center(
                         child: Container(

@@ -5,17 +5,27 @@ import 'package:pokerui/models/poker.dart';
 class SharedLayout extends StatelessWidget {
   final String title;
   final Widget child;
+  final Future<void> Function()? onLogout;
 
   const SharedLayout({
     super.key,
     required this.title,
     required this.child,
+    this.onLogout,
   });
 
   @override
   Widget build(BuildContext context) {
     // Try to get PokerModel, but don't throw if it's not available
     PokerModel? pokerModel;
+    Future<void> Function()? logoutCb = onLogout;
+    if (logoutCb == null) {
+      try {
+        logoutCb = Provider.of<Future<void> Function()?>(context, listen: false);
+      } catch (_) {
+        logoutCb = null;
+      }
+    }
     try {
       pokerModel = Provider.of<PokerModel>(context);
     } catch (e) {
@@ -93,6 +103,48 @@ class SharedLayout extends StatelessWidget {
                         Navigator.of(context).pushNamed('/logs');
                       },
                     ),
+                    ListTile(
+                      leading: const Icon(Icons.verified, color: Colors.white),
+                      title: const Text('Sign Address',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/sign-address');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.lock, color: Colors.white),
+                      title: const Text('Open Escrow',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/open-escrow');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.undo, color: Colors.white),
+                      title: const Text('Refund Tools',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/refund');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.history, color: Colors.white),
+                      title: const Text('Escrow History',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/escrow-history');
+                      },
+                    ),
+                    if (logoutCb != null)
+                      ListTile(
+                        leading: const Icon(Icons.logout, color: Colors.white),
+                        title: const Text('Logout',
+                            style: TextStyle(color: Colors.white)),
+                        onTap: () async {
+                          Navigator.of(context).pop();
+                          await logoutCb?.call();
+                        },
+                      ),
                   ],
                 ),
               ),

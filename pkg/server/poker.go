@@ -63,17 +63,11 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 		}
 	}()
 
-	// Notify player FSM of reconnection so timers/state machines resume.
-	if table.IsGameStarted() {
-		if game := table.GetGame(); game != nil {
-			for _, p := range game.GetPlayers() {
-				if p.ID() == playerID {
-					p.SendReconnection()
-					break
-				}
-			}
-		}
+	user := table.GetUser(playerID)
+	if user == nil {
+		return status.Error(codes.NotFound, "player not at table")
 	}
+	user.SendReconnection()
 
 	// Inform table peers this player's game stream is connected (reconnected).
 	s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
@@ -115,42 +109,19 @@ func (s *Server) handlePlayerDisconnect(tableID, playerID string) {
 		return
 	}
 
-	// Check if player has chips in an active game
-	// Snapshot game reference under lock (following locking policy: snapshot pattern)
-	var playerChips int64
-	var gamePlayer *poker.Player
-	if table.IsGameStarted() {
-		game := table.GetGame()
-		if game != nil {
-			for _, p := range game.GetPlayers() {
-				if p != nil && p.ID() == playerID {
-					playerChips = p.Balance()
-					gamePlayer = p
-					break
-				}
-			}
-		}
-	}
-
 	// Broadcast updated game state so remaining players see the disconnect flag.
 	if tableSnapshot, err := s.collectTableSnapshot(tableID); err == nil && tableSnapshot != nil {
 		s.publishTableSnapshotEvent(tableID, tableSnapshot)
 	}
 
-	// Send disconnect event to player's FSM to drive state (chips, timers, etc).
-	// Verify game is still started before sending (defensive check for shutdown races)
-	if gamePlayer != nil && table.IsGameStarted() {
-		gamePlayer.SendDisconnect()
+	// Send disconnect event
+	user := table.GetUser(playerID)
+	if user == nil {
+		return
 	}
-
+	user.SendDisconnect()
 	// Save table state asynchronously
 	s.saveTableStateAsync(tableID, "player disconnected")
-
-	if table.IsGameStarted() && playerChips > 0 {
-		s.log.Debugf("Player %s disconnected from table %s (has %d chips remaining)", playerID, tableID, playerChips)
-	} else {
-		s.log.Debugf("Player %s disconnected from table %s (no active game or no chips)", playerID, tableID)
-	}
 }
 
 func (s *Server) publishTableSnapshotEvent(tableID string, snapshot *TableSnapshot) {
@@ -159,7 +130,7 @@ func (s *Server) publishTableSnapshotEvent(tableID string, snapshot *TableSnapsh
 	}
 
 	s.eventProcessor.PublishEvent(&GameEvent{
-		Type:          pokerrpc.NotificationType_UNKNOWN,
+		Type:          pokerrpc.NotificationType_GAME_STATE_UPDATED,
 		TableID:       tableID,
 		PlayerIDs:     snapshot.playerIDs(),
 		Timestamp:     time.Now(),
@@ -223,7 +194,7 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 	if game := table.GetGame(); game != nil {
 		for _, p := range game.GetPlayers() {
 			if p.ID() == req.PlayerId {
-				if p.GetCurrentStateString() == "ALL_IN" || (p.Balance() == 0 && p.CurrentBet() > 0) {
+				if p.GetCurrentStateString() == poker.ALL_IN_STATE || (p.Balance() == 0 && p.CurrentBet() > 0) {
 					contributed := prevBalance - p.Balance()
 					if contributed < 0 {
 						contributed = 0
@@ -244,16 +215,9 @@ func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*po
 		}
 	}
 
-	// DCR account balance is independent of chip bets; this just returns the wallet balance.
-	balance, err := s.db.GetPlayerBalance(ctx, req.PlayerId)
-	if err != nil {
-		return nil, err
-	}
-
 	return &pokerrpc.MakeBetResponse{
-		Success:    true,
-		Message:    "Bet placed successfully",
-		NewBalance: balance,
+		Success: true,
+		Message: "Bet placed successfully",
 	}, nil
 }
 
@@ -353,7 +317,7 @@ func (s *Server) CallBet(ctx context.Context, req *pokerrpc.CallBetRequest) (*po
 			if p.ID() != req.PlayerId {
 				continue
 			}
-			if p.GetCurrentStateString() == "ALL_IN" || (newBalance == 0 && p.CurrentBet() > 0) {
+			if p.GetCurrentStateString() == poker.ALL_IN_STATE || (newBalance == 0 && p.CurrentBet() > 0) {
 				evt, err := s.buildGameEvent(
 					pokerrpc.NotificationType_PLAYER_ALL_IN,
 					req.TableId,
@@ -408,14 +372,24 @@ func (s *Server) GetGameState(ctx context.Context, req *pokerrpc.GetGameStateReq
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
 
-	// Build game state using GameStateHandler (same logic as StartGameStream)
-	// Use empty string as requestingPlayerID to get general game state without player-specific card visibility
+	// Build game state using GameStateHandler (same logic as StartGameStream).
+	// If the caller is authenticated (token present and valid), use the
+	// session user ID as the requesting player to reveal their own hole cards.
+	// Otherwise, fall back to req.PlayerId (or empty for a table-level view).
 	gsh := NewGameStateHandler(s)
 	tableSnapshot, err := s.collectTableSnapshot(req.TableId)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to collect table snapshot: %v", err))
 	}
-	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, req.PlayerId)
+
+	requestingPlayerID := req.PlayerId
+	if token := extractTokenFromMetadata(ctx); token != "" {
+		if sess, ok := s.sessionForToken(token); ok {
+			requestingPlayerID = sess.userID.String()
+		}
+	}
+
+	gameUpdate, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, requestingPlayerID)
 	if err != nil {
 		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to build game state: %v", err))
 	}

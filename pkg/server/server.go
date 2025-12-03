@@ -12,8 +12,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/decred/dcrd/chaincfg/chainhash"
+	"github.com/decred/dcrd/chaincfg/v3"
+	"github.com/decred/dcrd/dcrutil/v4"
+	"github.com/decred/dcrd/rpcclient/v8"
 	"github.com/decred/slog"
 	"github.com/vctt94/bisonbotkit/logging"
+	"github.com/vctt94/pokerbisonrelay/pkg/chainwatcher"
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"google.golang.org/grpc"
@@ -72,6 +77,7 @@ type Server struct {
 	pokerrpc.UnimplementedPokerServiceServer
 	pokerrpc.UnimplementedLobbyServiceServer
 	pokerrpc.UnimplementedAuthServiceServer
+	pokerrpc.UnimplementedPokerRefereeServer
 	log        slog.Logger
 	logBackend *logging.LogBackend
 	db         Database
@@ -95,6 +101,10 @@ type Server struct {
 	// key: tableID string -> *sync.Mutex
 	broadcastMutexes sync.Map
 
+	// Table removal acknowledgements: tableID -> chan struct{} closed after
+	// finalization completes so callers/tests can wait for cleanup.
+	tableRemovalAcks sync.Map
+
 	// Notification send serialization per player
 	// key: playerID string -> *sync.Mutex
 	notifSendMutexes sync.Map
@@ -110,6 +120,15 @@ type Server struct {
 
 	// Authentication state
 	auth *authState
+
+	// Chain connectivity for Schnorr referee.
+	chainParams   *chaincfg.Params
+	dcrd          *rpcclient.Client
+	chainWatcher  *chainwatcher.ChainWatcher
+	adaptorSecret string
+
+	// Schnorr referee state (escrows, presigns, settlements)
+	referee *schnorrRefereeState
 }
 
 // NewServer creates a new poker server
@@ -120,35 +139,55 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize database: %v", err)
 	}
 
-	// Initialize and start the gRPC poker server
-	grpcServer, grpcLis, err := SetupGRPCServer(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort, db, cfg.LogBackend)
-	if err != nil {
-		// Clean up the DB if we fail to start gRPC.
-		_ = db.Close()
-		return nil, fmt.Errorf("failed to setup gRPC server: %v", err)
-	}
-
-	// Start gRPC server
-	errCh := make(chan error, 1)
-	go func() {
-		cfg.LogBackend.Logger("SERVER").Infof("Starting gRPC poker server on %s", cfg.GRPCHost+":"+cfg.GRPCPort)
-		errCh <- grpcServer.Serve(grpcLis)
-	}()
 	pokerServer := &Server{
-		grpcServer: grpcServer,
-		grpcLis:    grpcLis,
-		log:        cfg.LogBackend.Logger("SERVER"),
-		logBackend: cfg.LogBackend,
-		db:         db,
+		log:           cfg.LogBackend.Logger("SERVER"),
+		logBackend:    cfg.LogBackend,
+		db:            db,
+		chainParams:   selectChainParams(cfg.Network),
+		adaptorSecret: cfg.AdaptorSecret,
 	}
 
 	// Initialize auth state
 	pokerServer.auth = newAuthState(db)
+	pokerServer.referee = newSchnorrRefereeState(cfg)
+
+	// Initialize chainwatcher/dcrd if configured.
+	if err := pokerServer.initChainWatcher(cfg); err != nil {
+		pokerServer.log.Warnf("dcrd/chainwatcher not initialized: %v", err)
+	}
+
+	// Build TLS credentials and listener.
+	creds, grpcLis, err := buildGRPCCredsAndListener(cfg.Datadir, cfg.GRPCCertPath, cfg.GRPCKeyPath, cfg.GRPCHost+":"+cfg.GRPCPort)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to setup gRPC listener: %v", err)
+	}
+
+	// Create gRPC server with TLS credentials, keepalives, and auth middleware.
+	serverOpts := []grpc.ServerOption{
+		grpc.Creds(creds),
+		grpc.MaxConcurrentStreams(1000),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 7 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+		grpc.ChainUnaryInterceptor(authUnaryInterceptor(pokerServer)),
+	}
+
+	grpcServer := grpc.NewServer(serverOpts...)
+	pokerServer.grpcServer = grpcServer
+	pokerServer.grpcLis = grpcLis
 
 	// Initialize and register the poker server
 	pokerrpc.RegisterLobbyServiceServer(grpcServer, pokerServer)
 	pokerrpc.RegisterPokerServiceServer(grpcServer, pokerServer)
 	pokerrpc.RegisterAuthServiceServer(grpcServer, pokerServer)
+	pokerrpc.RegisterPokerRefereeServer(grpcServer, pokerServer)
+
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
@@ -167,6 +206,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		pokerServer.log.Errorf("Failed to load persisted tables: %v", err)
 	}
 
+	// Start gRPC server after all services are registered and initialization is complete.
+	go func() {
+		cfg.LogBackend.Logger("SERVER").Infof("Starting gRPC poker server on %s", cfg.GRPCHost+":"+cfg.GRPCPort)
+		if err := grpcServer.Serve(grpcLis); err != nil && err != grpc.ErrServerStopped {
+			pokerServer.log.Errorf("gRPC server error: %v", err)
+		}
+	}()
+
 	return pokerServer, nil
 }
 
@@ -177,7 +224,7 @@ func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
 		return nil, fmt.Errorf("failed to load server config: %v", err)
 	}
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(datadir, "log", "server.log"),
+		LogFile:        filepath.Join(datadir, "logs", "server.log"),
 		DebugLevel:     cfg.Debug,
 		MaxLogFiles:    cfg.MaxLogFiles,
 		MaxBufferLines: cfg.MaxBufferLines,
@@ -214,8 +261,8 @@ func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
 	return serverCfg, nil
 }
 
-// SetupGRPCServer sets up and returns a configured GRPC server with TLS
-func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Database, logBackend *logging.LogBackend) (*grpc.Server, net.Listener, error) {
+// buildGRPCCredsAndListener prepares TLS credentials and a TCP listener for the gRPC server.
+func buildGRPCCredsAndListener(datadir, certFile, keyFile, serverAddress string) (credentials.TransportCredentials, net.Listener, error) {
 	// Determine certificate and key file paths
 	grpcCertFile := certFile
 	grpcKeyFile := keyFile
@@ -242,20 +289,6 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 		return nil, nil, fmt.Errorf("failed to load TLS credentials: %v", err)
 	}
 
-	// Create gRPC server with TLS credentials and production-avg keepalives
-	grpcServer := grpc.NewServer(
-		grpc.Creds(creds),
-		grpc.MaxConcurrentStreams(1000),
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    30 * time.Second,
-			Timeout: 7 * time.Second,
-		}),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
-	)
-
 	// Normalize localhost/127.0.0.1 to :: to listen on all interfaces
 	// This allows connections from other computers on the network
 	normalizedAddress := serverAddress
@@ -274,6 +307,31 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 		return nil, nil, fmt.Errorf("failed to listen for gRPC poker server: %v", err)
 	}
 
+	return creds, grpcLis, nil
+}
+
+// SetupGRPCServer sets up and returns a configured GRPC server with TLS.
+// This function is kept for backward compatibility; it does not wire auth
+// interceptors. NewServer configures its own server with middleware.
+func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Database, logBackend *logging.LogBackend) (*grpc.Server, net.Listener, error) {
+	creds, grpcLis, err := buildGRPCCredsAndListener(datadir, certFile, keyFile, serverAddress)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	grpcServer := grpc.NewServer(
+		grpc.Creds(creds),
+		grpc.MaxConcurrentStreams(1000),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    30 * time.Second,
+			Timeout: 7 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
+
 	return grpcServer, grpcLis, nil
 }
 
@@ -282,13 +340,16 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 // It can be used by e2e tests that need to set up their own gRPC server.
 func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error) {
 	pokerServer := &Server{
-		log:        logBackend.Logger("SERVER"),
-		logBackend: logBackend,
-		db:         db,
+		log:           logBackend.Logger("SERVER"),
+		logBackend:    logBackend,
+		db:            db,
+		chainParams:   selectChainParams("testnet"),
+		adaptorSecret: "",
 	}
 
 	// Initialize auth state
 	pokerServer.auth = newAuthState(db)
+	pokerServer.referee = newSchnorrRefereeState(ServerConfig{})
 
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
@@ -331,6 +392,12 @@ func (s *Server) Stop() {
 	// Wait for any in-flight asynchronous saves to complete before returning.
 	s.saveWg.Wait()
 
+	// Shutdown dcrd client if configured.
+	if s.dcrd != nil {
+		s.dcrd.Shutdown()
+		s.dcrd.WaitForShutdown()
+	}
+
 	// Close gRPC listener
 	if s.grpcLis != nil {
 		s.grpcLis.Close()
@@ -350,6 +417,11 @@ func (s *Server) getTable(tableID string) (*poker.Table, bool) {
 		}
 	}
 	return nil, false
+}
+
+// GetTable retrieves a table by ID (public accessor for tests).
+func (s *Server) GetTable(tableID string) (*poker.Table, bool) {
+	return s.getTable(tableID)
 }
 
 // GetAllTables returns all tables from the server registry.
@@ -399,6 +471,86 @@ func (s *Server) GetAllOnlineUsers() map[string]bool {
 		return true
 	})
 	return result
+}
+
+// selectChainParams returns network params for a given network string.
+// Defaults to testnet params when unknown.
+func selectChainParams(network string) *chaincfg.Params {
+	switch strings.ToLower(strings.TrimSpace(network)) {
+	case "mainnet", "main":
+		return chaincfg.MainNetParams()
+	case "simnet", "regtest":
+		return chaincfg.SimNetParams()
+	default:
+		return chaincfg.TestNet3Params()
+	}
+}
+
+// initChainWatcher connects to dcrd (if configured) and wires notifications
+// into the shared chainwatcher instance.
+func (s *Server) initChainWatcher(cfg ServerConfig) error {
+	host := strings.TrimSpace(cfg.DcrdHost)
+	if host == "" {
+		return fmt.Errorf("dcrd host not configured")
+	}
+	certPath := strings.TrimSpace(cfg.DcrdCert)
+	if certPath == "" {
+		return fmt.Errorf("dcrd cert path not configured")
+	}
+
+	certBytes, err := os.ReadFile(certPath)
+	if err != nil {
+		return fmt.Errorf("read dcrd cert: %w", err)
+	}
+
+	connCfg := &rpcclient.ConnConfig{
+		Host:         host,
+		User:         strings.TrimSpace(cfg.DcrdUser),
+		Pass:         strings.TrimSpace(cfg.DcrdPass),
+		Endpoint:     "ws",
+		Certificates: certBytes,
+	}
+
+	ntfnHandlers := &rpcclient.NotificationHandlers{
+		OnTxAccepted: func(hash *chainhash.Hash, _ dcrutil.Amount) {
+			if s.chainWatcher == nil || hash == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			go func() {
+				defer cancel()
+				s.chainWatcher.ProcessTxAcceptedHash(ctx, hash)
+			}()
+		},
+		OnBlockConnected: func(_ []byte, _ [][]byte) {
+			if s.chainWatcher == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			go func() {
+				defer cancel()
+				s.chainWatcher.ProcessBlockConnected(ctx)
+			}()
+		},
+	}
+
+	dcrd, err := rpcclient.New(connCfg, ntfnHandlers)
+	if err != nil {
+		return fmt.Errorf("failed to connect to dcrd at %s: %w", host, err)
+	}
+	s.dcrd = dcrd
+	s.chainWatcher = chainwatcher.NewChainWatcher(s.log, s.dcrd)
+
+	// Subscribe to notifications for txs and blocks to drive the watcher.
+	if err := s.dcrd.NotifyNewTransactions(context.Background(), false); err != nil {
+		s.log.Warnf("dcrd NotifyNewTransactions failed: %v", err)
+	}
+	if err := s.dcrd.NotifyBlocks(context.Background()); err != nil {
+		s.log.Warnf("dcrd NotifyBlocks failed: %v", err)
+	}
+
+	s.log.Infof("Connected chainwatcher to dcrd at %s", host)
+	return nil
 }
 
 // GetInLobbyAndInGameUsers returns sets of playerIDs categorized by their status:

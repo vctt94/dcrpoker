@@ -179,6 +179,7 @@ LoginResponse _$LoginResponseFromJson(Map<String, dynamic> json) =>
       json['token'] as String,
       json['user_id'] as String,
       json['nickname'] as String,
+      json['address'] as String,
     );
 
 Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
@@ -186,6 +187,55 @@ Map<String, dynamic> _$LoginResponseToJson(LoginResponse instance) =>
       'token': instance.token,
       'user_id': instance.userId,
       'nickname': instance.nickname,
+      'address': instance.address,
+    };
+
+RequestLoginCodeResponse _$RequestLoginCodeResponseFromJson(
+        Map<String, dynamic> json) =>
+    RequestLoginCodeResponse(
+      json['code'] as String,
+      (json['ttl_sec'] as num).toInt(),
+      json['address_hint'] as String,
+    );
+
+Map<String, dynamic> _$RequestLoginCodeResponseToJson(
+        RequestLoginCodeResponse instance) =>
+    <String, dynamic>{
+      'code': instance.code,
+      'ttl_sec': instance.ttlSec,
+      'address_hint': instance.addressHint,
+    };
+
+SetPayoutAddressRequest _$SetPayoutAddressRequestFromJson(
+        Map<String, dynamic> json) =>
+    SetPayoutAddressRequest(
+      json['address'] as String,
+      json['signature'] as String,
+      json['code'] as String,
+    );
+
+Map<String, dynamic> _$SetPayoutAddressRequestToJson(
+        SetPayoutAddressRequest instance) =>
+    <String, dynamic>{
+      'address': instance.address,
+      'signature': instance.signature,
+      'code': instance.code,
+    };
+
+SetPayoutAddressResponse _$SetPayoutAddressResponseFromJson(
+        Map<String, dynamic> json) =>
+    SetPayoutAddressResponse(
+      json['ok'] as bool? ?? false,
+      json['error'] as String? ?? '',
+      json['address'] as String? ?? '',
+    );
+
+Map<String, dynamic> _$SetPayoutAddressResponseToJson(
+        SetPayoutAddressResponse instance) =>
+    <String, dynamic>{
+      'ok': instance.ok,
+      'error': instance.error,
+      'address': instance.address,
     };
 
 ServerCert _$ServerCertFromJson(Map<String, dynamic> json) => ServerCert(
@@ -468,6 +518,9 @@ PlayerDTO _$PlayerDTOFromJson(Map<String, dynamic> json) => PlayerDTO(
       (json['playerState'] as num).toInt(),
       json['isSmallBlind'] as bool,
       json['isBigBlind'] as bool,
+      json['escrowId'] as String? ?? '',
+      json['escrowReady'] as bool? ?? false,
+      (json['tableSeat'] as num?)?.toInt() ?? 0,
     );
 
 Map<String, dynamic> _$PlayerDTOToJson(PlayerDTO instance) => <String, dynamic>{
@@ -486,6 +539,9 @@ Map<String, dynamic> _$PlayerDTOToJson(PlayerDTO instance) => <String, dynamic>{
       'playerState': instance.playerState,
       'isSmallBlind': instance.isSmallBlind,
       'isBigBlind': instance.isBigBlind,
+      'escrowId': instance.escrowId,
+      'escrowReady': instance.escrowReady,
+      'tableSeat': instance.tableSeat,
     };
 
 GameUpdateDTO _$GameUpdateDTOFromJson(Map<String, dynamic> json) =>

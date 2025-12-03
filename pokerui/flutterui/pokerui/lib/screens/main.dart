@@ -8,6 +8,7 @@ import 'package:pokerui/components/views/idle.dart';
 import 'package:pokerui/components/views/browsing_tables.dart';
 import 'package:pokerui/components/views/in_lobby.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/game_ended.dart';
 import 'package:pokerui/components/views/tournament_over.dart';
 import 'package:pokerui/components/dialogs/create_table.dart';
 
@@ -37,6 +38,8 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
         return HandInProgressView(model: model);
       case PokerState.showdown:
         return ShowdownView(model: model);
+      case PokerState.gameEnded:
+        return GameEndedView(model: model);
       case PokerState.tournamentOver:
         return TournamentOverView(model: model);
     }
@@ -46,7 +49,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
   Widget build(BuildContext context) {
     // Only rebuild this widget when the game state changes
     final gameStarted =
-        context.select<PokerModel, bool>((m) => m.state == PokerState.handInProgress || m.state == PokerState.showdown);
+        context.select<PokerModel, bool>((m) => m.state == PokerState.handInProgress || m.state == PokerState.showdown || m.state == PokerState.gameEnded);
 
     return SharedLayout(
       title: "Poker - Home",
@@ -80,33 +83,22 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                             padding: const EdgeInsets.all(16.0),
                             child: Row(
                               children: [
-                                const Icon(Icons.account_balance_wallet, color: Colors.amber),
-                                const SizedBox(width: 8),
-                                Text(
-                                  "Balance: ${(pokerModel.myAtomsBalance / 1e8).toStringAsFixed(4)} DCR",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Spacer(),
                                 Icon(
                                   pokerModel.state != PokerState.idle
                                       ? Icons.check_circle
                                       : Icons.cloud_off,
-                                  color: pokerModel.state != PokerState.idle 
-                                      ? Colors.green 
+                                  color: pokerModel.state != PokerState.idle
+                                      ? Colors.green
                                       : Colors.red,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  pokerModel.state != PokerState.idle 
-                                      ? "Connected" 
+                                  pokerModel.state != PokerState.idle
+                                      ? "Connected"
                                       : "Disconnected",
                                   style: TextStyle(
-                                    color: pokerModel.state != PokerState.idle 
-                                        ? Colors.green 
+                                    color: pokerModel.state != PokerState.idle
+                                        ? Colors.green
                                         : Colors.red,
                                     fontWeight: FontWeight.bold,
                                   ),

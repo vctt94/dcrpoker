@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/companyzero/bisonrelay/zkidentity"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server/internal/db"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -31,6 +33,37 @@ func (ts *TestServer) GetGameForTable(tableID string) *poker.Game {
 		return table.GetGame()
 	}
 	return nil
+}
+
+// CreateTestSession creates a test session and returns a context with the token in metadata.
+// This is a convenience helper for tests that need authenticated contexts.
+func (ts *TestServer) CreateTestSession(ctx context.Context, playerID, nickname string) (context.Context, string) {
+	// For simple test IDs, try to parse as ShortID first, otherwise create a deterministic one
+	var uid zkidentity.ShortID
+	if err := uid.FromString(playerID); err != nil {
+		// If it's not a valid ShortID format, create a deterministic one from the string
+		// This allows tests to use simple string IDs like "player1", "alice", etc.
+		var buf [32]byte
+		copy(buf[:], playerID)
+		if len(playerID) < 32 {
+			// Pad with repeated playerID to fill the buffer
+			for i := len(playerID); i < 32; i++ {
+				buf[i] = playerID[i%len(playerID)]
+			}
+		}
+		uid = zkidentity.ShortID(buf)
+	}
+
+	token := "test-token-" + playerID
+	if nickname == "" {
+		nickname = playerID
+	}
+
+	ts.TestSeedSession(token, uid, "", nickname)
+
+	// Add token to context metadata
+	md := metadata.New(map[string]string{"token": token})
+	return metadata.NewIncomingContext(ctx, md), token
 }
 
 // InMemoryDB implements the Database interface for testing.
@@ -64,40 +97,6 @@ func NewInMemoryDB() *InMemoryDB {
 		snapshots:    make(map[string]db.Snapshot),
 		authUsers:    make(map[string]*db.AuthUser),
 	}
-}
-
-// -------- Players / Wallet --------
-
-func (m *InMemoryDB) GetPlayerBalance(_ context.Context, playerID string) (int64, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	bal, ok := m.balances[playerID]
-	if !ok {
-		return 0, fmt.Errorf("player not found")
-	}
-	return bal, nil
-}
-
-func (m *InMemoryDB) UpdatePlayerBalance(_ context.Context, playerID string, amount int64, typ, description string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// create player lazily
-	if _, ok := m.balances[playerID]; !ok {
-		m.balances[playerID] = 0
-	}
-
-	m.balances[playerID] += amount
-	tx := Transaction{
-		ID:          int64(len(m.transactions[playerID]) + 1),
-		PlayerID:    playerID,
-		Amount:      amount,
-		Type:        typ,
-		Description: description,
-		CreatedAt:   time.Now().Format(time.RFC3339),
-	}
-	m.transactions[playerID] = append(m.transactions[playerID], tx)
-	return nil
 }
 
 // -------- Tables (configuration) --------
@@ -338,6 +337,19 @@ func (m *InMemoryDB) UpdateAuthUserLastLogin(_ context.Context, userID string) e
 	return nil
 }
 
+func (m *InMemoryDB) UpdateAuthUserPayoutAddress(_ context.Context, userID, payoutAddress string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	user, ok := m.authUsers[userID]
+	if !ok {
+		return fmt.Errorf("user not found")
+	}
+	user.PayoutAddress.String = payoutAddress
+	user.PayoutAddress.Valid = payoutAddress != ""
+	return nil
+}
+
 func (m *InMemoryDB) ListAllAuthUsers(_ context.Context) ([]db.AuthUser, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -374,81 +386,6 @@ func createTestLogBackend() *logging.LogBackend {
 }
 
 func TestPokerService(t *testing.T) {
-	t.Run("GetBalance", func(t *testing.T) {
-		// Create isolated database and server for this test
-		db := NewInMemoryDB()
-		defer db.Close()
-
-		logBackend := createTestLogBackend()
-		defer logBackend.Close()
-
-		srv, err := NewTestServer(db, logBackend)
-		require.NoError(t, err)
-		server := &TestServer{
-			Server: srv,
-		}
-
-		ctx := context.Background()
-		playerID := "player1"
-
-		// Test non-existent player
-		_, err = server.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: "non-existent"})
-		require.Error(t, err)
-		st, ok := status.FromError(err)
-		require.True(t, ok)
-		assert.Equal(t, codes.NotFound, st.Code())
-		assert.Contains(t, st.Message(), "player not found")
-
-		// Create player first
-		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    playerID,
-			Amount:      0,
-			Description: "initial balance",
-		})
-		require.NoError(t, err)
-
-		// Test existing player
-		resp, err := server.GetBalance(ctx, &pokerrpc.GetBalanceRequest{PlayerId: playerID})
-		require.NoError(t, err)
-		assert.Equal(t, int64(0), resp.Balance)
-	})
-
-	t.Run("UpdateBalance", func(t *testing.T) {
-		// Create isolated database and server for this test
-		db := NewInMemoryDB()
-		defer db.Close()
-
-		logBackend := createTestLogBackend()
-		defer logBackend.Close()
-
-		srv, err := NewTestServer(db, logBackend)
-		require.NoError(t, err)
-		server := &TestServer{
-			Server: srv,
-		}
-
-		ctx := context.Background()
-		playerID := "player1"
-
-		// Test deposit
-		resp, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    playerID,
-			Amount:      1000,
-			Description: "initial deposit",
-		})
-		require.NoError(t, err)
-		assert.Equal(t, int64(1000), resp.NewBalance)
-
-		// Test withdrawal
-		resp, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    playerID,
-			Amount:      -500,
-			Description: "withdrawal",
-		})
-		require.NoError(t, err)
-		assert.Equal(t, int64(500), resp.NewBalance)
-	})
-
 	t.Run("CreateTable", func(t *testing.T) {
 		// Create isolated database and server for this test
 		db := NewInMemoryDB()
@@ -467,20 +404,8 @@ func TestPokerService(t *testing.T) {
 		player1ID := "player1"
 		player2ID := "player2"
 
-		// Set up initial balances
-		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    player1ID,
-			Amount:      2500,
-			Description: "initial deposit",
-		})
-		require.NoError(t, err)
-
-		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    player2ID,
-			Amount:      1000,
-			Description: "initial deposit",
-		})
-		require.NoError(t, err)
+		// Create test session for player1
+		ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
 
 		// Test successful table creation
 		resp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -548,20 +473,8 @@ func TestPokerService(t *testing.T) {
 		player1ID := "player1"
 		player2ID := "player2"
 
-		// Set up initial balances
-		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    player1ID,
-			Amount:      2500,
-			Description: "initial deposit",
-		})
-		require.NoError(t, err)
-
-		_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    player2ID,
-			Amount:      1000,
-			Description: "initial deposit",
-		})
-		require.NoError(t, err)
+		// Create test session for player1
+		ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
 
 		// Create table
 		createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -570,7 +483,7 @@ func TestPokerService(t *testing.T) {
 			BigBlind:      20,
 			MinPlayers:    2,
 			MaxPlayers:    6,
-			BuyIn:         1000,
+			BuyIn:         0,
 			StartingChips: 1000,
 			AutoAdvanceMs: 1000,
 		})
@@ -653,15 +566,8 @@ func TestPokerGameFlow(t *testing.T) {
 	bob := "bob"
 	charlie := "charlie"
 
-	// Give players initial balance
-	for _, player := range []string{alice, bob, charlie} {
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    player,
-			Amount:      5000,
-			Description: "initial balance",
-		})
-		require.NoError(t, err)
-	}
+	// Create test session for alice
+	ctx, _ = server.CreateTestSession(ctx, alice, alice)
 
 	// Alice creates a table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -670,7 +576,7 @@ func TestPokerGameFlow(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    3,
 		MaxPlayers:    6,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -752,15 +658,8 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 	host := "host"
 	player := "player"
 
-	// Give players initial balance
-	for _, p := range []string{host, player} {
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    p,
-			Amount:      5000,
-			Description: "initial balance",
-		})
-		require.NoError(t, err)
-	}
+	// Create test session for host
+	ctx, _ = server.CreateTestSession(ctx, host, host)
 
 	// Host creates table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -769,7 +668,7 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    6,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -818,13 +717,8 @@ func TestHeadsUpPostflopActorIsBB(t *testing.T) {
 	p1 := "p1"
 	p2 := "p2"
 
-	// Fund players
-	for _, pid := range []string{p1, p2} {
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId: pid, Amount: 5000, Description: "init",
-		})
-		require.NoError(t, err)
-	}
+	// Create test session for p1
+	ctx, _ = server.CreateTestSession(ctx, p1, p1)
 
 	// Create HU table (5/10)
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -833,7 +727,7 @@ func TestHeadsUpPostflopActorIsBB(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -919,11 +813,8 @@ func TestBetValidation_UnderBetRejected(t *testing.T) {
 	p1 := "p1"
 	p2 := "p2"
 
-	// Fund players
-	for _, pid := range []string{p1, p2} {
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: 5000, Description: "init"})
-		require.NoError(t, err)
-	}
+	// Create test session for p1
+	ctx, _ = server.CreateTestSession(ctx, p1, p1)
 
 	// Create heads-up table (SB=5, BB=10).
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -932,7 +823,7 @@ func TestBetValidation_UnderBetRejected(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -997,11 +888,8 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 	p1 := "p1"
 	p2 := "p2"
 
-	// Fund players
-	for _, pid := range []string{p1, p2} {
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{PlayerId: pid, Amount: 5000, Description: "init"})
-		require.NoError(t, err)
-	}
+	// Create test session for p1
+	ctx, _ = server.CreateTestSession(ctx, p1, p1)
 
 	// Create table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -1010,7 +898,7 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1097,14 +985,6 @@ func TestLastPlayerLeavesTableClosure(t *testing.T) {
 
 	host := "host"
 
-	// Give host initial balance
-	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    host,
-		Amount:      5000,
-		Description: "initial balance",
-	})
-	require.NoError(t, err)
-
 	// Host creates table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      host,
@@ -1159,15 +1039,8 @@ func TestNonHostLeavesTable(t *testing.T) {
 	host := "host"
 	player := "player"
 
-	// Give players initial balance
-	for _, p := range []string{host, player} {
-		_, err := server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    p,
-			Amount:      5000,
-			Description: "initial balance",
-		})
-		require.NoError(t, err)
-	}
+	// Create test session for host
+	ctx, _ = server.CreateTestSession(ctx, host, host)
 
 	// Host creates table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -1253,20 +1126,8 @@ func TestJoinTable(t *testing.T) {
 	player1ID := "player1"
 	player2ID := "player2"
 
-	// Set up initial balances
-	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    player1ID,
-		Amount:      2500,
-		Description: "initial deposit",
-	})
-	require.NoError(t, err)
-
-	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    player2ID,
-		Amount:      1000,
-		Description: "initial deposit",
-	})
-	require.NoError(t, err)
+	// Create test session for player1
+	ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
 
 	// Create table
 	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
@@ -1275,7 +1136,7 @@ func TestJoinTable(t *testing.T) {
 		BigBlind:      20,
 		MinPlayers:    2,
 		MaxPlayers:    6,
-		BuyIn:         1000,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1307,22 +1168,14 @@ func TestJoinTable(t *testing.T) {
 	assert.True(t, resp.Success)
 	assert.Contains(t, resp.Message, "Reconnected")
 
-	// Test joining with insufficient balance
+	// Test joining additional player does not deadlock or fail.
 	player3ID := "player3"
-	_, err = server.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-		PlayerId:    player3ID,
-		Amount:      500, // Not enough for 1000 buy-in
-		Description: "insufficient balance",
-	})
-	require.NoError(t, err)
-
 	resp, err = server.JoinTable(ctx, &pokerrpc.JoinTableRequest{
 		PlayerId: player3ID,
 		TableId:  tableID,
 	})
 	require.NoError(t, err)
-	assert.False(t, resp.Success)
-	assert.Contains(t, resp.Message, "Insufficient DCR balance")
+	assert.True(t, resp.Success)
 }
 
 // TestSnapshotRestoresCurrentPlayer ensures that when a snapshot is taken while it is a particular
@@ -1349,16 +1202,6 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	p2 := "p2"
 	p3 := "p3"
 
-	// Fund players
-	for _, pid := range []string{p1, p2, p3} {
-		_, err := srv1.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    pid,
-			Amount:      5000,
-			Description: "initial",
-		})
-		require.NoError(t, err)
-	}
-
 	// p1 creates table
 	createResp, err := srv1.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      p1,
@@ -1366,7 +1209,7 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 		BigBlind:      10,
 		MinPlayers:    3,
 		MaxPlayers:    6,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
 	})
@@ -1471,16 +1314,6 @@ func TestBlindPostingAndBalances(t *testing.T) {
 	p1 := "p1"
 	p2 := "p2"
 
-	// Fund players with sufficient DCR balance (atoms)
-	for _, pid := range []string{p1, p2} {
-		_, err := srv.UpdateBalance(ctx, &pokerrpc.UpdateBalanceRequest{
-			PlayerId:    pid,
-			Amount:      5000,
-			Description: "initial deposit",
-		})
-		require.NoError(t, err)
-	}
-
 	// p1 creates a heads-up table (minPlayers=2)
 	const (
 		startingChips int64 = 1000
@@ -1494,7 +1327,7 @@ func TestBlindPostingAndBalances(t *testing.T) {
 		BigBlind:      bigBlind,
 		MinPlayers:    2,
 		MaxPlayers:    2,
-		BuyIn:         100,
+		BuyIn:         0,
 		StartingChips: startingChips,
 		AutoAdvanceMs: 1000,
 	})
@@ -1714,4 +1547,65 @@ func TestTimebankExpiryBroadcast(t *testing.T) {
 	ms1.cancel()
 	ms2.cancel()
 	wg.Wait()
+}
+
+func TestSetPlayerReadyRequiresFundedEscrowWhenBound(t *testing.T) {
+	ctx := context.Background()
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+
+	// Use zeroShortID.String() as hostID so it matches the escrow OwnerUID
+	hostID := zeroShortID.String()
+	createResp, err := srv.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      hostID,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    1,
+		MaxPlayers:    2,
+		BuyIn:         1_000,
+		StartingChips: 1_000,
+		AutoAdvanceMs: 1_000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	es := &refereeEscrowSession{
+		EscrowID:        "escrow-unfunded",
+		OwnerUID:        zeroShortID,
+		AmountAtoms:     1_000,
+		RedeemScriptHex: "51",
+		PkScriptHex:     "51",
+		TableID:         tableID,
+		SeatIndex:       0,
+	}
+	srv.referee.mu.Lock()
+	srv.referee.escrows[es.EscrowID] = es
+	srv.referee.mu.Unlock()
+
+	table, ok := srv.getTable(tableID)
+	require.True(t, ok)
+	_, changed, err := table.SetSeatEscrowState(0, es.EscrowID, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	_, err = srv.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+		PlayerId: hostID,
+		TableId:  tableID,
+	})
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+
+	srv.TestBindEscrowFunding(es.EscrowID, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 0, 1_000)
+
+	_, err = srv.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+		PlayerId: hostID,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
 }
