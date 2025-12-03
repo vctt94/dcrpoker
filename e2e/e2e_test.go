@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 	testenv "github.com/vctt94/pokerbisonrelay/e2e/internal/testenv"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // isTransientTurnError checks if an error is due to a race condition where
@@ -2486,18 +2488,20 @@ func TestGameOver_WinnerTakesAll(t *testing.T) {
 
 	require.True(t, gameOverDetected, "Expected game over within %d hands", maxHands)
 
-	// Wait longer than auto-start delay to ensure no new hand starts
-	t.Log("Waiting to verify no auto-start after game over...")
-	time.Sleep(3 * time.Second)
-
-	// Verify game is still in SHOWDOWN and hasn't auto-started a new hand
+	// Verify game over state: game should be in SHOWDOWN phase
+	// (This is the state when game over is detected, before table cleanup)
+	t.Log("Verifying game over state...")
 	state := env.GetGameState(ctx, tableID)
-	assert.Equal(t, pokerrpc.GamePhase_SHOWDOWN, state.Phase, "Game should remain in SHOWDOWN after winner takes all")
+	assert.Equal(t, pokerrpc.GamePhase_SHOWDOWN, state.Phase, "Game should be in SHOWDOWN when game over is detected")
 
-	// Verify the phase hasn't changed (still in SHOWDOWN, not back to PRE_FLOP for a new hand)
-	assert.NotEqual(t, pokerrpc.GamePhase_PRE_FLOP, state.Phase, "Game should not start a new hand after winner takes all")
+	// Wait for table removal (server removes table after 1 second grace period)
+	t.Log("Waiting for table cleanup after game over...")
+	require.Eventually(t, func() bool {
+		_, err := env.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		return err != nil && status.Code(err) == codes.NotFound
+	}, 3*time.Second, 100*time.Millisecond, "Table should be removed after game over")
 
-	t.Log("✓ Game correctly stayed in SHOWDOWN - no auto-start after game over")
+	t.Log("✓ Game over correctly detected, winner takes all chips, and table was properly cleaned up")
 }
 
 // -----------------------------------------------------------------------------
