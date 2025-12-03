@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
@@ -315,29 +316,8 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 			}
 		}
 
-		// No other players: close table (runtime + DB)
-		if table != nil {
-			table.Close() // Properly clean up all goroutines to prevent leaks
-		}
-		s.tables.Delete(req.TableId)
-		s.saveMutexes.Delete(req.TableId)
-
-		// Remove table from DB; cascades will clean participants/hands/snapshot
-		if err := s.db.DeleteTable(ctx, req.TableId); err != nil {
-			s.log.Errorf("Failed to delete table in DB: %v", err)
-		}
-
-		// Notify clients
-		evt, err := s.buildGameEvent(
-			pokerrpc.NotificationType_TABLE_REMOVED,
-			req.TableId,
-			nil,
-		)
-		if err != nil {
-			s.log.Errorf("Failed to build TABLE_REMOVED event: %v", err)
-			return nil, err
-		}
-		s.eventProcessor.PublishEvent(evt)
+		// No other players: publish removal through the event pipeline.
+		s.publishTableRemovedEvent(req.TableId)
 
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
@@ -674,5 +654,61 @@ func (s *Server) processTableEvents(eventChan <-chan poker.TableEvent) {
 			continue
 		}
 		s.eventProcessor.PublishEvent(ev)
+	}
+}
+
+// removeTableFromRegistry prunes all runtime references for a table that has
+// already been closed. This is triggered when a TABLE_REMOVED event is
+// received, mirroring the explicit handling of TABLE_CREATED.
+func (s *Server) removeTableFromRegistry(tableID string) {
+	s.tables.Delete(tableID)
+	s.saveMutexes.Delete(tableID)
+	s.broadcastMutexes.Delete(tableID)
+	s.gameStreams.Delete(tableID)
+}
+
+// publishTableRemovedEvent enqueues a TABLE_REMOVED event so the event pipeline
+// can notify clients and persist the final snapshot before cleanup.
+func (s *Server) publishTableRemovedEvent(tableID string) {
+	evt, err := s.buildGameEvent(
+		pokerrpc.NotificationType_TABLE_REMOVED,
+		tableID,
+		nil,
+	)
+	if err != nil {
+		s.log.Errorf("Failed to build TABLE_REMOVED event: %v", err)
+		return
+	}
+	s.eventProcessor.PublishEvent(evt)
+	s.log.Debugf("Published TABLE_REMOVED event for table %s", tableID)
+}
+
+// finalizeTableRemoval performs the irreversible cleanup after TABLE_REMOVED
+// has been published. The server owns shutdown to avoid self-deadlocks in the
+// table FSM.
+func (s *Server) finalizeTableRemoval(tableID string) {
+	// Ensure cleanup happens once per table.
+	if _, loaded := s.removedTables.LoadOrStore(tableID, struct{}{}); loaded {
+		return
+	}
+
+	// Block on any in-flight snapshot save for this table so we don't delete
+	// the DB row while a GAME_ENDED persistence is writing.
+	v, _ := s.saveMutexes.LoadOrStore(tableID, &sync.Mutex{})
+	saveMutex, _ := v.(*sync.Mutex)
+	saveMutex.Lock()
+	defer saveMutex.Unlock()
+
+	if tbl, ok := s.getTable(tableID); ok && tbl != nil {
+		// Close is idempotent; safe if table already shut down.
+		tbl.Close()
+	}
+
+	// Remove from registry - this makes getTable() return false for this table
+	s.removeTableFromRegistry(tableID)
+
+	// Delete from database
+	if err := s.db.DeleteTable(context.Background(), tableID); err != nil {
+		s.log.Errorf("Failed to delete table %s in DB after TABLE_REMOVED: %v", tableID, err)
 	}
 }

@@ -25,6 +25,7 @@ enum PokerState {
   inLobby, // seated, waiting / readying
   handInProgress, // active betting streets
   showdown, // results surfaced
+  gameEnded, // game over - winner determined
   tournamentOver, // SNG complete
 }
 
@@ -329,6 +330,7 @@ class PokerModel extends ChangeNotifier {
   int lastShowdownFxMs = 0; // monotonic trigger for showdown chip animation
   String errorMessage = '';
   String successMessage = '';
+  String gameEndingMessage = ''; // message shown when game ends
   int myAtomsBalance = 0; // DCR atoms (wallet balance for buy-in requirements)
   // Track outpoints that have failed binding so we can hide them from future bind dialogs.
   final Set<String> _invalidEscrowOutpoints = {};
@@ -495,6 +497,14 @@ class PokerModel extends ChangeNotifier {
         // The stream will send the game state with hand cards
         break;
       case pr.NotificationType.GAME_ENDED:
+        if (n.tableId == currentTableId) {
+          // Game has ended - transition to gameEnded state
+          gameEndingMessage = n.message.isNotEmpty ? n.message : 'Game ended';
+          _state = PokerState.gameEnded;
+          notifyListeners();
+        }
+        // Don't call refreshGameState - game is over
+        break;
       case pr.NotificationType.BET_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
           final amt = n.hasAmount() ? n.amount.toInt() : 0;
@@ -590,6 +600,11 @@ class PokerModel extends ChangeNotifier {
 
   // -------- Game Updates (from game stream) ----------
   void _onGameUpdate(pr.GameUpdate gameUpdate) {
+    // Don't process game updates if game has ended
+    if (_state == PokerState.gameEnded) {
+      return;
+    }
+
     // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
     final mePlayer = me;

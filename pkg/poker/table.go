@@ -341,6 +341,18 @@ func (t *Table) handleGameOver(winnerID string) {
 	users := t.users
 	t.mu.RUnlock()
 
+	defer func() {
+		// Shutdown the finished game outside table lock to avoid deadlocks.
+		if game != nil {
+			game.Close()
+		}
+
+		// Notify the table state machine that the game has ended.
+		if err := t.sendTableEvent(evGameEnded{}); err != nil {
+			t.log.Warnf("Failed to send evGameEnded after game over: %v", err)
+		}
+	}()
+
 	if game != nil {
 		game.mu.Lock()
 		game.cancelAutoStart()
@@ -380,6 +392,7 @@ func (t *Table) handleGameOver(winnerID string) {
 		MatchID:    matchID,
 		TotalPot:   totalPot,
 	})
+
 }
 
 // Thread-safe readiness check for state fns.
@@ -1359,17 +1372,17 @@ func (t *Table) GetUserAtSeat(seat int) *User {
 // RemoveUser removes a user from the table
 func (t *Table) RemoveUser(userID string) error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
+	sm := t.sm
 	if _, exists := t.users[userID]; !exists {
+		t.mu.Unlock()
 		return fmt.Errorf("user not at table")
 	}
-
 	delete(t.users, userID)
 	t.lastAction = time.Now()
+	t.mu.Unlock()
 
 	// Trigger state machine update to check if we should transition back to WAITING_FOR_PLAYERS
-	t.sm.Send(evUsersChanged{})
+	sm.Send(evUsersChanged{})
 
 	return nil
 }

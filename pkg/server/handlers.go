@@ -75,6 +75,8 @@ func (nh *NotificationHandler) handleTableRemoved(event *GameEvent) {
 		Type:    pokerrpc.NotificationType_TABLE_REMOVED,
 		TableId: event.TableID,
 	}
+	// Finalize table removal: close table, remove from registry, delete from DB
+	nh.server.finalizeTableRemoval(event.TableID)
 	nh.server.broadcastNotificationToAll(notification)
 }
 
@@ -191,6 +193,15 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 	if pl.WinnerID != "" && pl.MatchID != "" && pl.WinnerSeat >= 0 {
 		go nh.server.trySettlementBroadcast(event.TableID, pl.MatchID, pl.WinnerSeat, pl.WinnerID, event.PlayerIDs)
 	}
+
+	// After the match is finished, remove the table so subsequent RPCs
+	// treat it as gone. Use a short grace period so clients/tests can
+	// query final state (e.g., GetLastWinners) before the table closes.
+	go func(tableID string) {
+		time.Sleep(1 * time.Second)
+		nh.server.publishTableRemovedEvent(tableID)
+	}(event.TableID)
+
 }
 
 func (nh *NotificationHandler) handlePlayerReady(event *GameEvent) {
@@ -297,6 +308,13 @@ func NewGameStateHandler(server *Server) *GameStateHandler {
 }
 
 func (gsh *GameStateHandler) HandleEvent(event *GameEvent) {
+	// Skip game state updates for GAME_ENDED events - game is over,
+	// clients should have already received the final state from SHOWDOWN_RESULT.
+	// This prevents unnecessary GetLastWinners calls after game ends.
+	if event.Type == pokerrpc.NotificationType_GAME_ENDED {
+		return
+	}
+
 	// Build game states from the event snapshot
 	gameStates := gsh.buildGameStatesFromSnapshot(event.TableSnapshot)
 	if len(gameStates) > 0 {

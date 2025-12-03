@@ -126,12 +126,9 @@ func (s *Server) buildGameEvent(
 	// to prevent deadlocks when called under the server write lock.
 	if eventType == pokerrpc.NotificationType_TABLE_CREATED || eventType == pokerrpc.NotificationType_TABLE_REMOVED {
 		return &GameEvent{
-			Type:          eventType,
-			TableID:       tableID,
-			PlayerIDs:     nil,
-			Timestamp:     time.Now(),
-			TableSnapshot: nil,
-			Payload:       nil,
+			Type:      eventType,
+			TableID:   tableID,
+			Timestamp: time.Now(),
 		}, nil
 	}
 
