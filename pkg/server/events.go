@@ -216,6 +216,12 @@ func (w *eventWorker) run() {
 func (w *eventWorker) processEvent(event *GameEvent) {
 	w.processor.log.Debugf("Worker %d processing event: %s for table %s", w.id, event.Type, event.TableID)
 
+	// TABLE_REMOVED requires synchronous ordering: save -> finalize -> notify.
+	if event.Type == pokerrpc.NotificationType_TABLE_REMOVED {
+		w.processTableRemoved(event)
+		return
+	}
+
 	// Process event through all handlers
 	w.processNotifications(event)
 	w.processGameStateUpdates(event)
@@ -238,4 +244,16 @@ func (w *eventWorker) processGameStateUpdates(event *GameEvent) {
 func (w *eventWorker) processPersistence(event *GameEvent) {
 	handler := NewPersistenceHandler(w.processor.server)
 	handler.SaveTableStateAsync(event)
+}
+
+// processTableRemoved enforces ordering for table shutdown to avoid races.
+func (w *eventWorker) processTableRemoved(event *GameEvent) {
+	s := w.processor.server
+
+	// Perform irreversible cleanup while holding the save mutex.
+	s.finalizeTableRemoval(event.TableID)
+
+	// Now broadcast to clients that the table is gone.
+	handler := NewNotificationHandler(s)
+	handler.handleTableRemoved(event)
 }

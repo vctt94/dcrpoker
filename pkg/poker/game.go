@@ -2430,6 +2430,8 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 		}
 		// Lock the player's own mutex while copying fields that are mutated by the FSM
 		player.mu.RLock()
+		// Use getCurrentState() directly since we already hold the lock (avoids nested RLock)
+		stateStr := player.getCurrentState().String()
 		playerCopy := PlayerSnapshot{
 			ID:              player.id,
 			Name:            player.name,
@@ -2449,7 +2451,7 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			HandDescription: player.handDescription,
 			HandValue:       player.handValue,
 			LastAction:      player.lastAction,
-			StateString:     player.GetCurrentStateString(),
+			StateString:     stateStr,
 		}
 		player.mu.RUnlock()
 
@@ -2480,9 +2482,8 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	}
 
 	// Calculate pot amount based on game phase
-	var potAmount int64
 	// During showdown, use getTotalPot() after pots have been built
-	potAmount = g.potManager.getTotalPot()
+	potAmount := g.potManager.getTotalPot()
 
 	winners := make([]PlayerSnapshot, 0)
 	// Get winners if available

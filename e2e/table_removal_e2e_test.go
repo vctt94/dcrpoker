@@ -110,18 +110,30 @@ func TestTableRemovedAfterGameOver(t *testing.T) {
 	// Play up to 3 all-in hands to guarantee someone busts (ties are rare but possible).
 	winnerID := ""
 	for hand := 1; hand <= 3 && winnerID == ""; hand++ {
-		state := env.GetGameState(ctx, tableID)
+		state, removed := env.GetGameStateAllowNotFound(ctx, tableID)
+		if removed {
+			// Table already gone; treat as terminal winner determined.
+			winnerID = "table_removed"
+			break
+		}
 
 		firstID := state.CurrentPlayer
 		allIn(firstID)
 
 		// Wait for turn to advance to the second player.
 		require.Eventually(t, func() bool {
-			st := env.GetGameState(ctx, tableID)
+			st, removed := env.GetGameStateAllowNotFound(ctx, tableID)
+			if removed {
+				return true
+			}
 			return st.CurrentPlayer != firstID
 		}, 2*time.Second, 25*time.Millisecond, "turn should advance after first all-in")
 
-		state = env.GetGameState(ctx, tableID)
+		state, removed = env.GetGameStateAllowNotFound(ctx, tableID)
+		if removed {
+			winnerID = "table_removed"
+			break
+		}
 		secondID := state.CurrentPlayer
 		allIn(secondID)
 

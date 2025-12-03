@@ -317,7 +317,14 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 		}
 
 		// No other players: publish removal through the event pipeline.
-		s.publishTableRemovedEvent(req.TableId)
+		ack := s.publishTableRemovedEvent(req.TableId)
+
+		// Wait briefly for cleanup so callers/tests see a consistent state.
+		select {
+		case <-ack:
+		case <-time.After(2 * time.Second):
+			s.log.Warnf("timeout waiting for table %s removal", req.TableId)
+		}
 
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
@@ -667,9 +674,49 @@ func (s *Server) removeTableFromRegistry(tableID string) {
 	s.gameStreams.Delete(tableID)
 }
 
+// getTableRemovalAck returns a completion channel for a given table removal.
+// The channel is created once per tableID and closed when finalization ends.
+func (s *Server) getTableRemovalAck(tableID string) chan struct{} {
+	ch, _ := s.tableRemovalAcks.LoadOrStore(tableID, make(chan struct{}))
+	return ch.(chan struct{})
+}
+
+// signalTableRemovalDone closes and cleans up the ack channel for a tableID.
+func (s *Server) signalTableRemovalDone(tableID string) {
+	if ch, ok := s.tableRemovalAcks.Load(tableID); ok {
+		c := ch.(chan struct{})
+		select {
+		case <-c:
+		default:
+			close(c)
+		}
+		s.tableRemovalAcks.Delete(tableID)
+	}
+}
+
+// scheduleTableRemoval publishes TABLE_REMOVED after a short grace period to
+// allow late reads of final state (e.g., GetLastWinners) without sprinkling
+// arbitrary sleeps. Returns the removal ack channel for callers to wait on.
+func (s *Server) scheduleTableRemoval(tableID string) <-chan struct{} {
+	const grace = 1 * time.Second
+	timer := time.NewTimer(grace)
+	go func() {
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+			s.publishTableRemovedEvent(tableID)
+		case <-s.getTableRemovalAck(tableID):
+			// Already removed elsewhere; skip.
+		}
+	}()
+	return s.getTableRemovalAck(tableID)
+}
+
 // publishTableRemovedEvent enqueues a TABLE_REMOVED event so the event pipeline
 // can notify clients and persist the final snapshot before cleanup.
-func (s *Server) publishTableRemovedEvent(tableID string) {
+func (s *Server) publishTableRemovedEvent(tableID string) <-chan struct{} {
+	ack := s.getTableRemovalAck(tableID)
+
 	evt, err := s.buildGameEvent(
 		pokerrpc.NotificationType_TABLE_REMOVED,
 		tableID,
@@ -677,10 +724,11 @@ func (s *Server) publishTableRemovedEvent(tableID string) {
 	)
 	if err != nil {
 		s.log.Errorf("Failed to build TABLE_REMOVED event: %v", err)
-		return
+		return ack
 	}
 	s.eventProcessor.PublishEvent(evt)
 	s.log.Debugf("Published TABLE_REMOVED event for table %s", tableID)
+	return ack
 }
 
 // finalizeTableRemoval performs the irreversible cleanup after TABLE_REMOVED
@@ -706,4 +754,7 @@ func (s *Server) finalizeTableRemoval(tableID string) {
 	if err := s.db.DeleteTable(context.Background(), tableID); err != nil {
 		s.log.Errorf("Failed to delete table %s in DB after TABLE_REMOVED: %v", tableID, err)
 	}
+
+	// Notify waiters (tests/handlers) that removal is complete.
+	s.signalTableRemovalDone(tableID)
 }

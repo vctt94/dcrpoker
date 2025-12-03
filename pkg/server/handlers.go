@@ -75,8 +75,6 @@ func (nh *NotificationHandler) handleTableRemoved(event *GameEvent) {
 		Type:    pokerrpc.NotificationType_TABLE_REMOVED,
 		TableId: event.TableID,
 	}
-	// Finalize table removal: close table, remove from registry, delete from DB
-	nh.server.finalizeTableRemoval(event.TableID)
 	nh.server.broadcastNotificationToAll(notification)
 }
 
@@ -198,8 +196,7 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 	// treat it as gone. Use a short grace period so clients/tests can
 	// query final state (e.g., GetLastWinners) before the table closes.
 	go func(tableID string) {
-		time.Sleep(1 * time.Second)
-		nh.server.publishTableRemovedEvent(tableID)
+		nh.server.scheduleTableRemoval(tableID)
 	}(event.TableID)
 
 }
@@ -571,5 +568,9 @@ func NewPersistenceHandler(server *Server) *PersistenceHandler {
 }
 
 func (ph *PersistenceHandler) SaveTableStateAsync(event *GameEvent) {
+	// TABLE_REMOVED is handled synchronously in the event worker to avoid races.
+	if event.Type == pokerrpc.NotificationType_TABLE_REMOVED {
+		return
+	}
 	ph.server.saveTableStateAsync(event.TableID, string(event.Type))
 }

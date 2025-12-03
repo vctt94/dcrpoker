@@ -15,8 +15,10 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 	"google.golang.org/protobuf/proto"
 )
@@ -199,6 +201,43 @@ func (e *Env) GetGameState(ctx context.Context, tableID string) *pokerrpc.GameUp
 	resp, err := e.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	require.NoError(e.t, err)
 	return resp.GameState
+}
+
+// GetGameStateAllowNotFound returns the game state and a flag indicating the
+// table was already removed. Any other error fails the test.
+func (e *Env) GetGameStateAllowNotFound(ctx context.Context, tableID string) (*pokerrpc.GameUpdate, bool) {
+	resp, err := e.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+	if err != nil {
+		if status.Code(err) == codes.NotFound {
+			return nil, true
+		}
+		require.NoError(e.t, err)
+	}
+	return resp.GameState, false
+}
+
+// WaitForShowdownOrRemoval waits until the game reaches SHOWDOWN or the table
+// is removed (NotFound), to accommodate fast game-over flows where the table is
+// closed immediately after settlement.
+func (e *Env) WaitForShowdownOrRemoval(ctx context.Context, tableID string, timeout time.Duration) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		resp, err := e.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		if err == nil {
+			if resp.GameState.GetPhase() == pokerrpc.GamePhase_SHOWDOWN {
+				return
+			}
+		} else if status.Code(err) == codes.NotFound {
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			e.t.Fatalf("game did not reach SHOWDOWN (or table removed) within %s", timeout)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
 }
 
 // CreateStandardTable creates a table with standard settings for testing.

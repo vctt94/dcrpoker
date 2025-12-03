@@ -101,6 +101,10 @@ type Server struct {
 	// key: tableID string -> *sync.Mutex
 	broadcastMutexes sync.Map
 
+	// Table removal acknowledgements: tableID -> chan struct{} closed after
+	// finalization completes so callers/tests can wait for cleanup.
+	tableRemovalAcks sync.Map
+
 	// Notification send serialization per player
 	// key: playerID string -> *sync.Mutex
 	notifSendMutexes sync.Map
