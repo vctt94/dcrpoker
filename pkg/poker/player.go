@@ -737,12 +737,7 @@ func stateHandFolded(p *Player, in <-chan any) HandParticipationStateFn {
 	return nil
 }
 
-// ResetForNewHand prepares the player for a new hand.
-// This clears per-hand flags that persisted through showdown.
-func (p *Player) ResetForNewHand(startingChips int64) error {
-	// Set stack for the new hand (table-sourced).
-	// Clear per-hand flags (these persisted through showdown, now reset for new hand)
-	p.mu.Lock()
+func (p *Player) resetForNewHand(startingChips int64) {
 	p.balance = startingChips
 	p.startingBalance = startingChips
 	p.lastAction = time.Now()
@@ -756,11 +751,16 @@ func (p *Player) ResetForNewHand(startingChips int64) error {
 		p.handParticipation.Stop()
 		p.handParticipation = nil
 	}
-	p.mu.Unlock()
+}
 
-	// Player remains seated at table (table presence unchanged)
-	// Hand participation will start when Game FSM sends evStartHand
-	return nil
+// ResetForNewHand prepares the player for a new hand.
+// This clears per-hand flags that persisted through showdown.
+func (p *Player) ResetForNewHand(startingChips int64) {
+	// Set stack for the new hand (table-sourced).
+	// Clear per-hand flags (these persisted through showdown, now reset for new hand)
+	p.mu.Lock()
+	p.resetForNewHand(startingChips)
+	p.mu.Unlock()
 }
 
 // GetPlayerStateString converts a playerState to its string representation

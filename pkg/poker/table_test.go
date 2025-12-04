@@ -247,8 +247,10 @@ func TestMakeBetAllInWithBalanceAfterBlind(t *testing.T) {
 	initialBet := sb.CurrentBet
 	require.Greater(t, initialBet, int64(0), "small blind should have posted a blind")
 	t.Logf("SB before bet: balance=%d currentBet=%d starting=%d", initialBalance, initialBet, sb.StartingBalance)
-	// Balance shown to the player excludes the posted blind; betting that balance should shove the full stack.
-	require.NoError(t, tbl.MakeBet(sb.ID, initialBalance))
+	// MakeBet expects the total bet amount (blind + remaining balance), not just the remaining balance.
+	// To go all-in, bet the total: initialBet (10) + initialBalance (990) = 1000
+	totalBetAmount := initialBet + initialBalance
+	require.NoError(t, tbl.MakeBet(sb.ID, totalBetAmount))
 
 	g := tbl.GetGame()
 	require.NotNil(t, g)

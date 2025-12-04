@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 // It implements only the methods actually used by the code-under-test.
 
 type mockNotificationStream struct {
+	mu   sync.RWMutex
 	sent []*pokerrpc.Notification
 }
 
@@ -28,6 +30,8 @@ var _ pokerrpc.LobbyService_StartNotificationStreamServer = (*mockNotificationSt
 
 // Send records the notification for inspection.
 func (m *mockNotificationStream) Send(n *pokerrpc.Notification) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sent = append(m.sent, n)
 	return nil
 }
@@ -80,10 +84,16 @@ func TestNotificationHandlerAddsTableOnPlayerJoined(t *testing.T) {
 		TableSnapshot: snap,
 	})
 
-	if len(mockStream.sent) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(mockStream.sent))
+	mockStream.mu.RLock()
+	sentLen := len(mockStream.sent)
+	var ntfn *pokerrpc.Notification
+	if sentLen > 0 {
+		ntfn = mockStream.sent[0]
 	}
-	ntfn := mockStream.sent[0]
+	mockStream.mu.RUnlock()
+	if sentLen != 1 {
+		t.Fatalf("expected 1 notification, got %d", sentLen)
+	}
 	if ntfn.Table == nil {
 		t.Fatalf("notification missing table payload")
 	}
@@ -128,10 +138,16 @@ func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
 		TableID: cfg.ID,
 	})
 
-	if len(mockStream.sent) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(mockStream.sent))
+	mockStream.mu.RLock()
+	sentLen := len(mockStream.sent)
+	var ntfn *pokerrpc.Notification
+	if sentLen > 0 {
+		ntfn = mockStream.sent[0]
 	}
-	ntfn := mockStream.sent[0]
+	mockStream.mu.RUnlock()
+	if sentLen != 1 {
+		t.Fatalf("expected 1 notification, got %d", sentLen)
+	}
 	if ntfn.Table == nil {
 		t.Fatalf("notification missing table payload")
 	}
@@ -193,6 +209,8 @@ func TestLeaveTablePublishesPlayerLeft(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
+		mockStream.mu.RLock()
+		defer mockStream.mu.RUnlock()
 		for _, n := range mockStream.sent {
 			if n.Type == pokerrpc.NotificationType_PLAYER_LEFT && n.TableId == tableID {
 				return n.Table != nil && n.Table.CurrentPlayers == 1

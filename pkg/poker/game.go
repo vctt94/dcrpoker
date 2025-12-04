@@ -1159,9 +1159,11 @@ func (g *Game) ResetForNewHandFromUsers(users []*User) error {
 		u.mu.RUnlock()
 
 		if p := byID[userID]; p != nil {
-			// Reset existing player for new hand while preserving balance
-			_ = p.ResetForNewHand(p.balance)
 			p.mu.Lock()
+			// Cancel any pending timebank timer before resetting player
+			p.cancelTimebank()
+			// Reset existing player for new hand while preserving balance
+			p.resetForNewHand(p.balance)
 			p.tableSeat = tableSeat
 			p.isReady = isReady
 			p.timebankDelay = g.config.TimeBank
