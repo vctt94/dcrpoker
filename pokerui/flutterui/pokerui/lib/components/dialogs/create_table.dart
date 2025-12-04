@@ -30,16 +30,11 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
   // Defaults
   int _smallBlind = 10;
   int _bigBlind = 20;
-  int _minPlayers = 2;
   int _maxPlayers = 2;
   String _buyInDcr = '0.0';
-  String _minBalanceDcr = '0.0';
   int _startingChips = 1000;
   int _timeBankSeconds = 30;
-  int _autoAdvanceMs = 0; // Default set on server (1 second)
-  bool _autoJoin = true;
 
-  double _toDcr(int atoms) => atoms / 1e8;
   int _toAtoms(String dcrStr) {
     final v = double.tryParse(dcrStr.trim()) ?? 0.0;
     return (v * 1e8).round();
@@ -47,7 +42,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Form(
@@ -84,12 +78,7 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
                   onSaved: (v) => _bigBlind = int.parse(v!),
                 ),
                 _numberField(
-                  label: 'Min Players',
-                  initial: _minPlayers.toString(),
-                  onSaved: (v) => _minPlayers = int.parse(v!),
-                ),
-                _numberField(
-                  label: 'Max Players',
+                  label: 'Number of Players',
                   initial: _maxPlayers.toString(),
                   onSaved: (v) => _maxPlayers = int.parse(v!),
                 ),
@@ -97,11 +86,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
                   label: 'Buy-in (DCR)',
                   initial: _buyInDcr,
                   onSaved: (v) => _buyInDcr = v!,
-                ),
-                _decimalField(
-                  label: 'Min Balance (DCR)',
-                  initial: _minBalanceDcr,
-                  onSaved: (v) => _minBalanceDcr = v!,
                 ),
                 _numberField(
                   label: 'Starting Chips',
@@ -113,21 +97,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
                   initial: _timeBankSeconds.toString(),
                   onSaved: (v) => _timeBankSeconds = int.parse(v!),
                 ),
-                _numberField(
-                  label: 'Auto-advance (ms)',
-                  initial: _autoAdvanceMs.toString(),
-                  onSaved: (v) => _autoAdvanceMs = int.parse(v!),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Checkbox(
-                  value: _autoJoin,
-                  onChanged: (v) => setState(() => _autoJoin = v ?? true),
-                ),
-                const Text('Auto-join after creating', style: TextStyle(color: Colors.white70)),
               ],
             ),
             const SizedBox(height: 16),
@@ -209,21 +178,21 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
     _form.currentState!.save();
 
     final buyInAtoms = _toAtoms(_buyInDcr);
-    final minBalAtoms = _toAtoms(_minBalanceDcr);
 
     final tid = await widget.model.createTable(
       smallBlindChips: _smallBlind,
       bigBlindChips: _bigBlind,
       maxPlayers: _maxPlayers,
-      minPlayers: _minPlayers,
-      minBalanceAtoms: minBalAtoms,
+      // WTA uses a fixed minimum; keep it hidden from the UI.
+      minPlayers: 2,
+      minBalanceAtoms: 0,
       buyInAtoms: buyInAtoms,
       startingChips: _startingChips,
       timeBankSeconds: _timeBankSeconds,
-      autoAdvanceMs: _autoAdvanceMs,
+      autoAdvanceMs: 0,
     );
 
-    if (tid != null && _autoJoin) {
+    if (tid != null) {
       await widget.model.joinTable(tid);
     }
 
