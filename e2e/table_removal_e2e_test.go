@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -146,17 +145,22 @@ func TestTableRemovedAfterGameOver(t *testing.T) {
 		}, 5*time.Second, 25*time.Millisecond, "expected showdown winners to be available")
 
 		finalState := env.GetGameState(ctx, tableID)
-		var playersWithChips int
+		var (
+			playersWithChips int
+			soleSurvivorID   string
+		)
 		for _, ps := range finalState.Players {
-			fmt.Println("player", ps.Id, ps.Balance)
-			if ps != nil && ps.Balance > 0 {
-				fmt.Println("player with chips", ps.Id, ps.Balance)
+			if ps == nil {
+				continue
+			}
+			if ps.Balance > 0 {
 				playersWithChips++
-				winnerID = ps.Id
+				soleSurvivorID = ps.Id
 			}
 		}
 
 		if playersWithChips == 1 {
+			winnerID = soleSurvivorID
 			break
 		}
 
