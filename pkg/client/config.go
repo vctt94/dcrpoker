@@ -13,6 +13,12 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+// Default gRPC connection settings for production deployment
+const (
+	defaultGRPCHost = "178.156.178.191"
+	defaultGRPCPort = "50050"
+)
+
 // defaultServerCertPEM is written to <datadir>/ca.cert on first run when creating
 // a default config, so the UI has a usable TLS cert path out of the box.
 const defaultServerCertPEM = `-----BEGIN CERTIFICATE-----
@@ -111,23 +117,34 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 		return nil, err
 	}
 
-	var missing []string
-	// Check all required fields after parsing (in case keys were missing entirely)
+	// Apply defaults for missing values (only datadir is truly required)
 	if strings.TrimSpace(cfg.Datadir) == "" {
-		missing = append(missing, "datadir")
-	}
-	if strings.TrimSpace(cfg.GRPCHost) == "" {
-		missing = append(missing, "grpchost")
-	}
-	if strings.TrimSpace(cfg.GRPCPort) == "" {
-		missing = append(missing, "grpcport")
-	}
-	if strings.TrimSpace(cfg.GRPCCertPath) == "" {
-		missing = append(missing, "grpccertpath")
+		return nil, fmt.Errorf("missing required field: datadir")
 	}
 
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
+	// Apply defaults for gRPC settings if not specified
+	if strings.TrimSpace(cfg.GRPCHost) == "" {
+		cfg.GRPCHost = defaultGRPCHost
+	}
+	if strings.TrimSpace(cfg.GRPCPort) == "" {
+		cfg.GRPCPort = defaultGRPCPort
+	}
+	if strings.TrimSpace(cfg.GRPCCertPath) == "" {
+		cfg.GRPCCertPath = filepath.Join(cfg.Datadir, "ca.cert")
+	}
+
+	// Apply defaults for other optional fields
+	if cfg.LogFile == "" {
+		cfg.LogFile = filepath.Join(cfg.Datadir, "logs", appName+".log")
+	}
+	if cfg.Debug == "" {
+		cfg.Debug = "info"
+	}
+	if cfg.MaxLogFiles == 0 {
+		cfg.MaxLogFiles = 5
+	}
+	if cfg.MaxBufferLines == 0 {
+		cfg.MaxBufferLines = 1000
 	}
 
 	return cfg, nil
@@ -160,17 +177,25 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Ensure default certificate exists if cert path is set
+		if cfg.GRPCCertPath != "" {
+			if _, err := os.Stat(cfg.GRPCCertPath); os.IsNotExist(err) {
+				if err := CreateDefaultServerCert(cfg.GRPCCertPath); err != nil {
+					return nil, fmt.Errorf("failed to create default server cert: %w", err)
+				}
+			}
+		}
 		return cfg, nil
 	}
 
-	// Create default config pointing at a local pokerbot instance.
+	// Create default config with production deployment defaults.
 	// The Flutter UI and CLI can both override these values later, but this
-	// keeps first-run fully local without requiring user input.
+	// keeps first-run working without requiring user input.
 	cfg := &PokerConf{
 		Datadir:        configPath,
 		GRPCCertPath:   filepath.Join(configPath, "ca.cert"),
-		GRPCHost:       "178.156.178.191",
-		GRPCPort:       "50050",
+		GRPCHost:       defaultGRPCHost,
+		GRPCPort:       defaultGRPCPort,
 		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
 		Debug:          "info",
 		MaxLogFiles:    5,
