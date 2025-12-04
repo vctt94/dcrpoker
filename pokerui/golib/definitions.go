@@ -289,7 +289,6 @@ type createPokerTable struct {
 	BigBlind        int64 `json:"big_blind"`
 	MaxPlayers      int32 `json:"max_players"`
 	MinPlayers      int32 `json:"min_players"`
-	MinBalance      int64 `json:"min_balance"`
 	BuyIn           int64 `json:"buy_in"`
 	StartingChips   int64 `json:"starting_chips"`
 	TimeBankSeconds int32 `json:"time_bank_seconds"`
@@ -364,7 +363,6 @@ type pokerTable struct {
 	MaxPlayers      int32  `json:"max_players"`
 	MinPlayers      int32  `json:"min_players"`
 	CurrentPlayers  int32  `json:"current_players"`
-	MinBalance      int64  `json:"min_balance"`
 	BuyIn           int64  `json:"buy_in"`
 	GameStarted     bool   `json:"game_started"`
 	AllPlayersReady bool   `json:"all_players_ready"`
@@ -383,7 +381,6 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 		MaxPlayers:      t.MaxPlayers,
 		MinPlayers:      t.MinPlayers,
 		CurrentPlayers:  t.CurrentPlayers,
-		MinBalance:      t.MinBalance,
 		BuyIn:           t.BuyIn,
 		GameStarted:     t.GameStarted,
 		AllPlayersReady: t.AllPlayersReady,

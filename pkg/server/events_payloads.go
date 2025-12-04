@@ -99,6 +99,14 @@ func (PlayerLeftPayload) Kind() pokerrpc.NotificationType {
 	return pokerrpc.NotificationType_PLAYER_LEFT
 }
 
+type PlayerLostPayload struct {
+	PlayerID string
+}
+
+func (PlayerLostPayload) Kind() pokerrpc.NotificationType {
+	return pokerrpc.NotificationType_PLAYER_LOST
+}
+
 // PlayerAllInPayload announces that a player has gone all-in and the amount
 // they just committed in the action that caused it.
 type PlayerAllInPayload struct {

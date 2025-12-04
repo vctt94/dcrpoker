@@ -89,7 +89,6 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		MinPlayers:    2,
 		MaxPlayers:    2,
 		BuyIn:         0, // BuyIn: 0 to avoid escrow requirement in tests
-		MinBalance:    1_000,
 		StartingChips: 1_000,
 		AutoAdvanceMs: 1_000,
 	})

@@ -49,6 +49,8 @@ func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
 		nh.handlePlayerJoined(event)
 	case pokerrpc.NotificationType_PLAYER_LEFT:
 		nh.handlePlayerLeft(event)
+	case pokerrpc.NotificationType_PLAYER_LOST:
+		nh.handlePlayerLost(event)
 	case pokerrpc.NotificationType_NEW_HAND_STARTED:
 		nh.handleNewHandStarted(event)
 	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
@@ -59,11 +61,13 @@ func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
 }
 
 func (nh *NotificationHandler) handleTableCreated(event *GameEvent) {
+	table := nh.tableFromSnapshot(event)
 	// Inform all connected clients that a new table was created so they can
 	// refresh their lobby/waiting room lists.
 	notification := &pokerrpc.Notification{
 		Type:    pokerrpc.NotificationType_TABLE_CREATED,
 		TableId: event.TableID,
+		Table:   table,
 	}
 	nh.server.broadcastNotificationToAll(notification)
 }
@@ -232,10 +236,12 @@ func (nh *NotificationHandler) handlePlayerJoined(event *GameEvent) {
 		nh.server.log.Warnf("PLAYER_JOINED without PlayerJoinedPayload; skipping (table=%s)", event.TableID)
 		return
 	}
+	table := nh.tableFromSnapshot(event)
 	notification := &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_PLAYER_JOINED,
 		PlayerId: pl.PlayerID,
 		TableId:  event.TableID,
+		Table:    table,
 	}
 	// Broadcast to all so lobby lists update on every client.
 	nh.server.broadcastNotificationToAll(notification)
@@ -247,12 +253,32 @@ func (nh *NotificationHandler) handlePlayerLeft(event *GameEvent) {
 		nh.server.log.Warnf("PLAYER_LEFT without PlayerLeftPayload; skipping (table=%s)", event.TableID)
 		return
 	}
+	table := nh.tableFromSnapshot(event)
 	notification := &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_PLAYER_LEFT,
 		PlayerId: pl.PlayerID,
 		TableId:  event.TableID,
+		Table:    table,
 	}
 	// Broadcast to all so lobby lists update on every client.
+	nh.server.broadcastNotificationToAll(notification)
+}
+
+func (nh *NotificationHandler) handlePlayerLost(event *GameEvent) {
+	pl, ok := event.Payload.(PlayerLostPayload)
+	if !ok {
+		nh.server.log.Warnf("PLAYER_LOST without PlayerLostPayload; skipping (table=%s)", event.TableID)
+		return
+	}
+	notification := &pokerrpc.Notification{
+		Type:     pokerrpc.NotificationType_PLAYER_LOST,
+		PlayerId: pl.PlayerID,
+		TableId:  event.TableID,
+		Message:  "You lost all your chips and have been removed from the table.",
+	}
+	// Send specifically to the player who lost, and also broadcast to others
+	nh.server.sendNotificationToPlayer(pl.PlayerID, notification)
+	// Also broadcast to all so lobby lists update
 	nh.server.broadcastNotificationToAll(notification)
 }
 
@@ -292,6 +318,23 @@ func (nh *NotificationHandler) handlePlayerAllIn(event *GameEvent) {
 		Amount:   pl.Amount,
 	}
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
+}
+
+// tableFromSnapshot converts the event snapshot (or a fresh snapshot) into a
+// proto Table for lobby updates.
+func (nh *NotificationHandler) tableFromSnapshot(event *GameEvent) *pokerrpc.Table {
+	snap := event.TableSnapshot
+	if snap == nil {
+		// TABLE_CREATED/TABLE_REMOVED events don't collect snapshots by design,
+		// so fetch one lazily for lobby notifications.
+		var err error
+		snap, err = nh.server.collectTableSnapshot(event.TableID)
+		if err != nil {
+			nh.server.log.Warnf("failed to collect table snapshot for %s: %v", event.TableID, err)
+			return nil
+		}
+	}
+	return tableSnapshotToProtoTable(snap)
 }
 
 // ------------------------ Game State Handler ------------------------
@@ -495,6 +538,60 @@ func toRPCPlayerState(state string) pokerrpc.PlayerState {
 	default:
 		return pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
 	}
+}
+
+// tableSnapshotToProtoTable converts a TableSnapshot into a pokerrpc.Table for lobby notifications.
+func tableSnapshotToProtoTable(snapshot *TableSnapshot) *pokerrpc.Table {
+	if snapshot == nil {
+		return nil
+	}
+
+	table := &pokerrpc.Table{
+		Id:              snapshot.ID,
+		HostId:          snapshot.Config.HostID,
+		SmallBlind:      snapshot.Config.SmallBlind,
+		BigBlind:        snapshot.Config.BigBlind,
+		MaxPlayers:      int32(snapshot.Config.MaxPlayers),
+		MinPlayers:      int32(snapshot.Config.MinPlayers),
+		CurrentPlayers:  int32(snapshot.State.PlayerCount),
+		BuyIn:           snapshot.Config.BuyIn,
+		GameStarted:     snapshot.State.GameStarted,
+		AllPlayersReady: snapshot.State.AllPlayersReady,
+		Phase:           pokerrpc.GamePhase_WAITING,
+	}
+
+	if snapshot.GameSnapshot != nil {
+		table.Phase = snapshot.GameSnapshot.Phase
+	}
+
+	for _, ps := range snapshot.Players {
+		if ps == nil {
+			continue
+		}
+		player := &pokerrpc.Player{
+			Id:              ps.ID,
+			Name:            ps.Name,
+			Balance:         ps.Balance,
+			CurrentBet:      ps.HasBet,
+			Folded:          ps.HasFolded,
+			IsTurn:          ps.IsTurn,
+			IsAllIn:         ps.IsAllIn,
+			IsDealer:        ps.IsDealer,
+			IsReady:         ps.IsReady,
+			HandDescription: ps.HandDescription,
+			PlayerState:     toRPCPlayerState(ps.GameState),
+			IsSmallBlind:    ps.IsSmallBlind,
+			IsBigBlind:      ps.IsBigBlind,
+			IsDisconnected:  ps.IsDisconnected,
+			EscrowId:        ps.EscrowID,
+			EscrowReady:     ps.EscrowReady,
+			TableSeat:       int32(ps.TableSeat),
+			PresignComplete: ps.PresignComplete,
+		}
+		table.Players = append(table.Players, player)
+	}
+
+	return table
 }
 
 // trySettlementBroadcast attempts to finalize and broadcast the Schnorr settlement.

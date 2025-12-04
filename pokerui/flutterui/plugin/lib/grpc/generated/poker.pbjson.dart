@@ -487,12 +487,11 @@ const CreateTableRequest$json = {
     {'1': 'big_blind', '3': 3, '4': 1, '5': 3, '10': 'bigBlind'},
     {'1': 'max_players', '3': 4, '4': 1, '5': 5, '10': 'maxPlayers'},
     {'1': 'min_players', '3': 5, '4': 1, '5': 5, '10': 'minPlayers'},
-    {'1': 'min_balance', '3': 6, '4': 1, '5': 3, '10': 'minBalance'},
-    {'1': 'buy_in', '3': 7, '4': 1, '5': 3, '10': 'buyIn'},
-    {'1': 'starting_chips', '3': 8, '4': 1, '5': 3, '10': 'startingChips'},
-    {'1': 'time_bank_seconds', '3': 9, '4': 1, '5': 5, '10': 'timeBankSeconds'},
-    {'1': 'auto_start_ms', '3': 10, '4': 1, '5': 5, '10': 'autoStartMs'},
-    {'1': 'auto_advance_ms', '3': 11, '4': 1, '5': 5, '10': 'autoAdvanceMs'},
+    {'1': 'buy_in', '3': 6, '4': 1, '5': 3, '10': 'buyIn'},
+    {'1': 'starting_chips', '3': 7, '4': 1, '5': 3, '10': 'startingChips'},
+    {'1': 'time_bank_seconds', '3': 8, '4': 1, '5': 5, '10': 'timeBankSeconds'},
+    {'1': 'auto_start_ms', '3': 9, '4': 1, '5': 5, '10': 'autoStartMs'},
+    {'1': 'auto_advance_ms', '3': 10, '4': 1, '5': 5, '10': 'autoAdvanceMs'},
   ],
 };
 
@@ -501,11 +500,10 @@ final $typed_data.Uint8List createTableRequestDescriptor = $convert.base64Decode
     'ChJDcmVhdGVUYWJsZVJlcXVlc3QSGwoJcGxheWVyX2lkGAEgASgJUghwbGF5ZXJJZBIfCgtzbW'
     'FsbF9ibGluZBgCIAEoA1IKc21hbGxCbGluZBIbCgliaWdfYmxpbmQYAyABKANSCGJpZ0JsaW5k'
     'Eh8KC21heF9wbGF5ZXJzGAQgASgFUgptYXhQbGF5ZXJzEh8KC21pbl9wbGF5ZXJzGAUgASgFUg'
-    'ptaW5QbGF5ZXJzEh8KC21pbl9iYWxhbmNlGAYgASgDUgptaW5CYWxhbmNlEhUKBmJ1eV9pbhgH'
-    'IAEoA1IFYnV5SW4SJQoOc3RhcnRpbmdfY2hpcHMYCCABKANSDXN0YXJ0aW5nQ2hpcHMSKgoRdG'
-    'ltZV9iYW5rX3NlY29uZHMYCSABKAVSD3RpbWVCYW5rU2Vjb25kcxIiCg1hdXRvX3N0YXJ0X21z'
-    'GAogASgFUgthdXRvU3RhcnRNcxImCg9hdXRvX2FkdmFuY2VfbXMYCyABKAVSDWF1dG9BZHZhbm'
-    'NlTXM=');
+    'ptaW5QbGF5ZXJzEhUKBmJ1eV9pbhgGIAEoA1IFYnV5SW4SJQoOc3RhcnRpbmdfY2hpcHMYByAB'
+    'KANSDXN0YXJ0aW5nQ2hpcHMSKgoRdGltZV9iYW5rX3NlY29uZHMYCCABKAVSD3RpbWVCYW5rU2'
+    'Vjb25kcxIiCg1hdXRvX3N0YXJ0X21zGAkgASgFUgthdXRvU3RhcnRNcxImCg9hdXRvX2FkdmFu'
+    'Y2VfbXMYCiABKAVSDWF1dG9BZHZhbmNlTXM=');
 
 @$core.Deprecated('Use createTableResponseDescriptor instead')
 const CreateTableResponse$json = {
@@ -625,24 +623,23 @@ const Table$json = {
     {'1': 'max_players', '3': 6, '4': 1, '5': 5, '10': 'maxPlayers'},
     {'1': 'min_players', '3': 7, '4': 1, '5': 5, '10': 'minPlayers'},
     {'1': 'current_players', '3': 8, '4': 1, '5': 5, '10': 'currentPlayers'},
-    {'1': 'min_balance', '3': 9, '4': 1, '5': 3, '10': 'minBalance'},
-    {'1': 'buy_in', '3': 10, '4': 1, '5': 3, '10': 'buyIn'},
+    {'1': 'buy_in', '3': 9, '4': 1, '5': 3, '10': 'buyIn'},
     {
       '1': 'phase',
-      '3': 11,
+      '3': 10,
       '4': 1,
       '5': 14,
       '6': '.poker.GamePhase',
       '10': 'phase'
     },
-    {'1': 'game_started', '3': 12, '4': 1, '5': 8, '10': 'gameStarted'},
     {
       '1': 'all_players_ready',
-      '3': 13,
+      '3': 11,
       '4': 1,
       '5': 8,
       '10': 'allPlayersReady'
     },
+    {'1': 'game_started', '3': 12, '4': 1, '5': 8, '10': 'gameStarted'},
   ],
 };
 
@@ -652,10 +649,10 @@ final $typed_data.Uint8List tableDescriptor = $convert.base64Decode(
     'llcnMYAyADKAsyDS5wb2tlci5QbGF5ZXJSB3BsYXllcnMSHwoLc21hbGxfYmxpbmQYBCABKANS'
     'CnNtYWxsQmxpbmQSGwoJYmlnX2JsaW5kGAUgASgDUghiaWdCbGluZBIfCgttYXhfcGxheWVycx'
     'gGIAEoBVIKbWF4UGxheWVycxIfCgttaW5fcGxheWVycxgHIAEoBVIKbWluUGxheWVycxInCg9j'
-    'dXJyZW50X3BsYXllcnMYCCABKAVSDmN1cnJlbnRQbGF5ZXJzEh8KC21pbl9iYWxhbmNlGAkgAS'
-    'gDUgptaW5CYWxhbmNlEhUKBmJ1eV9pbhgKIAEoA1IFYnV5SW4SJgoFcGhhc2UYCyABKA4yEC5w'
-    'b2tlci5HYW1lUGhhc2VSBXBoYXNlEiEKDGdhbWVfc3RhcnRlZBgMIAEoCFILZ2FtZVN0YXJ0ZW'
-    'QSKgoRYWxsX3BsYXllcnNfcmVhZHkYDSABKAhSD2FsbFBsYXllcnNSZWFkeQ==');
+    'dXJyZW50X3BsYXllcnMYCCABKAVSDmN1cnJlbnRQbGF5ZXJzEhUKBmJ1eV9pbhgJIAEoA1IFYn'
+    'V5SW4SJgoFcGhhc2UYCiABKA4yEC5wb2tlci5HYW1lUGhhc2VSBXBoYXNlEioKEWFsbF9wbGF5'
+    'ZXJzX3JlYWR5GAsgASgIUg9hbGxQbGF5ZXJzUmVhZHkSIQoMZ2FtZV9zdGFydGVkGAwgASgIUg'
+    'tnYW1lU3RhcnRlZA==');
 
 @$core.Deprecated('Use getBalanceRequestDescriptor instead')
 const GetBalanceRequest$json = {

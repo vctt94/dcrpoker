@@ -757,7 +757,6 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 			BigBlind:         req.BigBlind,
 			MaxPlayers:       int(req.MaxPlayers),
 			MinPlayers:       int(req.MinPlayers),
-			MinBalance:       req.MinBalance,
 			BuyIn:            req.BuyIn,
 			StartingChips:    req.StartingChips,
 			TimeBank:         time.Duration(req.TimeBankSeconds) * time.Second,

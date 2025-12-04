@@ -179,6 +179,7 @@ const (
 	NotificationType_SETTLEMENT_BROADCAST             NotificationType = 30 // settlement transaction broadcasted
 	NotificationType_PRESIGN_PENDING                  NotificationType = 31 // presigning required before game can start
 	NotificationType_GAME_STATE_UPDATED               NotificationType = 32 // game state synchronization event (for state updates, not notifications)
+	NotificationType_PLAYER_LOST                      NotificationType = 33 // player removed from table due to 0 chips after losing
 )
 
 // Enum value maps for NotificationType.
@@ -217,6 +218,7 @@ var (
 		30: "SETTLEMENT_BROADCAST",
 		31: "PRESIGN_PENDING",
 		32: "GAME_STATE_UPDATED",
+		33: "PLAYER_LOST",
 	}
 	NotificationType_value = map[string]int32{
 		"UNKNOWN":                          0,
@@ -252,6 +254,7 @@ var (
 		"SETTLEMENT_BROADCAST":             30,
 		"PRESIGN_PENDING":                  31,
 		"GAME_STATE_UPDATED":               32,
+		"PLAYER_LOST":                      33,
 	}
 )
 
@@ -1373,12 +1376,11 @@ type CreateTableRequest struct {
 	BigBlind        int64                  `protobuf:"varint,3,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`       // Poker chips amount for big blind
 	MaxPlayers      int32                  `protobuf:"varint,4,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
 	MinPlayers      int32                  `protobuf:"varint,5,opt,name=min_players,json=minPlayers,proto3" json:"min_players,omitempty"`
-	MinBalance      int64                  `protobuf:"varint,6,opt,name=min_balance,json=minBalance,proto3" json:"min_balance,omitempty"`                  // Minimum DCR balance required (in atoms)
-	BuyIn           int64                  `protobuf:"varint,7,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"`                                 // DCR amount to join table (in atoms)
-	StartingChips   int64                  `protobuf:"varint,8,opt,name=starting_chips,json=startingChips,proto3" json:"starting_chips,omitempty"`         // Poker chips each player starts with
-	TimeBankSeconds int32                  `protobuf:"varint,9,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"` // Player timeout in seconds (default: 30)
-	AutoStartMs     int32                  `protobuf:"varint,10,opt,name=auto_start_ms,json=autoStartMs,proto3" json:"auto_start_ms,omitempty"`            // Auto-start delay between hands in ms (0 = disabled)
-	AutoAdvanceMs   int32                  `protobuf:"varint,11,opt,name=auto_advance_ms,json=autoAdvanceMs,proto3" json:"auto_advance_ms,omitempty"`      // Auto-advance delay between streets when all-in in ms (must be > 0)
+	BuyIn           int64                  `protobuf:"varint,6,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"`                                 // DCR amount to join table (in atoms)
+	StartingChips   int64                  `protobuf:"varint,7,opt,name=starting_chips,json=startingChips,proto3" json:"starting_chips,omitempty"`         // Poker chips each player starts with
+	TimeBankSeconds int32                  `protobuf:"varint,8,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"` // Player timeout in seconds (default: 30)
+	AutoStartMs     int32                  `protobuf:"varint,9,opt,name=auto_start_ms,json=autoStartMs,proto3" json:"auto_start_ms,omitempty"`             // Auto-start delay between hands in ms (0 = disabled)
+	AutoAdvanceMs   int32                  `protobuf:"varint,10,opt,name=auto_advance_ms,json=autoAdvanceMs,proto3" json:"auto_advance_ms,omitempty"`      // Auto-advance delay between streets when all-in in ms (must be > 0)
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1444,13 +1446,6 @@ func (x *CreateTableRequest) GetMaxPlayers() int32 {
 func (x *CreateTableRequest) GetMinPlayers() int32 {
 	if x != nil {
 		return x.MinPlayers
-	}
-	return 0
-}
-
-func (x *CreateTableRequest) GetMinBalance() int64 {
-	if x != nil {
-		return x.MinBalance
 	}
 	return 0
 }
@@ -1840,11 +1835,10 @@ type Table struct {
 	MaxPlayers      int32                  `protobuf:"varint,6,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
 	MinPlayers      int32                  `protobuf:"varint,7,opt,name=min_players,json=minPlayers,proto3" json:"min_players,omitempty"`
 	CurrentPlayers  int32                  `protobuf:"varint,8,opt,name=current_players,json=currentPlayers,proto3" json:"current_players,omitempty"`
-	MinBalance      int64                  `protobuf:"varint,9,opt,name=min_balance,json=minBalance,proto3" json:"min_balance,omitempty"` // Minimum DCR balance required (in atoms)
-	BuyIn           int64                  `protobuf:"varint,10,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"`               // DCR amount to join table (in atoms)
-	Phase           GamePhase              `protobuf:"varint,11,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
+	BuyIn           int64                  `protobuf:"varint,9,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"` // DCR amount to join table (in atoms)
+	Phase           GamePhase              `protobuf:"varint,10,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
+	AllPlayersReady bool                   `protobuf:"varint,11,opt,name=all_players_ready,json=allPlayersReady,proto3" json:"all_players_ready,omitempty"`
 	GameStarted     bool                   `protobuf:"varint,12,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
-	AllPlayersReady bool                   `protobuf:"varint,13,opt,name=all_players_ready,json=allPlayersReady,proto3" json:"all_players_ready,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1935,13 +1929,6 @@ func (x *Table) GetCurrentPlayers() int32 {
 	return 0
 }
 
-func (x *Table) GetMinBalance() int64 {
-	if x != nil {
-		return x.MinBalance
-	}
-	return 0
-}
-
 func (x *Table) GetBuyIn() int64 {
 	if x != nil {
 		return x.BuyIn
@@ -1956,16 +1943,16 @@ func (x *Table) GetPhase() GamePhase {
 	return GamePhase_WAITING
 }
 
-func (x *Table) GetGameStarted() bool {
+func (x *Table) GetAllPlayersReady() bool {
 	if x != nil {
-		return x.GameStarted
+		return x.AllPlayersReady
 	}
 	return false
 }
 
-func (x *Table) GetAllPlayersReady() bool {
+func (x *Table) GetGameStarted() bool {
 	if x != nil {
-		return x.AllPlayersReady
+		return x.GameStarted
 	}
 	return false
 }
@@ -3991,7 +3978,7 @@ const file_poker_proto_rawDesc = "" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12,\n" +
 	"\thand_rank\x18\x02 \x01(\x0e2\x0f.poker.HandRankR\bhandRank\x12(\n" +
 	"\tbest_hand\x18\x03 \x03(\v2\v.poker.CardR\bbestHand\x12\x1a\n" +
-	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\x88\x03\n" +
+	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\xe7\x02\n" +
 	"\x12CreateTableRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1f\n" +
 	"\vsmall_blind\x18\x02 \x01(\x03R\n" +
@@ -4000,15 +3987,13 @@ const file_poker_proto_rawDesc = "" +
 	"\vmax_players\x18\x04 \x01(\x05R\n" +
 	"maxPlayers\x12\x1f\n" +
 	"\vmin_players\x18\x05 \x01(\x05R\n" +
-	"minPlayers\x12\x1f\n" +
-	"\vmin_balance\x18\x06 \x01(\x03R\n" +
-	"minBalance\x12\x15\n" +
-	"\x06buy_in\x18\a \x01(\x03R\x05buyIn\x12%\n" +
-	"\x0estarting_chips\x18\b \x01(\x03R\rstartingChips\x12*\n" +
-	"\x11time_bank_seconds\x18\t \x01(\x05R\x0ftimeBankSeconds\x12\"\n" +
-	"\rauto_start_ms\x18\n" +
-	" \x01(\x05R\vautoStartMs\x12&\n" +
-	"\x0fauto_advance_ms\x18\v \x01(\x05R\rautoAdvanceMs\"J\n" +
+	"minPlayers\x12\x15\n" +
+	"\x06buy_in\x18\x06 \x01(\x03R\x05buyIn\x12%\n" +
+	"\x0estarting_chips\x18\a \x01(\x03R\rstartingChips\x12*\n" +
+	"\x11time_bank_seconds\x18\b \x01(\x05R\x0ftimeBankSeconds\x12\"\n" +
+	"\rauto_start_ms\x18\t \x01(\x05R\vautoStartMs\x12&\n" +
+	"\x0fauto_advance_ms\x18\n" +
+	" \x01(\x05R\rautoAdvanceMs\"J\n" +
 	"\x13CreateTableResponse\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
@@ -4026,7 +4011,7 @@ const file_poker_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x12\n" +
 	"\x10GetTablesRequest\"9\n" +
 	"\x11GetTablesResponse\x12$\n" +
-	"\x06tables\x18\x01 \x03(\v2\f.poker.TableR\x06tables\"\xb1\x03\n" +
+	"\x06tables\x18\x01 \x03(\v2\f.poker.TableR\x06tables\"\x90\x03\n" +
 	"\x05Table\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\ahost_id\x18\x02 \x01(\tR\x06hostId\x12'\n" +
@@ -4038,14 +4023,12 @@ const file_poker_proto_rawDesc = "" +
 	"maxPlayers\x12\x1f\n" +
 	"\vmin_players\x18\a \x01(\x05R\n" +
 	"minPlayers\x12'\n" +
-	"\x0fcurrent_players\x18\b \x01(\x05R\x0ecurrentPlayers\x12\x1f\n" +
-	"\vmin_balance\x18\t \x01(\x03R\n" +
-	"minBalance\x12\x15\n" +
-	"\x06buy_in\x18\n" +
-	" \x01(\x03R\x05buyIn\x12&\n" +
-	"\x05phase\x18\v \x01(\x0e2\x10.poker.GamePhaseR\x05phase\x12!\n" +
-	"\fgame_started\x18\f \x01(\bR\vgameStarted\x12*\n" +
-	"\x11all_players_ready\x18\r \x01(\bR\x0fallPlayersReady\"0\n" +
+	"\x0fcurrent_players\x18\b \x01(\x05R\x0ecurrentPlayers\x12\x15\n" +
+	"\x06buy_in\x18\t \x01(\x03R\x05buyIn\x12&\n" +
+	"\x05phase\x18\n" +
+	" \x01(\x0e2\x10.poker.GamePhaseR\x05phase\x12*\n" +
+	"\x11all_players_ready\x18\v \x01(\bR\x0fallPlayersReady\x12!\n" +
+	"\fgame_started\x18\f \x01(\bR\vgameStarted\"0\n" +
 	"\x11GetBalanceRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\".\n" +
 	"\x12GetBalanceResponse\x12\x18\n" +
@@ -4205,7 +4188,7 @@ const file_poker_proto_rawDesc = "" +
 	"\x14PLAYER_STATE_IN_GAME\x10\x02\x12\x17\n" +
 	"\x13PLAYER_STATE_ALL_IN\x10\x03\x12\x17\n" +
 	"\x13PLAYER_STATE_FOLDED\x10\x04\x12\x15\n" +
-	"\x11PLAYER_STATE_LEFT\x10\x05*\xb7\x05\n" +
+	"\x11PLAYER_STATE_LEFT\x10\x05*\xc8\x05\n" +
 	"\x10NotificationType\x12\v\n" +
 	"\aUNKNOWN\x10\x00\x12\x11\n" +
 	"\rPLAYER_JOINED\x10\x01\x12\x0f\n" +
@@ -4242,7 +4225,8 @@ const file_poker_proto_rawDesc = "" +
 	"\aMESSAGE\x10\x1d\x12\x18\n" +
 	"\x14SETTLEMENT_BROADCAST\x10\x1e\x12\x13\n" +
 	"\x0fPRESIGN_PENDING\x10\x1f\x12\x16\n" +
-	"\x12GAME_STATE_UPDATED\x10 *\xa8\x01\n" +
+	"\x12GAME_STATE_UPDATED\x10 \x12\x0f\n" +
+	"\vPLAYER_LOST\x10!*\xa8\x01\n" +
 	"\bHandRank\x12\r\n" +
 	"\tHIGH_CARD\x10\x00\x12\b\n" +
 	"\x04PAIR\x10\x01\x12\f\n" +

@@ -187,7 +187,6 @@ class UiTable {
   final int maxPlayers;
   final int minPlayers;
   final int currentPlayers;
-  final int minBalanceAtoms;
   final int buyInAtoms;
   final pr.GamePhase phase;
   final bool gameStarted;
@@ -202,7 +201,6 @@ class UiTable {
     required this.maxPlayers,
     required this.minPlayers,
     required this.currentPlayers,
-    required this.minBalanceAtoms,
     required this.buyInAtoms,
     required this.phase,
     required this.gameStarted,
@@ -218,7 +216,6 @@ class UiTable {
         maxPlayers: t.maxPlayers,
         minPlayers: t.minPlayers,
         currentPlayers: t.currentPlayers,
-        minBalanceAtoms: t.minBalance.toInt(),
         buyInAtoms: t.buyIn.toInt(),
         phase: t.phase,
         gameStarted: t.gameStarted,
@@ -676,7 +673,6 @@ class PokerModel extends ChangeNotifier {
             maxPlayers: t.maxPlayers,
             minPlayers: t.minPlayers,
             currentPlayers: t.currentPlayers,
-            minBalanceAtoms: t.minBalance,
             buyInAtoms: t.buyIn,
             // Phase not provided by plugin; lobby UI already shows status via gameStarted
             phase: pr.GamePhase.WAITING,
@@ -704,7 +700,6 @@ class PokerModel extends ChangeNotifier {
     required int bigBlindChips,
     required int maxPlayers,
     required int minPlayers,
-    required int minBalanceAtoms,
     required int buyInAtoms,
     required int startingChips,
     int timeBankSeconds = 30,
@@ -717,7 +712,6 @@ class PokerModel extends ChangeNotifier {
         bigBlindChips,
         maxPlayers,
         minPlayers,
-        minBalanceAtoms,
         buyInAtoms,
         startingChips,
         timeBankSeconds,

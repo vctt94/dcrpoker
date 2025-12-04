@@ -1319,7 +1319,6 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     $fixnum.Int64? bigBlind,
     $core.int? maxPlayers,
     $core.int? minPlayers,
-    $fixnum.Int64? minBalance,
     $fixnum.Int64? buyIn,
     $fixnum.Int64? startingChips,
     $core.int? timeBankSeconds,
@@ -1332,7 +1331,6 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     if (bigBlind != null) result.bigBlind = bigBlind;
     if (maxPlayers != null) result.maxPlayers = maxPlayers;
     if (minPlayers != null) result.minPlayers = minPlayers;
-    if (minBalance != null) result.minBalance = minBalance;
     if (buyIn != null) result.buyIn = buyIn;
     if (startingChips != null) result.startingChips = startingChips;
     if (timeBankSeconds != null) result.timeBankSeconds = timeBankSeconds;
@@ -1359,12 +1357,11 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     ..aInt64(3, _omitFieldNames ? '' : 'bigBlind')
     ..aI(4, _omitFieldNames ? '' : 'maxPlayers')
     ..aI(5, _omitFieldNames ? '' : 'minPlayers')
-    ..aInt64(6, _omitFieldNames ? '' : 'minBalance')
-    ..aInt64(7, _omitFieldNames ? '' : 'buyIn')
-    ..aInt64(8, _omitFieldNames ? '' : 'startingChips')
-    ..aI(9, _omitFieldNames ? '' : 'timeBankSeconds')
-    ..aI(10, _omitFieldNames ? '' : 'autoStartMs')
-    ..aI(11, _omitFieldNames ? '' : 'autoAdvanceMs')
+    ..aInt64(6, _omitFieldNames ? '' : 'buyIn')
+    ..aInt64(7, _omitFieldNames ? '' : 'startingChips')
+    ..aI(8, _omitFieldNames ? '' : 'timeBankSeconds')
+    ..aI(9, _omitFieldNames ? '' : 'autoStartMs')
+    ..aI(10, _omitFieldNames ? '' : 'autoAdvanceMs')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1432,58 +1429,49 @@ class CreateTableRequest extends $pb.GeneratedMessage {
   void clearMinPlayers() => $_clearField(5);
 
   @$pb.TagNumber(6)
-  $fixnum.Int64 get minBalance => $_getI64(5);
+  $fixnum.Int64 get buyIn => $_getI64(5);
   @$pb.TagNumber(6)
-  set minBalance($fixnum.Int64 value) => $_setInt64(5, value);
+  set buyIn($fixnum.Int64 value) => $_setInt64(5, value);
   @$pb.TagNumber(6)
-  $core.bool hasMinBalance() => $_has(5);
+  $core.bool hasBuyIn() => $_has(5);
   @$pb.TagNumber(6)
-  void clearMinBalance() => $_clearField(6);
+  void clearBuyIn() => $_clearField(6);
 
   @$pb.TagNumber(7)
-  $fixnum.Int64 get buyIn => $_getI64(6);
+  $fixnum.Int64 get startingChips => $_getI64(6);
   @$pb.TagNumber(7)
-  set buyIn($fixnum.Int64 value) => $_setInt64(6, value);
+  set startingChips($fixnum.Int64 value) => $_setInt64(6, value);
   @$pb.TagNumber(7)
-  $core.bool hasBuyIn() => $_has(6);
+  $core.bool hasStartingChips() => $_has(6);
   @$pb.TagNumber(7)
-  void clearBuyIn() => $_clearField(7);
+  void clearStartingChips() => $_clearField(7);
 
   @$pb.TagNumber(8)
-  $fixnum.Int64 get startingChips => $_getI64(7);
+  $core.int get timeBankSeconds => $_getIZ(7);
   @$pb.TagNumber(8)
-  set startingChips($fixnum.Int64 value) => $_setInt64(7, value);
+  set timeBankSeconds($core.int value) => $_setSignedInt32(7, value);
   @$pb.TagNumber(8)
-  $core.bool hasStartingChips() => $_has(7);
+  $core.bool hasTimeBankSeconds() => $_has(7);
   @$pb.TagNumber(8)
-  void clearStartingChips() => $_clearField(8);
+  void clearTimeBankSeconds() => $_clearField(8);
 
   @$pb.TagNumber(9)
-  $core.int get timeBankSeconds => $_getIZ(8);
+  $core.int get autoStartMs => $_getIZ(8);
   @$pb.TagNumber(9)
-  set timeBankSeconds($core.int value) => $_setSignedInt32(8, value);
+  set autoStartMs($core.int value) => $_setSignedInt32(8, value);
   @$pb.TagNumber(9)
-  $core.bool hasTimeBankSeconds() => $_has(8);
+  $core.bool hasAutoStartMs() => $_has(8);
   @$pb.TagNumber(9)
-  void clearTimeBankSeconds() => $_clearField(9);
+  void clearAutoStartMs() => $_clearField(9);
 
   @$pb.TagNumber(10)
-  $core.int get autoStartMs => $_getIZ(9);
+  $core.int get autoAdvanceMs => $_getIZ(9);
   @$pb.TagNumber(10)
-  set autoStartMs($core.int value) => $_setSignedInt32(9, value);
+  set autoAdvanceMs($core.int value) => $_setSignedInt32(9, value);
   @$pb.TagNumber(10)
-  $core.bool hasAutoStartMs() => $_has(9);
+  $core.bool hasAutoAdvanceMs() => $_has(9);
   @$pb.TagNumber(10)
-  void clearAutoStartMs() => $_clearField(10);
-
-  @$pb.TagNumber(11)
-  $core.int get autoAdvanceMs => $_getIZ(10);
-  @$pb.TagNumber(11)
-  set autoAdvanceMs($core.int value) => $_setSignedInt32(10, value);
-  @$pb.TagNumber(11)
-  $core.bool hasAutoAdvanceMs() => $_has(10);
-  @$pb.TagNumber(11)
-  void clearAutoAdvanceMs() => $_clearField(11);
+  void clearAutoAdvanceMs() => $_clearField(10);
 }
 
 class CreateTableResponse extends $pb.GeneratedMessage {
@@ -1912,11 +1900,10 @@ class Table extends $pb.GeneratedMessage {
     $core.int? maxPlayers,
     $core.int? minPlayers,
     $core.int? currentPlayers,
-    $fixnum.Int64? minBalance,
     $fixnum.Int64? buyIn,
     GamePhase? phase,
-    $core.bool? gameStarted,
     $core.bool? allPlayersReady,
+    $core.bool? gameStarted,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -1927,11 +1914,10 @@ class Table extends $pb.GeneratedMessage {
     if (maxPlayers != null) result.maxPlayers = maxPlayers;
     if (minPlayers != null) result.minPlayers = minPlayers;
     if (currentPlayers != null) result.currentPlayers = currentPlayers;
-    if (minBalance != null) result.minBalance = minBalance;
     if (buyIn != null) result.buyIn = buyIn;
     if (phase != null) result.phase = phase;
-    if (gameStarted != null) result.gameStarted = gameStarted;
     if (allPlayersReady != null) result.allPlayersReady = allPlayersReady;
+    if (gameStarted != null) result.gameStarted = gameStarted;
     return result;
   }
 
@@ -1957,12 +1943,11 @@ class Table extends $pb.GeneratedMessage {
     ..aI(6, _omitFieldNames ? '' : 'maxPlayers')
     ..aI(7, _omitFieldNames ? '' : 'minPlayers')
     ..aI(8, _omitFieldNames ? '' : 'currentPlayers')
-    ..aInt64(9, _omitFieldNames ? '' : 'minBalance')
-    ..aInt64(10, _omitFieldNames ? '' : 'buyIn')
-    ..aE<GamePhase>(11, _omitFieldNames ? '' : 'phase',
+    ..aInt64(9, _omitFieldNames ? '' : 'buyIn')
+    ..aE<GamePhase>(10, _omitFieldNames ? '' : 'phase',
         enumValues: GamePhase.values)
+    ..aOB(11, _omitFieldNames ? '' : 'allPlayersReady')
     ..aOB(12, _omitFieldNames ? '' : 'gameStarted')
-    ..aOB(13, _omitFieldNames ? '' : 'allPlayersReady')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2050,31 +2035,31 @@ class Table extends $pb.GeneratedMessage {
   void clearCurrentPlayers() => $_clearField(8);
 
   @$pb.TagNumber(9)
-  $fixnum.Int64 get minBalance => $_getI64(8);
+  $fixnum.Int64 get buyIn => $_getI64(8);
   @$pb.TagNumber(9)
-  set minBalance($fixnum.Int64 value) => $_setInt64(8, value);
+  set buyIn($fixnum.Int64 value) => $_setInt64(8, value);
   @$pb.TagNumber(9)
-  $core.bool hasMinBalance() => $_has(8);
+  $core.bool hasBuyIn() => $_has(8);
   @$pb.TagNumber(9)
-  void clearMinBalance() => $_clearField(9);
+  void clearBuyIn() => $_clearField(9);
 
   @$pb.TagNumber(10)
-  $fixnum.Int64 get buyIn => $_getI64(9);
+  GamePhase get phase => $_getN(9);
   @$pb.TagNumber(10)
-  set buyIn($fixnum.Int64 value) => $_setInt64(9, value);
+  set phase(GamePhase value) => $_setField(10, value);
   @$pb.TagNumber(10)
-  $core.bool hasBuyIn() => $_has(9);
+  $core.bool hasPhase() => $_has(9);
   @$pb.TagNumber(10)
-  void clearBuyIn() => $_clearField(10);
+  void clearPhase() => $_clearField(10);
 
   @$pb.TagNumber(11)
-  GamePhase get phase => $_getN(10);
+  $core.bool get allPlayersReady => $_getBF(10);
   @$pb.TagNumber(11)
-  set phase(GamePhase value) => $_setField(11, value);
+  set allPlayersReady($core.bool value) => $_setBool(10, value);
   @$pb.TagNumber(11)
-  $core.bool hasPhase() => $_has(10);
+  $core.bool hasAllPlayersReady() => $_has(10);
   @$pb.TagNumber(11)
-  void clearPhase() => $_clearField(11);
+  void clearAllPlayersReady() => $_clearField(11);
 
   @$pb.TagNumber(12)
   $core.bool get gameStarted => $_getBF(11);
@@ -2084,15 +2069,6 @@ class Table extends $pb.GeneratedMessage {
   $core.bool hasGameStarted() => $_has(11);
   @$pb.TagNumber(12)
   void clearGameStarted() => $_clearField(12);
-
-  @$pb.TagNumber(13)
-  $core.bool get allPlayersReady => $_getBF(12);
-  @$pb.TagNumber(13)
-  set allPlayersReady($core.bool value) => $_setBool(12, value);
-  @$pb.TagNumber(13)
-  $core.bool hasAllPlayersReady() => $_has(12);
-  @$pb.TagNumber(13)
-  void clearAllPlayersReady() => $_clearField(13);
 }
 
 class GetBalanceRequest extends $pb.GeneratedMessage {

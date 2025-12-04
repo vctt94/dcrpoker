@@ -185,7 +185,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
       maxPlayers: _maxPlayers,
       // WTA uses a fixed minimum; keep it hidden from the UI.
       minPlayers: 2,
-      minBalanceAtoms: 0,
       buyInAtoms: buyInAtoms,
       startingChips: _startingChips,
       timeBankSeconds: _timeBankSeconds,

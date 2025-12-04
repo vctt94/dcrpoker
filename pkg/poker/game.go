@@ -38,6 +38,7 @@ const (
 	GameEventAutoStartTriggered                        // Auto-start timer fired, Table should check conditions and start if ready
 	GameEventGameOver                                  // Game has ended, only one player has chips remaining
 	GameEventStateUpdated                              // Generic state update (e.g., turn changed)
+	GameEventPlayerLost                                // Player has 0 chips and should be removed from table
 )
 
 // GameEvent represents an event sent from Game FSM to Table
@@ -45,6 +46,7 @@ type GameEvent struct {
 	Type           GameEventType
 	ShowdownResult *ShowdownResult // Only set for GameEventShowdownComplete
 	WinnerID       string          // Only set for GameEventGameOver - ID of the player who won
+	PlayerID       string          // Only set for GameEventPlayerLost - ID of the player who lost (0 chips)
 	ActorID        string          // Optional: actor who triggered the update (e.g., timebank auto-action)
 	Action         string          // Optional: "check" or "fold" for auto-actions
 }
@@ -755,6 +757,21 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		g.winners = result.Winners
 		// Send the showdown result to the table
 		g.sendTableEvent(GameEvent{Type: GameEventShowdownComplete, ShowdownResult: result})
+	}
+
+	// Check for players with 0 chips and send GameEventPlayerLost events
+	// This must happen after showdown so winnings are distributed
+	for _, p := range g.players {
+		if p != nil {
+			p.mu.RLock()
+			balance := p.balance
+			id := p.id
+			p.mu.RUnlock()
+			if balance <= 0 {
+				g.log.Debugf("stateShowdown: player %s has 0 chips, sending GameEventPlayerLost", id)
+				g.sendTableEvent(GameEvent{Type: GameEventPlayerLost, PlayerID: id})
+			}
+		}
 	}
 
 	// Check if only one player has chips remaining (game over condition)
@@ -1696,7 +1713,10 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 				hole := g.currentHand.GetPlayerCards(p.id, p.id)
 
 				// Best hand: if board+hole < 5 just report hole cards
-				var best []Card
+				var (
+					best     []Card
+					handRank pokerrpc.HandRank
+				)
 				if len(hole)+len(g.communityCards) >= 5 {
 					hv, err := EvaluateHand(hole, g.communityCards)
 					if err != nil {
@@ -1707,6 +1727,7 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 					p.handDescription = GetHandDescription(hv)
 					p.mu.Unlock()
 					best = hv.BestHand
+					handRank = hv.HandRank
 				} else {
 					best = hole
 				}
@@ -1714,6 +1735,7 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 				result.Winners = append(result.Winners, p.id)
 				result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{
 					PlayerId: p.id,
+					HandRank: handRank,
 					BestHand: CreateHandFromCards(best),
 					Winnings: delta,
 				})
@@ -1822,26 +1844,25 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 		p.mu.RLock()
 		delta := p.balance - prev[p.id]
 		hv := p.handValue
+		folded := p.hasFolded
 		p.mu.RUnlock()
-
+		// Folded players don't participate in showdown evaluation, so skip them.
+		if folded {
+			continue
+		}
 		if delta > 0 {
 			var handRank pokerrpc.HandRank
 			var best []Card
 			var rankValue int
 			var description string
-			if hv != nil {
-				handRank = hv.HandRank
-				best = hv.BestHand
-				rankValue = hv.RankValue
-				description = hv.HandDescription
-			} else {
-				// Get player's hole cards
-				hole := g.currentHand.GetPlayerCards(p.id, p.id)
-				best = hole
-			}
 
-			g.log.Debugf("CARDS: Winner %s with delta=%d rankValue=%d description=%s",
-				p.id, delta, rankValue, description)
+			handRank = hv.HandRank
+			best = hv.BestHand
+			rankValue = hv.RankValue
+			description = hv.HandDescription
+
+			g.log.Debugf("CARDS: Winner %s with delta=%d rankValue=%d handRank=%v description=%s",
+				p.id, delta, rankValue, handRank, description)
 
 			result.Winners = append(result.Winners, p.id)
 			result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{

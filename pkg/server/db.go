@@ -99,7 +99,6 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		MaxPlayers:       tcfg.MaxPlayers,
 		SmallBlind:       tcfg.SmallBlind,
 		BigBlind:         tcfg.BigBlind,
-		MinBalance:       tcfg.MinBalance,
 		StartingChips:    tcfg.StartingChips,
 		TimeBank:         timeBankDur,
 		AutoStartDelay:   autoStartDur,

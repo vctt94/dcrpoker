@@ -237,12 +237,11 @@ message CreateTableRequest {
   int64 big_blind = 3;      // Poker chips amount for big blind
   int32 max_players = 4;
   int32 min_players = 5;
-  int64 min_balance = 6;    // Minimum DCR balance required (in atoms)
-  int64 buy_in = 7;         // DCR amount to join table (in atoms)
-  int64 starting_chips = 8; // Poker chips each player starts with
-  int32 time_bank_seconds = 9; // Player timeout in seconds (default: 30)
-  int32 auto_start_ms = 10; // Auto-start delay between hands in ms (0 = disabled)
-  int32 auto_advance_ms = 11; // Auto-advance delay between streets when all-in in ms (must be > 0)
+  int64 buy_in = 6;         // DCR amount to join table (in atoms)
+  int64 starting_chips = 7; // Poker chips each player starts with
+  int32 time_bank_seconds = 8; // Player timeout in seconds (default: 30)
+  int32 auto_start_ms = 9; // Auto-start delay between hands in ms (0 = disabled)
+  int32 auto_advance_ms = 10; // Auto-advance delay between streets when all-in in ms (must be > 0)
 }
 
 message CreateTableResponse {
@@ -285,11 +284,10 @@ message Table {
   int32 max_players = 6;
   int32 min_players = 7;
   int32 current_players = 8;
-  int64 min_balance = 9;     // Minimum DCR balance required (in atoms)
-  int64 buy_in = 10;         // DCR amount to join table (in atoms)
-  GamePhase phase = 11;
+  int64 buy_in = 9;         // DCR amount to join table (in atoms)
+  GamePhase phase = 10;
+  bool all_players_ready = 11;
   bool game_started = 12;
-  bool all_players_ready = 13;
 }
 
 message GetBalanceRequest {

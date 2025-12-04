@@ -492,8 +492,6 @@ class PokerTable {
   final int minPlayers;
   @JsonKey(name: 'current_players')
   final int currentPlayers;
-  @JsonKey(name: 'min_balance')
-  final int minBalance;
   @JsonKey(name: 'buy_in')
   final int buyIn;
   @JsonKey(name: 'game_started')
@@ -509,7 +507,6 @@ class PokerTable {
     this.maxPlayers,
     this.minPlayers,
     this.currentPlayers,
-    this.minBalance,
     this.buyIn,
     this.gameStarted,
     this.allPlayersReady,
@@ -530,8 +527,6 @@ class CreatePokerTableArgs {
   final int maxPlayers;
   @JsonKey(name: 'min_players')
   final int minPlayers;
-  @JsonKey(name: 'min_balance')
-  final int minBalance;
   @JsonKey(name: 'buy_in')
   final int buyIn;
   @JsonKey(name: 'starting_chips')
@@ -548,7 +543,6 @@ class CreatePokerTableArgs {
     this.bigBlind,
     this.maxPlayers,
     this.minPlayers,
-    this.minBalance,
     this.buyIn,
     this.startingChips,
     this.timeBankSeconds,

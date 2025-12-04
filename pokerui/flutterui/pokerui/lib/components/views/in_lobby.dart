@@ -200,7 +200,6 @@ class InLobbyView extends StatelessWidget {
         maxPlayers: 0,
         minPlayers: 0,
         currentPlayers: 0,
-        minBalanceAtoms: 0,
         buyInAtoms: 0,
         phase: model.game?.phase ?? pr.GamePhase.WAITING,
         gameStarted: model.game?.gameStarted ?? false,

@@ -47,7 +47,6 @@ func TestTableRemovedAfterGameOver(t *testing.T) {
 		MinPlayers:    2,
 		MaxPlayers:    2,
 		BuyIn:         0,
-		MinBalance:    100,
 		StartingChips: 100,
 		AutoStartMs:   500,
 		AutoAdvanceMs: 500,
