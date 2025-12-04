@@ -84,6 +84,7 @@ class SharedLayout extends StatelessWidget {
                       title: const Text('Home',
                           style: TextStyle(color: Colors.white)),
                       onTap: () {
+                        pokerModel?.showHomeView();
                         Navigator.of(context).pushReplacementNamed('/');
                       },
                     ),

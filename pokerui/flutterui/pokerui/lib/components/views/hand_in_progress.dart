@@ -25,30 +25,6 @@ class HandInProgressView extends StatefulWidget {
 class _HandInProgressViewState extends State<HandInProgressView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
-  Future<void> _confirmLeave() async {
-    final shouldLeave = await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Leave table?'),
-            content: const Text('You\'ll sit out and leave this table. Are you sure?'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                child: const Text('Leave'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-    if (shouldLeave) {
-      widget.model.leaveTable();
-    }
-  }
 
   @override
   void dispose() {
@@ -73,23 +49,6 @@ class _HandInProgressViewState extends State<HandInProgressView> {
 
         // Bet/call FX overlay
         _BetFxOverlay(model: widget.model),
-        
-        // Leave table control anchored away from action buttons to avoid accidental taps
-        Positioned(
-          bottom: 0,
-          left: 0,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: ElevatedButton.icon(
-                onPressed: _confirmLeave,
-                icon: const Icon(Icons.logout),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                label: const Text('Leave Table'),
-              ),
-            ),
-          ),
-        ),
 
         // Action buttons overlay - positioned at bottom right
         Positioned(

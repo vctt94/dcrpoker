@@ -353,6 +353,7 @@ class PokerModel extends ChangeNotifier {
   bool _iAmReady = false;
   bool _seated = false; // track whether user is seated at any table
   bool _restoring = false; // guard against repeated restore/join loops
+  bool _showTableView = true; // controls whether UI should render the active table or lobby
   // Track per-player show/hide state from notifications
   final Map<String, bool> playersShowingCards = {};
   bool get myCardsShown => playersShowingCards[playerId] ?? false;
@@ -365,6 +366,21 @@ class PokerModel extends ChangeNotifier {
     _authedPayoutAddress = addr.trim();
   }
 
+  // Control whether UI renders the active table or the home/browsing view.
+  void showHomeView() {
+    if (_showTableView) {
+      _showTableView = false;
+      notifyListeners();
+    }
+  }
+
+  void openTableView() {
+    if (!_showTableView) {
+      _showTableView = true;
+      notifyListeners();
+    }
+  }
+
   // Settlement presigning state
   bool _presignInProgress = false;
   String _presignError = '';
@@ -373,6 +389,7 @@ class PokerModel extends ChangeNotifier {
   /// Returns true if server reports presigning complete for current player
   bool get presignCompleted => me?.presignComplete ?? false;
   String get presignError => _presignError;
+  bool get showTableView => _showTableView;
 
   // Subscription to poker notifications coming from golib.
   StreamSubscription<pr.Notification>? _pokerNtfnSub;
@@ -750,6 +767,7 @@ class PokerModel extends ChangeNotifier {
       currentTableId = tableId;
       _iAmReady = false;
       _seated = true;
+      _showTableView = true;
       await refreshTables();
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
@@ -951,6 +969,7 @@ class PokerModel extends ChangeNotifier {
       game = null;
       _iAmReady = false;
       _seated = false;
+      _showTableView = false;
       playersShowingCards.clear();
       _lastBoundEscrowId = null;
       _lastBoundEscrowReady = false;
