@@ -10,51 +10,64 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
 class PokerTableBackground extends StatelessWidget {
-  const PokerTableBackground({super.key, this.frac = 0.70});
-  final double frac;
-
+  const PokerTableBackground({super.key});
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final shortest = constraints.biggest.shortestSide;
-          final size = (shortest.isFinite && shortest > 0)
-              ? shortest * frac
-              : 300.0;
-
-          return Center(
-            child: Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                color: const Color(0xFF0D4F3C), // Poker table green
-                borderRadius: BorderRadius.circular(size / 2),
-                border: Border.all(
-                  color: const Color(0xFF8B4513), // Brown border
-                  width: 8,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    spreadRadius: 5,
-                    blurRadius: 15,
-                  ),
-                ],
-              ),
-              child: Center(
-                child: Icon(
-                  Icons.casino,
-                  size: size * 0.3,
-                  color: Colors.white.withOpacity(0.1),
-                ),
-              ),
-            ),
-          );
-        },
+      child: CustomPaint(
+        painter: _TableBackgroundPainter(),
+        size: Size.infinite,
       ),
     );
   }
+}
+
+class _TableBackgroundPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    // Match the elliptical table shape from PokerPainter
+    // Table is wider than tall (typical poker table shape)
+    final tableRadiusX = (size.width * 0.4).clamp(100.0, 200.0);
+    final tableRadiusY = (size.height * 0.35).clamp(80.0, 150.0);
+
+    // Draw table surface as ellipse
+    final tableRect = Rect.fromCenter(
+      center: Offset(centerX, centerY),
+      width: tableRadiusX * 2,
+      height: tableRadiusY * 2,
+    );
+    
+    // Table surface
+    final tablePaint = Paint()
+      ..color = const Color(0xFF0D4F3C) // Poker table green
+      ..style = PaintingStyle.fill;
+    canvas.drawOval(tableRect, tablePaint);
+    
+    // Table border
+    final borderPaint = Paint()
+      ..color = const Color(0xFF8B4513) // Brown border
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 8;
+    canvas.drawOval(tableRect, borderPaint);
+    
+    // Subtle shadow
+    final shadowPaint = Paint()
+      ..color = Colors.black.withOpacity(0.3)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 15);
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(centerX, centerY + 5),
+        width: tableRadiusX * 2,
+        height: tableRadiusY * 2,
+      ),
+      shadowPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class PokerGame {
@@ -537,18 +550,20 @@ class PokerPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final centerX = size.width / 2;
     final centerY = size.height / 2;
-    final tableRadius = (size.width * 0.4).clamp(100.0, 200.0);
+    // Ellipse: wider than tall (typical poker table shape)
+    final tableRadiusX = (size.width * 0.4).clamp(100.0, 200.0);
+    final tableRadiusY = (size.height * 0.35).clamp(80.0, 150.0);
 
     // Draw poker table
-    drawPokerTable(canvas, centerX, centerY, tableRadius);
+    drawPokerTable(canvas, centerX, centerY, tableRadiusX, tableRadiusY);
     
     // Draw players
-    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadius, showdownStartMs, size);
+    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadiusX, tableRadiusY, showdownStartMs, size);
 
     _drawHeroHoleCards(canvas, size);
 
     // Draw current player's timebank badge last so it sits above cards/badges.
-    drawCurrentTimebank(canvas, size, gameState, currentPlayerId, centerX, centerY, tableRadius);
+    drawCurrentTimebank(canvas, size, gameState, currentPlayerId, centerX, centerY, tableRadiusX, tableRadiusY);
   }
 
 
@@ -643,8 +658,9 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
       final size = c.biggest;
       final box = pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
-      final seats = seatPositionsFor(widget.players, widget.heroId, center, tableRadius + 50);
+      final tableRadiusX = (box.width * 0.4).clamp(100.0, 200.0);
+      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
+      final seats = seatPositionsFor(widget.players, widget.heroId, center, tableRadiusX + 50, tableRadiusY + 50);
 
       final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
       final ch = cw * 1.4;

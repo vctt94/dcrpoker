@@ -1,4 +1,4 @@
-# pongui - Pong UI (graphical)
+# pokerui - Poker UI (graphical)
 
 # Building
 
@@ -14,6 +14,6 @@ Replace `linux` with either `macos` or `windows`.
 
 ```shell
 $ go generate ./golibbuilder
-$ cd flutterui/pongui
+$ cd flutterui/pokerui
 $ flutter build linux
 ```

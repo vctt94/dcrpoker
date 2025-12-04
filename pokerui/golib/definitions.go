@@ -61,6 +61,18 @@ func handleEscrowNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 	if strings.ToLower(strings.TrimSpace(typ)) != "escrow_funding" {
 		return
 	}
+	// Ignore invalid funding updates to avoid polluting the local cache with
+	// unusable escrows (e.g. wrong amount or missing UTXO).
+	if stateRaw, ok := payload["funding_state"]; ok {
+		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(stateRaw)), "ESCROW_STATE_INVALID") {
+			return
+		}
+	}
+	if errStr, ok := payload["error"]; ok {
+		if strings.TrimSpace(fmt.Sprint(errStr)) != "" {
+			return
+		}
+	}
 	// Escrow funding updates are broadcast to the whole table so the UI can
 	// highlight other players. Only persist updates that target the local
 	// player to avoid polluting our cached escrow state with someone else's.
@@ -135,20 +147,26 @@ func handlePresignNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 			delete(cctx.presignActive, tableID)
 			cctx.presignMu.Unlock()
 		}()
-		triggerAutoPresign(cctx, tableID)
+		err := triggerAutoPresign(cctx, tableID)
+		if err != nil {
+			cctx.log.Errorf("auto-presign: trigger auto presign failed: %v", err)
+			// Notify Flutter about the presign error
+			payload := &presignErrorDTO{
+				TableID: tableID,
+				Error:   err.Error(),
+			}
+			notify(NTPresignError, payload, nil)
+		}
 	}()
 }
 
 // triggerAutoPresign attempts to start presigning for a table when escrow is ready.
-func triggerAutoPresign(cctx *clientCtx, tableID string) {
+func triggerAutoPresign(cctx *clientCtx, tableID string) error {
 	if cctx == nil || cctx.c == nil {
-		return
+		return fmt.Errorf("auto-presign: no client context or client")
 	}
 	if cctx.Token == "" {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: no session token")
-		}
-		return
+		return fmt.Errorf("auto-presign: no session token")
 	}
 	// Get game state to find player's escrow_id and seat_index
 	ctx, cancel := context.WithTimeout(cctx.ctx, 10*time.Second)
@@ -158,14 +176,11 @@ func triggerAutoPresign(cctx *clientCtx, tableID string) {
 		PlayerId: cctx.ID.String(),
 	})
 	if err != nil {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: get game state failed: %v", err)
-		}
-		return
+		return fmt.Errorf("auto-presign: get game state failed: %v", err)
 	}
 	gu := gameState.GetGameState()
 	if gu == nil {
-		return
+		return fmt.Errorf("auto-presign: game state is nil")
 	}
 	// Find this player's info
 	var playerEscrowID string
@@ -178,34 +193,22 @@ func triggerAutoPresign(cctx *clientCtx, tableID string) {
 		}
 	}
 	if playerEscrowID == "" || seatIndex < 0 {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: no escrow_id or seat_index for table %s", tableID)
-		}
-		return
+		return fmt.Errorf("auto-presign: no escrow_id or seat_index for table %s", tableID)
 	}
 	// Get escrow info to check if it's ready and get key_index
 	escrowInfo, err := cctx.c.GetEscrowById(playerEscrowID)
 	if err != nil {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: get escrow info failed: %v", err)
-		}
-		return
+		return fmt.Errorf("auto-presign: get escrow info failed: %v", err)
 	}
 	// Check escrow status
 	status, _ := escrowInfo["status"].(string)
 	if status != "funded" {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: escrow %s not ready (status=%s)", playerEscrowID, status)
-		}
-		return
+		cctx.log.Debugf("auto-presign: escrow %s not ready (status=%s)", playerEscrowID, status)
 	}
 	// Get key_index to derive comp_priv
 	keyIndex, ok := escrowInfo["key_index"].(float64)
 	if !ok || keyIndex <= 0 {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: escrow missing key_index")
-		}
-		return
+		return fmt.Errorf("auto-presign: escrow missing key_index")
 	}
 	// Derive session private key
 	compPrivHex, _, err := cctx.c.DeriveSessionKeyAt(uint64(keyIndex))
@@ -213,12 +216,12 @@ func triggerAutoPresign(cctx *clientCtx, tableID string) {
 		if cctx.log != nil {
 			cctx.log.Debugf("auto-presign: derive session key failed: %v", err)
 		}
-		return
+		return fmt.Errorf("auto-presign: derive session key failed: %v", err)
 	}
 	// Decode to get comp_pub
 	compPriv, err := hex.DecodeString(compPrivHex)
 	if err != nil || len(compPriv) == 0 {
-		return
+		return fmt.Errorf("auto-presign: decode comp_priv failed: %v", err)
 	}
 	compKey := secp256k1.PrivKeyFromBytes(compPriv)
 	compPub := compKey.PubKey().SerializeCompressed()
@@ -228,15 +231,12 @@ func triggerAutoPresign(cctx *clientCtx, tableID string) {
 	sessionID := playerEscrowID
 	// Start presign
 	ref := cctx.c.Referee(cctx.Token)
-	if err := ref.StartPresign(ctx, matchID, tableID, sessionID, uint32(seatIndex), playerEscrowID, compPub, compPrivHex); err != nil {
-		if cctx.log != nil {
-			cctx.log.Debugf("auto-presign: start presign failed: %v", err)
-		}
-		return
+	err = ref.StartPresign(ctx, matchID, tableID, sessionID, uint32(seatIndex), playerEscrowID, compPub, compPrivHex)
+	if err != nil {
+		return err
 	}
-	if cctx.log != nil {
-		cctx.log.Infof("auto-presign started for table %s escrow %s", tableID, playerEscrowID)
-	}
+	cctx.log.Infof("auto-presign started for table %s escrow %s", tableID, playerEscrowID)
+	return nil
 }
 
 type createDefaultConfigArgs struct {
@@ -289,7 +289,6 @@ type createPokerTable struct {
 	BigBlind        int64 `json:"big_blind"`
 	MaxPlayers      int32 `json:"max_players"`
 	MinPlayers      int32 `json:"min_players"`
-	MinBalance      int64 `json:"min_balance"`
 	BuyIn           int64 `json:"buy_in"`
 	StartingChips   int64 `json:"starting_chips"`
 	TimeBankSeconds int32 `json:"time_bank_seconds"`
@@ -333,6 +332,12 @@ type evaluateHand struct {
 	} `json:"cards"`
 }
 
+// presignErrorDTO represents a presign error notification payload
+type presignErrorDTO struct {
+	TableID string `json:"tableId"`
+	Error   string `json:"error"`
+}
+
 // JSON returned to Flutter (shape must match Dart LocalWaitingRoom/LocalPlayer)
 type player struct {
 	UID    string `json:"uid"`
@@ -358,7 +363,6 @@ type pokerTable struct {
 	MaxPlayers      int32  `json:"max_players"`
 	MinPlayers      int32  `json:"min_players"`
 	CurrentPlayers  int32  `json:"current_players"`
-	MinBalance      int64  `json:"min_balance"`
 	BuyIn           int64  `json:"buy_in"`
 	GameStarted     bool   `json:"game_started"`
 	AllPlayersReady bool   `json:"all_players_ready"`
@@ -377,7 +381,6 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 		MaxPlayers:      t.MaxPlayers,
 		MinPlayers:      t.MinPlayers,
 		CurrentPlayers:  t.CurrentPlayers,
-		MinBalance:      t.MinBalance,
 		BuyIn:           t.BuyIn,
 		GameStarted:     t.GameStarted,
 		AllPlayersReady: t.AllPlayersReady,

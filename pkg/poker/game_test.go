@@ -296,6 +296,57 @@ func TestShowdown(t *testing.T) {
 	}
 }
 
+// Verify that showdown winners carry the evaluated HandRank (not the default/high-card zero value).
+func TestShowdownHandRankPropagates(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		Seed:             1,
+		StartingChips:    1000,
+		SmallBlind:       10,
+		BigBlind:         20,
+		AutoAdvanceDelay: 1 * time.Second,
+		Log:              createTestLogger(),
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
+	}
+	game.SetPlayers(users)
+
+	// Build a hand: board A A 10 7 2, p1 = 9c 6s (pair of aces), p2 = 8d 2s (two pair).
+	game.currentHand = NewHand([]string{"p1", "p2"})
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Clubs, value: Nine}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Spades, value: Six}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Diamonds, value: Eight}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Spades, value: Two}))
+
+	game.communityCards = []Card{
+		{suit: Spades, value: Ten},
+		{suit: Spades, value: Seven},
+		{suit: Diamonds, value: Ace},
+		{suit: Hearts, value: Two},
+		{suit: Hearts, value: Ace},
+	}
+	game.phase = pokerrpc.GamePhase_RIVER
+
+	// Set up pot contributions.
+	game.potManager = NewPotManager(2)
+	game.potManager.addBet(0, 40, game.players)
+	game.potManager.addBet(1, 40, game.players)
+
+	result, err := game.HandleShowdown()
+	require.NoError(t, err)
+
+	require.Len(t, result.WinnerInfo, 1, "expected single winner")
+	w := result.WinnerInfo[0]
+	assert.Equal(t, "p2", w.PlayerId, "expected p2 to win with two pair")
+	assert.Equal(t, pokerrpc.HandRank_TWO_PAIR, w.HandRank, "winner HandRank should reflect evaluated hand")
+}
+
 func TestTieBreakerShowdown(t *testing.T) {
 	// Create a game with 3 players
 	cfg := GameConfig{
@@ -1583,7 +1634,6 @@ func TestTimebank_AutoFold_Preflop(t *testing.T) {
 		MaxPlayers:       2,
 		SmallBlind:       5,
 		BigBlind:         10,
-		MinBalance:       0,
 		StartingChips:    100,
 		TimeBank:         50 * time.Millisecond,
 		AutoStartDelay:   10 * time.Millisecond,
@@ -1666,7 +1716,6 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 		MaxPlayers:       2,
 		SmallBlind:       5,
 		BigBlind:         10,
-		MinBalance:       0,
 		StartingChips:    100,
 		TimeBank:         50 * time.Millisecond,
 		AutoStartDelay:   10 * time.Millisecond,
@@ -1733,4 +1782,202 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 		}
 	}
 	require.Equal(t, IN_GAME_STATE, state)
+}
+
+// TestShowdownWithFoldedPlayer verifies that showdown works correctly when
+// a folded player is present (folded players have nil handValue and should be skipped).
+// Scenario: 3 players, one folds, two go all-in, showdown should complete successfully.
+// This test verifies the fix for the bug where folded players with nil handValue
+// caused showdown to fail.
+func TestShowdownWithFoldedPlayer(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       3,
+		StartingChips:    1000,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	// Create 3 players
+	users := []*User{
+		NewUser("player1", nil, nil),
+		NewUser("player2", nil, nil),
+		NewUser("player3", nil, nil),
+	}
+	game.SetPlayers(users)
+
+	// Initialize Hand for this test
+	game.currentHand = NewHand([]string{"player1", "player2", "player3"})
+
+	// Deal hole cards to all players
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 2; j++ {
+			card, ok := game.deck.Draw()
+			require.True(t, ok, "should be able to draw card")
+			game.currentHand.DealCardToPlayer(game.players[i].ID(), card)
+		}
+	}
+
+	// Set up community cards (flop, turn, river)
+	game.communityCards = []Card{
+		{suit: Spades, value: Five},
+		{suit: Diamonds, value: King},
+		{suit: Hearts, value: Four},
+		{suit: Hearts, value: Five},
+		{suit: Clubs, value: Ten},
+	}
+
+	// Set up pot with bets from all 3 players
+	game.potManager = NewPotManager(3)
+	game.potManager.addBet(0, 20, game.players)   // Player 1 (folded) bet 20
+	game.potManager.addBet(1, 1000, game.players) // Player 2 (all-in) bet 1000
+	game.potManager.addBet(2, 1000, game.players) // Player 3 (all-in) bet 1000
+
+	// Set up player states:
+	// Player 1: FOLDED (has nil handValue - this is the bug)
+	// Player 2: ALL_IN
+	// Player 3: ALL_IN
+
+	// Initialize hand participation for all players
+	require.NoError(t, game.players[0].StartHandParticipation())
+	require.NoError(t, game.players[1].StartHandParticipation())
+	require.NoError(t, game.players[2].StartHandParticipation())
+
+	// Mark player 1 as folded
+	game.players[0].mu.Lock()
+	game.players[0].hasFolded = true
+	game.players[0].balance = 980 // Started with 1000, bet 20
+	game.players[0].currentBet = 20
+	game.players[0].mu.Unlock()
+	// Send fold event to transition to folded state
+	game.players[0].handParticipation.Send(evFoldReq{Reply: make(chan error, 1)})
+
+	// Mark players 2 and 3 as all-in
+	game.players[1].mu.Lock()
+	game.players[1].balance = 0
+	game.players[1].currentBet = 1000
+	game.players[1].isAllIn = true // Set flag
+	game.players[1].mu.Unlock()
+
+	game.players[2].mu.Lock()
+	game.players[2].balance = 0
+	game.players[2].currentBet = 1000
+	game.players[2].isAllIn = true // Set flag
+	game.players[2].mu.Unlock()
+
+	// Send events to trigger state machine to detect all-in condition
+	game.players[1].handParticipation.Send(evStartTurn{})
+	game.players[2].handParticipation.Send(evStartTurn{})
+
+	// Wait for state transitions
+	require.Eventually(t, func() bool {
+		return game.players[0].GetCurrentStateString() == FOLDED_STATE
+	}, 200*time.Millisecond, 10*time.Millisecond, "Player 1 should be folded")
+
+	require.Eventually(t, func() bool {
+		return game.players[1].GetCurrentStateString() == ALL_IN_STATE
+	}, 200*time.Millisecond, 10*time.Millisecond, "Player 2 should be all-in")
+
+	require.Eventually(t, func() bool {
+		return game.players[2].GetCurrentStateString() == ALL_IN_STATE
+	}, 200*time.Millisecond, 10*time.Millisecond, "Player 3 should be all-in")
+
+	// Set phase to RIVER (ready for showdown)
+	game.mu.Lock()
+	game.phase = pokerrpc.GamePhase_RIVER
+
+	// Call showdown - should succeed even with folded player (nil handValue)
+	// The fix should skip folded players when checking handValue
+	res, err := game.handleShowdown()
+	game.mu.Unlock()
+
+	// Showdown should succeed - folded players are now skipped
+	require.NoError(t, err, "Showdown should succeed with folded player present")
+	require.NotNil(t, res, "Showdown should return a result")
+
+	// Verify that we have winners (the two all-in players)
+	require.Greater(t, len(res.Winners), 0, "Should have at least one winner")
+	t.Logf("✓ Showdown completed successfully with %d winners (folded player correctly skipped)", len(res.Winners))
+}
+
+// TestAutoStartAfterElimination verifies that auto-start works after a player is eliminated.
+// Scenario: 3 players start, one eliminated (0 chips), auto-start should work with 2 players remaining.
+// The table is created with minPlayers=2 so it can continue with 2 active players.
+func TestAutoStartAfterElimination(t *testing.T) {
+	// Create a table with minPlayers=2
+	tbl := newTestTable(t, 2, 6, 10, 20, 1000)
+	tbl.config.AutoStartDelay = 50 * time.Millisecond
+
+	// Add 3 players
+	user1, err := tbl.AddNewUser("player1", nil)
+	require.NoError(t, err)
+	user2, err := tbl.AddNewUser("player2", nil)
+	require.NoError(t, err)
+	user3, err := tbl.AddNewUser("player3", nil)
+	require.NoError(t, err)
+
+	// Mark all players ready
+	user1.SendReady()
+	user2.SendReady()
+	user3.SendReady()
+
+	// Start the game
+	err = tbl.StartGame()
+	require.NoError(t, err, "Should be able to start game with 3 players")
+
+	// Wait for game to be active
+	require.Eventually(t, func() bool {
+		return tbl.GetTableStateString() == "GAME_ACTIVE"
+	}, 2*time.Second, 10*time.Millisecond, "Game should be active")
+
+	// Get the game
+	game := tbl.GetGame()
+	require.NotNil(t, game, "Game should exist")
+
+	// Wait for PRE_FLOP phase
+	require.Eventually(t, func() bool {
+		return game.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach PRE_FLOP")
+
+	// Simulate a hand where player3 loses all chips and is eliminated
+	// We'll manually set up the game state after a showdown where player3 is eliminated
+	game.mu.Lock()
+
+	// Find player3 and set balance to 0 (eliminated after losing)
+	var player3Idx int = -1
+	for i, p := range game.players {
+		if p != nil && p.ID() == "player3" {
+			player3Idx = i
+			break
+		}
+	}
+	require.GreaterOrEqual(t, player3Idx, 0, "Should find player3")
+
+	// Set player3 balance to 0 (eliminated)
+	game.players[player3Idx].mu.Lock()
+	game.players[player3Idx].balance = 0
+	game.players[player3Idx].mu.Unlock()
+
+	// Verify: 2 players have chips > 0, 1 player has 0 chips
+	readyCount := 0
+	for _, p := range game.players {
+		if p != nil && p.Balance() > 0 {
+			readyCount++
+		}
+	}
+	game.mu.Unlock()
+
+	require.Equal(t, 2, readyCount, "Should have 2 players with chips remaining")
+	require.Equal(t, 2, tbl.config.MinPlayers, "Table should have minPlayers=2")
+
+	// Manually trigger auto-start check (simulating what happens after showdown)
+	// With minPlayers=2 and 2 active players, auto-start should succeed
+	err = tbl.handleAutoStart()
+	require.NoError(t, err, "Auto-start should succeed with 2 players when minPlayers=2")
+	t.Log("✓ Auto-start succeeded with 2 players")
 }

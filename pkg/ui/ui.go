@@ -291,7 +291,6 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 			bigBlind, _ := strconv.ParseInt(m.bigBlind, 10, 64)
 			requiredPlayers, _ := strconv.ParseInt(m.requiredPlayers, 10, 32)
 			buyIn, _ := strconv.ParseInt(m.buyIn, 10, 64)
-			minBalance, _ := strconv.ParseInt(m.minBalance, 10, 64)
 			startingChips, _ := strconv.ParseInt(m.startingChips, 10, 64)
 			autoAdvanceMs, _ := strconv.ParseInt(m.autoAdvanceMs, 10, 64)
 			// Optional timebank seconds; default to 30 if empty or zero
@@ -308,7 +307,6 @@ func (m *PokerUI) stateCreateTable(ui *PokerUI, msg tea.Msg) (stateFn, tea.Cmd) 
 				MinPlayers:       int(requiredPlayers),
 				MaxPlayers:       int(requiredPlayers), // Using same value for min and max for now
 				BuyIn:            buyIn,
-				MinBalance:       minBalance,
 				StartingChips:    startingChips,
 				TimeBank:         time.Duration(tbSec) * time.Second,
 				AutoStartDelay:   3 * time.Second,                                 // Auto-start new hands after 3 seconds

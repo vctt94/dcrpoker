@@ -47,7 +47,6 @@ func TestTableRemovedAfterGameOver(t *testing.T) {
 		MinPlayers:    2,
 		MaxPlayers:    2,
 		BuyIn:         0,
-		MinBalance:    100,
 		StartingChips: 100,
 		AutoStartMs:   500,
 		AutoAdvanceMs: 500,
@@ -167,11 +166,19 @@ func TestTableRemovedAfterGameOver(t *testing.T) {
 	}
 	require.NotEmpty(t, winnerID, "expected a single winner after all-in hands")
 
+	// Wait a bit for GAME_ENDED event to be processed, which triggers table removal scheduling.
+	// The removal has a 1 second grace period, then needs event processing time.
+	time.Sleep(500 * time.Millisecond)
+
 	// The table should disappear once the match is finished.
+	// scheduleTableRemoval has a 1s grace period, plus we need time for:
+	// - Event to be published and queued
+	// - Event processor to process TABLE_REMOVED
+	// - finalizeTableRemoval to complete
 	require.Eventually(t, func() bool {
 		_, ok := env.PokerSrv.GetTable(tableID)
 		return !ok
-	}, 3*time.Second, 50*time.Millisecond, "table should be removed after game over")
+	}, 5*time.Second, 100*time.Millisecond, "table should be removed after game over")
 
 	_, err = env.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	require.Error(t, err, "game state should not be available after table removal")

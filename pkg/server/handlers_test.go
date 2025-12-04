@@ -2,8 +2,12 @@ package server
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/decred/slog"
+	"github.com/stretchr/testify/require"
 	"github.com/vctt94/pokerbisonrelay/pkg/poker"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"google.golang.org/grpc/metadata"
@@ -17,6 +21,7 @@ import (
 // It implements only the methods actually used by the code-under-test.
 
 type mockNotificationStream struct {
+	mu   sync.RWMutex
 	sent []*pokerrpc.Notification
 }
 
@@ -25,6 +30,8 @@ var _ pokerrpc.LobbyService_StartNotificationStreamServer = (*mockNotificationSt
 
 // Send records the notification for inspection.
 func (m *mockNotificationStream) Send(n *pokerrpc.Notification) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sent = append(m.sent, n)
 	return nil
 }
@@ -37,6 +44,181 @@ func (m *mockNotificationStream) SetTrailer(metadata.MD)       {}
 func (m *mockNotificationStream) Context() context.Context     { return context.TODO() }
 func (m *mockNotificationStream) SendMsg(interface{}) error    { return nil }
 func (m *mockNotificationStream) RecvMsg(interface{}) error    { return nil }
+
+// ---------- Notification handler tests ---------- //
+
+// TestNotificationHandlerAddsTableOnPlayerJoined ensures lobby notifications
+// include the table payload so other clients can refresh immediately.
+func TestNotificationHandlerAddsTableOnPlayerJoined(t *testing.T) {
+	s := newBareServer()
+	mockStream := &mockNotificationStream{}
+	s.notificationStreams.Store("listener", &NotificationStream{
+		playerID: "listener",
+		stream:   mockStream,
+		done:     make(chan struct{}),
+	})
+
+	snap := &TableSnapshot{
+		ID: "tid",
+		Config: poker.TableConfig{
+			ID:         "tid",
+			HostID:     "host",
+			SmallBlind: 10,
+			BigBlind:   20,
+			MinPlayers: 2,
+			MaxPlayers: 6,
+		},
+		Players: []*PlayerSnapshot{
+			{ID: "host", Name: "Host", TableSeat: 0, Balance: 1000},
+			{ID: "p2", Name: "Guest", TableSeat: 1, Balance: 1000},
+		},
+		State: TableState{PlayerCount: 2},
+	}
+
+	nh := NewNotificationHandler(s)
+	nh.handlePlayerJoined(&GameEvent{
+		Type:          pokerrpc.NotificationType_PLAYER_JOINED,
+		TableID:       "tid",
+		PlayerIDs:     []string{"host", "p2"},
+		Payload:       PlayerJoinedPayload{PlayerID: "p2"},
+		TableSnapshot: snap,
+	})
+
+	mockStream.mu.RLock()
+	sentLen := len(mockStream.sent)
+	var ntfn *pokerrpc.Notification
+	if sentLen > 0 {
+		ntfn = mockStream.sent[0]
+	}
+	mockStream.mu.RUnlock()
+	if sentLen != 1 {
+		t.Fatalf("expected 1 notification, got %d", sentLen)
+	}
+	if ntfn.Table == nil {
+		t.Fatalf("notification missing table payload")
+	}
+	if got := ntfn.Table.CurrentPlayers; got != 2 {
+		t.Fatalf("expected CurrentPlayers=2, got %d", got)
+	}
+	if got := len(ntfn.Table.Players); got != 2 {
+		t.Fatalf("expected 2 players in table payload, got %d", got)
+	}
+}
+
+// TestNotificationHandlerAddsTableOnTableCreated collects a fresh snapshot
+// when TABLE_CREATED events omit the snapshot payload.
+func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
+	s := newBareServer()
+	mockStream := &mockNotificationStream{}
+	s.notificationStreams.Store("listener", &NotificationStream{
+		playerID: "listener",
+		stream:   mockStream,
+		done:     make(chan struct{}),
+	})
+
+	cfg := poker.TableConfig{
+		ID:         "tid",
+		HostID:     "host",
+		Log:        slog.Disabled,
+		GameLog:    slog.Disabled,
+		MinPlayers: 2,
+		MaxPlayers: 6,
+		SmallBlind: 10,
+		BigBlind:   20,
+	}
+	table := poker.NewTable(cfg)
+	if _, err := table.AddNewUser("host", &poker.AddUserOptions{DisplayName: "Host"}); err != nil {
+		t.Fatalf("add host: %v", err)
+	}
+	s.tables.Store(cfg.ID, table)
+
+	nh := NewNotificationHandler(s)
+	nh.handleTableCreated(&GameEvent{
+		Type:    pokerrpc.NotificationType_TABLE_CREATED,
+		TableID: cfg.ID,
+	})
+
+	mockStream.mu.RLock()
+	sentLen := len(mockStream.sent)
+	var ntfn *pokerrpc.Notification
+	if sentLen > 0 {
+		ntfn = mockStream.sent[0]
+	}
+	mockStream.mu.RUnlock()
+	if sentLen != 1 {
+		t.Fatalf("expected 1 notification, got %d", sentLen)
+	}
+	if ntfn.Table == nil {
+		t.Fatalf("notification missing table payload")
+	}
+	if ntfn.Table.HostId != "host" {
+		t.Fatalf("expected HostId host, got %s", ntfn.Table.HostId)
+	}
+	if ntfn.Table.CurrentPlayers != 1 {
+		t.Fatalf("expected CurrentPlayers=1, got %d", ntfn.Table.CurrentPlayers)
+	}
+}
+
+func TestLeaveTablePublishesPlayerLeft(t *testing.T) {
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	server, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	defer server.Stop()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	hostID := "host"
+	guestID := "guest"
+
+	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      hostID,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    2,
+		MaxPlayers:    2,
+		BuyIn:         0,
+		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	_, err = server.JoinTable(ctx, &pokerrpc.JoinTableRequest{
+		PlayerId: guestID,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+
+	mockStream := &mockNotificationStream{}
+	server.notificationStreams.Store("listener", &NotificationStream{
+		playerID: "listener",
+		stream:   mockStream,
+		done:     make(chan struct{}),
+	})
+
+	_, err = server.LeaveTable(ctx, &pokerrpc.LeaveTableRequest{
+		PlayerId: guestID,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		mockStream.mu.RLock()
+		defer mockStream.mu.RUnlock()
+		for _, n := range mockStream.sent {
+			if n.Type == pokerrpc.NotificationType_PLAYER_LEFT && n.TableId == tableID {
+				return n.Table != nil && n.Table.CurrentPlayers == 1
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "expected PLAYER_LEFT notification with updated table payload")
+}
 
 // TestGameStateHandlerBuildGameStates verifies that game updates are correctly
 // built from a table snapshot and that hole cards visibility rules are

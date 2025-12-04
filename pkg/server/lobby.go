@@ -65,7 +65,6 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 		MaxPlayers:       int(req.MaxPlayers),
 		SmallBlind:       req.SmallBlind,
 		BigBlind:         req.BigBlind,
-		MinBalance:       req.MinBalance,
 		StartingChips:    startingChips,
 		TimeBank:         timeBank,
 		AutoStartDelay:   autoStartDelay,
@@ -288,6 +287,17 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 		// We continue; in-memory removal already happened.
 	}
 
+	// Publish PLAYER_LEFT so lobby/waiting room lists refresh immediately.
+	evt, err := s.buildGameEvent(
+		pokerrpc.NotificationType_PLAYER_LEFT,
+		req.TableId,
+		PlayerLeftPayload{PlayerID: req.PlayerId},
+	)
+	if err != nil {
+		return &pokerrpc.LeaveTableResponse{Success: false, Message: err.Error()}, nil
+	}
+	s.eventProcessor.PublishEvent(evt)
+
 	// If the host leaves, transfer host if possible, else close the table
 	if isHost {
 		remaining := table.GetUsers()
@@ -381,7 +391,6 @@ func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) 
 			MaxPlayers:      int32(table.GetMaxPlayers()),
 			MinPlayers:      int32(table.GetMinPlayers()),
 			CurrentPlayers:  int32(len(users)),
-			MinBalance:      config.MinBalance,
 			BuyIn:           config.BuyIn,
 			GameStarted:     game != nil,
 			AllPlayersReady: table.AreAllPlayersReady(),

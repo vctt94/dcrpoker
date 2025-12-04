@@ -492,8 +492,6 @@ class PokerTable {
   final int minPlayers;
   @JsonKey(name: 'current_players')
   final int currentPlayers;
-  @JsonKey(name: 'min_balance')
-  final int minBalance;
   @JsonKey(name: 'buy_in')
   final int buyIn;
   @JsonKey(name: 'game_started')
@@ -509,7 +507,6 @@ class PokerTable {
     this.maxPlayers,
     this.minPlayers,
     this.currentPlayers,
-    this.minBalance,
     this.buyIn,
     this.gameStarted,
     this.allPlayersReady,
@@ -530,8 +527,6 @@ class CreatePokerTableArgs {
   final int maxPlayers;
   @JsonKey(name: 'min_players')
   final int minPlayers;
-  @JsonKey(name: 'min_balance')
-  final int minBalance;
   @JsonKey(name: 'buy_in')
   final int buyIn;
   @JsonKey(name: 'starting_chips')
@@ -548,7 +543,6 @@ class CreatePokerTableArgs {
     this.bigBlind,
     this.maxPlayers,
     this.minPlayers,
-    this.minBalance,
     this.buyIn,
     this.startingChips,
     this.timeBankSeconds,
@@ -926,6 +920,28 @@ class UINotificationsConfig {
   Map<String, dynamic> toJson() => _$UINotificationsConfigToJson(this);
 }
 
+/// PresignError represents an error that occurred during auto-presign
+class PresignError {
+  final String tableId;
+  final String error;
+
+  PresignError({required this.tableId, required this.error});
+
+  factory PresignError.fromJson(Map<String, dynamic> json) {
+    return PresignError(
+      tableId: json['tableId'] as String? ?? '',
+      error: json['error'] as String? ?? '',
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'tableId': tableId,
+      'error': error,
+    };
+  }
+}
+
 /// -------------------- Notifications mixin --------------------
 
 mixin NtfStreams {
@@ -959,6 +975,10 @@ mixin NtfStreams {
       StreamController<pr.GameUpdate>.broadcast();
   Stream<pr.GameUpdate> gameUpdates() => ntfGameUpdates.stream;
 
+  final StreamController<PresignError> ntfPresignErrors =
+      StreamController<PresignError>.broadcast();
+  Stream<PresignError> presignErrors() => ntfPresignErrors.stream;
+
   void disposeNtfStreams() {
     ntfAcceptedInvites.close();
     ntfLogLines.close();
@@ -967,6 +987,7 @@ mixin NtfStreams {
     ntfWaitingRoomCreated.close();
     ntfPokerNotifications.close();
     ntfGameUpdates.close();
+    ntfPresignErrors.close();
   }
 
   void handleNotifications(int cmd, bool isError, String jsonPayload) {
@@ -1012,6 +1033,19 @@ mixin NtfStreams {
           }
         } catch (e, stackTrace) {
           debugPrint("Failed to parse NTGameUpdate payload: $e");
+          debugPrint("Stack trace: $stackTrace");
+          debugPrint("Payload was: $jsonPayload");
+        }
+        break;
+      case NTPresignError:
+        try {
+          if (jsonPayload.isNotEmpty) {
+            final data = jsonDecode(jsonPayload) as Map<String, dynamic>;
+            final error = PresignError.fromJson(data);
+            ntfPresignErrors.add(error);
+          }
+        } catch (e, stackTrace) {
+          debugPrint("Failed to parse NTPresignError payload: $e");
           debugPrint("Stack trace: $stackTrace");
           debugPrint("Payload was: $jsonPayload");
         }
@@ -1340,12 +1374,6 @@ abstract class PluginPlatform {
     return _asJsonMap(res);
   }
 
-  Future<Map<String, int>> getPokerBalance() async {
-    final res = await asyncCall(CTGetPokerBalance, "");
-    final m = _asJsonMap(res);
-    return m.map((k, v) => MapEntry(k, (v as num).toInt()));
-  }
-
   Future<String> getPokerCurrentTable() async {
     final res = await asyncCall(CTGetPlayerCurrentTable, "");
     final m = _asJsonMap(res);
@@ -1438,7 +1466,6 @@ const int CTGetPokerTables = 0x12;
 const int CTJoinPokerTable = 0x13;
 const int CTCreatePokerTable = 0x14;
 const int CTLeavePokerTable = 0x15;
-const int CTGetPokerBalance = 0x16;
 const int CTCreateDefaultConfig = 0x17;
 const int CTCreateDefaultServerCert = 0x18;
 const int CTShowCards = 0x19;
@@ -1471,3 +1498,4 @@ const int NTNOP = 0x1004;
 const int NTWRCreated = 0x1005;
 const int NTPokerNotification = 0x1006;
 const int NTGameUpdate = 0x1007;
+const int NTPresignError = 0x1008;

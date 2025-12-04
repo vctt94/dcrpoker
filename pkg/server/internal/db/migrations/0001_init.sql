@@ -36,7 +36,6 @@ CREATE TABLE IF NOT EXISTS tables (
     max_players     INTEGER NOT NULL,
     small_blind     INTEGER NOT NULL,
     big_blind       INTEGER NOT NULL,
-    min_balance     INTEGER NOT NULL,
     starting_chips  INTEGER NOT NULL,
     timebank_ms     INTEGER NOT NULL DEFAULT 0,
     autostart_ms    INTEGER NOT NULL DEFAULT 0,

@@ -268,7 +268,6 @@ func (e *Env) CreateTableWithBuyIn(ctx context.Context, creatorID string, minPla
 		MinPlayers:    int32(minPlayers),
 		MaxPlayers:    int32(maxPlayers),
 		BuyIn:         buyIn,
-		MinBalance:    buyIn,
 		StartingChips: buyIn,
 		AutoStartMs:   100,
 		AutoAdvanceMs: 1000,

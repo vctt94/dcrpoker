@@ -326,7 +326,6 @@ type Table struct {
 	MaxPlayers    int
 	SmallBlind    int64
 	BigBlind      int64
-	MinBalance    int64
 	StartingChips int64
 	TimebankMS    int64
 	AutoStartMS   int64
@@ -439,8 +438,8 @@ func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO tables (
 			id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
-			min_balance, starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
 		ON CONFLICT(id) DO UPDATE SET
 			host_id         = excluded.host_id,
 			buy_in          = excluded.buy_in,
@@ -448,25 +447,24 @@ func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 			max_players     = excluded.max_players,
 			small_blind     = excluded.small_blind,
 			big_blind       = excluded.big_blind,
-			min_balance     = excluded.min_balance,
 			starting_chips  = excluded.starting_chips,
 			timebank_ms     = excluded.timebank_ms,
 			autostart_ms    = excluded.autostart_ms,
 			auto_advance_ms = excluded.auto_advance_ms
 	`, t.ID, t.HostID, t.BuyIn, t.MinPlayers, t.MaxPlayers, t.SmallBlind, t.BigBlind,
-		t.MinBalance, t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, time.Now())
+		t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, time.Now())
 	return err
 }
 
 func (db *DB) GetTable(ctx context.Context, id string) (*Table, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
-			min_balance, starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
+			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
 		FROM tables WHERE id = ?
 	`, id)
 	var t Table
 	if err := row.Scan(&t.ID, &t.HostID, &t.BuyIn, &t.MinPlayers, &t.MaxPlayers, &t.SmallBlind, &t.BigBlind,
-		&t.MinBalance, &t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.AutoAdvanceMS, &t.CreatedAt); err != nil {
+		&t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.AutoAdvanceMS, &t.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("table not found: %s", id)
 		}

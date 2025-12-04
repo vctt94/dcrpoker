@@ -177,7 +177,7 @@ func TestResetForNewHand_ClearsFoldState(t *testing.T) {
 	assert.Equal(t, FOLDED_STATE, player.GetCurrentStateString())
 
 	// Reset for new hand and start hand participation again
-	require.NoError(t, player.ResetForNewHand(1000))
+	player.ResetForNewHand(1000)
 	require.NoError(t, player.StartHandParticipation())
 	require.Eventually(t, func() bool {
 		return player.GetCurrentStateString() == IN_GAME_STATE

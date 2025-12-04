@@ -26,7 +26,6 @@ func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChip
 		MaxPlayers:       maxPlayers,
 		SmallBlind:       sb,
 		BigBlind:         bb,
-		MinBalance:       0,
 		StartingChips:    startingChips,
 		TimeBank:         5 * time.Second,
 		AutoStartDelay:   100 * time.Millisecond,
@@ -213,6 +212,62 @@ func TestTableBettingActionsAndTurns(t *testing.T) {
 		// Turn advanced if current player changed or bet amount changed
 		return newCurID != current || newBet != g.GetCurrentBet()
 	}, 500*time.Millisecond, 10*time.Millisecond, "turn did not advance after current player's action")
+}
+
+func TestMakeBetAllInWithBalanceAfterBlind(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 10, 20, 1000)
+	userSB, err := tbl.AddNewUser("sb", nil)
+	require.NoError(t, err)
+	userBB, err := tbl.AddNewUser("bb", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, userSB.SendReady())
+	require.NoError(t, userBB.SendReady())
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	var sb PlayerSnapshot
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		if g == nil || g.GetPhase() != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+
+		s := g.GetStateSnapshot()
+		for _, p := range s.Players {
+			if p.IsSmallBlind {
+				sb = p
+				return true
+			}
+		}
+		return false
+	}, time.Second, 10*time.Millisecond, "small blind not found")
+
+	initialBalance := sb.Balance
+	initialBet := sb.CurrentBet
+	require.Greater(t, initialBet, int64(0), "small blind should have posted a blind")
+	t.Logf("SB before bet: balance=%d currentBet=%d starting=%d", initialBalance, initialBet, sb.StartingBalance)
+	// MakeBet expects the total bet amount (blind + remaining balance), not just the remaining balance.
+	// To go all-in, bet the total: initialBet (10) + initialBalance (990) = 1000
+	totalBetAmount := initialBet + initialBalance
+	require.NoError(t, tbl.MakeBet(sb.ID, totalBetAmount))
+
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+	s := g.GetStateSnapshot()
+	var sbAfter PlayerSnapshot
+	for _, p := range s.Players {
+		if p.ID == sb.ID {
+			sbAfter = p
+			break
+		}
+	}
+	require.Equal(t, sb.ID, sbAfter.ID, "small blind snapshot not found after bet")
+
+	expectedBet := initialBet + initialBalance
+	assert.Equal(t, int64(0), sbAfter.Balance, "small blind should be all-in")
+	assert.Equal(t, expectedBet, sbAfter.CurrentBet, "small blind bet should include posted blind plus remaining stack")
+	assert.Equal(t, ALL_IN_STATE, sbAfter.StateString, "small blind should be marked all-in")
 }
 
 func TestTableInvalidInputs(t *testing.T) {
@@ -824,7 +879,6 @@ func TestTableClose_Idempotent(t *testing.T) {
 		MaxPlayers:     6,
 		SmallBlind:     10,
 		BigBlind:       20,
-		MinBalance:     1000,
 		StartingChips:  1000,
 		TimeBank:       30 * time.Second,
 		AutoStartDelay: 3 * time.Second,
@@ -862,7 +916,6 @@ func TestTableClose_Concurrent(t *testing.T) {
 		MaxPlayers:     6,
 		SmallBlind:     10,
 		BigBlind:       20,
-		MinBalance:     1000,
 		StartingChips:  1000,
 		TimeBank:       30 * time.Second,
 		AutoStartDelay: 3 * time.Second,
@@ -925,7 +978,6 @@ func TestTableClose_WithGame(t *testing.T) {
 		MaxPlayers:       6,
 		SmallBlind:       10,
 		BigBlind:         20,
-		MinBalance:       1000,
 		StartingChips:    1000,
 		TimeBank:         30 * time.Second,
 		AutoStartDelay:   3 * time.Second,
@@ -998,7 +1050,6 @@ func TestTableClose_BackgroundGoroutinesStop(t *testing.T) {
 		MaxPlayers:     6,
 		SmallBlind:     10,
 		BigBlind:       20,
-		MinBalance:     1000,
 		StartingChips:  1000,
 		TimeBank:       30 * time.Second,
 		AutoStartDelay: 3 * time.Second,
@@ -1047,7 +1098,6 @@ func TestTableClose_WaitGroupProperlyTracked(t *testing.T) {
 		MaxPlayers:     6,
 		SmallBlind:     10,
 		BigBlind:       20,
-		MinBalance:     1000,
 		StartingChips:  1000,
 		TimeBank:       30 * time.Second,
 		AutoStartDelay: 3 * time.Second,

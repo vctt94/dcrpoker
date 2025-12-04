@@ -45,7 +45,7 @@ func (pc *PokerClient) StartGameStream(ctx context.Context) error {
 
 	go pc.runGameStreamLoop(loopCtx, currentTableID)
 
-	pc.log.Infof("Started game stream loop for table %s", currentTableID)
+	pc.log.Infof("Started game stream for table %s", currentTableID)
 	return nil
 }
 
@@ -125,7 +125,6 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 		BigBlind:        config.BigBlind,
 		MaxPlayers:      int32(config.MaxPlayers),
 		MinPlayers:      int32(config.MinPlayers),
-		MinBalance:      config.MinBalance,
 		BuyIn:           config.BuyIn,
 		StartingChips:   config.StartingChips,
 		TimeBankSeconds: timeBankSeconds,

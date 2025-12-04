@@ -159,7 +159,11 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
           itemBuilder: (context, index) {
             final t = tables[index];
             final full = t.currentPlayers >= t.maxPlayers;
-            final canJoin = !full;
+            // Consider both live players list and current session table
+            final alreadySeated = widget.model.currentTableId == t.id ||
+                t.players.any((p) => p.id == model.playerId);
+            // Allow opening the table even if full when already seated
+            final canJoin = !full || alreadySeated;
             final statusColor = t.gameStarted ? Colors.green : Colors.orange;
             final statusText = t.gameStarted ? 'In Progress' : 'Waiting';
 
@@ -219,14 +223,24 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                               style: const TextStyle(color: Colors.white70)),
                         ),
                         Tooltip(
-                          message: canJoin ? 'Join this table' : 'Table is full',
+                          message: alreadySeated
+                              ? 'Return to your table'
+                              : (canJoin ? 'Join this table' : 'Table is full'),
                           child: ElevatedButton(
-                            onPressed: canJoin ? () => widget.model.joinTable(t.id) : null,
+                            onPressed: canJoin
+                                ? () {
+                                    if (alreadySeated) {
+                                      widget.model.openTableView();
+                                    } else {
+                                      widget.model.joinTable(t.id);
+                                    }
+                                  }
+                                : null,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: canJoin ? Colors.green : Colors.grey,
                               foregroundColor: Colors.white,
                             ),
-                            child: const Text('Join'),
+                            child: Text(alreadySeated ? 'Open Table' : 'Join'),
                           ),
                         ),
                         const SizedBox(width: 8),

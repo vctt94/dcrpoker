@@ -187,7 +187,6 @@ class UiTable {
   final int maxPlayers;
   final int minPlayers;
   final int currentPlayers;
-  final int minBalanceAtoms;
   final int buyInAtoms;
   final pr.GamePhase phase;
   final bool gameStarted;
@@ -202,7 +201,6 @@ class UiTable {
     required this.maxPlayers,
     required this.minPlayers,
     required this.currentPlayers,
-    required this.minBalanceAtoms,
     required this.buyInAtoms,
     required this.phase,
     required this.gameStarted,
@@ -218,7 +216,6 @@ class UiTable {
         maxPlayers: t.maxPlayers,
         minPlayers: t.minPlayers,
         currentPlayers: t.currentPlayers,
-        minBalanceAtoms: t.minBalance.toInt(),
         buyInAtoms: t.buyIn.toInt(),
         phase: t.phase,
         gameStarted: t.gameStarted,
@@ -353,6 +350,7 @@ class PokerModel extends ChangeNotifier {
   bool _iAmReady = false;
   bool _seated = false; // track whether user is seated at any table
   bool _restoring = false; // guard against repeated restore/join loops
+  bool _showTableView = true; // controls whether UI should render the active table or lobby
   // Track per-player show/hide state from notifications
   final Map<String, bool> playersShowingCards = {};
   bool get myCardsShown => playersShowingCards[playerId] ?? false;
@@ -365,6 +363,21 @@ class PokerModel extends ChangeNotifier {
     _authedPayoutAddress = addr.trim();
   }
 
+  // Control whether UI renders the active table or the home/browsing view.
+  void showHomeView() {
+    if (_showTableView) {
+      _showTableView = false;
+      notifyListeners();
+    }
+  }
+
+  void openTableView() {
+    if (!_showTableView) {
+      _showTableView = true;
+      notifyListeners();
+    }
+  }
+
   // Settlement presigning state
   bool _presignInProgress = false;
   String _presignError = '';
@@ -373,6 +386,7 @@ class PokerModel extends ChangeNotifier {
   /// Returns true if server reports presigning complete for current player
   bool get presignCompleted => me?.presignComplete ?? false;
   String get presignError => _presignError;
+  bool get showTableView => _showTableView;
 
   // Subscription to poker notifications coming from golib.
   StreamSubscription<pr.Notification>? _pokerNtfnSub;
@@ -464,13 +478,11 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.PLAYER_UNREADY:
         // Refresh lightweight lists/balances; avoid spamming server.
         unawaited(refreshTables());
-        unawaited(_refreshBalance());
         break;
       case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.ALL_PLAYERS_READY:
         // Refresh lightweight lists/balances; avoid spamming server.
         unawaited(refreshTables());
-        unawaited(_refreshBalance());
         break;
 
       case pr.NotificationType.NEW_HAND_STARTED:
@@ -504,6 +516,25 @@ class PokerModel extends ChangeNotifier {
           notifyListeners();
         }
         // Don't call refreshGameState - game is over
+        break;
+      case pr.NotificationType.PLAYER_LOST:
+        // Player lost all chips and was removed from table
+        if (n.playerId == playerId && n.tableId == currentTableId) {
+          // Current player lost - show GameEndedView with loss message
+          gameEndingMessage = n.message.isNotEmpty
+              ? n.message
+              : 'You lost all your chips and have been removed from the table.';
+          _state = PokerState.gameEnded;
+          // Don't clear currentTableId yet - let GameEndedView handle navigation
+          // The view has buttons to leave table and return to main menu
+          game = null; // Clear game state since player is no longer in the game
+          notifyListeners();
+          // Refresh tables to update lobby (in background)
+          unawaited(refreshTables());
+        } else if (n.tableId == currentTableId) {
+          // Another player lost - refresh tables to update lobby
+          unawaited(refreshTables());
+        }
         break;
       case pr.NotificationType.BET_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
@@ -642,7 +673,6 @@ class PokerModel extends ChangeNotifier {
             maxPlayers: t.maxPlayers,
             minPlayers: t.minPlayers,
             currentPlayers: t.currentPlayers,
-            minBalanceAtoms: t.minBalance,
             buyInAtoms: t.buyIn,
             // Phase not provided by plugin; lobby UI already shows status via gameStarted
             phase: pr.GamePhase.WAITING,
@@ -665,25 +695,11 @@ class PokerModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshBalance() async {
-    try {
-      final res = await Golib.getPokerBalance();
-      final b = res['balance'];
-      if (b is int) {
-        myAtomsBalance = b;
-        notifyListeners();
-      }
-    } catch (_) {
-      // Best-effort; keep old balance.
-    }
-  }
-
   Future<String?> createTable({
     required int smallBlindChips,
     required int bigBlindChips,
     required int maxPlayers,
     required int minPlayers,
-    required int minBalanceAtoms,
     required int buyInAtoms,
     required int startingChips,
     int timeBankSeconds = 30,
@@ -696,7 +712,6 @@ class PokerModel extends ChangeNotifier {
         bigBlindChips,
         maxPlayers,
         minPlayers,
-        minBalanceAtoms,
         buyInAtoms,
         startingChips,
         timeBankSeconds,
@@ -746,6 +761,7 @@ class PokerModel extends ChangeNotifier {
       currentTableId = tableId;
       _iAmReady = false;
       _seated = true;
+      _showTableView = true;
       await refreshTables();
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
@@ -947,6 +963,7 @@ class PokerModel extends ChangeNotifier {
       game = null;
       _iAmReady = false;
       _seated = false;
+      _showTableView = false;
       playersShowingCards.clear();
       _lastBoundEscrowId = null;
       _lastBoundEscrowReady = false;
@@ -1163,8 +1180,6 @@ class PokerModel extends ChangeNotifier {
     if (tid == null) return false;
     try {
       await Golib.makeBet(MakeBetArgs(amountChips));
-      // Refresh balance in background
-      unawaited(_refreshBalance());
       return true;
     } catch (e) {
       errorMessage = 'Bet failed: $e';
@@ -1269,6 +1284,29 @@ class PokerModel extends ChangeNotifier {
     }
   }
 
+  pr.HandRank parseHandRank(dynamic hrRaw) {
+    if (hrRaw is pr.HandRank) {
+      return hrRaw;
+    }
+    if (hrRaw is num) {
+      return pr.HandRank.valueOf(hrRaw.toInt()) ?? pr.HandRank.HIGH_CARD;
+    }
+    if (hrRaw is String) {
+      final parsed = int.tryParse(hrRaw);
+      if (parsed != null) {
+        return pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
+      }
+      final normalized = hrRaw.toUpperCase();
+      final stripped = normalized.startsWith('HAND_RANK_')
+          ? normalized.substring('HAND_RANK_'.length)
+          : normalized;
+      final match = pr.HandRank.values
+          .firstWhereOrNull((h) => h.name.toUpperCase() == stripped);
+      return match ?? pr.HandRank.HIGH_CARD;
+    }
+    return pr.HandRank.HIGH_CARD;
+  }
+
   UiWinner? _winnerFromDynamic(dynamic w) {
     try {
       final winnerJsonStr = jsonEncode(w);
@@ -1282,16 +1320,7 @@ class PokerModel extends ChangeNotifier {
             ? winningsRaw.toInt()
             : int.tryParse('$winningsRaw') ?? 0;
         final hrRaw = w['handRank'] ?? w['hand_rank'] ?? w['rank'];
-        pr.HandRank handRank = pr.HandRank.HIGH_CARD;
-        if (hrRaw is int) {
-          handRank = pr.HandRank.valueOf(hrRaw) ?? pr.HandRank.HIGH_CARD;
-        }
-        if (hrRaw is String) {
-          final parsed = int.tryParse(hrRaw);
-          if (parsed != null) {
-            handRank = pr.HandRank.valueOf(parsed) ?? pr.HandRank.HIGH_CARD;
-          }
-        }
+        final handRank = parseHandRank(hrRaw);
         final bestHandRaw = w['bestHand'] ?? w['best_hand'] ?? [];
         final List<pr.Card> bestHand = [];
         if (bestHandRaw is List) {

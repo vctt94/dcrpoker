@@ -9,6 +9,20 @@ class InLobbyView extends StatelessWidget {
   String _short(String s, [int n = 8]) =>
       s.isEmpty ? '' : (s.length <= n ? s : s.substring(0, n));
 
+  int _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  bool _escrowHasRequiredConfirmations(Map<String, dynamic> escrow) {
+    final confs = _asInt(escrow['confs']);
+    final required = _asInt(escrow['required_confirmations']);
+    final requiredOrDefault = required == 0 ? 1 : required;
+    return confs >= requiredOrDefault;
+  }
+
   String _playerLabel(UiPlayer p) {
     final name = p.name.trim();
     if (name.isNotEmpty) return name;
@@ -42,6 +56,24 @@ class InLobbyView extends StatelessWidget {
       return;
     }
     final escrows = await model.listCachedEscrows();
+    final escrowOptions = escrows
+        .map((e) {
+          final txid = (e['funding_txid'] ?? '').toString();
+          final vout = _asInt(e['funding_vout']);
+          final amountRaw = e['funded_amount'];
+          final amount = amountRaw is num
+              ? amountRaw.toDouble()
+              : double.tryParse(amountRaw.toString()) ?? 0;
+          final outpoint = '$txid:$vout';
+          final confirmed = _escrowHasRequiredConfirmations(e);
+          return {
+            'outpoint': outpoint,
+            'label':
+                '${_short(txid)}:$vout • ${(amount / 1e8).toStringAsFixed(4)} DCR',
+            'confirmed': confirmed,
+          };
+        })
+        .toList();
     if (escrows.isEmpty) {
       if (!ctx.mounted) return;
       await showDialog(
@@ -68,9 +100,13 @@ class InLobbyView extends StatelessWidget {
       return;
     }
     final escrowCtrl = TextEditingController();
-    String? selectedOutpoint = escrows.isNotEmpty
-        ? '${escrows.first['funding_txid'] ?? ''}:${(escrows.first['funding_vout'] ?? 0).toString()}'
-        : null;
+    String? selectedOutpoint;
+    for (final opt in escrowOptions) {
+      if (opt['confirmed'] == true) {
+        selectedOutpoint = opt['outpoint'] as String;
+        break;
+      }
+    }
     final formKey = GlobalKey<FormState>();
     await showDialog(
       context: ctx,
@@ -90,13 +126,23 @@ class InLobbyView extends StatelessWidget {
                     value: selectedOutpoint,
                     decoration: const InputDecoration(
                         labelText: 'Choose funding outpoint'),
-                    items: escrows
-                        .map((e) => DropdownMenuItem(
-                              value:
-                                  '${e['funding_txid'] ?? ''}:${(e['funding_vout'] ?? 0).toString()}',
-                              child: Text(
-                                  '${_short(e['funding_txid'] ?? '')}:${e['funding_vout'] ?? 0} • ${(e['funded_amount'] ?? 0) / 1e8} DCR'),
-                            ))
+                    items: escrowOptions
+                        .map(
+                          (opt) => DropdownMenuItem<String>(
+                            value: opt['outpoint'] as String,
+                            enabled: opt['confirmed'] == true,
+                            child: opt['confirmed'] == true
+                                ? Text(opt['label'] as String)
+                                : Tooltip(
+                                    message: 'waiting for confirmation',
+                                    child: Text(
+                                      '${opt['label']} (pending)',
+                                      style: const TextStyle(
+                                          color: Colors.white54),
+                                    ),
+                                  ),
+                          ),
+                        )
                         .toList(),
                     onChanged: (v) => selectedOutpoint = v,
                   ),
@@ -154,7 +200,6 @@ class InLobbyView extends StatelessWidget {
         maxPlayers: 0,
         minPlayers: 0,
         currentPlayers: 0,
-        minBalanceAtoms: 0,
         buyInAtoms: 0,
         phase: model.game?.phase ?? pr.GamePhase.WAITING,
         gameStarted: model.game?.gameStarted ?? false,

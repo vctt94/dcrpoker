@@ -33,6 +33,11 @@ type ActionPayload struct {
 	PlayerID string
 }
 
+// PlayerLostPayload is used to notify that a player lost (0 chips) and was removed
+type PlayerLostPayload struct {
+	PlayerID string
+}
+
 // GameEndedPayload carries information about the game winner for settlement.
 type GameEndedPayload struct {
 	WinnerID   string // Player ID of the game winner
@@ -55,7 +60,6 @@ type TableConfig struct {
 	MaxPlayers       int
 	SmallBlind       int64 // Poker chips amount for small blind
 	BigBlind         int64 // Poker chips amount for big blind
-	MinBalance       int64 // Minimum DCR account balance required (in atoms)
 	StartingChips    int64 // Poker chips each player starts with in the game
 	TimeBank         time.Duration
 	AutoStartDelay   time.Duration // Delay before automatically starting next hand after showdown
@@ -293,6 +297,16 @@ func (t *Table) handleGameEvent(event GameEvent) {
 	case GameEventGameOver:
 		t.log.Infof("Table received GameEventGameOver - winner: %s", event.WinnerID)
 		t.handleGameOver(event.WinnerID)
+	case GameEventPlayerLost:
+		if event.PlayerID != "" {
+			t.log.Infof("Table received GameEventPlayerLost - removing player %s (0 chips)", event.PlayerID)
+			// Publish PLAYER_LOST notification before removing the player
+			// This allows the UI to show a message before the stream disconnects
+			t.PublishEvent(pokerrpc.NotificationType_PLAYER_LOST, t.config.ID, PlayerLostPayload{PlayerID: event.PlayerID})
+			if err := t.RemoveUser(event.PlayerID); err != nil {
+				t.log.Warnf("Failed to remove player %s after losing: %v", event.PlayerID, err)
+			}
+		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
 	}
@@ -310,7 +324,7 @@ func (t *Table) handleAutoStart() error {
 	}
 
 	// Count players with chips remaining
-	readyCount := 0
+	activeCount := 0
 	players := game.GetPlayers()
 	for _, p := range players {
 		if p == nil {
@@ -318,13 +332,15 @@ func (t *Table) handleAutoStart() error {
 		}
 		// Count players who have any chips left
 		if p.Balance() > 0 {
-			readyCount++
+			activeCount++
 		}
 	}
 
-	if readyCount < minPlayers {
-		return fmt.Errorf("not enough players ready: %d < %d", readyCount, minPlayers)
+	if activeCount < minPlayers {
+		return fmt.Errorf("not enough players with chips to continue: %d", activeCount)
 	}
+
+	t.log.Debugf("Auto-start check: active players with chips=%d", activeCount)
 
 	// Conditions met - start new hand
 	t.log.Debugf("Auto-start conditions met: starting new hand")
@@ -818,13 +834,9 @@ func (t *Table) startNewHand() error {
 	}
 
 	playersAtTable := len(t.users)
-	minRequired := t.config.MinPlayers
-	if playersAtTable >= 2 && playersAtTable < t.config.MinPlayers {
-		minRequired = 2 // allow heads-up
-	}
-	if playersAtTable < minRequired {
+	if playersAtTable < t.config.MinPlayers {
 		t.mu.Unlock()
-		return fmt.Errorf("not enough players to start new hand: %d < %d", playersAtTable, minRequired)
+		return fmt.Errorf("not enough players to start new hand: %d < %d", playersAtTable, t.config.MinPlayers)
 	}
 
 	activeUsers := make([]*User, 0, len(t.users))

@@ -53,7 +53,6 @@ const (
 	CTJoinPokerTable          CmdType = 0x13
 	CTCreatePokerTable        CmdType = 0x14
 	CTLeavePokerTable         CmdType = 0x15
-	CTGetPokerBalance         CmdType = 0x16
 	CTCreateDefaultConfig     CmdType = 0x17
 	CTCreateDefaultServerCert CmdType = 0x18
 	CTShowCards               CmdType = 0x19
@@ -94,6 +93,7 @@ const (
 	NTWRCreated         CmdType = 0x1005
 	NTPokerNotification CmdType = 0x1006
 	NTGameUpdate        CmdType = 0x1007
+	NTPresignError      CmdType = 0x1008
 )
 
 type cmd struct {

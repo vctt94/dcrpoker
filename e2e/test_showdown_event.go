@@ -31,7 +31,6 @@ func main() {
 		MaxPlayers:     3,
 		SmallBlind:     10,
 		BigBlind:       20,
-		MinBalance:     1000,
 		StartingChips:  1000,
 		TimeBank:       30 * time.Second,
 		AutoStartDelay: 5 * time.Second,

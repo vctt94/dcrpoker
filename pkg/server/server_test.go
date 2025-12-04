@@ -114,7 +114,6 @@ func (m *InMemoryDB) UpsertTable(_ context.Context, t *poker.TableConfig) error 
 		MaxPlayers:    cp.MaxPlayers,
 		SmallBlind:    cp.SmallBlind,
 		BigBlind:      cp.BigBlind,
-		MinBalance:    cp.MinBalance,
 		StartingChips: cp.StartingChips,
 		TimebankMS:    cp.TimeBank.Milliseconds(),
 		AutoStartMS:   cp.AutoStartDelay.Milliseconds(),
