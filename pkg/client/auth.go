@@ -384,15 +384,21 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 
 	pc.setSessionToken(resp.Token)
 
-	// Local payout address is the source of truth; never overwrite it with what the server reports.
+	// Only treat payout as verified when the server confirms it matches the
+	// locally configured address. Otherwise leave it empty to force re-signing.
 	localPayout := strings.TrimSpace(pc.PayoutAddress())
+	serverPayout := strings.TrimSpace(resp.PayoutAddress)
+	verifiedPayout := ""
+	if localPayout != "" && serverPayout != "" && localPayout == serverPayout {
+		verifiedPayout = localPayout
+	}
 
 	// Persist session for future resumes. Do not fail login if persistence fails.
 	session := &SessionData{
 		Token:         resp.Token,
 		UserID:        resp.UserId,
 		Nickname:      resp.Nickname,
-		PayoutAddress: localPayout,
+		PayoutAddress: verifiedPayout,
 	}
 	if err := pc.SaveSession(session); err != nil {
 		pc.log.Warnf("failed to persist session for %s: %v", nickname, err)
@@ -402,7 +408,7 @@ func (pc *PokerClient) Login(ctx context.Context, nickname string) (*LoginRespon
 		Token:         resp.Token,
 		UserID:        resp.UserId,
 		Nickname:      resp.Nickname,
-		PayoutAddress: localPayout,
+		PayoutAddress: verifiedPayout,
 	}, nil
 }
 
@@ -643,13 +649,11 @@ func (pc *PokerClient) ResumeSession(ctx context.Context) (*SessionData, error) 
 		return nil, nil
 	}
 
-	// If both local config and server session report a payout address, but
-	// they differ, treat the session as invalid so the user is forced to go
-	// through the Sign Address flow again. The local config is the source of
-	// truth; equality means the address is already verified and does not need
-	// to be re-signed.
+	// The local config is the source of truth. Check if server matches.
 	localPayout := strings.TrimSpace(pc.PayoutAddress())
 	serverPayout := strings.TrimSpace(resp.GetPayoutAddress())
+
+	// If both are non-empty and don't match, clear session (needs signing again).
 	if localPayout != "" && serverPayout != "" && localPayout != serverPayout {
 		pc.log.Warnf("payout address mismatch (local=%s, server=%s); clearing session to require re-signing",
 			localPayout, serverPayout)
@@ -657,6 +661,14 @@ func (pc *PokerClient) ResumeSession(ctx context.Context) (*SessionData, error) 
 			pc.log.Warnf("failed clearing session on payout mismatch: %v", err)
 		}
 		return nil, nil
+	}
+
+	// Use local config only if server also has it and matches (verified, no signing needed).
+	// If server is empty, use empty (not verified on server).
+	if serverPayout != "" && serverPayout == localPayout {
+		session.PayoutAddress = localPayout
+	} else {
+		session.PayoutAddress = ""
 	}
 
 	// Refresh nickname from server in case it changed.
