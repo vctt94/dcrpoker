@@ -464,13 +464,11 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.PLAYER_UNREADY:
         // Refresh lightweight lists/balances; avoid spamming server.
         unawaited(refreshTables());
-        unawaited(_refreshBalance());
         break;
       case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.ALL_PLAYERS_READY:
         // Refresh lightweight lists/balances; avoid spamming server.
         unawaited(refreshTables());
-        unawaited(_refreshBalance());
         break;
 
       case pr.NotificationType.NEW_HAND_STARTED:
@@ -504,6 +502,25 @@ class PokerModel extends ChangeNotifier {
           notifyListeners();
         }
         // Don't call refreshGameState - game is over
+        break;
+      case pr.NotificationType.PLAYER_LOST:
+        // Player lost all chips and was removed from table
+        if (n.playerId == playerId && n.tableId == currentTableId) {
+          // Current player lost - show GameEndedView with loss message
+          gameEndingMessage = n.message.isNotEmpty
+              ? n.message
+              : 'You lost all your chips and have been removed from the table.';
+          _state = PokerState.gameEnded;
+          // Don't clear currentTableId yet - let GameEndedView handle navigation
+          // The view has buttons to leave table and return to main menu
+          game = null; // Clear game state since player is no longer in the game
+          notifyListeners();
+          // Refresh tables to update lobby (in background)
+          unawaited(refreshTables());
+        } else if (n.tableId == currentTableId) {
+          // Another player lost - refresh tables to update lobby
+          unawaited(refreshTables());
+        }
         break;
       case pr.NotificationType.BET_MADE:
         if (n.tableId == currentTableId && n.playerId.isNotEmpty) {
@@ -662,19 +679,6 @@ class PokerModel extends ChangeNotifier {
       errorMessage = 'Failed to load tables: $e';
       successMessage = '';
       notifyListeners();
-    }
-  }
-
-  Future<void> _refreshBalance() async {
-    try {
-      final res = await Golib.getPokerBalance();
-      final b = res['balance'];
-      if (b is int) {
-        myAtomsBalance = b;
-        notifyListeners();
-      }
-    } catch (_) {
-      // Best-effort; keep old balance.
     }
   }
 
@@ -1163,8 +1167,6 @@ class PokerModel extends ChangeNotifier {
     if (tid == null) return false;
     try {
       await Golib.makeBet(MakeBetArgs(amountChips));
-      // Refresh balance in background
-      unawaited(_refreshBalance());
       return true;
     } catch (e) {
       errorMessage = 'Bet failed: $e';

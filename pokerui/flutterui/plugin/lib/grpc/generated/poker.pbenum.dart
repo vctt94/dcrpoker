@@ -149,6 +149,8 @@ class NotificationType extends $pb.ProtobufEnum {
       NotificationType._(31, _omitEnumNames ? '' : 'PRESIGN_PENDING');
   static const NotificationType GAME_STATE_UPDATED =
       NotificationType._(32, _omitEnumNames ? '' : 'GAME_STATE_UPDATED');
+  static const NotificationType PLAYER_LOST =
+      NotificationType._(33, _omitEnumNames ? '' : 'PLAYER_LOST');
 
   static const $core.List<NotificationType> values = <NotificationType>[
     UNKNOWN,
@@ -184,10 +186,11 @@ class NotificationType extends $pb.ProtobufEnum {
     SETTLEMENT_BROADCAST,
     PRESIGN_PENDING,
     GAME_STATE_UPDATED,
+    PLAYER_LOST,
   ];
 
   static final $core.List<NotificationType?> _byValue =
-      $pb.ProtobufEnum.$_initByValueList(values, 32);
+      $pb.ProtobufEnum.$_initByValueList(values, 33);
   static NotificationType? valueOf($core.int value) =>
       value < 0 || value >= _byValue.length ? null : _byValue[value];
 

@@ -112,6 +112,7 @@ enum NotificationType {
   SETTLEMENT_BROADCAST = 30; // settlement transaction broadcasted
   PRESIGN_PENDING = 31; // presigning required before game can start
   GAME_STATE_UPDATED = 32; // game state synchronization event (for state updates, not notifications)
+  PLAYER_LOST = 33; // player removed from table due to 0 chips after losing
 }
 
 enum HandRank {

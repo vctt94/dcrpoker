@@ -9,6 +9,17 @@ class HandInProgressView extends StatefulWidget {
 
   @override
   State<HandInProgressView> createState() => _HandInProgressViewState();
+
+  static int calculateTotalBet(int amt, int currentBet, int myBet, int bb) {
+    // If we've already contributed chips this street (blinds or a prior bet),
+    // treat the input as additional chips to add on top of what is already in.
+    if (myBet > 0) {
+      return myBet + amt;
+    }
+
+    // No prior contribution: the entered amount is the target total.
+    return amt;
+  }
 }
 
 class _HandInProgressViewState extends State<HandInProgressView> {
@@ -168,11 +179,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               return;
                             }
                             
-                            // Calculate total bet: if amount is >= 3x BB or >= current bet (when facing a bet),
-                            // treat as total bet amount. Otherwise, treat as amount to ADD.
-                            final threeBB = bb * 3;
-                            final isTotalBet = amt >= threeBB || (currentBet > 0 && amt >= currentBet);
-                            final totalBet = isTotalBet ? amt : (myBet + amt);
+                            final totalBet = HandInProgressView.calculateTotalBet(amt, currentBet, myBet, bb);
                             
                             // Pre-check: when facing a bet, total must be at least currentBet
                             if (currentBet > 0 && totalBet < currentBet) {
