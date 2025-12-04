@@ -896,6 +896,12 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	// Wait for game to start before checking phases
+	require.Eventually(t, func() bool {
+		st, err := b1.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		return err == nil && st.GameState.GetGameStarted()
+	}, 3*time.Second, 25*time.Millisecond, "game should start after all players ready")
+
 	waitPhase := func(pc pokerrpc.PokerServiceClient, phase pokerrpc.GamePhase) {
 		require.Eventually(t, func() bool {
 			st, err := pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
