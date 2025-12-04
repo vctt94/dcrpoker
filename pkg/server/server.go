@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -40,6 +42,11 @@ type ServerConfig struct {
 	GRPCPort     string
 	GRPCCertPath string
 	GRPCKeyPath  string
+
+	// HTTP server TLS settings
+	HTTPCertPath   string
+	HTTPKeyPath    string
+	HTTPCACertPath string // CA certificate to verify client certificates
 
 	metricsAddr string
 
@@ -235,18 +242,21 @@ func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
 
 	// Create the combined config
 	serverCfg := &ServerConfig{
-		Datadir:       cfg.Datadir,
-		GRPCHost:      cfg.GRPCHost,
-		GRPCPort:      cfg.GRPCPort,
-		GRPCCertPath:  cfg.GRPCCertPath,
-		GRPCKeyPath:   cfg.GRPCKeyPath,
-		DcrdHost:      cfg.DcrdHost,
-		DcrdCert:      cfg.DcrdCert,
-		DcrdUser:      cfg.DcrdUser,
-		DcrdPass:      cfg.DcrdPass,
-		AdaptorSecret: cfg.AdaptorSecret,
-		Network:       cfg.Network,
-		LogBackend:    logBackend,
+		Datadir:        cfg.Datadir,
+		GRPCHost:       cfg.GRPCHost,
+		GRPCPort:       cfg.GRPCPort,
+		GRPCCertPath:   cfg.GRPCCertPath,
+		GRPCKeyPath:    cfg.GRPCKeyPath,
+		HTTPCertPath:   cfg.HTTPCertPath,
+		HTTPKeyPath:    cfg.HTTPKeyPath,
+		HTTPCACertPath: cfg.HTTPCACertPath,
+		DcrdHost:       cfg.DcrdHost,
+		DcrdCert:       cfg.DcrdCert,
+		DcrdUser:       cfg.DcrdUser,
+		DcrdPass:       cfg.DcrdPass,
+		AdaptorSecret:  cfg.AdaptorSecret,
+		Network:        cfg.Network,
+		LogBackend:     logBackend,
 	}
 
 	// Validate adaptor secret: must be present and 32 bytes of hex (64 chars)
@@ -333,6 +343,64 @@ func SetupGRPCServer(datadir, certFile, keyFile, serverAddress string, db Databa
 	)
 
 	return grpcServer, grpcLis, nil
+}
+
+// BuildHTTPTLSConfig prepares TLS configuration for the HTTP server with client certificate authentication.
+// This function requires a CA certificate to verify client certificates, ensuring only authorized clients can access.
+func BuildHTTPTLSConfig(datadir, certFile, keyFile, caCertFile string) (*tls.Config, error) {
+	// Determine certificate and key file paths
+	httpCertFile := certFile
+	httpKeyFile := keyFile
+	httpCACertFile := caCertFile
+
+	// If paths are still empty, use defaults
+	if httpCertFile == "" {
+		httpCertFile = filepath.Join(datadir, "http.cert")
+	}
+	if httpKeyFile == "" {
+		httpKeyFile = filepath.Join(datadir, "http.key")
+	}
+	if httpCACertFile == "" {
+		httpCACertFile = filepath.Join(datadir, "http-ca.cert")
+	}
+
+	// Check if certificate files exist
+	if _, err := os.Stat(httpCertFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("certificate file not found: %s", httpCertFile)
+	}
+	if _, err := os.Stat(httpKeyFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("key file not found: %s", httpKeyFile)
+	}
+	if _, err := os.Stat(httpCACertFile); os.IsNotExist(err) {
+		return nil, fmt.Errorf("CA certificate file not found: %s", httpCACertFile)
+	}
+
+	// Load server certificate and key
+	cert, err := tls.LoadX509KeyPair(httpCertFile, httpKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load TLS certificate: %v", err)
+	}
+
+	// Load CA certificate to verify client certificates
+	caCertPEM, err := os.ReadFile(httpCACertFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate: %v", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCertPEM) {
+		return nil, fmt.Errorf("failed to parse CA certificate")
+	}
+
+	// Create TLS config with client certificate authentication
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    caCertPool,
+		MinVersion:   tls.VersionTLS12,
+	}
+
+	return tlsConfig, nil
 }
 
 // NewTestServer creates a Server for testing with the provided database and log backend.

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -24,7 +26,7 @@ var (
 	grpcHost           = flag.String("grpchost", "", "gRPC host address")
 	grpcPort           = flag.String("grpcport", "", "gRPC port")
 	debug              = flag.String("debug", "info", "Debug level")
-	metricsAddr        = flag.String("metricsaddr", "0.0.0.0:9091", "Address to serve Prometheus metrics (host:port). Empty to disable.")
+	metricsAddr        = flag.String("metricsaddr", "0.0.0.0:9091", "Address to serve Prometheus metrics (host:port). Empty to disable. Note: Use firewall rules to restrict access if needed.")
 )
 
 func realMain() error {
@@ -117,12 +119,34 @@ func realMain() error {
 					return
 				}
 			})
-			srv := &http.Server{Addr: *metricsAddr, Handler: mux}
-			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+
+			// Build TLS config for HTTP server with client certificate authentication
+			tlsConfig, err := server.BuildHTTPTLSConfig(cfg.Datadir, cfg.HTTPCertPath, cfg.HTTPKeyPath, cfg.HTTPCACertPath)
+			if err != nil {
+				log.Errorf("Failed to setup HTTP TLS: %v", err)
+				return
+			}
+
+			srv := &http.Server{
+				Addr:      *metricsAddr,
+				Handler:   mux,
+				TLSConfig: tlsConfig,
+			}
+
+			// Create TLS listener
+			ln, err := net.Listen("tcp", *metricsAddr)
+			if err != nil {
+				log.Errorf("Failed to listen on %s: %v", *metricsAddr, err)
+				return
+			}
+
+			// Wrap listener with TLS
+			tlsLn := tls.NewListener(ln, tlsConfig)
+			if err := srv.Serve(tlsLn); err != nil && err != http.ErrServerClosed {
 				log.Errorf("metrics serve error: %v", err)
 			}
 		}()
-		log.Infof("Metrics endpoint listening on http://%s/metrics", *metricsAddr)
+		log.Infof("Metrics endpoint listening on https://%s/metrics", *metricsAddr)
 	}
 
 	// Signal handling for graceful shutdown

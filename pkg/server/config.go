@@ -19,6 +19,11 @@ type ServerConf struct {
 	GRPCCertPath string
 	GRPCKeyPath  string
 
+	// HTTP server TLS settings
+	HTTPCertPath   string
+	HTTPKeyPath    string
+	HTTPCACertPath string // CA certificate to verify client certificates
+
 	DcrdHost string
 	DcrdCert string
 	DcrdUser string
@@ -68,6 +73,12 @@ func parseClientConfigFile(configPath string, appName string) (*ServerConf, erro
 			cfg.GRPCCertPath = value
 		case "grpckeypath":
 			cfg.GRPCKeyPath = value
+		case "httpcertpath":
+			cfg.HTTPCertPath = value
+		case "httpkeypath":
+			cfg.HTTPKeyPath = value
+		case "httpcacertpath":
+			cfg.HTTPCACertPath = value
 		case "logfile":
 			cfg.LogFile = value
 			if cfg.LogFile == "" {
@@ -168,6 +179,9 @@ func loadServerConf(configPath string, fileName string) (*ServerConf, error) {
 		GRPCPort:       "50050",
 		GRPCCertPath:   filepath.Join(configPath, "server.cert"),
 		GRPCKeyPath:    filepath.Join(configPath, "server.key"),
+		HTTPCertPath:   filepath.Join(configPath, "http.cert"),
+		HTTPKeyPath:    filepath.Join(configPath, "http.key"),
+		HTTPCACertPath: filepath.Join(configPath, "http-ca.cert"),
 		DcrdHost:       "localhost",
 		DcrdCert:       filepath.Join(configPath, "dcrd.cert"),
 		DcrdUser:       "rpcuser",
@@ -195,6 +209,9 @@ grpchost=%s
 grpcport=%s
 grpccertpath=%s
 grpckeypath=%s
+httpcertpath=%s
+httpkeypath=%s
+httpcacertpath=%s
 dcrdhost=%s
 dcrdcert=%s
 dcrduser=%s
@@ -210,6 +227,9 @@ maxbufferlines=%d
 		cfg.GRPCPort,
 		cfg.GRPCCertPath,
 		cfg.GRPCKeyPath,
+		cfg.HTTPCertPath,
+		cfg.HTTPKeyPath,
+		cfg.HTTPCACertPath,
 		cfg.DcrdHost,
 		cfg.DcrdCert,
 		cfg.DcrdUser,
