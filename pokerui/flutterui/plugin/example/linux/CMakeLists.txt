@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.10)
 project(runner LANGUAGES CXX)
 
 set(BINARY_NAME "golib_plugin_example")
-set(APPLICATION_ID "com.example.golib_plugin")
+set(APPLICATION_ID "com.golib_plugin")
 
 cmake_policy(SET CMP0063 NEW)
 
