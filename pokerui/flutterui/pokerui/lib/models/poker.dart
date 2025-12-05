@@ -851,27 +851,38 @@ class PokerModel extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> listCachedEscrows() async {
-    final res = await Golib.getBindableEscrows(); // returns list of escrow maps
-    final escrows = <Map<String, dynamic>>[];
-    for (final any in res) {
-      if (any is! Map<String, dynamic>) {
-        continue;
+    try {
+      final res = await Golib.getBindableEscrows(); // returns list of escrow maps
+      final escrows = <Map<String, dynamic>>[];
+      for (final any in res) {
+        if (any is! Map<String, dynamic>) {
+          continue;
+        }
+        final m = Map<String, dynamic>.from(any);
+        final txid = (m['funding_txid'] ?? '').toString().trim();
+        final vout = m['funding_vout'];
+        if (txid.isEmpty) {
+          continue;
+        }
+        final voutStr = vout is num ? vout.toInt().toString() : vout.toString();
+        final outpoint = '$txid:$voutStr';
+        if (_invalidEscrowOutpoints.contains(outpoint)) {
+          // Skip outpoints we already know will fail binding.
+          continue;
+        }
+        escrows.add(m);
       }
-      final m = Map<String, dynamic>.from(any);
-      final txid = (m['funding_txid'] ?? '').toString().trim();
-      final vout = m['funding_vout'];
-      if (txid.isEmpty) {
-        continue;
+      return escrows;
+    } catch (e) {
+      // If history directory doesn't exist yet, return empty list (no escrows)
+      // This will trigger the "No Escrows Available" dialog
+      final msg = e.toString();
+      if (msg.contains('history_session') || msg.contains('no such file')) {
+        return <Map<String, dynamic>>[];
       }
-      final voutStr = vout is num ? vout.toInt().toString() : vout.toString();
-      final outpoint = '$txid:$voutStr';
-      if (_invalidEscrowOutpoints.contains(outpoint)) {
-        // Skip outpoints we already know will fail binding.
-        continue;
-      }
-      escrows.add(m);
+      // Re-throw other errors
+      rethrow;
     }
-    return escrows;
   }
 
   // -------- Local refund helpers (historic escrows) ----------
