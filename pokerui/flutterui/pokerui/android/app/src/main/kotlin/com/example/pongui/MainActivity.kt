@@ -1,4 +1,4 @@
-package com.example.pongui
+package com.bisonpoker
 
 import io.flutter.embedding.android.FlutterActivity
 
