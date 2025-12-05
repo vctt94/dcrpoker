@@ -487,7 +487,7 @@ func (pc *PokerClient) loadSessionKeyState() (*sessionKeyState, error) {
 	if path == "" {
 		return nil, fmt.Errorf("no data directory configured")
 	}
-	state := &sessionKeyState{NextIndex: 0}
+	state := &sessionKeyState{NextIndex: 1}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -497,6 +497,9 @@ func (pc *PokerClient) loadSessionKeyState() (*sessionKeyState, error) {
 	}
 	if err := json.Unmarshal(data, state); err != nil {
 		return nil, err
+	}
+	if state.NextIndex == 0 {
+		state.NextIndex = 1
 	}
 	return state, nil
 }
