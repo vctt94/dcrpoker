@@ -99,7 +99,8 @@ func (c *RefereeClient) BindEscrow(ctx context.Context, tableID, sessionID, matc
 
 // StartPresign runs the SettlementStream presign flow for a match/escrow.
 // xPrivHex is the session private scalar (hex) corresponding to compPubkey.
-func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID, sessionID string, seatIndex uint32, escrowID string, compPubkey []byte, xPrivHex string) error {
+// Seat is resolved server-side; seatIndex is not sent by callers.
+func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID string, escrowID string, compPubkey []byte, xPrivHex string) error {
 	if c.token != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "token", c.token)
 	}
@@ -111,8 +112,6 @@ func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID, sess
 	hello := &pokerrpc.SettlementHello{
 		MatchId:    matchID,
 		TableId:    tableID,
-		SessionId:  sessionID,
-		SeatIndex:  seatIndex,
 		EscrowId:   escrowID,
 		CompPubkey: compPubkey,
 		Token:      c.token,

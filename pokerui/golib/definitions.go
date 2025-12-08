@@ -186,8 +186,9 @@ func handlePresignNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 			cctx.log.Errorf("auto-presign: trigger auto presign failed: %v", err)
 			// Notify Flutter about the presign error
 			payload := &presignErrorDTO{
-				TableID: tableID,
-				Error:   err.Error(),
+				TableID:  tableID,
+				PlayerID: cctx.ID.String(),
+				Error:    err.Error(),
 			}
 			notify(NTPresignError, payload, nil)
 		}
@@ -261,11 +262,9 @@ func triggerAutoPresign(cctx *clientCtx, tableID string) error {
 	compPub := compKey.PubKey().SerializeCompressed()
 	// For poker tables, match_id is the table_id
 	matchID := tableID
-	// Session ID: use escrow_id as session_id
-	sessionID := playerEscrowID
 	// Start presign
 	ref := cctx.c.Referee(cctx.Token)
-	err = ref.StartPresign(ctx, matchID, tableID, sessionID, uint32(seatIndex), playerEscrowID, compPub, compPrivHex)
+	err = ref.StartPresign(ctx, matchID, tableID, playerEscrowID, compPub, compPrivHex)
 	if err != nil {
 		return err
 	}
@@ -307,12 +306,10 @@ type openEscrowReq struct {
 }
 
 type preSignReq struct {
-	MatchID   string `json:"match_id"`
-	TableID   string `json:"table_id"`
-	SessionID string `json:"session_id"`
-	SeatIndex int    `json:"seat_index"`
-	EscrowID  string `json:"escrow_id"`
-	CompPriv  string `json:"comp_priv"` // hex session priv
+	MatchID  string `json:"match_id"`
+	TableID  string `json:"table_id"`
+	EscrowID string `json:"escrow_id"`
+	CompPriv string `json:"comp_priv"` // hex session priv
 }
 
 type joinPokerTable struct {
@@ -369,8 +366,9 @@ type evaluateHand struct {
 
 // presignErrorDTO represents a presign error notification payload
 type presignErrorDTO struct {
-	TableID string `json:"tableId"`
-	Error   string `json:"error"`
+	TableID  string `json:"tableId"`
+	PlayerID string `json:"playerId"`
+	Error    string `json:"error"`
 }
 
 // JSON returned to Flutter (shape must match Dart LocalWaitingRoom/LocalPlayer)

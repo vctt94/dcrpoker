@@ -507,6 +507,9 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 	case pokerrpc.NotificationType_ESCROW_FUNDING:
 		pc.log.Infof("Escrow funding: %s", ntfn.Message)
 
+	case pokerrpc.NotificationType_PRESIGN_PENDING:
+		pc.log.Debugf("Presign pending for table %s", ntfn.TableId)
+
 	default:
 		pc.log.Debug("received unknown notification type", "type", ntfn.Type)
 	}

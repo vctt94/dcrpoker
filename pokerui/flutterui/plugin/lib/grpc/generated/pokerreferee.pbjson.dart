@@ -267,8 +267,7 @@ const SettlementHello$json = {
     {'1': 'comp_pubkey', '3': 3, '4': 1, '5': 12, '10': 'compPubkey'},
     {'1': 'token', '3': 4, '4': 1, '5': 9, '10': 'token'},
     {'1': 'table_id', '3': 5, '4': 1, '5': 9, '10': 'tableId'},
-    {'1': 'session_id', '3': 6, '4': 1, '5': 9, '10': 'sessionId'},
-    {'1': 'seat_index', '3': 7, '4': 1, '5': 13, '10': 'seatIndex'},
+    {'1': 'seat_index', '3': 6, '4': 1, '5': 13, '10': 'seatIndex'},
   ],
 };
 
@@ -276,8 +275,8 @@ const SettlementHello$json = {
 final $typed_data.Uint8List settlementHelloDescriptor = $convert.base64Decode(
     'Cg9TZXR0bGVtZW50SGVsbG8SGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSGwoJZXNjcm93X2'
     'lkGAIgASgJUghlc2Nyb3dJZBIfCgtjb21wX3B1YmtleRgDIAEoDFIKY29tcFB1YmtleRIUCgV0'
-    'b2tlbhgEIAEoCVIFdG9rZW4SGQoIdGFibGVfaWQYBSABKAlSB3RhYmxlSWQSHQoKc2Vzc2lvbl'
-    '9pZBgGIAEoCVIJc2Vzc2lvbklkEh0KCnNlYXRfaW5kZXgYByABKA1SCXNlYXRJbmRleA==');
+    'b2tlbhgEIAEoCVIFdG9rZW4SGQoIdGFibGVfaWQYBSABKAlSB3RhYmxlSWQSHQoKc2VhdF9pbm'
+    'RleBgGIAEoDVIJc2VhdEluZGV4');
 
 @$core.Deprecated('Use needPreSigsDescriptor instead')
 const NeedPreSigs$json = {

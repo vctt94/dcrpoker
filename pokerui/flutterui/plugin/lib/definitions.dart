@@ -935,13 +935,19 @@ class UINotificationsConfig {
 /// PresignError represents an error that occurred during auto-presign
 class PresignError {
   final String tableId;
+  final String playerId;
   final String error;
 
-  PresignError({required this.tableId, required this.error});
+  PresignError({
+    required this.tableId,
+    required this.playerId,
+    required this.error,
+  });
 
   factory PresignError.fromJson(Map<String, dynamic> json) {
     return PresignError(
       tableId: json['tableId'] as String? ?? '',
+      playerId: json['playerId'] as String? ?? '',
       error: json['error'] as String? ?? '',
     );
   }
@@ -949,6 +955,7 @@ class PresignError {
   Map<String, dynamic> toJson() {
     return {
       'tableId': tableId,
+      'playerId': playerId,
       'error': error,
     };
   }
@@ -1325,16 +1332,12 @@ abstract class PluginPlatform {
   Future<void> startPreSign({
     required String matchId,
     required String tableId,
-    required String sessionId,
-    required int seatIndex,
     required String escrowId,
     required String compPriv,
   }) async {
     await asyncCall(CTStartPreSign, {
       'match_id': matchId,
       'table_id': tableId,
-      'session_id': sessionId,
-      'seat_index': seatIndex,
       'escrow_id': escrowId,
       'comp_priv': compPriv,
     });

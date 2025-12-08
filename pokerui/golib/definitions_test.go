@@ -3,6 +3,7 @@ package golib
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -224,5 +225,34 @@ func TestResumeSessionPayoutAddressSync(t *testing.T) {
 		t.Fatalf("When server and local config match, ResumeSession should return the payout address. "+
 			"Got: %s, Expected: %s",
 			resumed2.PayoutAddress, localPayoutAddr)
+	}
+}
+
+// This test locks in the decision to start session key indices at 1 to avoid
+// dropping key_index when persisting escrow metadata (omitempty skips zeros).
+func TestSessionKeysStartAtOne(t *testing.T) {
+	t.Helper()
+
+	tmp := t.TempDir()
+	pc := &client.PokerClient{DataDir: tmp}
+
+	priv, pub, idx, err := pc.GenerateSessionKey()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, idx, "first generated session key should use index 1")
+	require.NotEmpty(t, priv)
+	require.NotEmpty(t, pub)
+
+	err = pc.CacheEscrowInfo(&client.EscrowInfo{
+		EscrowID: "escrow-one",
+		Status:   "opened",
+		KeyIndex: uint32(idx), // should be retained in cache (non-zero)
+	})
+	require.NoError(t, err)
+
+	info, err := pc.GetEscrowById("escrow-one")
+	require.NoError(t, err)
+
+	if v, ok := info["key_index"]; !ok || fmt.Sprint(v) != "1" {
+		t.Fatalf("expected cached escrow to include key_index=1, got %v", v)
 	}
 }

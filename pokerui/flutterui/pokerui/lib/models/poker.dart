@@ -482,8 +482,6 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.NOTIFICATION_STREAM_DISCONNECTED:
       case pr.NotificationType.GAME_STREAM_DISCONNECTED:
         break;
-      case pr.NotificationType.TABLE_CREATED:
-      case pr.NotificationType.TABLE_REMOVED:
       case pr.NotificationType.PLAYER_JOINED:
       case pr.NotificationType.PLAYER_LEFT:
       case pr.NotificationType.PLAYER_UNREADY:
@@ -495,6 +493,10 @@ class PokerModel extends ChangeNotifier {
         }
         break;
 
+      case pr.NotificationType.TABLE_CREATED:
+      case pr.NotificationType.TABLE_REMOVED:
+        unawaited(refreshTables());
+        break;
       case pr.NotificationType.NEW_HAND_STARTED:
         playersShowingCards.clear();
         // Clear cached hero hole cards for the new hand to avoid stale display
@@ -1164,8 +1166,6 @@ class PokerModel extends ChangeNotifier {
       await Golib.startPreSign(
         matchId: matchId,
         tableId: tid,
-        sessionId: '', // Empty for poker
-        seatIndex: mePlayer.tableSeat,
         escrowId: escrowId,
         compPriv: compPriv,
       );
