@@ -13,7 +13,7 @@ Future<void> initializePokerClient(Config cfg) async {
     cfg.payoutAddress,
     '${cfg.dataDir}/logs/pokerui.log',
     cfg.debugLevel,
-    cfg.wantsLogNtfns,
+    cfg.soundsEnabled,
   );
 
   developer.log(

@@ -14,7 +14,7 @@ class Config {
   final String grpcCertPath;
   final String payoutAddress;
   final String debugLevel;
-  final bool wantsLogNtfns;
+  final bool soundsEnabled;
   final String dataDir;
   final String address;
 
@@ -23,7 +23,7 @@ class Config {
     required this.grpcCertPath,
     required this.payoutAddress,
     required this.debugLevel,
-    required this.wantsLogNtfns,
+    required this.soundsEnabled,
     required this.dataDir,
     required this.address,
   });
@@ -33,7 +33,7 @@ class Config {
         grpcCertPath: '',
         payoutAddress: '',
         debugLevel: 'info',
-        wantsLogNtfns: false,
+        soundsEnabled: true,
         dataDir: '',
         address: '',
       );
@@ -59,7 +59,7 @@ class Config {
       payoutAddress: pick('payout_address'),
       debugLevel: pick('debug_level').isNotEmpty ? pick('debug_level') : 'info',
 
-      wantsLogNtfns: (m['wants_log_ntfns'] ?? false) == true,
+      soundsEnabled: (m['sounds_enabled'] ?? true) == true,
       dataDir: pickPath('datadir'),
       address: pick('address'),
     );
@@ -76,7 +76,7 @@ class Config {
     String? debugLevel,
     String? rpcUser,
     String? rpcPass,
-    bool? wantsLogNtfns,
+    bool? soundsEnabled,
     String? dataDir,
     String? address,
   }) {
@@ -85,7 +85,7 @@ class Config {
       grpcCertPath: grpcCertPath ?? this.grpcCertPath,
       payoutAddress: payoutAddress ?? this.payoutAddress,
       debugLevel: debugLevel ?? this.debugLevel,
-      wantsLogNtfns: wantsLogNtfns ?? this.wantsLogNtfns,
+      soundsEnabled: soundsEnabled ?? this.soundsEnabled,
       dataDir: dataDir ?? this.dataDir,
       address: address ?? this.address,
     );

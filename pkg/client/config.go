@@ -49,6 +49,9 @@ type PokerConf struct {
 	Debug          string
 	MaxLogFiles    int
 	MaxBufferLines int
+
+	// UI-only settings
+	SoundsEnabled bool // Enable/disable sound effects in UI
 }
 
 // parseClientConfigFile parses the config file at the given path into a PokerConf struct.
@@ -107,6 +110,8 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 			if cfg.MaxBufferLines == 0 {
 				cfg.MaxBufferLines = 1000
 			}
+		case "soundsenabled":
+			cfg.SoundsEnabled = value == "1" || strings.ToLower(value) == "true"
 		default:
 			// Ignore unknown keys to preserve forward-compatibility with older configs.
 			continue
@@ -200,6 +205,7 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 		Debug:          "info",
 		MaxLogFiles:    5,
 		MaxBufferLines: 1000,
+		SoundsEnabled:  true, // Default to enabled
 	}
 
 	// Write default config
@@ -217,6 +223,10 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 
 // WriteClientConfigFile writes the configuration to a file.
 func WriteClientConfigFile(cfg *PokerConf, configPath string) error {
+	soundsEnabledVal := 0
+	if cfg.SoundsEnabled {
+		soundsEnabledVal = 1
+	}
 	configData := fmt.Sprintf(
 		`datadir=%s
 grpchost=%s
@@ -227,6 +237,7 @@ logfile=%s
 debug=%s
 maxlogfiles=%d
 maxbufferlines=%d
+soundsenabled=%d
 `,
 		cfg.Datadir,
 		cfg.GRPCHost,
@@ -237,6 +248,7 @@ maxbufferlines=%d
 		cfg.Debug,
 		cfg.MaxLogFiles,
 		cfg.MaxBufferLines,
+		soundsEnabledVal,
 	)
 
 	return os.WriteFile(configPath, []byte(configData), 0600)
