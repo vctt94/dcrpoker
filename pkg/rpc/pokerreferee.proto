@@ -93,6 +93,7 @@ message GetEscrowStatusResponse {
   uint32 csv_blocks = 10;
   uint32 required_confirmations = 11;
   bool mature_for_csv = 12;
+  string funding_state = 13;
 }
 
 // ---------- Session pubkey publish ----------

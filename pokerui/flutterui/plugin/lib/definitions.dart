@@ -481,6 +481,8 @@ class PokerTable {
   final bool gameStarted;
   @JsonKey(name: 'all_players_ready')
   final bool allPlayersReady;
+  @JsonKey(name: 'players')
+  final List<PlayerDTO>? players; // Optional: included in notifications
 
   PokerTable(
     this.id,
@@ -492,12 +494,32 @@ class PokerTable {
     this.currentPlayers,
     this.buyIn,
     this.gameStarted,
-    this.allPlayersReady,
-  );
+    this.allPlayersReady, {
+    this.players,
+  });
 
   factory PokerTable.fromJson(Map<String, dynamic> json) =>
       _$PokerTableFromJson(json);
   Map<String, dynamic> toJson() => _$PokerTableToJson(this);
+
+  pr.Table toProtobuf() {
+    final t = pr.Table()
+      ..id = id
+      ..hostId = hostId
+      ..smallBlind = Int64(smallBlind)
+      ..bigBlind = Int64(bigBlind)
+      ..maxPlayers = maxPlayers
+      ..minPlayers = minPlayers
+      ..currentPlayers = currentPlayers
+      ..buyIn = Int64(buyIn)
+      ..gameStarted = gameStarted
+      ..allPlayersReady = allPlayersReady;
+    // Include players if present (from notifications)
+    if (players != null) {
+      t.players.addAll(players!.map((p) => p.toProtobuf()));
+    }
+    return t;
+  }
 }
 
 @JsonSerializable()
@@ -801,6 +823,8 @@ class NotificationDTO {
   final bool? gameReadyToPlay;
   @JsonKey(name: 'countdown')
   final int? countdown;
+  @JsonKey(name: 'table')
+  final PokerTable? table;
 
   NotificationDTO(
     this.type, {
@@ -813,6 +837,7 @@ class NotificationDTO {
     this.started,
     this.gameReadyToPlay,
     this.countdown,
+    this.table,
   });
 
   factory NotificationDTO.fromJson(Map<String, dynamic> json) =>
@@ -831,6 +856,10 @@ class NotificationDTO {
     if (started != null) n.started = started!;
     if (gameReadyToPlay != null) n.gameReadyToPlay = gameReadyToPlay!;
     if (countdown != null) n.countdown = countdown!;
+    // Include table snapshot if present (for PLAYER_JOINED, PLAYER_LEFT, etc.)
+    if (table != null) {
+      n.table = table!.toProtobuf();
+    }
     return n;
   }
 }

@@ -486,15 +486,13 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.TABLE_REMOVED:
       case pr.NotificationType.PLAYER_JOINED:
       case pr.NotificationType.PLAYER_LEFT:
-      case pr.NotificationType.BALANCE_UPDATED:
       case pr.NotificationType.PLAYER_UNREADY:
-        // Refresh lightweight lists/balances; avoid spamming server.
-        unawaited(refreshTables());
-        break;
       case pr.NotificationType.PLAYER_READY:
       case pr.NotificationType.ALL_PLAYERS_READY:
-        // Refresh lightweight lists/balances; avoid spamming server.
-        unawaited(refreshTables());
+        // Update table state from notification snapshot (includes players list)
+        if (n.hasTable() && n.tableId.isNotEmpty) {
+          _updateTableFromSnapshot(n.tableId, n.table);
+        }
         break;
 
       case pr.NotificationType.NEW_HAND_STARTED:
@@ -690,6 +688,23 @@ class PokerModel extends ChangeNotifier {
   }
 
   // -------- Lobby / Tables ----------
+  /// Updates a specific table in the tables list from a notification snapshot.
+  /// This preserves the players list from the server snapshot.
+  void _updateTableFromSnapshot(String tableId, pr.Table tableSnapshot) {
+    final updatedTable = UiTable.fromProto(tableSnapshot);
+    final tableIndex = tables.indexWhere((t) => t.id == tableId);
+    if (tableIndex >= 0) {
+      // Update existing table
+      final updatedTables = List<UiTable>.from(tables);
+      updatedTables[tableIndex] = updatedTable;
+      tables = List.unmodifiable(updatedTables);
+    } else {
+      // Table not found in list, add it (shouldn't happen but handle gracefully)
+      tables = List.unmodifiable([...tables, updatedTable]);
+    }
+    notifyListeners();
+  }
+
   Future<void> refreshTables() async {
     try {
       // Prefer Golib for consistent identity and simpler transport

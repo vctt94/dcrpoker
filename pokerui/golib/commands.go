@@ -309,16 +309,17 @@ func AsyncCallStr(typ CmdType, id, clientHandle int32, payload string) {
 
 // notificationDTO is a simple struct for JSON marshaling of protobuf notifications
 type notificationDTO struct {
-	Type            int32  `json:"type"` // enum as int
-	Message         string `json:"message,omitempty"`
-	TableId         string `json:"tableId,omitempty"`
-	PlayerId        string `json:"playerId,omitempty"`
-	Amount          int64  `json:"amount,omitempty"`
-	NewBalance      int64  `json:"newBalance,omitempty"`
-	Ready           bool   `json:"ready"`
-	Started         bool   `json:"started"`
-	GameReadyToPlay bool   `json:"gameReadyToPlay"`
-	Countdown       int32  `json:"countdown,omitempty"`
+	Type            int32         `json:"type"` // enum as int
+	Message         string        `json:"message,omitempty"`
+	TableId         string        `json:"tableId,omitempty"`
+	PlayerId        string        `json:"playerId,omitempty"`
+	Amount          int64         `json:"amount,omitempty"`
+	NewBalance      int64         `json:"newBalance,omitempty"`
+	Ready           bool          `json:"ready"`
+	Started         bool          `json:"started"`
+	GameReadyToPlay bool          `json:"gameReadyToPlay"`
+	Countdown       int32         `json:"countdown,omitempty"`
+	Table           *ntfnTableDTO `json:"table,omitempty"` // Table snapshot for lobby updates (includes players)
 	// Settlement fields for GAME_ENDED notifications
 	WinnerId   string `json:"winnerId,omitempty"`
 	WinnerSeat int32  `json:"winnerSeat,omitempty"`
@@ -350,6 +351,10 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 	dto.GameReadyToPlay = n.GameReadyToPlay
 	if n.Countdown != 0 {
 		dto.Countdown = n.Countdown
+	}
+	// Include table snapshot if present (for PLAYER_JOINED, PLAYER_LEFT, etc.)
+	if n.Table != nil {
+		dto.Table = tableFromProtoForNtfn(n.Table)
 	}
 	// Settlement fields for GAME_ENDED
 	if n.WinnerId != "" {

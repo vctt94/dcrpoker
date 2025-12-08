@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
@@ -29,6 +30,34 @@ class InLobbyView extends StatelessWidget {
     return _short(p.id, 10);
   }
 
+  Future<void> _showLeaveTableDialog(BuildContext ctx) async {
+    if (!ctx.mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: ctx,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Leave Table?'),
+        content: const Text(
+            'Are you sure you want to leave this table? You will need to rejoin if you want to play again.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+            ),
+            child: const Text('Leave Table'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && ctx.mounted) {
+      await model.leaveTable();
+    }
+  }
+
   Future<void> _showBindDialog(BuildContext ctx, UiTable t) async {
     if (!model.hasAuthedPayoutAddress) {
       if (!ctx.mounted) return;
@@ -57,6 +86,11 @@ class InLobbyView extends StatelessWidget {
     }
     final escrows = await model.listCachedEscrows();
     final escrowOptions = escrows
+        .where((e) {
+          // Filter out invalid escrows
+          final fundingState = (e['funding_state'] ?? '').toString().toUpperCase();
+          return fundingState != 'ESCROW_STATE_INVALID';
+        })
         .map((e) {
           final txid = (e['funding_txid'] ?? '').toString();
           final vout = _asInt(e['funding_vout']);
@@ -232,12 +266,10 @@ class InLobbyView extends StatelessWidget {
                               fontWeight: FontWeight.bold,
                               color: Colors.white)),
                       const Spacer(),
-                      Chip(
-                        label: Text(model.iAmReady ? 'Ready' : 'Not Ready'),
-                        backgroundColor: model.iAmReady
-                            ? Colors.green.shade700
-                            : Colors.orange.shade700,
-                        labelStyle: const TextStyle(color: Colors.white),
+                      ElevatedButton(
+                        onPressed:
+                            model.iAmReady ? model.setUnready : model.setReady,
+                        child: Text(model.iAmReady ? 'Unready' : 'Ready'),
                       ),
                     ],
                   ),
@@ -249,9 +281,22 @@ class InLobbyView extends StatelessWidget {
                   const SizedBox(height: 12),
                   const Divider(color: Colors.white24),
                   const SizedBox(height: 8),
-                  const Text('Players',
-                      style: TextStyle(
-                          color: Colors.white70, fontWeight: FontWeight.bold)),
+                  Row(
+                    children: [
+                      const Text('Players',
+                          style: TextStyle(
+                              color: Colors.white70,
+                              fontWeight: FontWeight.bold)),
+                      const Spacer(),
+                      Chip(
+                        label: Text(model.iAmReady ? 'Ready' : 'Not Ready'),
+                        backgroundColor: model.iAmReady
+                            ? Colors.green.shade700
+                            : Colors.orange.shade700,
+                        labelStyle: const TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 8),
                   if (gamePlayers.isEmpty)
                     const Text('Waiting for players...',
@@ -264,23 +309,65 @@ class InLobbyView extends StatelessWidget {
                           .map((p) => _buildPlayerPill(p, model.playerId))
                           .toList(),
                     ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      ElevatedButton(
-                        onPressed:
-                            model.iAmReady ? model.setUnready : model.setReady,
-                        child: Text(model.iAmReady ? 'Unready' : 'Ready'),
+                  // Error message if exists
+                  if (model.errorMessage.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Card(
+                      color: Colors.red.shade800,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                      const Spacer(),
-                      TextButton(
-                        onPressed: model.leaveTable,
-                        style: TextButton.styleFrom(
-                            foregroundColor: Colors.redAccent),
-                        child: const Text('Leave Table'),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.error, color: Colors.white),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: SelectableText(
+                                model.errorMessage,
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () async {
+                                  await Clipboard.setData(ClipboardData(
+                                      text: model.errorMessage));
+                                  if (!context.mounted) return;
+                                  ScaffoldMessenger.of(context)
+                                      .showSnackBar(const SnackBar(
+                                          content: Text(
+                                              'Error copied to clipboard')));
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8.0),
+                                  child: Icon(Icons.copy,
+                                      color: Colors.white, size: 20),
+                                ),
+                              ),
+                            ),
+                            Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  model.clearError();
+                                },
+                                borderRadius: BorderRadius.circular(20),
+                                child: const Padding(
+                                  padding: EdgeInsets.all(8.0),
+                                  child: Icon(Icons.close,
+                                      color: Colors.white, size: 20),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   // Escrow state panel
                   _buildEscrowStatePanel(context, table, model),
@@ -288,6 +375,19 @@ class InLobbyView extends StatelessWidget {
                   // Game start status
                   if (table.buyInAtoms > 0)
                     _buildGameStartStatus(model, gamePlayers),
+                  const SizedBox(height: 16),
+                  // Leave Table button at the bottom
+                  Row(
+                    children: [
+                      const Spacer(),
+                      TextButton(
+                        onPressed: () => _showLeaveTableDialog(context),
+                        style: TextButton.styleFrom(
+                            foregroundColor: Colors.redAccent),
+                        child: const Text('Leave Table'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

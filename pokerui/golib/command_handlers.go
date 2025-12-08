@@ -247,6 +247,7 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				"csv_blocks":             resp.GetCsvBlocks(),
 				"required_confirmations": resp.GetRequiredConfirmations(),
 				"mature_for_csv":         resp.GetMatureForCsv(),
+				"funding_state":          resp.GetFundingState(),
 			}, nil
 		}
 

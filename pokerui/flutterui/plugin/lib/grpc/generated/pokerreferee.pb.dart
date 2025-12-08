@@ -599,6 +599,7 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     $core.int? csvBlocks,
     $core.int? requiredConfirmations,
     $core.bool? matureForCsv,
+    $core.String? fundingState,
   }) {
     final result = create();
     if (escrowId != null) result.escrowId = escrowId;
@@ -613,6 +614,7 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     if (requiredConfirmations != null)
       result.requiredConfirmations = requiredConfirmations;
     if (matureForCsv != null) result.matureForCsv = matureForCsv;
+    if (fundingState != null) result.fundingState = fundingState;
     return result;
   }
 
@@ -644,6 +646,7 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     ..aI(11, _omitFieldNames ? '' : 'requiredConfirmations',
         fieldType: $pb.PbFieldType.OU3)
     ..aOB(12, _omitFieldNames ? '' : 'matureForCsv')
+    ..aOS(13, _omitFieldNames ? '' : 'fundingState')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -764,6 +767,15 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
   $core.bool hasMatureForCsv() => $_has(10);
   @$pb.TagNumber(12)
   void clearMatureForCsv() => $_clearField(12);
+
+  @$pb.TagNumber(13)
+  $core.String get fundingState => $_getSZ(11);
+  @$pb.TagNumber(13)
+  set fundingState($core.String value) => $_setString(11, value);
+  @$pb.TagNumber(13)
+  $core.bool hasFundingState() => $_has(11);
+  @$pb.TagNumber(13)
+  void clearFundingState() => $_clearField(13);
 }
 
 class PublishSessionKeyRequest extends $pb.GeneratedMessage {

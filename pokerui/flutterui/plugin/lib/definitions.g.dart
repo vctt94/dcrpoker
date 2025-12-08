@@ -357,6 +357,9 @@ PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
   (json['buy_in'] as num).toInt(),
   json['game_started'] as bool,
   json['all_players_ready'] as bool,
+  players: (json['players'] as List<dynamic>?)
+      ?.map((e) => PlayerDTO.fromJson(e as Map<String, dynamic>))
+      .toList(),
 );
 
 Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
@@ -371,6 +374,7 @@ Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
       'buy_in': instance.buyIn,
       'game_started': instance.gameStarted,
       'all_players_ready': instance.allPlayersReady,
+      'players': instance.players,
     };
 
 CreatePokerTableArgs _$CreatePokerTableArgsFromJson(
@@ -541,6 +545,9 @@ NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
       started: json['started'] as bool?,
       gameReadyToPlay: json['gameReadyToPlay'] as bool?,
       countdown: (json['countdown'] as num?)?.toInt(),
+      table: json['table'] == null
+          ? null
+          : PokerTable.fromJson(json['table'] as Map<String, dynamic>),
     );
 
 Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
@@ -555,6 +562,7 @@ Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
       'started': instance.started,
       'gameReadyToPlay': instance.gameReadyToPlay,
       'countdown': instance.countdown,
+      'table': instance.table,
     };
 
 RunState _$RunStateFromJson(Map<String, dynamic> json) => RunState(
