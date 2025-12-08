@@ -118,6 +118,19 @@ func (p *Player) StartHandParticipation() error {
 	return nil
 }
 
+// EndHandParticipation signals the per-hand FSM that the hand has ended so it
+// can reset per-hand flags and transition back to the baseline state.
+func (p *Player) EndHandParticipation() {
+	p.mu.Lock()
+	hp := p.handParticipation
+	// Clear the pointer so a subsequent hand can start a fresh FSM instance.
+	p.handParticipation = nil
+	p.mu.Unlock()
+	if hp != nil {
+		hp.Send(evEndHand{})
+	}
+}
+
 // HandleStartHand starts hand participation and determines initial state
 func (p *Player) HandleStartHand() error {
 	p.mu.Lock()
@@ -619,6 +632,9 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 			p.mu.Lock()
 			p.currentBet = 0
 			p.isTurn = false
+			p.hasFolded = false
+			p.isAllIn = false
+			p.handDescription = ""
 			p.mu.Unlock()
 			return nil // Hand participation ends, FSM stops
 
@@ -694,6 +710,8 @@ func stateHandAllIn(p *Player, in <-chan any) HandParticipationStateFn {
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
+			p.isAllIn = false
+			p.handDescription = ""
 			p.mu.Unlock()
 			return nil // Hand participation ends, FSM stops
 		}
@@ -730,6 +748,8 @@ func stateHandFolded(p *Player, in <-chan any) HandParticipationStateFn {
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
+			p.hasFolded = false
+			p.handDescription = ""
 			p.mu.Unlock()
 			return nil // Hand participation ends, FSM stops
 		}

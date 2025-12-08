@@ -55,7 +55,6 @@ CREATE TABLE IF NOT EXISTS table_participants (
     left_at    TIMESTAMP,
     ready      BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (table_id, player_id),
-    UNIQUE (table_id, seat),
     FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE,
     FOREIGN KEY (player_id) REFERENCES players(id)
 );

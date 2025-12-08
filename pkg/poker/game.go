@@ -97,6 +97,9 @@ type Game struct {
 	// Winner tracking - set after showdown is complete
 	winners []string
 
+	// Last showdown result - persists across hands for UI review
+	lastShowdownResult *ShowdownResult
+
 	// State machine - Rob Pike's pattern
 	sm *statemachine.Machine[Game]
 
@@ -249,8 +252,6 @@ func stateNewHandDealing(g *Game, in <-chan any) GameStateFn {
 		switch ev.(type) {
 		case evStartHand:
 			return statePreDeal
-		case evGotoShowdown:
-			return stateShowdown
 		default:
 			// no-op for unhandled events in this state
 		}
@@ -262,7 +263,7 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.round++
 	// Reset hand-specific state inside FSM (except deck reseed which happens
-	// before dealing in ResetForNewHandFromUsers to keep a single deck per hand)
+	// before dealing to keep a single deck per hand)
 	g.communityCards = nil
 	g.currentBet = 0
 	g.winners = nil
@@ -271,20 +272,40 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.autoAdvanceEnabled = false
 	g.cancelAutoAdvance()
 
-	// Deck reseed is done prior to dealing hole cards
+	// Reset pot manager for the new hand BEFORE blinds are posted.
+	g.potManager = NewPotManager(len(g.players))
+
+	// Prepare a fresh deck for this hand BEFORE dealing hole cards so that
+	// community cards come from the same deck for the entire hand.
+	var nextRng *rand.Rand
+	if g.config.Seed != 0 {
+		// Derive a per-hand seed from the base seed and current round to keep
+		// deterministic shuffles across hands for the same config.
+		derived := g.config.Seed + int64(g.round)
+		nextRng = rand.New(rand.NewSource(derived))
+	} else {
+		base := time.Now().UnixNano()
+		var mix int64
+		if g.deck != nil && g.deck.rng != nil {
+			mix = g.deck.rng.Int63()
+		}
+		nextRng = rand.New(rand.NewSource(base ^ mix ^ int64(g.round)))
+	}
+	g.deck = newDeck(nextRng)
+
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
 
-	// Initialize new Hand for this round (cards will be dealt in stateDeal next)
-	if g.currentHand == nil {
-		playerIDs := make([]string, 0, len(g.players))
-		for _, p := range g.players {
-			if p != nil {
-				playerIDs = append(playerIDs, p.ID())
-			}
+	// Initialize new Hand for this round (cards will be dealt in stateDeal next).
+	// We always create a fresh Hand object per round so that hole cards and
+	// board are isolated between hands.
+	playerIDs := make([]string, 0, len(g.players))
+	for _, p := range g.players {
+		if p != nil {
+			playerIDs = append(playerIDs, p.ID())
 		}
-		g.currentHand = NewHand(playerIDs)
-		g.log.Debugf("statePreDeal: initialized new hand %s with %d players", g.currentHand.id, len(playerIDs))
 	}
+	g.currentHand = NewHand(playerIDs)
+	g.log.Debugf("statePreDeal: initialized new hand %s with %d players", g.currentHand.id, len(playerIDs))
 
 	// Advance dealer position for the new hand
 	numPlayers := len(g.players)
@@ -409,7 +430,12 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 	}
 	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
 		if p := g.players[g.currentPlayer]; p != nil {
-			p.StartTurn()
+			// If initial player is ALL_IN from posting blinds, skip to next active player
+			if p.GetCurrentStateString() == ALL_IN_STATE {
+				g.advanceToNextPlayer(time.Now())
+			} else {
+				p.StartTurn()
+			}
 		}
 	}
 	// phase stays PRE_FLOP (already set in statePreDeal)
@@ -441,8 +467,6 @@ func statePreFlop(g *Game, in <-chan any) GameStateFn {
 			continue
 		}
 		switch ev.(type) {
-		case evGotoShowdown:
-			return stateShowdown
 		case evAdvance:
 			return stateFlop
 		default:
@@ -487,8 +511,6 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 			continue
 		}
 		switch ev.(type) {
-		case evGotoShowdown:
-			return stateShowdown
 		case evAdvance:
 			return stateTurn
 		default:
@@ -532,8 +554,6 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 			continue
 		}
 		switch ev.(type) {
-		case evGotoShowdown:
-			return stateShowdown
 		case evAdvance:
 			return stateRiver
 		default:
@@ -583,8 +603,6 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 			continue
 		}
 		switch ev.(type) {
-		case evGotoShowdown:
-			return stateShowdown
 		case evAdvance:
 			return stateShowdown
 		default:
@@ -606,8 +624,6 @@ func stateRestored(g *Game, in <-chan any) GameStateFn {
 			continue
 		}
 		switch ev.(type) {
-		case evGotoShowdown:
-			return stateShowdown
 		case evAdvance:
 			// Advance solely based on current phase
 			g.mu.Lock()
@@ -737,7 +753,6 @@ func (g *Game) RestorePotsFromContributions(contrib map[string]int64) {
 func stateShowdown(g *Game, in <-chan any) GameStateFn {
 	g.log.Debugf("stateShowdown: entered showdown state")
 	g.mu.Lock()
-	g.phase = pokerrpc.GamePhase_SHOWDOWN
 	// Clear current player's turn flags to avoid accepting further actions
 	for _, p := range g.players {
 		if p != nil {
@@ -755,9 +770,51 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		g.log.Debugf("stateShowdown: showdown completed successfully with %d winners", len(result.Winners))
 		// Store winners for GetWinners() API
 		g.winners = result.Winners
+
+		// Capture hand identification
+		if g.currentHand != nil {
+			result.HandID = g.currentHand.id
+		}
+		result.Round = g.round
+
+		// Capture per-player final states BEFORE EndHandParticipation clears them
+		result.Players = make([]ShowdownPlayerInfo, 0, len(g.players))
+		for _, p := range g.players {
+			if p == nil {
+				continue
+			}
+			info := ShowdownPlayerInfo{
+				ID:         p.ID(),
+				FinalState: p.GetCurrentStateString(),
+			}
+			// Get hole cards from currentHand
+			if g.currentHand != nil {
+				cards := g.currentHand.GetPlayerCards(p.ID(), p.ID())
+				for _, c := range cards {
+					info.HoleCards = append(info.HoleCards, toProtoCard(c))
+				}
+			}
+			// Find this player's winning info if they won
+			for _, w := range result.WinnerInfo {
+				if w.PlayerId == p.ID() {
+					info.HandRank = w.HandRank
+					info.BestHand = w.BestHand
+					break
+				}
+			}
+			result.Players = append(result.Players, info)
+		}
+
+		// Store for later retrieval (persists across hands)
+		g.lastShowdownResult = result
+
 		// Send the showdown result to the table
 		g.sendTableEvent(GameEvent{Type: GameEventShowdownComplete, ShowdownResult: result})
 	}
+
+	// Snapshot players slice for post-settlement notifications.
+	players := make([]*Player, len(g.players))
+	copy(players, g.players)
 
 	// Check for players with 0 chips and send GameEventPlayerLost events
 	// This must happen after showdown so winnings are distributed
@@ -797,12 +854,23 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		g.log.Infof("stateShowdown: game over! No players have chips remaining")
 	}
 
+	// Mark phase as SHOWDOWN now that settlement is complete.
+	g.phase = pokerrpc.GamePhase_SHOWDOWN
 	g.mu.Unlock()
 
 	// Send game over event if game has ended
 	if gameOver {
 		g.log.Debugf("stateShowdown: sending GameEventGameOver")
 		g.sendTableEvent(GameEvent{Type: GameEventGameOver, WinnerID: lastPlayerID})
+	}
+
+	// Regardless of game over or continuation, signal all players that the
+	// hand has ended so their per-hand FSMs can reset internal flags. This
+	// is done outside of g.mu to avoid lock-ordering issues.
+	for _, p := range players {
+		if p != nil {
+			p.EndHandParticipation()
+		}
 	}
 
 	// Only schedule auto-start if game is not over and configured
@@ -1000,6 +1068,15 @@ func (g *Game) GetWinners() []string {
 	return g.winners
 }
 
+// GetLastShowdownResult returns the result of the most recently completed hand.
+// This persists across hands, allowing players to review what happened.
+// Returns nil if no hand has completed yet.
+func (g *Game) GetLastShowdownResult() *ShowdownResult {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	return g.lastShowdownResult
+}
+
 // GetCurrentHand returns the current hand (with hole cards for all players)
 func (g *Game) GetCurrentHand() *Hand {
 	g.mu.RLock()
@@ -1132,83 +1209,6 @@ func (g *Game) SetPlayers(users []*User) {
 	}
 }
 
-// ResetForNewHandFromUsers rebuilds/reuses players from the given users,
-// resets hand state, and kicks the FSM into NEW_HAND_DEALING → PRE_FLOP.
-// All mutations happen under g.mu to avoid races with the SM and readers.
-func (g *Game) ResetForNewHandFromUsers(users []*User) error {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-
-	// Map existing players by id for reuse
-	byID := make(map[string]*Player, len(g.players))
-	for _, p := range g.players {
-		if p != nil {
-			byID[p.id] = p
-		}
-	}
-
-	// Rebuild g.players in users' seat order, reusing objects when possible
-	newPlayers := make([]*Player, 0, len(users))
-	for _, u := range users {
-		// Acquire user lock to read fields
-		u.mu.RLock()
-		userID := u.ID
-		userName := u.Name
-		tableSeat := u.TableSeat
-		isReady := u.IsReady
-		u.mu.RUnlock()
-
-		if p := byID[userID]; p != nil {
-			p.mu.Lock()
-			// Cancel any pending timebank timer before resetting player
-			p.cancelTimebank()
-			// Reset existing player for new hand while preserving balance
-			p.resetForNewHand(p.balance)
-			p.tableSeat = tableSeat
-			p.isReady = isReady
-			p.timebankDelay = g.config.TimeBank
-			p.playerEventChan = g.playerEventChan
-			p.mu.Unlock()
-			newPlayers = append(newPlayers, p)
-		} else {
-			// New seat joined between hands
-			np := NewPlayer(userID, userName, g.config.StartingChips)
-			np.mu.Lock()
-			np.tableSeat = tableSeat
-			np.isReady = isReady
-			np.timebankDelay = g.config.TimeBank
-			np.playerEventChan = g.playerEventChan
-			np.mu.Unlock()
-			newPlayers = append(newPlayers, np)
-		}
-	}
-	g.players = newPlayers
-
-	// Reset pot manager for the new hand BEFORE blinds are posted
-	g.potManager = NewPotManager(len(g.players))
-
-	// Prepare a fresh deck for this hand BEFORE dealing hole cards so that
-	// community cards come from the same deck. FSM won't reseed again.
-	var nextRng *rand.Rand
-	if g.config.Seed != 0 {
-		derived := g.config.Seed + int64(g.round+1) // lookahead to next hand
-		nextRng = rand.New(rand.NewSource(derived))
-	} else {
-		base := time.Now().UnixNano()
-		var mix int64
-		if g.deck != nil && g.deck.rng != nil {
-			mix = g.deck.rng.Int63()
-		}
-		nextRng = rand.New(rand.NewSource(base ^ mix ^ int64(g.round+1)))
-	}
-	g.deck = newDeck(nextRng)
-
-	// Clear currentHand so statePreDeal creates a fresh one
-	g.currentHand = nil
-
-	return nil
-}
-
 // HandlePlayerFold handles a player folding in the game (external API)
 func (g *Game) HandlePlayerFold(playerID string) error {
 	g.mu.Lock()
@@ -1256,13 +1256,13 @@ func (g *Game) handlePlayerFold(playerID string) error {
 		}
 	}
 
-	// If only one player remains, send showdown event to table
+	// If only one player remains, send showdown event for the current round.
 	if g.unfoldsPlayers() == 1 {
 		// End the player's turn before showdown
 		p.EndTurn()
-		// Notify the game FSM to enter stateShowdown - it will update phase
+		// Notify the game FSM to enter stateShowdown for this round.
 		if g.sm != nil {
-			g.sm.Send(evGotoShowdown{})
+			g.sm.Send(evGotoShowdownReq{round: g.round})
 		}
 		return nil
 	}
@@ -1338,7 +1338,13 @@ func (g *Game) handlePlayerCall(playerID string) error {
 		delta = balance
 	}
 	if delta <= 0 {
-		return fmt.Errorf("invalid call amount")
+		// Player has no chips to contribute - they're already all-in from a previous action
+		// (e.g., posting blinds). Treat as a no-op: end their turn and advance.
+		g.log.Debugf("Player %s has 0 balance and is already all-in, advancing turn", player.ID())
+		player.EndTurn()
+		g.advanceToNextPlayer(time.Now())
+		g.maybeCompleteBettingRound()
+		return nil
 	}
 
 	// Send call action to player FSM and wait for it to process
@@ -1610,11 +1616,38 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 	}
 }
 
+// ShowdownPlayerInfo captures each player's state at showdown
+type ShowdownPlayerInfo struct {
+	ID           string            // Player ID
+	HoleCards    []*pokerrpc.Card  // Revealed hole cards
+	FinalState   string            // "PLAYER_STATE_FOLDED", "PLAYER_STATE_ALL_IN", "PLAYER_STATE_IN_GAME"
+	Contribution int64             // Total contributed to pot this hand
+	HandRank     pokerrpc.HandRank // Best hand rank (if not folded)
+	BestHand     []*pokerrpc.Card  // Best 5 cards (if not folded)
+}
+
 // ShowdownResult contains the results of a showdown for table notifications
 type ShowdownResult struct {
+	// Existing fields
 	Winners    []string
 	WinnerInfo []*pokerrpc.Winner
 	TotalPot   int64
+	Board      []*pokerrpc.Card
+
+	// Hand identification
+	HandID string // Unique hand identifier
+	Round  int    // Round number
+
+	// Per-player final states and cards
+	Players []ShowdownPlayerInfo
+}
+
+// toProtoCard converts an internal Card to a pokerrpc.Card
+func toProtoCard(c Card) *pokerrpc.Card {
+	return &pokerrpc.Card{
+		Suit:  c.GetSuit(),
+		Value: c.GetValue(),
+	}
 }
 
 // HandleShowdown processes the showdown logic and returns results (external API)
@@ -1673,7 +1706,16 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	result := &ShowdownResult{
 		Winners:    make([]string, 0, len(g.players)),
 		WinnerInfo: make([]*pokerrpc.Winner, 0, len(g.players)),
+		Board:      make([]*pokerrpc.Card, 0, len(g.communityCards)),
 		TotalPot:   0,
+	}
+
+	// Snapshot community cards for downstream consumers (UI/notifications).
+	for _, c := range g.communityCards {
+		result.Board = append(result.Board, &pokerrpc.Card{
+			Suit:  c.GetSuit(),
+			Value: c.GetValue(),
+		})
 	}
 
 	// --- Normalize pots for both branches (refund uncalled bets, rebuild pots)
@@ -1962,8 +2004,9 @@ func (g *Game) maybeCompleteBettingRound() {
 
 	// 2) Terminal: only one alive -> uncontested; go to showdown.
 	if alive <= 1 {
-		g.phase = pokerrpc.GamePhase_SHOWDOWN
-		g.sm.Send(evGotoShowdown{})
+		if g.sm != nil {
+			g.sm.Send(evGotoShowdownReq{round: g.round})
+		}
 		return
 	}
 
@@ -2508,6 +2551,26 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	// During showdown, use getTotalPot() after pots have been built
 	potAmount := g.potManager.getTotalPot()
 
+	// If we're in SHOWDOWN and per-hand flags have been cleared, hydrate folded/all-in
+	// from the persisted lastShowdownResult so observers (UI/tests) can still see
+	// who folded or was all-in for the completed hand.
+	if g.phase == pokerrpc.GamePhase_SHOWDOWN && g.lastShowdownResult != nil {
+		byID := make(map[string]ShowdownPlayerInfo, len(g.lastShowdownResult.Players))
+		for _, pi := range g.lastShowdownResult.Players {
+			byID[pi.ID] = pi
+		}
+		for i := range playersCopy {
+			id := playersCopy[i].ID
+			if id == "" {
+				continue
+			}
+			if pi, ok := byID[id]; ok {
+				playersCopy[i].Folded = (pi.FinalState == FOLDED_STATE)
+				playersCopy[i].IsAllIn = (pi.FinalState == ALL_IN_STATE)
+			}
+		}
+	}
+
 	winners := make([]PlayerSnapshot, 0)
 	// Get winners if available
 	if len(g.winners) > 0 {
@@ -2655,7 +2718,12 @@ func (g *Game) dealRiver() {
 
 type evAdvance struct{} // advance current betting/phase when conditions met
 
-type evGotoShowdown struct{} // force immediate showdown (e.g., only one alive)
+// evGotoShowdownReq requests an immediate showdown for the specified round.
+// This MUST be scoped to a specific round so that stale requests (for a hand
+// that has already completed) can be safely ignored once a new hand starts.
+type evGotoShowdownReq struct {
+	round int
+}
 
 type evMaybeCompleteReq struct{}
 
@@ -2700,6 +2768,31 @@ type evTimebankExpiredReq struct{ id string }
 // handleGameEvent centralizes cross-state request handling. It returns (nextState, handled).
 func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 	switch e := ev.(type) {
+	case evGotoShowdownReq:
+		// Guard against stale showdown requests: if the round has already
+		// advanced, ignore this event instead of show-downing the wrong hand.
+		g.mu.RLock()
+		curRound := g.round
+		curPhase := g.phase
+		g.mu.RUnlock()
+
+		if e.round != curRound {
+			g.log.Debugf("handleGameEvent: ignoring stale evGotoShowdownReq for round=%d (current=%d)", e.round, curRound)
+			return nil, true
+		}
+
+		switch curPhase {
+		case pokerrpc.GamePhase_PRE_FLOP,
+			pokerrpc.GamePhase_FLOP,
+			pokerrpc.GamePhase_TURN,
+			pokerrpc.GamePhase_RIVER:
+			// Valid betting streets – transition into showdown.
+			return stateShowdown, true
+		default:
+			// In any other phase (NEW_HAND_DEALING, SHOWDOWN, etc.), just ignore.
+			g.log.Debugf("handleGameEvent: evGotoShowdownReq ignored in phase=%v", curPhase)
+			return nil, true
+		}
 	case evMaybeCompleteReq:
 		g.mu.Lock()
 		g.maybeCompleteBettingRound()

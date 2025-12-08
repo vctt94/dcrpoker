@@ -510,6 +510,120 @@ func TestAllInFlag_HeadsUpCallTriggersShowdown(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond, "Game should reach SHOWDOWN or complete after both players all-in")
 }
 
+// Scenario A: mid-game short-stack player in a 10/20 heads-up game:
+//   - Hand 1: both players start with 20 chips, SB folds preflop.
+//     SB ends with 10 chips, BB wins pot (30 chips).
+//   - Hand 2: dealer rotates, so former-SB (10 chips) is now BB.
+//     BB can only post 10 (all-in from blind) instead of 20.
+//     Former-BB (30 chips) is now SB, posts 10, has 20 left.
+//   - In PRE_FLOP, SB (20 chips) acts first. BB is ALL_IN and should be skipped.
+//   - This test verifies the game does NOT hang when the short-stack is all-in from blinds.
+func TestShortStackSBCall_AllInNoHang(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 10, 20, 20)
+	user1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	user2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+
+	require.NoError(t, user1.SendReady())
+	require.NoError(t, user2.SendReady())
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// --- Hand 1: wait for PRE_FLOP, identify SB (will fold) and BB.
+	var sbID1, bbID1 string
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		if g == nil {
+			return false
+		}
+		if g.GetPhase() != pokerrpc.GamePhase_PRE_FLOP {
+			return false
+		}
+		s := g.GetStateSnapshot()
+		if len(s.Players) != 2 {
+			return false
+		}
+		for _, p := range s.Players {
+			switch p.CurrentBet {
+			case 10:
+				sbID1 = p.ID
+			case 20:
+				bbID1 = p.ID
+			}
+		}
+		return sbID1 != "" && bbID1 != ""
+	}, 2*time.Second, 10*time.Millisecond, "Hand 1: blinds not posted as expected")
+	require.NotEmpty(t, sbID1)
+	require.NotEmpty(t, bbID1)
+
+	// SB folds to end hand 1. SB loses 10 chips, BB wins pot.
+	err = tbl.HandleFold(sbID1)
+	require.NoError(t, err)
+
+	// Wait for hand 2 to start in PRE_FLOP.
+	var oldRound int
+	{
+		g := tbl.GetGame()
+		require.NotNil(t, g)
+		oldRound = g.GetRound()
+	}
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		if g == nil {
+			return false
+		}
+		return g.GetRound() > oldRound && g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 5*time.Second, 50*time.Millisecond, "Hand 2 did not start in PRE_FLOP")
+
+	// --- Hand 2: dealer rotated.
+	// Former SB (sbID1) had 10 chips, is now BB, posts all 10 → balance=0, currentBet=10, ALL_IN.
+	// Former BB (bbID1) had 30 chips, is now SB, posts 10 → balance=20, currentBet=10.
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+	snap := g.GetStateSnapshot()
+
+	var shortStackSnap, deepStackSnap PlayerSnapshot
+	for _, p := range snap.Players {
+		if p.ID == sbID1 {
+			shortStackSnap = p // former SB is now BB (short stack)
+		} else if p.ID == bbID1 {
+			deepStackSnap = p // former BB is now SB (deep stack)
+		}
+	}
+
+	t.Logf("Hand 2 state: shortStack (former SB) balance=%d, bet=%d, state=%s",
+		shortStackSnap.Balance, shortStackSnap.CurrentBet, shortStackSnap.StateString)
+	t.Logf("Hand 2 state: deepStack (former BB) balance=%d, bet=%d, state=%s",
+		deepStackSnap.Balance, deepStackSnap.CurrentBet, deepStackSnap.StateString)
+
+	// Short stack (now BB) should be ALL_IN from posting blind with entire stack.
+	require.Equal(t, int64(0), shortStackSnap.Balance, "Short-stack BB should have 0 balance after posting all-in blind")
+	require.Equal(t, int64(10), shortStackSnap.CurrentBet, "Short-stack BB should have posted 10 (all they had)")
+	require.Equal(t, ALL_IN_STATE, shortStackSnap.StateString, "Short-stack BB should be ALL_IN from posting blind")
+
+	// Deep stack (now SB) should have chips remaining.
+	require.Equal(t, int64(20), deepStackSnap.Balance, "Deep-stack SB should have 20 chips after posting SB=10")
+	require.Equal(t, int64(10), deepStackSnap.CurrentBet, "Deep-stack SB should have posted SB=10")
+
+	// The SB should be first to act (BB is ALL_IN and skipped).
+	// Both players have currentBet=10, so SB can check (nothing to call).
+	err = tbl.HandleCheck(deepStackSnap.ID)
+	require.NoError(t, err, "Deep-stack SB should be able to check")
+
+	// After SB acts, with only 1 active player left (BB is ALL_IN), game should auto-advance.
+	// The game should progress to SHOWDOWN without hanging.
+	require.Eventually(t, func() bool {
+		g := tbl.GetGame()
+		if g == nil {
+			// Hand completed
+			return true
+		}
+		phase := g.GetPhase()
+		return phase == pokerrpc.GamePhase_SHOWDOWN
+	}, 5*time.Second, 50*time.Millisecond, "Game should reach SHOWDOWN after all-in scenario")
+}
+
 func TestAllInFlag_ThreePlayerContinuesBetting(t *testing.T) {
 	// With 3+ players, when one goes all-in, the other active players can continue betting
 	// Showdown should NOT be triggered immediately
@@ -659,23 +773,40 @@ func TestHandleTimeoutsAutoFold(t *testing.T) {
 	// Simulate timebank expiry for current player.
 	g.TriggerTimebankExpiredFor(curID)
 
-	// Assert it folded. Poll briefly in case advancement is async.
+	// In heads-up, a fold immediately triggers showdown. The player's FOLDED state
+	// is ephemeral (cleared when the hand ends). Instead of trying to catch the
+	// transient state, verify via lastShowdownResult which persists across hands.
 	require.Eventually(t, func() bool {
-		for _, p := range g.GetPlayers() {
-			if p.ID() == curID {
-				return p.GetCurrentStateString() == FOLDED_STATE
+		result := g.GetLastShowdownResult()
+		if result == nil {
+			return false
+		}
+		// Find the player in the showdown result and verify they folded
+		for _, p := range result.Players {
+			if p.ID == curID {
+				return p.FinalState == FOLDED_STATE
 			}
 		}
 		return false
-	}, 500*time.Millisecond, 10*time.Millisecond, "player did not fold after timeout")
+	}, 2*time.Second, 10*time.Millisecond, "showdown should record player as folded")
 
-	// Final explicit check (nice error on failure)
-	for _, p := range g.GetPlayers() {
-		if p.ID() == curID {
-			assert.Equal(t, FOLDED_STATE, p.GetCurrentStateString())
+	// Additional verification: check the showdown result details
+	result := g.GetLastShowdownResult()
+	require.NotNil(t, result, "lastShowdownResult should be set")
+	require.NotEmpty(t, result.HandID, "showdown should have hand ID")
+	require.Equal(t, 1, result.Round, "should be round 1")
+	require.Len(t, result.Players, 2, "should have 2 players in showdown result")
+
+	// Verify the folding player is recorded correctly
+	var foundFolded bool
+	for _, p := range result.Players {
+		if p.ID == curID {
+			assert.Equal(t, FOLDED_STATE, p.FinalState, "player should be recorded as folded")
+			foundFolded = true
 			break
 		}
 	}
+	assert.True(t, foundFolded, "folded player should be in showdown result")
 }
 
 func TestConcurrency_SafeSnapshotsAndBalanceUpdates(t *testing.T) {

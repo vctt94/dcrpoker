@@ -444,9 +444,8 @@ func (t *Table) allPlayersReady() bool {
 // WAITING_FOR_PLAYERS
 func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
-		switch ev.(type) {
+		switch e := ev.(type) {
 		case evSetUserReady:
-			e := ev.(evSetUserReady)
 			err := t.applyUserReady(e.userID, e.ready)
 			if e.reply != nil {
 				e.reply <- err
@@ -455,7 +454,6 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 				return tableStatePlayersReady
 			}
 		case evSetUserEscrow:
-			e := ev.(evSetUserEscrow)
 			err := t.applyUserEscrow(e.userID, e.escrowID, e.ready)
 			if e.reply != nil {
 				e.reply <- err
@@ -464,8 +462,11 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 			if err == nil && t.allPlayersReady() {
 				return tableStatePlayersReady
 			}
+		case evResetUserPresign:
+			if err := t.applyUserPresignReset(e.userID); err != nil {
+				t.log.Warnf("failed to reset presign for user %s: %v", e.userID, err)
+			}
 		case evSetUserPresignComplete:
-			e := ev.(evSetUserPresignComplete)
 			err := t.applyUserPresignComplete(e.userID)
 			if e.reply != nil {
 				e.reply <- err
@@ -496,9 +497,8 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 // PLAYERS_READY
 func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
-		switch ev.(type) {
+		switch e := ev.(type) {
 		case evSetUserReady:
-			e := ev.(evSetUserReady)
 			err := t.applyUserReady(e.userID, e.ready)
 			if e.reply != nil {
 				e.reply <- err
@@ -507,7 +507,6 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 				return tableStateWaitingForPlayers
 			}
 		case evSetUserEscrow:
-			e := ev.(evSetUserEscrow)
 			err := t.applyUserEscrow(e.userID, e.escrowID, e.ready)
 			if e.reply != nil {
 				e.reply <- err
@@ -516,8 +515,11 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 			if err == nil && !t.allPlayersReady() {
 				return tableStateWaitingForPlayers
 			}
+		case evResetUserPresign:
+			if err := t.applyUserPresignReset(e.userID); err != nil {
+				t.log.Warnf("failed to reset presign for user %s: %v", e.userID, err)
+			}
 		case evSetUserPresignComplete:
-			e := ev.(evSetUserPresignComplete)
 			err := t.applyUserPresignComplete(e.userID)
 			if e.reply != nil {
 				e.reply <- err
@@ -541,21 +543,22 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 // GAME_ACTIVE
 func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 	for ev := range in {
-		switch ev.(type) {
+		switch e := ev.(type) {
 		case evSetUserReady:
-			e := ev.(evSetUserReady)
 			err := t.applyUserReady(e.userID, e.ready)
 			if e.reply != nil {
 				e.reply <- err
 			}
 		case evSetUserEscrow:
-			e := ev.(evSetUserEscrow)
 			err := t.applyUserEscrow(e.userID, e.escrowID, e.ready)
 			if e.reply != nil {
 				e.reply <- err
 			}
+		case evResetUserPresign:
+			if err := t.applyUserPresignReset(e.userID); err != nil {
+				t.log.Warnf("failed to reset presign for user %s: %v", e.userID, err)
+			}
 		case evSetUserPresignComplete:
-			e := ev.(evSetUserPresignComplete)
 			err := t.applyUserPresignComplete(e.userID)
 			if e.reply != nil {
 				e.reply <- err
@@ -854,11 +857,6 @@ func (t *Table) startNewHand() error {
 	// Create the notification channel BEFORE triggering FSM transitions.
 	preFlopCh := g.SetupPreFlopNotification()
 	defer g.ClearPreFlopNotification()
-
-	// Rebuild/reuse players (no hand-state mutation here; FSM will do that).
-	if err := g.ResetForNewHandFromUsers(activeUsers); err != nil {
-		return fmt.Errorf("failed to setup new hand: %w", err)
-	}
 
 	// Update table state / bookkeeping
 	t.mu.Lock()
@@ -1277,6 +1275,21 @@ func (t *Table) AddUser(user *User) error {
 		return fmt.Errorf("user already at table")
 	}
 
+	// Prevent seat collisions when caller provides a seat.
+	user.mu.RLock()
+	requestedSeat := user.TableSeat
+	user.mu.RUnlock()
+	if requestedSeat >= 0 {
+		for _, u := range t.users {
+			u.mu.RLock()
+			if u.TableSeat == requestedSeat {
+				u.mu.RUnlock()
+				return fmt.Errorf("seat %d already taken", requestedSeat)
+			}
+			u.mu.RUnlock()
+		}
+	}
+
 	// Auto-assign seat if TableSeat is -1 (unseated)
 	user.mu.RLock()
 	userTableSeat := user.TableSeat
@@ -1474,7 +1487,7 @@ func (t *Table) applyUserEscrow(userID string, escrowID string, ready bool) erro
 	// presigning has not completed for this player. This prevents
 	// altering settlement inputs mid-presign or during an active game.
 	if user.EscrowID != "" && user.EscrowID != escrowID {
-		if game == nil && !user.PresignComplete {
+		if game != nil || user.PresignComplete {
 			user.mu.Unlock()
 			return fmt.Errorf("user %s already bound to escrow %s", userID, user.EscrowID)
 		}
@@ -1501,6 +1514,22 @@ func (t *Table) applyUserPresignComplete(userID string) error {
 	// Acquire user lock to write field
 	user.mu.Lock()
 	user.PresignComplete = true
+	user.mu.Unlock()
+	t.lastAction = time.Now()
+	t.mu.Unlock()
+	return nil
+}
+
+// applyUserPresignReset clears presign completion state (escrow remains bound).
+func (t *Table) applyUserPresignReset(userID string) error {
+	t.mu.Lock()
+	user := t.users[userID]
+	if user == nil {
+		t.mu.Unlock()
+		return fmt.Errorf("user not found at table")
+	}
+	user.mu.Lock()
+	user.PresignComplete = false
 	user.mu.Unlock()
 	t.lastAction = time.Now()
 	t.mu.Unlock()

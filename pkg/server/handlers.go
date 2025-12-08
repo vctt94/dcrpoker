@@ -221,11 +221,16 @@ func (nh *NotificationHandler) handlePlayerReady(event *GameEvent) {
 		nh.server.log.Warnf("PLAYER_READY without PlayerReadyPayload; skipping (table=%s)", event.TableID)
 		return
 	}
+
+	// Include an up-to-date lobby snapshot so UIs can immediately reflect
+	table := nh.tableFromSnapshot(event)
+
 	notification := &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_PLAYER_READY,
 		PlayerId: playerID,
 		TableId:  event.TableID,
 		Ready:    ready,
+		Table:    table,
 	}
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }

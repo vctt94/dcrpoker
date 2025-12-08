@@ -1177,6 +1177,82 @@ func TestJoinTable(t *testing.T) {
 	assert.True(t, resp.Success)
 }
 
+func TestJoinTableAfterGameStartFails(t *testing.T) {
+	// Create isolated database and server for this test
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	server := &TestServer{
+		Server: srv,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	player1ID := "player1"
+	player2ID := "player2"
+	latecomerID := "latecomer"
+
+	// Create test session for player1
+	ctx, _ = server.CreateTestSession(ctx, player1ID, player1ID)
+
+	// Create table
+	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      player1ID,
+		SmallBlind:    10,
+		BigBlind:      20,
+		MinPlayers:    2,
+		MaxPlayers:    6,
+		BuyIn:         0,
+		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	// Player2 joins the table
+	joinResp, err := server.JoinTable(ctx, &pokerrpc.JoinTableRequest{
+		PlayerId: player2ID,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+	require.True(t, joinResp.Success)
+
+	// Both players set ready
+	for _, pid := range []string{player1ID, player2ID} {
+		_, err = server.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+			PlayerId: pid,
+			TableId:  tableID,
+		})
+		require.NoError(t, err)
+	}
+
+	// Wait for the game to start
+	require.Eventually(t, func() bool {
+		gameState, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{
+			TableId: tableID,
+		})
+		if err != nil {
+			return false
+		}
+		return gameState.GameState != nil && gameState.GameState.GameStarted
+	}, 2*time.Second, 10*time.Millisecond, "game should have started")
+
+	// Latecomer should be rejected after the game has started
+	resp, err := server.JoinTable(ctx, &pokerrpc.JoinTableRequest{
+		PlayerId: latecomerID,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+	assert.False(t, resp.Success)
+	assert.Contains(t, resp.Message, "Game already started")
+}
+
 // TestSnapshotRestoresCurrentPlayer ensures that when a snapshot is taken while it is a particular
 // player's turn (and that player subsequently disconnects), restoring the table from the persisted
 // snapshot correctly identifies the same player as the current player to act.
