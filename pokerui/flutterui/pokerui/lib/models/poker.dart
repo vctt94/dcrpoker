@@ -416,7 +416,7 @@ class PokerModel extends ChangeNotifier {
       cfg.payoutAddress,
       '${cfg.dataDir}/logs/pokerui.log',
       cfg.debugLevel,
-      cfg.wantsLogNtfns,
+      cfg.soundsEnabled,
     );
 
     // Initialize the Go library client
@@ -425,10 +425,15 @@ class PokerModel extends ChangeNotifier {
     // Use the player ID from the Go library initialization
     final playerId = localInfo.id;
 
-    return PokerModel(
+    final model = PokerModel(
       playerId: playerId,
       dataDir: cfg.dataDir,
     );
+    
+    // Initialize sound service from config
+    model._soundService.setEnabled(cfg.soundsEnabled);
+
+    return model;
   }
 
   // -------- Lifecycle ----------

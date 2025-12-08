@@ -13,6 +13,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/services/sound_service.dart';
 import 'package:pokerui/screens/main.dart';
 import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
@@ -250,6 +251,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
     try {
       final updated = await configFromArgs([]);
       if (!mounted) return false;
+      // Update sound service immediately with new config value
+      SoundService().setEnabled(updated.soundsEnabled);
       setState(() {
         _config = updated;
         _attemptedSessionRestore = false;

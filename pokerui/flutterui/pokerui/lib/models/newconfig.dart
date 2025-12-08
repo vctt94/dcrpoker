@@ -8,7 +8,7 @@ class NewConfigModel extends ChangeNotifier {
   String grpcCertPath = '';
   String address = '';
   String debugLevel = 'debug';
-  bool wantsLogNtfns = false;
+  bool soundsEnabled = true;
 
   final List<String> appArgs;
   String _appDataDir = '';
@@ -24,7 +24,7 @@ class NewConfigModel extends ChangeNotifier {
     ..grpcCertPath       = c.grpcCertPath
     ..address            = c.address
     ..debugLevel         = c.debugLevel
-    ..wantsLogNtfns      = c.wantsLogNtfns;
+    ..soundsEnabled      = c.soundsEnabled;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
   Future<void> _initialiseDefaults() async {

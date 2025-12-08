@@ -31,17 +31,10 @@ type initClient struct {
 	DownloadsDir   string `json:"downloads_dir"`
 	LogFile        string `json:"log_file"`
 	DebugLevel     string `json:"debug_level"`
+	SoundsEnabled  bool   `json:"sounds_enabled"`
 	WantsLogNtfns  bool   `json:"wants_log_ntfns"`
 	LogPings       bool   `json:"log_pings"`
 	PingIntervalMs int64  `json:"ping_interval_ms"`
-
-	// New fields for RPC configuration
-	RPCWebsocketURL   string `json:"rpc_websocket_url"`
-	RPCCertPath       string `json:"rpc_cert_path"`
-	RPCCLientCertPath string `json:"rpc_client_cert_path"`
-	RPCCLientKeyPath  string `json:"rpc_client_key_path"`
-	RPCUser           string `json:"rpc_user"`
-	RPCPass           string `json:"rpc_pass"`
 }
 
 // handleEscrowNotification inspects notification messages for escrow funding
@@ -244,6 +237,7 @@ type createDefaultConfigArgs struct {
 	ServerAddr      string `json:"server_addr"`
 	GRPCCertPath    string `json:"grpc_cert_path"`
 	DebugLevel      string `json:"debug_level"`
+	SoundsEnabled   bool   `json:"sounds_enabled"`
 	BrRpcUrl        string `json:"br_rpc_url"`
 	BrClientCert    string `json:"br_client_cert"`
 	BrClientRpcCert string `json:"br_client_rpc_cert"`
@@ -673,7 +667,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 }
 
 // createDefaultConfig creates a default configuration file when none exists
-func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel, brRpcUrl, brClientCert, brClientRpcCert, brClientRpcKey, rpcUser, rpcPass string) error {
+func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel string, soundsEnabled bool) error {
 	// Ensure the data directory exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %v", err)
@@ -682,23 +676,6 @@ func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel, brRpcUrl
 	// Set default values
 	if serverAddr == "" {
 		serverAddr = "178.156.178.191:50050" // Default server
-	}
-
-	// Validate required BR config values before writing the file. These are
-	// required for the client to successfully connect to BisonRelay; writing
-	// an incomplete config leads to startup failure later.
-	var missing []string
-	if strings.TrimSpace(brClientCert) == "" {
-		missing = append(missing, "brclientcert")
-	}
-	if strings.TrimSpace(brClientRpcCert) == "" {
-		missing = append(missing, "brclientrpccert")
-	}
-	if strings.TrimSpace(brClientRpcKey) == "" {
-		missing = append(missing, "brclientrpckey")
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("cannot create config: missing required BR fields: %s", strings.Join(missing, ", "))
 	}
 
 	// Note: grpcHost and grpcPort are not needed for the INI format
@@ -711,22 +688,16 @@ serveraddr=%s
 datadir=%s
 grpcservercert=%s
 address=
-brrpcurl=%s
-brclientcert=%s
-brclientrpccert=%s
-brclientrpckey=%s
-rpcuser=%s
-rpcpass=%s
 
-[clientrpc]
-wantsLogNtfns=0
+[sounds]
+soundsenabled=%t
 
 [log]
 debuglevel=%s
-maxlogfiles=5
+maxlogfiles=10
 maxbufferlines=1000
 `,
-		serverAddr, dataDir, grpcCertPath, brRpcUrl, brClientCert, brClientRpcCert, brClientRpcKey, rpcUser, rpcPass, debugLevel)
+		serverAddr, dataDir, grpcCertPath, soundsEnabled, debugLevel)
 
 	// Write the configuration file
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
@@ -749,6 +720,7 @@ maxbufferlines=1000
 		Debug:          debugLevel,
 		MaxLogFiles:    5,
 		MaxBufferLines: 1000,
+		SoundsEnabled:  soundsEnabled,
 	}
 	if err := client.WriteClientConfigFile(pcConf, filepath.Join(dataDir, appName+".conf")); err != nil {
 		return fmt.Errorf("failed to write %s.conf: %v", appName, err)
@@ -767,7 +739,7 @@ maxbufferlines=1000
 // handleCreateDefaultConfig handles the CTCreateDefaultConfig command
 func handleCreateDefaultConfig(args createDefaultConfigArgs) (map[string]string, error) {
 	if err := createDefaultConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.DebugLevel,
-		args.BrRpcUrl, args.BrClientCert, args.BrClientRpcCert, args.BrClientRpcKey, args.RpcUser, args.RpcPass); err != nil {
+		args.SoundsEnabled); err != nil {
 		return nil, err
 	}
 
@@ -817,10 +789,10 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 		"server_addr":    serverAddr,
 		"grpc_cert_path": cfg.GRPCCertPath,
 
-		"debug_level":     cfg.Debug,
-		"wants_log_ntfns": false,
-		"datadir":         cfg.Datadir,
-		"payout_address":  cfg.PayoutAddress,
+		"debug_level":    cfg.Debug,
+		"sounds_enabled": cfg.SoundsEnabled,
+		"datadir":        cfg.Datadir,
+		"payout_address": cfg.PayoutAddress,
 	}
 
 	return res, nil

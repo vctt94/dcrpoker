@@ -63,22 +63,8 @@ class InitClient {
   final String logFile;
   @JsonKey(name: 'debug_level')
   final String debugLevel;
-  @JsonKey(name: 'wants_log_ntfns')
-  final bool wantsLogNtfns;
-
-  // RPC fields (optional, no longer used)
-  @JsonKey(name: 'rpc_websocket_url', includeIfNull: false)
-  final String? rpcWebsockeURL;
-  @JsonKey(name: 'rpc_cert_path', includeIfNull: false)
-  final String? rpcCertPath;
-  @JsonKey(name: 'rpc_client_cert_path', includeIfNull: false)
-  final String? rpcClientCertpath;
-  @JsonKey(name: 'rpc_client_key_path', includeIfNull: false)
-  final String? rpcClientKeypath;
-  @JsonKey(name: 'rpc_user', includeIfNull: false)
-  final String? rpcUser;
-  @JsonKey(name: 'rpc_pass', includeIfNull: false)
-  final String? rpcPass;
+  @JsonKey(name: 'sounds_enabled')
+  final bool soundsEnabled;
 
   InitClient(
     this.serverAddr,
@@ -87,14 +73,8 @@ class InitClient {
     this.payoutAddress,
     this.logFile,
     this.debugLevel,
-    this.wantsLogNtfns, [
-    this.rpcWebsockeURL,
-    this.rpcCertPath,
-    this.rpcClientCertpath,
-    this.rpcClientKeypath,
-    this.rpcUser,
-    this.rpcPass,
-  ]);
+    this.soundsEnabled,
+);
 
   factory InitClient.fromJson(Map<String, dynamic> json) =>
       _$InitClientFromJson(json);
@@ -149,12 +129,15 @@ class CreateDefaultConfig {
   final String grpcCertPath;
   @JsonKey(name: 'debug_level')
   final String debugLevel;
+  @JsonKey(name: 'sounds_enabled')
+  final bool soundsEnabled;
 
   CreateDefaultConfig(
     this.dataDir,
     this.serverAddr,
     this.grpcCertPath,
     this.debugLevel,
+    this.soundsEnabled,
   );
 
   factory CreateDefaultConfig.fromJson(Map<String, dynamic> json) =>

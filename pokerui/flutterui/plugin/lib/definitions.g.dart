@@ -13,13 +13,7 @@ InitClient _$InitClientFromJson(Map<String, dynamic> json) => InitClient(
   json['payout_address'] as String,
   json['log_file'] as String,
   json['debug_level'] as String,
-  json['wants_log_ntfns'] as bool,
-  json['rpc_websocket_url'] as String?,
-  json['rpc_cert_path'] as String?,
-  json['rpc_client_cert_path'] as String?,
-  json['rpc_client_key_path'] as String?,
-  json['rpc_user'] as String?,
-  json['rpc_pass'] as String?,
+  json['sounds_enabled'] as bool,
 );
 
 Map<String, dynamic> _$InitClientToJson(InitClient instance) =>
@@ -30,13 +24,7 @@ Map<String, dynamic> _$InitClientToJson(InitClient instance) =>
       'payout_address': instance.payoutAddress,
       'log_file': instance.logFile,
       'debug_level': instance.debugLevel,
-      'wants_log_ntfns': instance.wantsLogNtfns,
-      'rpc_websocket_url': ?instance.rpcWebsockeURL,
-      'rpc_cert_path': ?instance.rpcCertPath,
-      'rpc_client_cert_path': ?instance.rpcClientCertpath,
-      'rpc_client_key_path': ?instance.rpcClientKeypath,
-      'rpc_user': ?instance.rpcUser,
-      'rpc_pass': ?instance.rpcPass,
+      'sounds_enabled': instance.soundsEnabled,
     };
 
 InitPokerClient _$InitPokerClientFromJson(Map<String, dynamic> json) =>
@@ -71,6 +59,7 @@ CreateDefaultConfig _$CreateDefaultConfigFromJson(Map<String, dynamic> json) =>
       json['server_addr'] as String,
       json['grpc_cert_path'] as String,
       json['debug_level'] as String,
+      json['sounds_enabled'] as bool,
     );
 
 Map<String, dynamic> _$CreateDefaultConfigToJson(
@@ -80,6 +69,7 @@ Map<String, dynamic> _$CreateDefaultConfigToJson(
   'server_addr': instance.serverAddr,
   'grpc_cert_path': instance.grpcCertPath,
   'debug_level': instance.debugLevel,
+  'sounds_enabled': instance.soundsEnabled,
 };
 
 IDInit _$IDInitFromJson(Map<String, dynamic> json) =>

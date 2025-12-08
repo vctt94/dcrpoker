@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 
 import 'package:pokerui/components/shared_layout.dart';
 import 'package:pokerui/models/newconfig.dart';
+import 'package:pokerui/services/sound_service.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/definitions.dart';
 
@@ -30,13 +31,13 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   late final _address       = TextEditingController(text: widget.model.address);
   late final _debugLvl      = TextEditingController(text: widget.model.debugLevel);
 
-  bool _wantsLogNtfns = false;
+  bool _soundsEnabled = true;
   String _cfgPath = '', _dataDir = '';
 
   @override
   void initState() {
     super.initState();
-    _wantsLogNtfns = widget.model.wantsLogNtfns;
+    _soundsEnabled = widget.model.soundsEnabled;
     _initHeaderInfo();
   }
 
@@ -66,6 +67,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.serverAddr,
         widget.model.grpcCertPath,
         widget.model.debugLevel,
+        widget.model.soundsEnabled,
       );
       
       // Call the native plugin command
@@ -106,12 +108,16 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ..grpcCertPath      = _grpcCert.text
         ..address           = _address.text
         ..debugLevel        = _debugLvl.text
-        ..wantsLogNtfns     = _wantsLogNtfns;
+        ..soundsEnabled     = _soundsEnabled;
 
       await _prepareDataDir();
       
       // Use the new command to create config instead of direct file writing
       await _createConfigViaCommand();
+      
+      // Update sound service immediately after saving config
+      SoundService().setEnabled(_soundsEnabled);
+      
       await widget.onConfigSaved();
 
       if (mounted) {
@@ -153,9 +159,9 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Log Notifications', style: TextStyle(color: Colors.white)),
-                    Switch(value: _wantsLogNtfns,
-                           onChanged: (v) => setState(() => _wantsLogNtfns = v)),
+                    const Text('Enable Sounds', style: TextStyle(color: Colors.white)),
+                    Switch(value: _soundsEnabled,
+                           onChanged: (v) => setState(() => _soundsEnabled = v)),
                   ],
                 ),
                 const SizedBox(height: 20),
