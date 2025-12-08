@@ -17,6 +17,7 @@ import 'package:golib_plugin/definitions.dart'
         GameUpdateDTO;
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/notifications.dart';
+import 'package:pokerui/services/sound_service.dart';
 
 /// -------- UI-facing enums --------
 enum PokerState {
@@ -393,6 +394,12 @@ class PokerModel extends ChangeNotifier {
   // Subscription to game updates coming from golib.
   StreamSubscription<pr.GameUpdate>? _gameUpdateSub;
 
+  // Sound service for playing game sounds
+  final SoundService _soundService = SoundService();
+  
+  // Track previous current player ID to detect turn changes
+  String? _previousCurrentPlayerId;
+
   PokerModel({
     required this.playerId,
     required this.dataDir,
@@ -543,6 +550,10 @@ class PokerModel extends ChangeNotifier {
               playerId: n.playerId,
               amount: amt,
               createdMs: DateTime.now().millisecondsSinceEpoch);
+          // Play sound for other players' bets only (own bets play sound in makeBet)
+          if (n.playerId != playerId) {
+            _soundService.playBet();
+          }
           notifyListeners();
         }
         // Don't call refreshGameState - stream will send GameUpdate
@@ -559,6 +570,7 @@ class PokerModel extends ChangeNotifier {
         // Don't call refreshGameState - stream will send GameUpdate
         break;
       case pr.NotificationType.CHECK_MADE:
+        break;
       case pr.NotificationType.PLAYER_FOLDED:
       case pr.NotificationType.SMALL_BLIND_POSTED:
       case pr.NotificationType.BIG_BLIND_POSTED:
@@ -636,6 +648,17 @@ class PokerModel extends ChangeNotifier {
       return;
     }
 
+    // Detect turn change before updating game state
+    final newCurrentPlayer = gameUpdate.currentPlayer;
+    final isNowMyTurn = newCurrentPlayer == playerId;
+    final wasMyTurn = _previousCurrentPlayerId == playerId;
+    
+    // Play sound when it becomes the player's turn
+    if (isNowMyTurn && !wasMyTurn) {
+      // Just became my turn - play notification sound
+      _soundService.playTurnNotification();
+    }
+
     // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
     final mePlayer = me;
@@ -654,6 +677,9 @@ class PokerModel extends ChangeNotifier {
     } else {
       _state = PokerState.inLobby;
     }
+
+    // Update previous current player ID for next comparison
+    _previousCurrentPlayerId = newCurrentPlayer;
 
     notifyListeners();
   }
@@ -1191,6 +1217,7 @@ class PokerModel extends ChangeNotifier {
     if (tid == null) return false;
     try {
       await Golib.makeBet(MakeBetArgs(amountChips));
+      _soundService.playBet();
       return true;
     } catch (e) {
       errorMessage = 'Bet failed: $e';
@@ -1204,6 +1231,7 @@ class PokerModel extends ChangeNotifier {
     if (tid == null) return false;
     try {
       await Golib.callBet();
+      _soundService.playCall();
       return true;
     } catch (e) {
       errorMessage = 'Call failed: $e';
@@ -1217,6 +1245,7 @@ class PokerModel extends ChangeNotifier {
     if (tid == null) return false;
     try {
       await Golib.checkBet();
+      _soundService.playCheck();
       return true;
     } catch (e) {
       errorMessage = 'Check failed: $e';
@@ -1436,6 +1465,11 @@ class PokerModel extends ChangeNotifier {
         g.phase == pr.GamePhase.FLOP ||
         g.phase == pr.GamePhase.TURN ||
         g.phase == pr.GamePhase.RIVER;
+  }
+
+  /// Play turn notification sound (called when timebank countdown starts)
+  void playTurnNotificationSound() {
+    _soundService.playTurnNotification();
   }
 
   Map<String, dynamic>? _decodeJsonMap(String raw) {
