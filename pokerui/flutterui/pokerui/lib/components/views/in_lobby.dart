@@ -241,7 +241,9 @@ class InLobbyView extends StatelessWidget {
       ),
     );
     final gamePlayers = model.game?.players ?? const <UiPlayer>[];
-
+    final lobbyPlayers = table.players;
+    final displayedPlayers =
+        gamePlayers.isNotEmpty ? gamePlayers : lobbyPlayers;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Center(
@@ -298,14 +300,14 @@ class InLobbyView extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  if (gamePlayers.isEmpty)
+                  if (displayedPlayers.isEmpty)
                     const Text('Waiting for players...',
                         style: TextStyle(color: Colors.white54))
                   else
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: gamePlayers
+                      children: displayedPlayers
                           .map((p) => _buildPlayerPill(p, model.playerId))
                           .toList(),
                     ),
@@ -374,7 +376,7 @@ class InLobbyView extends StatelessWidget {
                   const SizedBox(height: 12),
                   // Game start status
                   if (table.buyInAtoms > 0)
-                    _buildGameStartStatus(model, gamePlayers),
+                    _buildGameStartStatus(model, displayedPlayers),
                   const SizedBox(height: 16),
                   // Leave Table button at the bottom
                   Row(
