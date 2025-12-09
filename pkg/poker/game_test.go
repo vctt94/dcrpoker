@@ -1772,6 +1772,172 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 	require.Equal(t, IN_GAME_STATE, state)
 }
 
+// When both players time out with no bet on the street, each is auto-checked
+// and the betting round should advance. This reproduces the "silent advance"
+// seen in logs where auto-checks occurred after timebank expiry.
+func TestTimebank_DualAutoCheckAdvancesStreet(t *testing.T) {
+	tbl := NewTable(TableConfig{
+		ID:               "tbl-timebank-dual-check",
+		Log:              createTestLogger(),
+		GameLog:          createTestLogger(),
+		HostID:           "host",
+		BuyIn:            0,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       5,
+		BigBlind:         10,
+		StartingChips:    100,
+		TimeBank:         50 * time.Millisecond,
+		AutoStartDelay:   10 * time.Millisecond,
+		AutoAdvanceDelay: 10 * time.Millisecond,
+	})
+	defer tbl.Close()
+
+	evtCh := make(chan TableEvent, 16)
+	tbl.SetEventChannel(evtCh)
+
+	// Seat and ready two players
+	p1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	p2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+	p1.SendReady()
+	p2.SendReady()
+
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait for game to be instantiated
+	require.Eventually(t, func() bool { return tbl.GetGame() != nil }, 2*time.Second, 10*time.Millisecond)
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+
+	// Jump to flop with no outstanding bet and set the first actor.
+	g.StateFlop()
+	g.mu.Lock()
+	g.currentBet = 0
+	g.mu.Unlock()
+	g.InitializeCurrentPlayer()
+
+	first := g.GetCurrentPlayerObject()
+	require.NotNil(t, first)
+	firstID := first.ID()
+
+	// First player times out and auto-checks, advancing turn.
+	g.TriggerTimebankExpiredFor(firstID)
+	require.Eventually(t, func() bool {
+		next := g.GetCurrentPlayerObject()
+		return next != nil && next.ID() != firstID
+	}, 1*time.Second, 10*time.Millisecond, "turn should advance after first auto-check")
+
+	second := g.GetCurrentPlayerObject()
+	require.NotNil(t, second)
+	secondID := second.ID()
+	require.NotEqual(t, firstID, secondID)
+
+	// Second player also times out and auto-checks; current (buggy) code will
+	// advance the street. The expected (desired) behavior is to remain on FLOP
+	// because no one bet and action ended via auto-checks. This should fail
+	// until the bug is fixed.
+	g.TriggerTimebankExpiredFor(secondID)
+
+	time.Sleep(150 * time.Millisecond) // allow auto-advance timer (10ms) to fire if enabled
+
+	require.Equal(t, pokerrpc.GamePhase_FLOP, g.GetPhase(),
+		"street should NOT advance after dual auto-checks (currently buggy code does)")
+
+	// Neither player should have been forced to fold by the auto-check path.
+	for _, p := range g.GetPlayers() {
+		if p == nil {
+			continue
+		}
+		require.Equal(t, IN_GAME_STATE, p.GetCurrentStateString(), "player should remain in-game after auto-check")
+	}
+}
+
+// TestAllIn_ActivePlayer_AutoAdvancesWithOneActive verifies that when only one
+// player remains active and the rest are all-in, streets auto-advance (per
+// requirement: need at least 2 active players to block auto-advance).
+func TestAllIn_ActivePlayer_AutoAdvancesWithOneActive(t *testing.T) {
+	tbl := NewTable(TableConfig{
+		ID:               "test-allin-timebank",
+		Log:              createTestLogger(),
+		GameLog:          createTestLogger(),
+		HostID:           "host",
+		BuyIn:            0,
+		MinPlayers:       2,
+		MaxPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		StartingChips:    1000, // Will be overridden per-player
+		TimeBank:         500 * time.Millisecond,
+		AutoStartDelay:   10 * time.Millisecond,
+		AutoAdvanceDelay: 100 * time.Millisecond,
+	})
+	defer tbl.Close()
+
+	// Add two players
+	u1, err := tbl.AddNewUser("p1-deep", nil)
+	require.NoError(t, err)
+	u2, err := tbl.AddNewUser("p2-short", nil)
+	require.NoError(t, err)
+	require.NoError(t, u1.SendReady())
+	require.NoError(t, u2.SendReady())
+
+	// Start the game
+	require.True(t, tbl.CheckAllPlayersReady())
+	require.NoError(t, tbl.StartGame())
+
+	// Wait for game to be created
+	require.Eventually(t, func() bool { return tbl.GetGame() != nil }, time.Second, 10*time.Millisecond)
+	g := tbl.GetGame()
+	require.NotNil(t, g)
+
+	// Set asymmetric stacks: p1 has 1000, p2 has only 500
+	// This way when p1 bets big, p2 goes all-in but p1 stays active
+	g.players[0].balance = 1000 // deep stack
+	g.players[1].balance = 500  // short stack
+
+	// Wait for PRE_FLOP
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, time.Second, 10*time.Millisecond)
+
+	// Find who is current player (SB in heads-up acts first pre-flop)
+	cur := g.GetCurrentPlayerObject()
+	require.NotNil(t, cur)
+
+	// Current player (p1, deep stack) raises big - more than p2 can afford
+	err = tbl.MakeBet(cur.ID(), 600)
+	require.NoError(t, err)
+
+	// Wait for p2's turn
+	require.Eventually(t, func() bool {
+		next := g.GetCurrentPlayerObject()
+		return next != nil && next.ID() != cur.ID()
+	}, time.Second, 10*time.Millisecond)
+
+	// p2 calls - goes all-in (only has ~480 after posting blind)
+	p2 := g.GetCurrentPlayerObject()
+	err = tbl.HandleCall(p2.ID())
+	require.NoError(t, err)
+
+	// Wait for FLOP - auto-advance should deal it
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_FLOP
+	}, 2*time.Second, 10*time.Millisecond)
+
+	// Verify one player is all-in and one is active
+	p1State := g.players[0].GetCurrentStateString()
+	p2State := g.players[1].GetCurrentStateString()
+	t.Logf("After FLOP dealt: p1=%s, p2=%s", p1State, p2State)
+
+	// Wait for auto-advance to fire (AutoAdvanceDelay=100ms) and reach TURN.
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_TURN
+	}, 500*time.Millisecond, 20*time.Millisecond, "game should auto-advance to TURN when only one active player remains")
+}
+
 // TestShowdownWithFoldedPlayer verifies that showdown works correctly when
 // a folded player is present (folded players have nil handValue and should be skipped).
 // Scenario: 3 players, one folds, two go all-in, showdown should complete successfully.

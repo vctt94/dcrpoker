@@ -1980,14 +1980,16 @@ func TestHeadsUpAllInPreflop_AutoAdvanceStreets(t *testing.T) {
 	// The second all-in triggers: PRE_FLOP → FLOP (immediate) → TURN (auto 1s) → RIVER (auto 1s) → SHOWDOWN (auto 1s)
 
 	t.Log("Verifying game auto-advances to at least TURN after both all-ins...")
-	// Game should reach TURN after the auto-advance delay (1s) since both are all-in
+	// There are two sequential auto-advance timers (to FLOP, then to TURN) each
+	// using AutoAdvanceDelay (1s). Give slightly more than 2*delay to avoid
+	// flaking at the exact boundary.
 	require.Eventually(t, func() bool {
 		state, removed := env.GetGameStateAllowNotFound(ctx, tableID)
 		if removed {
 			return true
 		}
 		return state.Phase >= pokerrpc.GamePhase_TURN
-	}, 2*time.Second, 50*time.Millisecond, "game should reach at least TURN phase")
+	}, 3*time.Second, 50*time.Millisecond, "game should reach at least TURN phase")
 	state, _ = env.GetGameStateAllowNotFound(ctx, tableID)
 	if state != nil {
 		t.Logf("Game at phase %s with %d community cards", state.Phase, len(state.CommunityCards))

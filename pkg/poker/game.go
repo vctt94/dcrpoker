@@ -268,9 +268,12 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.currentBet = 0
 	g.winners = nil
 
+	// Cancel any pending auto-start from the previous hand.
+	g.cancelAutoStart()
+
 	// Reset auto-advance state for new hand
-	g.autoAdvanceEnabled = false
 	g.cancelAutoAdvance()
+	g.autoAdvanceEnabled = false
 
 	// Reset pot manager for the new hand BEFORE blinds are posted.
 	g.potManager = NewPotManager(len(g.players))
@@ -487,19 +490,30 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
-	g.log.Debugf("stateFlop: entered, autoAdvanceEnabled=%v", autoAdvance)
+	activePlayers := 0
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		if state != FOLDED_STATE && state != ALL_IN_STATE {
+			activePlayers++
+		}
+	}
+	g.log.Debugf("stateFlop: entered, autoAdvanceEnabled=%v, activePlayers=%d", autoAdvance, activePlayers)
 	g.mu.Unlock()
 
 	// Emit betting round complete event AFTER dealing and state mutation
 	// This allows clients to see the flop cards with the correct phase
 	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
 
-	// If auto-advance is enabled, schedule the next advance
+	// If auto-advance is enabled, schedule the next advance unless there are
+	// 2+ active players. With 0 or 1 active player, we auto-advance streets.
 	if autoAdvance {
-		g.log.Debugf("stateFlop: auto-advance enabled, scheduling advance to TURN")
-		g.scheduleAutoAdvance()
-	} else {
-		g.log.Debugf("stateFlop: auto-advance NOT enabled, waiting for player actions")
+		if activePlayers <= 1 {
+			g.log.Debugf("stateFlop: auto-advance enabled (active=%d), scheduling advance to TURN", activePlayers)
+			g.ScheduleAutoAdvance()
+		}
 	}
 
 	// wait events ...
@@ -531,19 +545,30 @@ func stateTurn(g *Game, in <-chan any) GameStateFn {
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
-	g.log.Debugf("stateTurn: entered, autoAdvanceEnabled=%v", autoAdvance)
+	activePlayers := 0
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		if state != FOLDED_STATE && state != ALL_IN_STATE {
+			activePlayers++
+		}
+	}
+	g.log.Debugf("stateTurn: entered, autoAdvanceEnabled=%v, activePlayers=%d", autoAdvance, activePlayers)
 	g.mu.Unlock()
 
 	// Emit betting round complete event AFTER dealing and state mutation
 	// This allows clients to see the turn card with the correct phase
 	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
 
-	// If auto-advance is enabled, schedule the next advance
+	// If auto-advance is enabled, schedule the next advance unless there are
+	// 2+ active players. With 0 or 1 active player, we auto-advance streets.
 	if autoAdvance {
-		g.log.Debugf("stateTurn: auto-advance enabled, scheduling advance to RIVER")
-		g.scheduleAutoAdvance()
-	} else {
-		g.log.Debugf("stateTurn: auto-advance NOT enabled, waiting for player actions")
+		if activePlayers <= 1 {
+			g.log.Debugf("stateTurn: auto-advance enabled (active=%d), scheduling advance to RIVER", activePlayers)
+			g.ScheduleAutoAdvance()
+		}
 	}
 
 	for ev := range in {
@@ -574,23 +599,38 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 
 	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
-	g.log.Debugf("stateRiver: entered, autoAdvanceEnabled=%v", autoAdvance)
+	activePlayers := 0
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		if state != FOLDED_STATE && state != ALL_IN_STATE {
+			activePlayers++
+		}
+	}
+	g.log.Debugf("stateRiver: entered, autoAdvanceEnabled=%v, activePlayers=%d", autoAdvance, activePlayers)
 	g.mu.Unlock()
 
 	// Emit betting round complete event AFTER dealing and state mutation
 	// This allows clients to see the river card with the correct phase
 	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
 
-	// If auto-advance is enabled, schedule advance to showdown
+	// If auto-advance is enabled, schedule advance to showdown unless there are
+	// 2+ active players. With 0 or 1 active player, we auto-advance streets.
 	if autoAdvance {
-		g.log.Debugf("stateRiver: auto-advance enabled, scheduling advance to SHOWDOWN")
-		// Disable auto-advance for showdown (it's the final state)
-		g.mu.Lock()
-		g.autoAdvanceEnabled = false
-		g.mu.Unlock()
+		if activePlayers <= 1 {
+			g.log.Debugf("stateRiver: auto-advance enabled (active=%d), scheduling advance to SHOWDOWN", activePlayers)
+			// Disable auto-advance for showdown (it's the final state)
+			g.mu.Lock()
+			g.autoAdvanceEnabled = false
+			g.mu.Unlock()
 
-		// Schedule the advance to showdown
-		g.scheduleAutoAdvance()
+			// Schedule the advance to showdown
+			g.ScheduleAutoAdvance()
+		} else {
+			g.log.Debugf("stateRiver: auto-advance enabled but %d active players; waiting for action", activePlayers)
+		}
 	} else {
 		g.log.Debugf("stateRiver: auto-advance NOT enabled, waiting for player actions")
 	}
@@ -1134,6 +1174,11 @@ func (g *Game) Close() {
 	autoStartTimer := g.autoStartTimer
 	autoAdvanceTimer := g.autoAdvanceTimer
 	playerCh := g.playerEventChan
+	// Cancel auto-advance under lock so the timer callback sees the canceled flag
+	// before we stop the state machine (prevents send on closed inbox).
+	if autoAdvanceTimer != nil {
+		g.cancelAutoAdvance()
+	}
 	g.mu.Unlock()
 
 	// Cancel all player timebank timers and sever their event channels
@@ -1436,6 +1481,41 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 
 	// Check if betting round is complete and notify table
 	g.maybeCompleteBettingRound()
+
+	return nil
+}
+
+// handleTimebankAutoCheck handles the special case where a player's per-turn
+// timebank expires on a street with no aggressor and no outstanding bet.
+// It advances the turn but intentionally skips betting-round completion checks
+// so that a sequence of pure auto-checks does NOT silently advance the street.
+// Requires: g.mu held.
+func (g *Game) handleTimebankAutoCheck(playerID string) error {
+	mustHeld(&g.mu)
+
+	player := g.getPlayerByID(playerID)
+	if player == nil {
+		return fmt.Errorf("player not found in game")
+	}
+
+	if g.currentPlayerID() != playerID {
+		return fmt.Errorf("not your turn to act")
+	}
+
+	// Sanity: ensure the player is allowed to auto-check (no bet to call).
+	if player.currentBet < g.currentBet {
+		return fmt.Errorf("cannot auto-check when there's a bet to call (player bet: %d, current bet: %d)",
+			player.currentBet, g.currentBet)
+	}
+
+	// Match HandlePlayerCheck semantics for per-player bookkeeping, but do NOT
+	// run maybeCompleteBettingRound() afterward.
+	player.mu.Lock()
+	player.lastAction = time.Now()
+	player.mu.Unlock()
+
+	player.EndTurn()
+	g.advanceToNextPlayer(time.Now())
 
 	return nil
 }
@@ -2024,9 +2104,8 @@ func (g *Game) maybeCompleteBettingRound() {
 			g.log.Debugf("maybeCompleteBettingRound: %d player(s) active but %d all-in (no one to bet against), enabling auto-advance mode", active, allInCount)
 		}
 
-		// Send evAdvance to progress to the next street
-		// The FSM state handlers will deal cards, emit events, and schedule the next advance
-		g.sm.Send(evAdvance{})
+		// Schedule auto-advance with configured delay (gives UI time to show countdown)
+		g.scheduleAutoAdvance()
 		return
 	}
 
@@ -2377,11 +2456,30 @@ func (g *Game) cancelAutoStart() {
 	}
 }
 
-// scheduleAutoAdvance schedules automatic advance to next street when all players are all-in
-// This function should be called WITHOUT holding g.mu (it will acquire the lock)
-func (g *Game) scheduleAutoAdvance() {
+// ScheduleAutoAdvance schedules automatic advance to next street when all players are all-in.
+// This function acquires g.mu internally - safe to call without holding the lock.
+func (g *Game) ScheduleAutoAdvance() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	g.scheduleAutoAdvance()
+}
+
+// cancelAutoAdvance cancels the auto-advance timer.
+// Requires: g.mu held
+func (g *Game) cancelAutoAdvance() {
+	mustHeld(&g.mu)
+
+	g.autoAdvanceCanceled.Store(true)
+	if t := g.autoAdvanceTimer; t != nil {
+		_ = t.Stop()
+		g.autoAdvanceTimer = nil
+	}
+}
+
+// scheduleAutoAdvance is the core implementation that schedules auto-advance.
+// Requires: g.mu held
+func (g *Game) scheduleAutoAdvance() {
+	mustHeld(&g.mu)
 
 	// Cancel any existing auto-advance timer
 	g.cancelAutoAdvance()
@@ -2392,31 +2490,27 @@ func (g *Game) scheduleAutoAdvance() {
 		return
 	}
 
-	// Debug log
 	g.log.Debugf("scheduleAutoAdvance: setting up timer with delay %v", g.config.AutoAdvanceDelay)
 
 	// Mark that auto-advance is pending
 	g.autoAdvanceCanceled.Store(false)
 
 	// Schedule the auto-advance timer
-	// Even if delay is 0, we still use AfterFunc to avoid blocking and maintain event ordering
 	g.autoAdvanceTimer = time.AfterFunc(g.config.AutoAdvanceDelay, func() {
-		// Fast path: bail without locking if canceled.
+		// Fast path: bail without locking if canceled
 		if g.autoAdvanceCanceled.Load() {
 			g.log.Debugf("Auto-advance timer was canceled, not sending evAdvance")
 			return
 		}
 
-		// Optional double-check under lock, and clear pointer.
+		// Double-check under lock, and clear pointer
 		g.mu.Lock()
 		if g.autoAdvanceCanceled.Load() {
 			g.mu.Unlock()
 			g.log.Debugf("Auto-advance canceled (post-lock), not sending evAdvance")
 			return
 		}
-		// Snapshot sm again in case it changed.
 		localSM := g.sm
-		// One-shot timer: clear pointer to avoid stale refs.
 		g.autoAdvanceTimer = nil
 		g.mu.Unlock()
 
@@ -2426,21 +2520,8 @@ func (g *Game) scheduleAutoAdvance() {
 		}
 
 		g.log.Debugf("Auto-advance timer fired, sending evAdvance to FSM")
-		// Send without holding g.mu to keep lock order clean.
 		localSM.Send(evAdvance{})
 	})
-}
-
-// cancelAutoAdvance cancels the auto-advance timer
-func (g *Game) cancelAutoAdvance() {
-	mustHeld(&g.mu)
-
-	g.autoAdvanceCanceled.Store(true)
-	// Then stop & clear the one-shot timer.
-	if t := g.autoAdvanceTimer; t != nil {
-		_ = t.Stop() // AfterFunc: no channel to drain
-		g.autoAdvanceTimer = nil
-	}
 }
 
 // PlayerSnapshot represents a snapshot of player state without mutex for safe concurrent access
@@ -2801,22 +2882,65 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 	case evTimebankExpiredReq:
 		// Decide auto action without holding g.mu while calling external APIs
 		var act string
+		var allowAdvance bool
+
 		g.mu.Lock()
 		// Validate phase
-		actionable := (g.phase == pokerrpc.GamePhase_PRE_FLOP || g.phase == pokerrpc.GamePhase_FLOP || g.phase == pokerrpc.GamePhase_TURN || g.phase == pokerrpc.GamePhase_RIVER)
-		if actionable && g.currentPlayer >= 0 && g.currentPlayer < len(g.players) && g.players[g.currentPlayer] != nil && g.players[g.currentPlayer].ID() == e.id {
+		actionable := (g.phase == pokerrpc.GamePhase_PRE_FLOP ||
+			g.phase == pokerrpc.GamePhase_FLOP ||
+			g.phase == pokerrpc.GamePhase_TURN ||
+			g.phase == pokerrpc.GamePhase_RIVER)
+
+		if actionable &&
+			g.currentPlayer >= 0 && g.currentPlayer < len(g.players) &&
+			g.players[g.currentPlayer] != nil &&
+			g.players[g.currentPlayer].ID() == e.id {
+
 			p := g.players[g.currentPlayer]
 			need := g.currentBet - p.currentBet
+
 			if need <= 0 {
+				// Auto-check path when there's nothing to call.
 				act = "check"
+
+				// Special case: avoid advancing the street when EVERY action on
+				// the street is an auto-check due to timebank expiry.
+				//
+				// We detect the "pure auto-check street" by requiring:
+				//   - no aggressor yet (no voluntary bet/raise)
+				//   - table currentBet == 0 (no outstanding bet)
+				//
+				// In that case we still end the player's turn and advance to
+				// the next player, but we intentionally skip
+				// maybeCompleteBettingRound() so that the betting round does
+				// NOT silently advance when everyone times out.
+				if g.lastAggressor < 0 && g.currentBet == 0 {
+					allowAdvance = false
+				} else {
+					allowAdvance = true
+				}
 			} else {
+				// Facing a bet: auto-fold.
 				act = "fold"
+				allowAdvance = true
 			}
 		}
 		g.mu.Unlock()
+
 		switch act {
 		case "check":
-			_ = g.HandlePlayerCheck(e.id)
+			if allowAdvance {
+				// Normal path: treat as an explicit check so that betting-round
+				// completion and auto-advance semantics remain unchanged.
+				_ = g.HandlePlayerCheck(e.id)
+			} else {
+				// Timebank-only check on a street with no aggressor and no bet.
+				// We only advance the turn, without evaluating betting-round
+				// completion, so the street does not silently advance.
+				g.mu.Lock()
+				_ = g.handleTimebankAutoCheck(e.id)
+				g.mu.Unlock()
+			}
 		case "fold":
 			_ = g.HandlePlayerFold(e.id)
 		}

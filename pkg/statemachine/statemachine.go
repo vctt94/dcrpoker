@@ -16,6 +16,7 @@ type StateFn[T any] func(*T, <-chan any) StateFn[T]
 type Machine[T any] struct {
 	entity    *T
 	inbox     chan any
+	closed    chan struct{}
 	stateSnap atomic.Value // stores StateFn[T]
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
@@ -24,7 +25,11 @@ type Machine[T any] struct {
 
 // New creates a machine with an initial state and buffered inbox.
 func New[T any](entity *T, initial StateFn[T], inboxSize int) *Machine[T] {
-	m := &Machine[T]{entity: entity, inbox: make(chan any, inboxSize)}
+	m := &Machine[T]{
+		entity: entity,
+		inbox:  make(chan any, inboxSize),
+		closed: make(chan struct{}),
+	}
 	m.stateSnap.Store(initial) // typed-nil is fine
 	return m
 }
@@ -55,6 +60,9 @@ func (m *Machine[T]) Start(ctx context.Context) {
 // Stop cancels and waits for the loop to exit.
 func (m *Machine[T]) Stop() {
 	m.closeOnce.Do(func() {
+		// First, signal senders to stop enqueuing before we close the inbox to
+		// avoid the send-after-close race reported by the race detector.
+		close(m.closed)
 		close(m.inbox) // unblock receivers with ok=false
 		if m.cancel != nil {
 			m.cancel() // optional, keep for outside listeners
@@ -64,11 +72,20 @@ func (m *Machine[T]) Stop() {
 }
 
 // Send enqueues an event (may block if inbox is full).
-func (m *Machine[T]) Send(ev any) { m.inbox <- ev }
+func (m *Machine[T]) Send(ev any) {
+	select {
+	case <-m.closed:
+		return // drop silently if machine is stopping/stopped
+	default:
+		m.inbox <- ev
+	}
+}
 
 // TrySend enqueues without blocking; returns false if full.
 func (m *Machine[T]) TrySend(ev any) bool {
 	select {
+	case <-m.closed:
+		return false
 	case m.inbox <- ev:
 		return true
 	default:
