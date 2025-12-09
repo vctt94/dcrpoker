@@ -299,13 +299,10 @@ func (t *Table) handleGameEvent(event GameEvent) {
 		t.handleGameOver(event.WinnerID)
 	case GameEventPlayerLost:
 		if event.PlayerID != "" {
-			t.log.Infof("Table received GameEventPlayerLost - removing player %s (0 chips)", event.PlayerID)
+			t.log.Infof("Table received GameEventPlayerLost - player %s has 0 chips", event.PlayerID)
 			// Publish PLAYER_LOST notification before removing the player
 			// This allows the UI to show a message before the stream disconnects
 			t.PublishEvent(pokerrpc.NotificationType_PLAYER_LOST, t.config.ID, PlayerLostPayload{PlayerID: event.PlayerID})
-			if err := t.RemoveUser(event.PlayerID); err != nil {
-				t.log.Warnf("Failed to remove player %s after losing: %v", event.PlayerID, err)
-			}
 		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
