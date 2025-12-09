@@ -223,8 +223,21 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
     if (live != null) {
       // Check server-provided state first (most authoritative)
       final fState = (live.fundingState ?? '').toLowerCase();
-      if (fState == 'escrow_state_csv_matured') return Colors.redAccent;
-      if (fState == 'escrow_state_ready') return Colors.greenAccent;
+      if (fState.isNotEmpty) {
+        switch (fState) {
+          case 'escrow_state_invalid':
+          case 'escrow_state_spent':
+          case 'escrow_state_csv_matured':
+            return Colors.redAccent;
+          case 'escrow_state_ready':
+            return Colors.greenAccent;
+          case 'escrow_state_unfunded':
+            return Colors.white70;
+          case 'escrow_state_mempool':
+          case 'escrow_state_confirming':
+            return Colors.orangeAccent;
+        }
+      }
       
       // Check server-provided matureForCsv flag
       if (live.matureForCsv) return Colors.redAccent;
@@ -236,6 +249,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
           return Colors.greenAccent;
         }
       }
+      // Invalid funding if multiple UTXOs
+      if (live.utxoCount > 1) return Colors.redAccent;
       return Colors.orangeAccent;
     }
 

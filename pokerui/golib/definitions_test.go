@@ -3,8 +3,8 @@ package golib
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,21 +65,21 @@ func TestHandleEscrowNotificationCachesInvalidFundingUpdates(t *testing.T) {
 	handleEscrowNotification(cctx, makeNotification("escrow-one"))
 	handleEscrowNotification(cctx, makeNotification("escrow-two"))
 
-	histDir := filepath.Join(tmp, "history_session")
-	entries, err := os.ReadDir(histDir)
-	if err != nil && !os.IsNotExist(err) {
-		t.Fatalf("read history_session: %v", err)
-	}
+	// Refund construction needs the cached funding outpoint per escrow.
+	escrowOne, err := cctx.c.GetEscrowById("escrow-one")
+	require.NoError(t, err)
+	escrowTwo, err := cctx.c.GetEscrowById("escrow-two")
+	require.NoError(t, err)
 
-	// The bug: invalid updates are cached, producing multiple files for the
-	// same UTXO. This assertion will currently fail, documenting the issue.
-	if len(entries) != 0 {
-		var names []string
-		for _, e := range entries {
-			names = append(names, e.Name())
-		}
-		t.Fatalf("expected invalid funding updates to be ignored, cached files: %v", names)
-	}
+	require.Equal(t, "funding_error", escrowOne["status"])
+	require.Equal(t, "funding_error", escrowTwo["status"])
+	require.Equal(t, "ea729de5f1f0e185359c1f43b258bf06a7a1ff646f64451081713cbb0600a527", escrowOne["funding_txid"])
+	require.Equal(t, "ea729de5f1f0e185359c1f43b258bf06a7a1ff646f64451081713cbb0600a527", escrowTwo["funding_txid"])
+	require.EqualValues(t, 0, escrowOne["funding_vout"])
+	require.EqualValues(t, 0, escrowTwo["funding_vout"])
+	require.EqualValues(t, 10_000_000, escrowOne["funded_amount"])
+	require.EqualValues(t, 10_000_000, escrowTwo["funded_amount"])
+
 }
 
 // TestResumeSessionPayoutAddressSync tests that ResumeSession syncs the payout
@@ -224,5 +224,34 @@ func TestResumeSessionPayoutAddressSync(t *testing.T) {
 		t.Fatalf("When server and local config match, ResumeSession should return the payout address. "+
 			"Got: %s, Expected: %s",
 			resumed2.PayoutAddress, localPayoutAddr)
+	}
+}
+
+// This test locks in the decision to start session key indices at 1 to avoid
+// dropping key_index when persisting escrow metadata (omitempty skips zeros).
+func TestSessionKeysStartAtOne(t *testing.T) {
+	t.Helper()
+
+	tmp := t.TempDir()
+	pc := &client.PokerClient{DataDir: tmp}
+
+	priv, pub, idx, err := pc.GenerateSessionKey()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, idx, "first generated session key should use index 1")
+	require.NotEmpty(t, priv)
+	require.NotEmpty(t, pub)
+
+	err = pc.CacheEscrowInfo(&client.EscrowInfo{
+		EscrowID: "escrow-one",
+		Status:   "opened",
+		KeyIndex: uint32(idx), // should be retained in cache (non-zero)
+	})
+	require.NoError(t, err)
+
+	info, err := pc.GetEscrowById("escrow-one")
+	require.NoError(t, err)
+
+	if v, ok := info["key_index"]; !ok || fmt.Sprint(v) != "1" {
+		t.Fatalf("expected cached escrow to include key_index=1, got %v", v)
 	}
 }

@@ -599,6 +599,7 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     $core.int? csvBlocks,
     $core.int? requiredConfirmations,
     $core.bool? matureForCsv,
+    $core.String? fundingState,
   }) {
     final result = create();
     if (escrowId != null) result.escrowId = escrowId;
@@ -613,6 +614,7 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     if (requiredConfirmations != null)
       result.requiredConfirmations = requiredConfirmations;
     if (matureForCsv != null) result.matureForCsv = matureForCsv;
+    if (fundingState != null) result.fundingState = fundingState;
     return result;
   }
 
@@ -644,6 +646,7 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
     ..aI(11, _omitFieldNames ? '' : 'requiredConfirmations',
         fieldType: $pb.PbFieldType.OU3)
     ..aOB(12, _omitFieldNames ? '' : 'matureForCsv')
+    ..aOS(13, _omitFieldNames ? '' : 'fundingState')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -764,6 +767,15 @@ class GetEscrowStatusResponse extends $pb.GeneratedMessage {
   $core.bool hasMatureForCsv() => $_has(10);
   @$pb.TagNumber(12)
   void clearMatureForCsv() => $_clearField(12);
+
+  @$pb.TagNumber(13)
+  $core.String get fundingState => $_getSZ(11);
+  @$pb.TagNumber(13)
+  set fundingState($core.String value) => $_setString(11, value);
+  @$pb.TagNumber(13)
+  $core.bool hasFundingState() => $_has(11);
+  @$pb.TagNumber(13)
+  void clearFundingState() => $_clearField(13);
 }
 
 class PublishSessionKeyRequest extends $pb.GeneratedMessage {
@@ -1060,7 +1072,6 @@ class SettlementHello extends $pb.GeneratedMessage {
     $core.List<$core.int>? compPubkey,
     $core.String? token,
     $core.String? tableId,
-    $core.String? sessionId,
     $core.int? seatIndex,
   }) {
     final result = create();
@@ -1069,7 +1080,6 @@ class SettlementHello extends $pb.GeneratedMessage {
     if (compPubkey != null) result.compPubkey = compPubkey;
     if (token != null) result.token = token;
     if (tableId != null) result.tableId = tableId;
-    if (sessionId != null) result.sessionId = sessionId;
     if (seatIndex != null) result.seatIndex = seatIndex;
     return result;
   }
@@ -1093,8 +1103,7 @@ class SettlementHello extends $pb.GeneratedMessage {
         3, _omitFieldNames ? '' : 'compPubkey', $pb.PbFieldType.OY)
     ..aOS(4, _omitFieldNames ? '' : 'token')
     ..aOS(5, _omitFieldNames ? '' : 'tableId')
-    ..aOS(6, _omitFieldNames ? '' : 'sessionId')
-    ..aI(7, _omitFieldNames ? '' : 'seatIndex', fieldType: $pb.PbFieldType.OU3)
+    ..aI(6, _omitFieldNames ? '' : 'seatIndex', fieldType: $pb.PbFieldType.OU3)
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1162,22 +1171,13 @@ class SettlementHello extends $pb.GeneratedMessage {
   void clearTableId() => $_clearField(5);
 
   @$pb.TagNumber(6)
-  $core.String get sessionId => $_getSZ(5);
+  $core.int get seatIndex => $_getIZ(5);
   @$pb.TagNumber(6)
-  set sessionId($core.String value) => $_setString(5, value);
+  set seatIndex($core.int value) => $_setUnsignedInt32(5, value);
   @$pb.TagNumber(6)
-  $core.bool hasSessionId() => $_has(5);
+  $core.bool hasSeatIndex() => $_has(5);
   @$pb.TagNumber(6)
-  void clearSessionId() => $_clearField(6);
-
-  @$pb.TagNumber(7)
-  $core.int get seatIndex => $_getIZ(6);
-  @$pb.TagNumber(7)
-  set seatIndex($core.int value) => $_setUnsignedInt32(6, value);
-  @$pb.TagNumber(7)
-  $core.bool hasSeatIndex() => $_has(6);
-  @$pb.TagNumber(7)
-  void clearSeatIndex() => $_clearField(7);
+  void clearSeatIndex() => $_clearField(6);
 }
 
 /// Server → Client: request presigs for a specific branch/winner seat.

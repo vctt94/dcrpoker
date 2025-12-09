@@ -29,7 +29,7 @@ class MockPokerModel extends PokerModel {
   }
   
   @override
-  Future<void> refreshTables() async {
+  Future<void> browseTables() async {
     // No-op for testing
   }
   

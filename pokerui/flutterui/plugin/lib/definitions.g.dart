@@ -357,6 +357,9 @@ PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
   (json['buy_in'] as num).toInt(),
   json['game_started'] as bool,
   json['all_players_ready'] as bool,
+  players: (json['players'] as List<dynamic>?)
+      ?.map((e) => PlayerDTO.fromJson(e as Map<String, dynamic>))
+      .toList(),
 );
 
 Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
@@ -371,6 +374,7 @@ Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
       'buy_in': instance.buyIn,
       'game_started': instance.gameStarted,
       'all_players_ready': instance.allPlayersReady,
+      'players': instance.players,
     };
 
 CreatePokerTableArgs _$CreatePokerTableArgsFromJson(
@@ -529,6 +533,22 @@ Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
       'bigBlind': instance.bigBlind,
     };
 
+WinnerDTO _$WinnerDTOFromJson(Map<String, dynamic> json) => WinnerDTO(
+  json['playerId'] as String,
+  (json['handRank'] as num).toInt(),
+  (json['winnings'] as num).toInt(),
+  bestHand: (json['bestHand'] as List<dynamic>?)
+      ?.map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+      .toList(),
+);
+
+Map<String, dynamic> _$WinnerDTOToJson(WinnerDTO instance) => <String, dynamic>{
+  'playerId': instance.playerId,
+  'handRank': instance.handRank,
+  'bestHand': instance.bestHand,
+  'winnings': instance.winnings,
+};
+
 NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
     NotificationDTO(
       (json['type'] as num).toInt(),
@@ -541,6 +561,13 @@ NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
       started: json['started'] as bool?,
       gameReadyToPlay: json['gameReadyToPlay'] as bool?,
       countdown: (json['countdown'] as num?)?.toInt(),
+      table: json['table'] == null
+          ? null
+          : PokerTable.fromJson(json['table'] as Map<String, dynamic>),
+      winners: (json['winners'] as List<dynamic>?)
+          ?.map((e) => WinnerDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      showdownPot: (json['showdownPot'] as num?)?.toInt(),
     );
 
 Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
@@ -555,6 +582,9 @@ Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
       'started': instance.started,
       'gameReadyToPlay': instance.gameReadyToPlay,
       'countdown': instance.countdown,
+      'table': instance.table,
+      'winners': instance.winners,
+      'showdownPot': instance.showdownPot,
     };
 
 RunState _$RunStateFromJson(Map<String, dynamic> json) => RunState(

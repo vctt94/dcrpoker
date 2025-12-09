@@ -149,6 +149,7 @@ const GetEscrowStatusResponse$json = {
       '10': 'requiredConfirmations'
     },
     {'1': 'mature_for_csv', '3': 12, '4': 1, '5': 8, '10': 'matureForCsv'},
+    {'1': 'funding_state', '3': 13, '4': 1, '5': 9, '10': 'fundingState'},
   ],
 };
 
@@ -161,7 +162,7 @@ final $typed_data.Uint8List getEscrowStatusResponseDescriptor = $convert.base64D
     'ZnVuZGluZ1ZvdXQSIQoMYW1vdW50X2F0b21zGAggASgEUgthbW91bnRBdG9tcxIdCgpjc3ZfYm'
     'xvY2tzGAogASgNUgljc3ZCbG9ja3MSNQoWcmVxdWlyZWRfY29uZmlybWF0aW9ucxgLIAEoDVIV'
     'cmVxdWlyZWRDb25maXJtYXRpb25zEiQKDm1hdHVyZV9mb3JfY3N2GAwgASgIUgxtYXR1cmVGb3'
-    'JDc3Y=');
+    'JDc3YSIwoNZnVuZGluZ19zdGF0ZRgNIAEoCVIMZnVuZGluZ1N0YXRl');
 
 @$core.Deprecated('Use publishSessionKeyRequestDescriptor instead')
 const PublishSessionKeyRequest$json = {
@@ -266,8 +267,7 @@ const SettlementHello$json = {
     {'1': 'comp_pubkey', '3': 3, '4': 1, '5': 12, '10': 'compPubkey'},
     {'1': 'token', '3': 4, '4': 1, '5': 9, '10': 'token'},
     {'1': 'table_id', '3': 5, '4': 1, '5': 9, '10': 'tableId'},
-    {'1': 'session_id', '3': 6, '4': 1, '5': 9, '10': 'sessionId'},
-    {'1': 'seat_index', '3': 7, '4': 1, '5': 13, '10': 'seatIndex'},
+    {'1': 'seat_index', '3': 6, '4': 1, '5': 13, '10': 'seatIndex'},
   ],
 };
 
@@ -275,8 +275,8 @@ const SettlementHello$json = {
 final $typed_data.Uint8List settlementHelloDescriptor = $convert.base64Decode(
     'Cg9TZXR0bGVtZW50SGVsbG8SGQoIbWF0Y2hfaWQYASABKAlSB21hdGNoSWQSGwoJZXNjcm93X2'
     'lkGAIgASgJUghlc2Nyb3dJZBIfCgtjb21wX3B1YmtleRgDIAEoDFIKY29tcFB1YmtleRIUCgV0'
-    'b2tlbhgEIAEoCVIFdG9rZW4SGQoIdGFibGVfaWQYBSABKAlSB3RhYmxlSWQSHQoKc2Vzc2lvbl'
-    '9pZBgGIAEoCVIJc2Vzc2lvbklkEh0KCnNlYXRfaW5kZXgYByABKA1SCXNlYXRJbmRleA==');
+    'b2tlbhgEIAEoCVIFdG9rZW4SGQoIdGFibGVfaWQYBSABKAlSB3RhYmxlSWQSHQoKc2VhdF9pbm'
+    'RleBgGIAEoDVIJc2VhdEluZGV4');
 
 @$core.Deprecated('Use needPreSigsDescriptor instead')
 const NeedPreSigs$json = {

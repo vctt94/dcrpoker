@@ -101,6 +101,11 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	// Register table using concurrent registry
 	s.tables.Store(cfg.ID, table)
 
+	// Publish initial PLAYER_JOINED event for the host
+	if err := s.publishPlayerJoined(cfg.ID, req.PlayerId); err != nil {
+		s.log.Errorf("Failed to publish host PLAYER_JOINED event: %v", err)
+	}
+
 	// Publish TABLE_CREATED event so all connected clients can promptly refresh
 	// their lobby/waiting rooms view.
 	evt, err := s.buildGameEvent(
@@ -136,12 +141,24 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 
 	// Reconnect: already seated in-memory.
 	if existingUser := table.GetUser(req.PlayerId); existingUser != nil {
-		// Do not emit PLAYER_JOINED again for reconnections to avoid client
-		// feedback loops. The reconnecting client will immediately attach a
-		// game stream and receive the initial snapshot.
+		// Reconnect: player is already seated in-memory. Publish a fresh
+		// PLAYER_JOINED event.
+		if err := s.publishPlayerJoined(req.TableId, req.PlayerId); err != nil {
+			s.log.Errorf("Failed to publish reconnect PLAYER_JOINED event: %v", err)
+			return nil, status.Error(codes.Internal, "failed to publish reconnect event")
+		}
 		return &pokerrpc.JoinTableResponse{
 			Success: true,
 			Message: "Reconnected to table.",
+		}, nil
+	}
+
+	// Block new seats once a game has started to prevent eliminated players
+	// (or new entrants) from rejoining mid-match.
+	if table.IsGameStarted() {
+		return &pokerrpc.JoinTableResponse{
+			Success: false,
+			Message: "Game already started; joining not allowed",
 		}, nil
 	}
 
@@ -175,27 +192,38 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	// Seat player in-memory
 	if _, err := table.AddNewUser(req.PlayerId, &poker.AddUserOptions{
 		DisplayName: s.displayNameFor(req.PlayerId),
+		Seat:        seat,
 	}); err != nil {
 		rollbackSeat()
 		return &pokerrpc.JoinTableResponse{Success: false, Message: err.Error()}, nil
 	}
 
 	// Publish join notification.
-	evt, err := s.buildGameEvent(
-		pokerrpc.NotificationType_PLAYER_JOINED,
-		req.TableId,
-		PlayerJoinedPayload{PlayerID: req.PlayerId},
-	)
-	if err != nil {
-		s.log.Errorf("Failed to build PLAYER_JOINED event: %v", err)
+	if err := s.publishPlayerJoined(req.TableId, req.PlayerId); err != nil {
+		s.log.Errorf("Failed to publish PLAYER_JOINED event: %v", err)
 		return nil, err
 	}
-	s.eventProcessor.PublishEvent(evt)
 
 	return &pokerrpc.JoinTableResponse{
 		Success: true,
 		Message: "Successfully joined table",
 	}, nil
+}
+
+// publishPlayerJoined builds and publishes a PLAYER_JOINED event for the given
+// table and player, using the standard event pipeline so that snapshots and
+// lobby/game state remain consistent everywhere.
+func (s *Server) publishPlayerJoined(tableID, playerID string) error {
+	evt, err := s.buildGameEvent(
+		pokerrpc.NotificationType_PLAYER_JOINED,
+		tableID,
+		PlayerJoinedPayload{PlayerID: playerID},
+	)
+	if err != nil {
+		return err
+	}
+	s.eventProcessor.PublishEvent(evt)
+	return nil
 }
 
 // clearEscrowBindingForSeat removes any referee escrow binding for the given
@@ -209,34 +237,38 @@ func (s *Server) clearEscrowBindingForSeat(tableID string, seat uint32) {
 
 	matchID := tableID
 
-	s.referee.mu.Lock()
-	seats := s.referee.matchEscrows[matchID]
-	if seats == nil {
-		s.referee.mu.Unlock()
-		return
+	// Capture the currently bound escrow (if any) for metadata cleanup.
+	var escrowID string
+	s.referee.mu.RLock()
+	if seats := s.referee.matchEscrows[matchID]; seats != nil {
+		escrowID = seats[seat]
+	}
+	s.referee.mu.RUnlock()
+
+	// Drive escrow reset through the table/user FSM.
+	if table, ok := s.getTable(tableID); ok && table != nil {
+		if u := table.GetUserAtSeat(int(seat)); u != nil {
+			_ = u.SendEscrowReset()
+		}
+		// Rebuild matchEscrows from the authoritative table snapshot.
+		s.rebuildMatchEscrowsFromTable(matchID, table)
 	}
 
-	escrowID := seats[seat]
-	if escrowID == "" {
-		s.referee.mu.Unlock()
-		return
+	// Clear escrow session metadata.
+	if escrowID != "" {
+		s.referee.mu.RLock()
+		es := s.referee.escrows[escrowID]
+		s.referee.mu.RUnlock()
+		if es != nil {
+			es.mu.Lock()
+			if es.TableID == tableID && es.SeatIndex == seat {
+				es.TableID = ""
+				es.SessionID = ""
+				es.SeatIndex = 0
+			}
+			es.mu.Unlock()
+		}
 	}
-
-	delete(seats, seat)
-	es := s.referee.escrows[escrowID]
-	s.referee.mu.Unlock()
-
-	if es == nil {
-		return
-	}
-
-	es.mu.Lock()
-	if es.TableID == tableID && es.SeatIndex == seat {
-		es.TableID = ""
-		es.SessionID = ""
-		es.SeatIndex = 0
-	}
-	es.mu.Unlock()
 }
 
 func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest) (*pokerrpc.LeaveTableResponse, error) {

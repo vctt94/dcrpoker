@@ -446,6 +446,7 @@ type GetEscrowStatusResponse struct {
 	CsvBlocks             uint32                 `protobuf:"varint,10,opt,name=csv_blocks,json=csvBlocks,proto3" json:"csv_blocks,omitempty"`
 	RequiredConfirmations uint32                 `protobuf:"varint,11,opt,name=required_confirmations,json=requiredConfirmations,proto3" json:"required_confirmations,omitempty"`
 	MatureForCsv          bool                   `protobuf:"varint,12,opt,name=mature_for_csv,json=matureForCsv,proto3" json:"mature_for_csv,omitempty"`
+	FundingState          string                 `protobuf:"bytes,13,opt,name=funding_state,json=fundingState,proto3" json:"funding_state,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -555,6 +556,13 @@ func (x *GetEscrowStatusResponse) GetMatureForCsv() bool {
 		return x.MatureForCsv
 	}
 	return false
+}
+
+func (x *GetEscrowStatusResponse) GetFundingState() string {
+	if x != nil {
+		return x.FundingState
+	}
+	return ""
 }
 
 type PublishSessionKeyRequest struct {
@@ -799,8 +807,7 @@ type SettlementHello struct {
 	CompPubkey    []byte                 `protobuf:"bytes,3,opt,name=comp_pubkey,json=compPubkey,proto3" json:"comp_pubkey,omitempty"` // session pubkey for verification
 	Token         string                 `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`                             // auth token from Login
 	TableId       string                 `protobuf:"bytes,5,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
-	SessionId     string                 `protobuf:"bytes,6,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
-	SeatIndex     uint32                 `protobuf:"varint,7,opt,name=seat_index,json=seatIndex,proto3" json:"seat_index,omitempty"`
+	SeatIndex     uint32                 `protobuf:"varint,6,opt,name=seat_index,json=seatIndex,proto3" json:"seat_index,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -866,13 +873,6 @@ func (x *SettlementHello) GetToken() string {
 func (x *SettlementHello) GetTableId() string {
 	if x != nil {
 		return x.TableId
-	}
-	return ""
-}
-
-func (x *SettlementHello) GetSessionId() string {
-	if x != nil {
-		return x.SessionId
 	}
 	return ""
 }
@@ -1641,7 +1641,7 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\boutpoint\x18\t \x01(\tR\boutpoint\"K\n" +
 	"\x16GetEscrowStatusRequest\x12\x1b\n" +
 	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12\x14\n" +
-	"\x05token\x18\x02 \x01(\tR\x05token\"\x88\x03\n" +
+	"\x05token\x18\x02 \x01(\tR\x05token\"\xad\x03\n" +
 	"\x17GetEscrowStatusResponse\x12\x1b\n" +
 	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12\x14\n" +
 	"\x05confs\x18\x02 \x01(\rR\x05confs\x12\x1d\n" +
@@ -1656,7 +1656,8 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"csv_blocks\x18\n" +
 	" \x01(\rR\tcsvBlocks\x125\n" +
 	"\x16required_confirmations\x18\v \x01(\rR\x15requiredConfirmations\x12$\n" +
-	"\x0emature_for_csv\x18\f \x01(\bR\fmatureForCsv\"X\n" +
+	"\x0emature_for_csv\x18\f \x01(\bR\fmatureForCsv\x12#\n" +
+	"\rfunding_state\x18\r \x01(\tR\ffundingState\"X\n" +
 	"\x18PublishSessionKeyRequest\x12\x1b\n" +
 	"\tescrow_id\x18\x01 \x01(\tR\bescrowId\x12\x1f\n" +
 	"\vcomp_pubkey\x18\x02 \x01(\fR\n" +
@@ -1670,7 +1671,7 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\x10provide_pre_sigs\x18\x03 \x01(\v2\x15.poker.ProvidePreSigsH\x00R\x0eprovidePreSigs\x125\n" +
 	"\tverify_ok\x18\x04 \x01(\v2\x16.poker.VerifyPreSigsOkH\x00R\bverifyOk\x12.\n" +
 	"\x05error\x18\x05 \x01(\v2\x16.poker.SettlementErrorH\x00R\x05errorB\x05\n" +
-	"\x03msg\"\xd9\x01\n" +
+	"\x03msg\"\xba\x01\n" +
 	"\x0fSettlementHello\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x1b\n" +
 	"\tescrow_id\x18\x02 \x01(\tR\bescrowId\x12\x1f\n" +
@@ -1679,9 +1680,7 @@ const file_pokerreferee_proto_rawDesc = "" +
 	"\x05token\x18\x04 \x01(\tR\x05token\x12\x19\n" +
 	"\btable_id\x18\x05 \x01(\tR\atableId\x12\x1d\n" +
 	"\n" +
-	"session_id\x18\x06 \x01(\tR\tsessionId\x12\x1d\n" +
-	"\n" +
-	"seat_index\x18\a \x01(\rR\tseatIndex\"\x93\x01\n" +
+	"seat_index\x18\x06 \x01(\rR\tseatIndex\"\x93\x01\n" +
 	"\vNeedPreSigs\x12\x19\n" +
 	"\bmatch_id\x18\x01 \x01(\tR\amatchId\x12\x16\n" +
 	"\x06branch\x18\x02 \x01(\x05R\x06branch\x12 \n" +

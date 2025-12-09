@@ -54,18 +54,6 @@ func handleEscrowNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 	if strings.ToLower(strings.TrimSpace(typ)) != "escrow_funding" {
 		return
 	}
-	// Ignore invalid funding updates to avoid polluting the local cache with
-	// unusable escrows (e.g. wrong amount or missing UTXO).
-	if stateRaw, ok := payload["funding_state"]; ok {
-		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(stateRaw)), "ESCROW_STATE_INVALID") {
-			return
-		}
-	}
-	if errStr, ok := payload["error"]; ok {
-		if strings.TrimSpace(fmt.Sprint(errStr)) != "" {
-			return
-		}
-	}
 	// Escrow funding updates are broadcast to the whole table so the UI can
 	// highlight other players. Only persist updates that target the local
 	// player to avoid polluting our cached escrow state with someone else's.
@@ -84,12 +72,65 @@ func handleEscrowNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 	if strings.TrimSpace(escrowID) == "" {
 		return
 	}
+	// Extract funding transaction info BEFORE checking validity - we MUST always save it.
+	var fundingTxid string
+	var fundingVout uint32
+	if txid, ok := payload["funding_txid"].(string); ok && strings.TrimSpace(txid) != "" {
+		fundingTxid = strings.TrimSpace(txid)
+	}
+	// Check if escrow is invalid or has errors - but still save funding tx if present.
+	isInvalid := false
+	if vout, ok := payload["funding_vout"].(float64); ok {
+		fundingVout = uint32(vout)
+	} else if !ok {
+		isInvalid = true
+	}
+	if stateRaw, ok := payload["funding_state"]; ok {
+		if strings.EqualFold(strings.TrimSpace(fmt.Sprint(stateRaw)), "ESCROW_STATE_INVALID") {
+			isInvalid = true
+		}
+	}
+	hasError := false
+	if errStr, ok := payload["error"]; ok {
+		if strings.TrimSpace(fmt.Sprint(errStr)) != "" {
+			hasError = true
+		}
+	}
+	// If invalid or has error, save funding transaction and actual funded amount for refunds.
+	// We MUST always save the funding tx and amount even if escrow is invalid (needed for refunds).
+	if isInvalid || hasError {
+		if fundingTxid != "" {
+			fundingInfo := &client.EscrowInfo{
+				EscrowID:    escrowID,
+				FundingTxid: fundingTxid,
+				FundingVout: fundingVout,
+				Status:      "funding_error",
+			}
+			// Save actual funded amount (from UTXO) for refunds, even if escrow is invalid.
+			if amt, ok := payload["amount_atoms"].(float64); ok {
+				fundingInfo.FundedAmount = uint64(amt)
+			}
+			// Save CSV blocks if available (needed for refund calculations).
+			if csv, ok := payload["csv_blocks"].(float64); ok {
+				fundingInfo.CSVBlocks = uint32(csv)
+			}
+			// Save confirmed height if available.
+			if height, ok := payload["confirmed_height"].(float64); ok && height > 0 {
+				fundingInfo.ConfirmedHeight = uint32(height)
+			}
+			if err := cctx.c.CacheEscrowInfo(fundingInfo); err != nil && cctx.log != nil {
+				cctx.log.Warnf("escrow cache update failed for %s (invalid): %v", escrowID, err)
+			}
+		}
+		return
+	}
+	// Normal flow: cache full escrow info for valid escrows.
 	info := &client.EscrowInfo{
 		EscrowID: escrowID,
 		Status:   "funding",
 	}
-	if txid, ok := payload["funding_txid"].(string); ok {
-		info.FundingTxid = txid
+	if fundingTxid != "" {
+		info.FundingTxid = fundingTxid
 	}
 	if vout, ok := payload["funding_vout"].(float64); ok {
 		info.FundingVout = uint32(vout)
@@ -145,8 +186,9 @@ func handlePresignNotification(cctx *clientCtx, n *pokerrpc.Notification) {
 			cctx.log.Errorf("auto-presign: trigger auto presign failed: %v", err)
 			// Notify Flutter about the presign error
 			payload := &presignErrorDTO{
-				TableID: tableID,
-				Error:   err.Error(),
+				TableID:  tableID,
+				PlayerID: cctx.ID.String(),
+				Error:    err.Error(),
 			}
 			notify(NTPresignError, payload, nil)
 		}
@@ -220,11 +262,9 @@ func triggerAutoPresign(cctx *clientCtx, tableID string) error {
 	compPub := compKey.PubKey().SerializeCompressed()
 	// For poker tables, match_id is the table_id
 	matchID := tableID
-	// Session ID: use escrow_id as session_id
-	sessionID := playerEscrowID
 	// Start presign
 	ref := cctx.c.Referee(cctx.Token)
-	err = ref.StartPresign(ctx, matchID, tableID, sessionID, uint32(seatIndex), playerEscrowID, compPub, compPrivHex)
+	err = ref.StartPresign(ctx, matchID, tableID, playerEscrowID, compPub, compPrivHex)
 	if err != nil {
 		return err
 	}
@@ -266,12 +306,10 @@ type openEscrowReq struct {
 }
 
 type preSignReq struct {
-	MatchID   string `json:"match_id"`
-	TableID   string `json:"table_id"`
-	SessionID string `json:"session_id"`
-	SeatIndex int    `json:"seat_index"`
-	EscrowID  string `json:"escrow_id"`
-	CompPriv  string `json:"comp_priv"` // hex session priv
+	MatchID  string `json:"match_id"`
+	TableID  string `json:"table_id"`
+	EscrowID string `json:"escrow_id"`
+	CompPriv string `json:"comp_priv"` // hex session priv
 }
 
 type joinPokerTable struct {
@@ -328,8 +366,9 @@ type evaluateHand struct {
 
 // presignErrorDTO represents a presign error notification payload
 type presignErrorDTO struct {
-	TableID string `json:"tableId"`
-	Error   string `json:"error"`
+	TableID  string `json:"tableId"`
+	PlayerID string `json:"playerId"`
+	Error    string `json:"error"`
 }
 
 // JSON returned to Flutter (shape must match Dart LocalWaitingRoom/LocalPlayer)
@@ -378,6 +417,45 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 		BuyIn:           t.BuyIn,
 		GameStarted:     t.GameStarted,
 		AllPlayersReady: t.AllPlayersReady,
+	}
+}
+
+// notificationTableDTO represents a table in a notification, including players
+type ntfnTableDTO struct {
+	ID              string       `json:"id"`
+	HostID          string       `json:"host_id"`
+	SmallBlind      int64        `json:"small_blind"`
+	BigBlind        int64        `json:"big_blind"`
+	MaxPlayers      int32        `json:"max_players"`
+	MinPlayers      int32        `json:"min_players"`
+	CurrentPlayers  int32        `json:"current_players"`
+	BuyIn           int64        `json:"buy_in"`
+	GameStarted     bool         `json:"game_started"`
+	AllPlayersReady bool         `json:"all_players_ready"`
+	Players         []*playerDTO `json:"players,omitempty"` // Include players for notifications
+}
+
+// tableFromProtoForNotification converts a protobuf Table to a notification DTO with players
+func tableFromProtoForNtfn(t *pokerrpc.Table) *ntfnTableDTO {
+	if t == nil {
+		return nil
+	}
+	players := make([]*playerDTO, 0, len(t.Players))
+	for _, p := range t.Players {
+		players = append(players, playerToDTO(p))
+	}
+	return &ntfnTableDTO{
+		ID:              t.Id,
+		HostID:          t.HostId,
+		SmallBlind:      t.SmallBlind,
+		BigBlind:        t.BigBlind,
+		MaxPlayers:      t.MaxPlayers,
+		MinPlayers:      t.MinPlayers,
+		CurrentPlayers:  t.CurrentPlayers,
+		BuyIn:           t.BuyIn,
+		GameStarted:     t.GameStarted,
+		AllPlayersReady: t.AllPlayersReady,
+		Players:         players,
 	}
 }
 

@@ -93,6 +93,7 @@ message GetEscrowStatusResponse {
   uint32 csv_blocks = 10;
   uint32 required_confirmations = 11;
   bool mature_for_csv = 12;
+  string funding_state = 13;
 }
 
 // ---------- Session pubkey publish ----------
@@ -126,8 +127,7 @@ message SettlementHello {
   bytes comp_pubkey = 3; // session pubkey for verification
   string token = 4;      // auth token from Login
   string table_id = 5;
-  string session_id = 6;
-  uint32 seat_index = 7;
+  uint32 seat_index = 6;
 }
 
 // Server → Client: request presigs for a specific branch/winner seat.

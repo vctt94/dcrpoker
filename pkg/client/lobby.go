@@ -473,7 +473,17 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 		pc.ntfns.notifyTipReceived(fromID, toID.String(), amount, message, ts)
 
 	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
-		pc.ntfns.notifyShowdownResult(ntfn.TableId, ntfn.Winners, ts)
+		// Winners are in ntfn.Showdown.Winners, not ntfn.Winners
+		var winners []*pokerrpc.Winner
+		if ntfn.Showdown != nil {
+			winners = ntfn.Showdown.Winners
+			pc.log.Infof("Showdown result received for table %s: pot=%d, winners=%d", ntfn.TableId, ntfn.Showdown.Pot, len(winners))
+		} else {
+			// Fallback to top-level winners if present
+			winners = ntfn.Winners
+			pc.log.Infof("Showdown result received for table %s with %d winners (no showdown data)", ntfn.TableId, len(winners))
+		}
+		pc.ntfns.notifyShowdownResult(ntfn.TableId, winners, ts)
 
 	case pokerrpc.NotificationType_NEW_ROUND:
 		// UI will fetch new state on receipt.
@@ -504,8 +514,14 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 	case pokerrpc.NotificationType_PLAYER_ALL_IN:
 		pc.log.Infof("Player %s is all-in with amount %d", ntfn.PlayerId, ntfn.Amount)
 
+	case pokerrpc.NotificationType_PLAYER_LOST:
+		pc.log.Infof("Player %s lost (removed from table %s): %s", ntfn.PlayerId, ntfn.TableId, ntfn.Message)
+
 	case pokerrpc.NotificationType_ESCROW_FUNDING:
 		pc.log.Infof("Escrow funding: %s", ntfn.Message)
+
+	case pokerrpc.NotificationType_PRESIGN_PENDING:
+		pc.log.Debugf("Presign pending for table %s", ntfn.TableId)
 
 	default:
 		pc.log.Debug("received unknown notification type", "type", ntfn.Type)

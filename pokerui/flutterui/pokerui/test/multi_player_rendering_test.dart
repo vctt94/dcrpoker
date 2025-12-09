@@ -16,7 +16,7 @@ class MockPokerModelForRendering extends PokerModel {
   Future<void> init() async {}
   
   @override
-  Future<void> refreshTables() async {}
+  Future<void> browseTables() async {}
   
   @override
   Future<void> refreshGameState() async {}

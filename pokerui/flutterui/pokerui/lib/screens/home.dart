@@ -61,7 +61,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
             )
           : Consumer<PokerModel>(builder: (context, pokerModel, _) {
               return RefreshIndicator(
-                onRefresh: pokerModel.refreshTables,
+                onRefresh: pokerModel.browseTables,
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   padding: const EdgeInsets.only(bottom: 24),

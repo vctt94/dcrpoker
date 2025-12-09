@@ -58,6 +58,11 @@ type evSetUserEscrow struct {
 	reply    chan<- error
 }
 
+// evResetUserPresign clears presign-complete state for a user via the table FSM.
+type evResetUserPresign struct {
+	userID string
+}
+
 // evSetUserPresignComplete marks presigning complete for a user via the table FSM
 type evSetUserPresignComplete struct {
 	userID string
@@ -67,6 +72,7 @@ type evSetUserPresignComplete struct {
 // AddUserOptions allows callers to attach optional metadata to a user.
 type AddUserOptions struct {
 	DisplayName string
+	Seat        int
 	EscrowID    string
 	EscrowReady bool
 }
@@ -76,10 +82,14 @@ type AddUserOptions struct {
 func NewUser(id string, table *Table, opts *AddUserOptions) *User {
 	cfg := AddUserOptions{
 		DisplayName: id,
+		Seat:        -1,
 	}
 	if opts != nil {
 		if opts.DisplayName != "" {
 			cfg.DisplayName = opts.DisplayName
+		}
+		if opts.Seat >= 0 {
+			cfg.Seat = opts.Seat
 		}
 		cfg.EscrowID = opts.EscrowID
 		cfg.EscrowReady = opts.EscrowReady
@@ -89,7 +99,7 @@ func NewUser(id string, table *Table, opts *AddUserOptions) *User {
 		ID:          id,
 		Name:        cfg.DisplayName,
 		table:       table,
-		TableSeat:   -1, // -1 indicates unseated
+		TableSeat:   cfg.Seat, // -1 indicates unseated
 		IsReady:     false,
 		JoinedAt:    time.Now(),
 		EscrowID:    cfg.EscrowID,
@@ -188,6 +198,25 @@ func (u *User) SendEscrowBound(escrowID string, ready bool) error {
 		return err
 	}
 	sm.Send(evEscrowBound{EscrowID: escrowID, Ready: ready})
+	return nil
+}
+
+// SendEscrowReset clears the user's escrow binding via the table FSM.
+func (u *User) SendEscrowReset() error {
+	u.mu.RLock()
+	sm := u.sm
+	table := u.table
+	u.mu.RUnlock()
+	if sm == nil {
+		return fmt.Errorf("state machine is nil")
+	}
+	if table == nil {
+		return fmt.Errorf("table is nil")
+	}
+	if err := table.SetPlayerEscrow(u.ID, "", false); err != nil {
+		return err
+	}
+	sm.Send(evEscrowBound{EscrowID: "", Ready: false})
 	return nil
 }
 

@@ -135,7 +135,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
               const Spacer(),
               IconButton(
                 tooltip: 'Refresh',
-                onPressed: model.refreshTables,
+                onPressed: model.browseTables,
                 icon: const Icon(Icons.refresh, color: Colors.white70),
               ),
               const SizedBox(width: 4),
@@ -159,13 +159,15 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
           itemBuilder: (context, index) {
             final t = tables[index];
             final full = t.currentPlayers >= t.maxPlayers;
+            final started = t.gameStarted;
             // Consider both live players list and current session table
             final alreadySeated = widget.model.currentTableId == t.id ||
                 t.players.any((p) => p.id == model.playerId);
-            // Allow opening the table even if full when already seated
-            final canJoin = !full || alreadySeated;
-            final statusColor = t.gameStarted ? Colors.green : Colors.orange;
-            final statusText = t.gameStarted ? 'In Progress' : 'Waiting';
+            // Allow opening the table even if full when already seated; otherwise
+            // block joins for started games or full seats.
+            final canJoin = alreadySeated || (!started && !full);
+            final statusColor = started ? Colors.green : Colors.orange;
+            final statusText = started ? 'In Progress' : 'Waiting';
 
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
@@ -225,7 +227,9 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                         Tooltip(
                           message: alreadySeated
                               ? 'Return to your table'
-                              : (canJoin ? 'Join this table' : 'Table is full'),
+                              : started
+                                  ? 'Game already started; joining disabled'
+                                  : (canJoin ? 'Join this table' : 'Table is full'),
                           child: ElevatedButton(
                             onPressed: canJoin
                                 ? () {
@@ -240,7 +244,11 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                               backgroundColor: canJoin ? Colors.green : Colors.grey,
                               foregroundColor: Colors.white,
                             ),
-                            child: Text(alreadySeated ? 'Open Table' : 'Join'),
+                            child: Text(alreadySeated
+                                ? 'Open Table'
+                                : started
+                                    ? 'Game Started'
+                                    : 'Join'),
                           ),
                         ),
                         const SizedBox(width: 8),

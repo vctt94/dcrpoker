@@ -247,6 +247,7 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				"csv_blocks":             resp.GetCsvBlocks(),
 				"required_confirmations": resp.GetRequiredConfirmations(),
 				"mature_for_csv":         resp.GetMatureForCsv(),
+				"funding_state":          resp.GetFundingState(),
 			}, nil
 		}
 
@@ -599,8 +600,8 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 			if err := decodeStrict(cmd.Payload, &req); err != nil {
 				return nil, fmt.Errorf("presign payload: %w", err)
 			}
-			if req.MatchID == "" || req.TableID == "" || req.SessionID == "" {
-				return nil, fmt.Errorf("match_id/table_id/session_id required")
+			if req.MatchID == "" {
+				return nil, fmt.Errorf("match_id required")
 			}
 			if req.EscrowID == "" || req.CompPriv == "" {
 				return nil, fmt.Errorf("escrow_id and comp_priv required")
@@ -621,7 +622,7 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 				return nil, fmt.Errorf("no session token; login first")
 			}
 			ref := cc.c.Referee(cc.Token)
-			if err := ref.StartPresign(cc.ctx, req.MatchID, req.TableID, req.SessionID, uint32(req.SeatIndex), req.EscrowID, compPub, req.CompPriv); err != nil {
+			if err := ref.StartPresign(cc.ctx, req.MatchID, req.TableID, req.EscrowID, compPub, req.CompPriv); err != nil {
 				return nil, err
 			}
 			return map[string]string{"status": "ok"}, nil

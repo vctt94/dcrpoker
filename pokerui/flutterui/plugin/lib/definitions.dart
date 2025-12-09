@@ -481,6 +481,8 @@ class PokerTable {
   final bool gameStarted;
   @JsonKey(name: 'all_players_ready')
   final bool allPlayersReady;
+  @JsonKey(name: 'players')
+  final List<PlayerDTO>? players; // Optional: included in notifications
 
   PokerTable(
     this.id,
@@ -492,12 +494,32 @@ class PokerTable {
     this.currentPlayers,
     this.buyIn,
     this.gameStarted,
-    this.allPlayersReady,
-  );
+    this.allPlayersReady, {
+    this.players,
+  });
 
   factory PokerTable.fromJson(Map<String, dynamic> json) =>
       _$PokerTableFromJson(json);
   Map<String, dynamic> toJson() => _$PokerTableToJson(this);
+
+  pr.Table toProtobuf() {
+    final t = pr.Table()
+      ..id = id
+      ..hostId = hostId
+      ..smallBlind = Int64(smallBlind)
+      ..bigBlind = Int64(bigBlind)
+      ..maxPlayers = maxPlayers
+      ..minPlayers = minPlayers
+      ..currentPlayers = currentPlayers
+      ..buyIn = Int64(buyIn)
+      ..gameStarted = gameStarted
+      ..allPlayersReady = allPlayersReady;
+    // Include players if present (from notifications)
+    if (players != null) {
+      t.players.addAll(players!.map((p) => p.toProtobuf()));
+    }
+    return t;
+  }
 }
 
 @JsonSerializable()
@@ -779,6 +801,25 @@ class GameUpdateDTO {
   }
 }
 
+/// Winner data from SHOWDOWN_RESULT notification
+@JsonSerializable()
+class WinnerDTO {
+  @JsonKey(name: 'playerId')
+  final String playerId;
+  @JsonKey(name: 'handRank')
+  final int handRank;
+  @JsonKey(name: 'bestHand')
+  final List<CardDTO>? bestHand;
+  @JsonKey(name: 'winnings')
+  final int winnings;
+
+  WinnerDTO(this.playerId, this.handRank, this.winnings, {this.bestHand});
+
+  factory WinnerDTO.fromJson(Map<String, dynamic> json) =>
+      _$WinnerDTOFromJson(json);
+  Map<String, dynamic> toJson() => _$WinnerDTOToJson(this);
+}
+
 @JsonSerializable()
 class NotificationDTO {
   @JsonKey(name: 'type')
@@ -801,6 +842,13 @@ class NotificationDTO {
   final bool? gameReadyToPlay;
   @JsonKey(name: 'countdown')
   final int? countdown;
+  @JsonKey(name: 'table')
+  final PokerTable? table;
+  // Showdown fields for SHOWDOWN_RESULT
+  @JsonKey(name: 'winners')
+  final List<WinnerDTO>? winners;
+  @JsonKey(name: 'showdownPot')
+  final int? showdownPot;
 
   NotificationDTO(
     this.type, {
@@ -813,6 +861,9 @@ class NotificationDTO {
     this.started,
     this.gameReadyToPlay,
     this.countdown,
+    this.table,
+    this.winners,
+    this.showdownPot,
   });
 
   factory NotificationDTO.fromJson(Map<String, dynamic> json) =>
@@ -831,6 +882,28 @@ class NotificationDTO {
     if (started != null) n.started = started!;
     if (gameReadyToPlay != null) n.gameReadyToPlay = gameReadyToPlay!;
     if (countdown != null) n.countdown = countdown!;
+    // Include table snapshot if present (for PLAYER_JOINED, PLAYER_LEFT, etc.)
+    if (table != null) {
+      n.table = table!.toProtobuf();
+    }
+    // Include showdown data if present (for SHOWDOWN_RESULT)
+    if (winners != null && winners!.isNotEmpty) {
+      final showdown = pr.Showdown();
+      for (final w in winners!) {
+        final winner = pr.Winner()
+          ..playerId = w.playerId
+          ..handRank = pr.HandRank.valueOf(w.handRank) ?? pr.HandRank.HIGH_CARD
+          ..winnings = Int64(w.winnings);
+        if (w.bestHand != null) {
+          winner.bestHand.addAll(w.bestHand!.map((c) => c.toProtobuf()));
+        }
+        showdown.winners.add(winner);
+      }
+      if (showdownPot != null) {
+        showdown.pot = Int64(showdownPot!);
+      }
+      n.showdown = showdown;
+    }
     return n;
   }
 }
@@ -906,13 +979,19 @@ class UINotificationsConfig {
 /// PresignError represents an error that occurred during auto-presign
 class PresignError {
   final String tableId;
+  final String playerId;
   final String error;
 
-  PresignError({required this.tableId, required this.error});
+  PresignError({
+    required this.tableId,
+    required this.playerId,
+    required this.error,
+  });
 
   factory PresignError.fromJson(Map<String, dynamic> json) {
     return PresignError(
       tableId: json['tableId'] as String? ?? '',
+      playerId: json['playerId'] as String? ?? '',
       error: json['error'] as String? ?? '',
     );
   }
@@ -920,6 +999,7 @@ class PresignError {
   Map<String, dynamic> toJson() {
     return {
       'tableId': tableId,
+      'playerId': playerId,
       'error': error,
     };
   }
@@ -1296,16 +1376,12 @@ abstract class PluginPlatform {
   Future<void> startPreSign({
     required String matchId,
     required String tableId,
-    required String sessionId,
-    required int seatIndex,
     required String escrowId,
     required String compPriv,
   }) async {
     await asyncCall(CTStartPreSign, {
       'match_id': matchId,
       'table_id': tableId,
-      'session_id': sessionId,
-      'seat_index': seatIndex,
       'escrow_id': escrowId,
       'comp_priv': compPriv,
     });

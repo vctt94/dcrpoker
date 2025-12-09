@@ -368,9 +368,13 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 		if !resp.GetOk() {
 			continue
 		}
+		// Exclude invalid escrows from bindable list.
+		if resp.GetFundingState() == "ESCROW_STATE_INVALID" {
+			continue
+		}
 
 		// Merge cached info with live status fields.
-		m := make(map[string]interface{}, len(c.info)+8)
+		m := make(map[string]interface{}, len(c.info)+9)
 		for k, v := range c.info {
 			m[k] = v
 		}
@@ -379,6 +383,7 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 		m["utxo_count"] = resp.GetUtxoCount()
 		m["mature_for_csv"] = resp.GetMatureForCsv()
 		m["required_confirmations"] = resp.GetRequiredConfirmations()
+		m["funding_state"] = resp.GetFundingState()
 		if tx := resp.GetFundingTxid(); tx != "" {
 			m["funding_txid"] = tx
 		}

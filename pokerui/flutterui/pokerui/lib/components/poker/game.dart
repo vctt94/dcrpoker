@@ -494,6 +494,9 @@ class PokerGame {
 
   Future<void> _sendKeyInput(String data) async {
     try {
+      if (!pokerModel.canAct) {
+        return;
+      }
       switch (data.toUpperCase()) {
         case 'F':
           await pokerModel.fold();
