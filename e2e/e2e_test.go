@@ -2747,3 +2747,337 @@ func TestUniqueConstraintViolationOnRejoin(t *testing.T) {
 	state = env.GetGameState(ctx, tableID)
 	require.Equal(t, int32(2), state.PlayersJoined, "Both host and Player B should be seated")
 }
+
+// -----------------------------------------------------------------------------
+//
+//	SCENARIO: Test All-In Auto-Advance Bug - No Unexpected Folds
+//
+//	This test reproduces a bug where StartTurn() is called on a player who
+//	shouldn't have a turn during auto-advance phases. The bug scenario:
+//	- 3 players in the game
+//	- On TURN: Player 1 bets all-in, Player 2 calls all-in, Player 0 calls
+//	- All bets matched → auto-advance enabled (active=1, allInCount>=1, unmatched=0)
+//	- When entering RIVER with auto-advance enabled, if the state handler
+//	  incorrectly calls StartTurn() on the remaining IN_GAME player, it schedules
+//	  a timer. When the timer fires, it causes an unexpected fold.
+//
+//	The exact bug from production logs:
+//	- TURN: All players matched bets (some all-in, some with chips remaining)
+//	- maybeCompleteBettingRound enables auto-advance (active=1, allInCount>=1, unmatched=0)
+//	- Auto-advance timer fires, entering stateRiver
+//	- If stateRiver incorrectly starts a turn timer, the player folds
+//
+// -----------------------------------------------------------------------------
+func TestAllInAutoAdvance_NoUnexpectedFolds(t *testing.T) {
+	t.Parallel()
+	env := testenv.New(t)
+	defer env.Close()
+
+	ctx := context.Background()
+
+	// Setup 3 players - this is the key! The bug happens with 3 players, not 2
+	players := []string{"player1", "player2", "player3"}
+
+	// Create table with 3 players - matching the bug scenario
+	// CRITICAL: Use SHORT timebank (1 second) so that if StartTurn() is incorrectly
+	// called on the remaining active player during auto-advance, the timer will fire
+	// and cause an unexpected fold. We'll drive actions quickly during setup so players
+	// don't timeout before we reach the bug scenario.
+	// BuyIn: 0 to avoid escrow requirement in tests
+	ctx = env.ContextWithToken(ctx, "player1")
+	createResp, err := env.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:        "player1",
+		SmallBlind:      10,
+		BigBlind:        20,
+		MinPlayers:      3,
+		MaxPlayers:      3,
+		BuyIn:           0,
+		StartingChips:   1000, // Enough chips to go all-in
+		AutoStartMs:     2000,
+		AutoAdvanceMs:   2000, // 2 second auto-advance delay
+		TimeBankSeconds: 1,    // 1 second timebank - SHORT so timer fires during auto-advance
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	// Player2 and Player3 join
+	for _, p := range players[1:] {
+		_, err := env.JoinTable(ctx, p, tableID)
+		require.NoError(t, err)
+	}
+
+	// Both players mark ready
+	for _, p := range players {
+		_, err := env.SetPlayerReady(ctx, p, tableID)
+		require.NoError(t, err)
+	}
+
+	// Wait for game to start
+	env.WaitForGameStart(ctx, tableID, 3*time.Second)
+	env.WaitForGamePhase(ctx, tableID, pokerrpc.GamePhase_PRE_FLOP, 3*time.Second)
+
+	// Get initial state and collect all player IDs for tracking
+	initialState := env.GetGameState(ctx, tableID)
+	require.Equal(t, 3, len(initialState.Players), "should have 3 players")
+
+	allPlayerIDs := make(map[string]bool)
+	for _, p := range initialState.Players {
+		allPlayerIDs[p.Id] = true
+		require.False(t, p.Folded, "no player should be folded at game start")
+	}
+
+	// Helper function to drive a betting round to completion
+	// This actively makes players call/check so they don't timeout
+	driveBettingRound := func(targetPhase pokerrpc.GamePhase) {
+		for {
+			state := env.GetGameState(ctx, tableID)
+			// If we've reached the target phase or beyond, we're done
+			if state.Phase >= targetPhase {
+				return
+			}
+			// If we've gone to showdown, something went wrong
+			if state.Phase == pokerrpc.GamePhase_SHOWDOWN {
+				t.Fatalf("hand ended at showdown before reaching %s", targetPhase)
+			}
+
+			currentPlayer := state.CurrentPlayer
+			if currentPlayer == "" {
+				// Between actions, wait a bit
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			// Find the current player's state
+			var player *pokerrpc.Player
+			for _, p := range state.Players {
+				if p.Id == currentPlayer {
+					player = p
+					break
+				}
+			}
+			if player == nil {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+
+			// Simple strategy: call if there's a bet to call, otherwise check
+			var err error
+			if state.CurrentBet > player.CurrentBet {
+				// Need to call
+				_, err = env.PokerClient.CallBet(ctx, &pokerrpc.CallBetRequest{
+					PlayerId: currentPlayer,
+					TableId:  tableID,
+				})
+			} else {
+				// Can check
+				_, err = env.PokerClient.CheckBet(ctx, &pokerrpc.CheckBetRequest{
+					PlayerId: currentPlayer,
+					TableId:  tableID,
+				})
+			}
+
+			if err != nil {
+				// Might be a transient error or phase changed, check state
+				if isTransientTurnError(err) {
+					time.Sleep(10 * time.Millisecond)
+					continue
+				}
+				// If phase changed, that's fine - we might have advanced
+				newState := env.GetGameState(ctx, tableID)
+				if newState.Phase >= targetPhase {
+					return
+				}
+				// Otherwise it's a real error
+				require.NoError(t, err, "failed to act for player %s", currentPlayer)
+			}
+
+			// Wait a bit for state to update
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	// Reproduce the exact bug scenario from the logs:
+	// 1. Play through PRE_FLOP and FLOP normally (all players check/call)
+	// 2. On TURN: Two players go all-in, one remains active
+	// 3. The bug: When auto-advance is enabled and we transition to RIVER,
+	//    initializeCurrentPlayer() calls StartTurn() on the remaining active player
+	// 4. The timer fires and causes an unexpected fold
+
+	t.Log("Driving PRE_FLOP to FLOP...")
+	// Make a bet on PRE_FLOP to create action
+	currentPlayer := initialState.CurrentPlayer
+	require.NotEmpty(t, currentPlayer, "should have a current player")
+	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
+		PlayerId: currentPlayer,
+		TableId:  tableID,
+		Amount:   500,
+	})
+	require.NoError(t, err)
+	t.Logf("Player %s bet 500 on PRE_FLOP", currentPlayer)
+
+	// Drive the rest of PRE_FLOP (other players call)
+	driveBettingRound(pokerrpc.GamePhase_FLOP)
+	t.Log("Reached FLOP")
+
+	// Drive FLOP (all players check)
+	driveBettingRound(pokerrpc.GamePhase_TURN)
+	t.Log("Reached TURN - now reproducing the bug scenario")
+
+	// Now reproduce the bug: On TURN, two players go all-in
+	// This matches the logs: Player 1 bets 500 (all-in), Player 2 calls (all-in)
+	state := env.GetGameState(ctx, tableID)
+	currentPlayer = state.CurrentPlayer
+	require.NotEmpty(t, currentPlayer, "should have a current player on TURN")
+
+	// First player on TURN goes all-in (bet 500, which will be all-in if they have ~500 chips)
+	_, err = env.PokerClient.MakeBet(ctx, &pokerrpc.MakeBetRequest{
+		PlayerId: currentPlayer,
+		TableId:  tableID,
+		Amount:   500, // All-in bet
+	})
+	require.NoError(t, err)
+	allInPlayer1 := currentPlayer
+	t.Logf("Player %s went all-in on TURN", allInPlayer1)
+
+	// Wait for next player's turn
+	require.Eventually(t, func() bool {
+		state = env.GetGameState(ctx, tableID)
+		return state.CurrentPlayer != currentPlayer || state.Phase != pokerrpc.GamePhase_TURN
+	}, 2*time.Second, 10*time.Millisecond, "turn should advance after first all-in")
+
+	// Second player calls all-in
+	state = env.GetGameState(ctx, tableID)
+	currentPlayer = state.CurrentPlayer
+	require.NotEmpty(t, currentPlayer, "should have a current player for second all-in")
+	require.NotEqual(t, allInPlayer1, currentPlayer, "should be a different player")
+
+	_, err = env.PokerClient.CallBet(ctx, &pokerrpc.CallBetRequest{
+		PlayerId: currentPlayer,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+	allInPlayer2 := currentPlayer
+	t.Logf("Player %s called all-in on TURN", allInPlayer2)
+
+	// Wait for next player's turn (the remaining active player)
+	require.Eventually(t, func() bool {
+		state = env.GetGameState(ctx, tableID)
+		return state.CurrentPlayer != currentPlayer || state.Phase != pokerrpc.GamePhase_TURN
+	}, 2*time.Second, 10*time.Millisecond, "turn should advance after second all-in")
+
+	// Identify the remaining active player (the one who didn't go all-in)
+	state = env.GetGameState(ctx, tableID)
+	remainingActivePlayer := ""
+	for _, p := range state.Players {
+		if !allPlayerIDs[p.Id] {
+			continue
+		}
+		if p.Id != allInPlayer1 && p.Id != allInPlayer2 {
+			remainingActivePlayer = p.Id
+			break
+		}
+	}
+	require.NotEmpty(t, remainingActivePlayer, "should have identified the remaining active player")
+	t.Logf("Remaining active player: %s (will call to trigger auto-advance)", remainingActivePlayer)
+
+	// CRITICAL: The remaining player MUST call to trigger auto-advance.
+	// The production bug happens AFTER all bets are matched and auto-advance is enabled:
+	// - active=1, allInCount>=1, unmatched=0 → auto-advance enabled
+	// - stateRiver enters with autoAdvanceEnabled=true
+	// - If stateRiver incorrectly starts a turn timer, the player folds
+	//
+	// Without this call, the remaining player would time out and fold during TURN
+	// (which is correct poker behavior, not a bug).
+	_, err = env.PokerClient.CallBet(ctx, &pokerrpc.CallBetRequest{
+		PlayerId: remainingActivePlayer,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+	t.Logf("Player %s called the all-in (triggering auto-advance)", remainingActivePlayer)
+
+	// Now all bets are matched (or all players all-in). Auto-advance should be enabled.
+	// The bug: When stateRiver is entered with auto-advance enabled but activePlayers >= 1,
+	// if the state handler incorrectly calls StartTurn(), it schedules a timer that
+	// fires and causes an unexpected fold.
+
+	// Track if the remaining player folds unexpectedly during auto-advance
+	unexpectedFoldDetected := false
+	var foldPhase pokerrpc.GamePhase
+
+	// Monitor during the auto-advance from TURN to RIVER to SHOWDOWN
+	t.Log("Monitoring for unexpected fold during auto-advance...")
+
+	// Wait for RIVER phase (auto-advance should trigger after 2 seconds)
+	require.Eventually(t, func() bool {
+		state := env.GetGameState(ctx, tableID)
+		return state.Phase >= pokerrpc.GamePhase_RIVER
+	}, 5*time.Second, 50*time.Millisecond, "game should auto-advance to RIVER")
+
+	// Check immediately when RIVER is reached - the bug may have already fired
+	state = env.GetGameState(ctx, tableID)
+	for _, p := range state.Players {
+		if !allPlayerIDs[p.Id] {
+			continue
+		}
+		if p.Id == remainingActivePlayer && p.Folded {
+			unexpectedFoldDetected = true
+			foldPhase = state.Phase
+			t.Errorf("BUG DETECTED: Remaining active player %s is folded at phase %s (should NOT fold during auto-advance)",
+				p.Id, state.Phase)
+		}
+	}
+
+	// Continue monitoring through RIVER to SHOWDOWN
+	// Check every 100ms for 3 seconds to catch the fold if it happens during RIVER
+	monitorDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(monitorDeadline) {
+		state := env.GetGameState(ctx, tableID)
+		if state.Phase == pokerrpc.GamePhase_SHOWDOWN {
+			break
+		}
+		for _, p := range state.Players {
+			if !allPlayerIDs[p.Id] {
+				continue
+			}
+			if p.Id == remainingActivePlayer && p.Folded && !unexpectedFoldDetected {
+				unexpectedFoldDetected = true
+				foldPhase = state.Phase
+				t.Errorf("BUG DETECTED: Remaining active player %s is folded at phase %s during auto-advance",
+					p.Id, state.Phase)
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// Wait for showdown
+	env.WaitForShowdownOrRemoval(ctx, tableID, 10*time.Second)
+
+	// Wait for showdown to complete
+	env.WaitForShowdownOrRemoval(ctx, tableID, 10*time.Second)
+
+	// CRITICAL ASSERTION: The player who called should NOT have folded during auto-advance.
+	// The bug causes them to fold when StartTurn() is incorrectly called in state handlers
+	// during auto-advance mode, and the timer fires.
+	//
+	// This assertion will FAIL when the bug is present (unexpected fold occurs)
+	// and PASS when the bug is fixed (no unexpected fold)
+	require.False(t, unexpectedFoldDetected,
+		"BUG REPRODUCTION: Player %s should NOT fold during auto-advance. "+
+			"Fold was detected at phase %s. This happens when state handlers incorrectly "+
+			"call StartTurn() during auto-advance mode, and the timer fires.",
+		remainingActivePlayer, foldPhase)
+
+	// Final verification at showdown
+	finalState, removed := env.GetGameStateAllowNotFound(ctx, tableID)
+	if !removed {
+		// Verify the remaining active player is not folded
+		for _, p := range finalState.Players {
+			if !allPlayerIDs[p.Id] {
+				continue
+			}
+			if p.Id == remainingActivePlayer && p.Folded {
+				t.Errorf("BUG: Remaining active player %s is folded at showdown (should not be)", p.Id)
+			}
+		}
+	}
+}

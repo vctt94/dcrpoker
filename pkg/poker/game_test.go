@@ -1735,8 +1735,8 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 	g.StateFlop()
 	g.mu.Lock()
 	g.currentBet = 0
+	g.currentPlayer = g.computeFirstActorIndex()
 	g.mu.Unlock()
-	g.InitializeCurrentPlayer()
 
 	// Capture current player id
 	cp := g.GetCurrentPlayerObject()
@@ -1816,8 +1816,8 @@ func TestTimebank_DualAutoCheckAdvancesStreet(t *testing.T) {
 	g.StateFlop()
 	g.mu.Lock()
 	g.currentBet = 0
+	g.currentPlayer = g.computeFirstActorIndex()
 	g.mu.Unlock()
-	g.InitializeCurrentPlayer()
 
 	first := g.GetCurrentPlayerObject()
 	require.NotNil(t, first)
