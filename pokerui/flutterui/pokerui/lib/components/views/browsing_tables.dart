@@ -135,7 +135,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
               const Spacer(),
               IconButton(
                 tooltip: 'Refresh',
-                onPressed: model.refreshTables,
+                onPressed: model.browseTables,
                 icon: const Icon(Icons.refresh, color: Colors.white70),
               ),
               const SizedBox(width: 4),

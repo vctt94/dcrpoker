@@ -28,10 +28,10 @@ class IdleView extends StatelessWidget {
             children: [
               ElevatedButton.icon(
                 onPressed: () {
-                  model.refreshTables();
+                  model.browseTables();
                 },
-                icon: const Icon(Icons.refresh),
-                label: const Text('Connect & Refresh'),
+                icon: const Icon(Icons.table_restaurant),
+                label: const Text('Browse Tables'),
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
               ),
               const SizedBox(width: 16),

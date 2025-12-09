@@ -801,6 +801,25 @@ class GameUpdateDTO {
   }
 }
 
+/// Winner data from SHOWDOWN_RESULT notification
+@JsonSerializable()
+class WinnerDTO {
+  @JsonKey(name: 'playerId')
+  final String playerId;
+  @JsonKey(name: 'handRank')
+  final int handRank;
+  @JsonKey(name: 'bestHand')
+  final List<CardDTO>? bestHand;
+  @JsonKey(name: 'winnings')
+  final int winnings;
+
+  WinnerDTO(this.playerId, this.handRank, this.winnings, {this.bestHand});
+
+  factory WinnerDTO.fromJson(Map<String, dynamic> json) =>
+      _$WinnerDTOFromJson(json);
+  Map<String, dynamic> toJson() => _$WinnerDTOToJson(this);
+}
+
 @JsonSerializable()
 class NotificationDTO {
   @JsonKey(name: 'type')
@@ -825,6 +844,11 @@ class NotificationDTO {
   final int? countdown;
   @JsonKey(name: 'table')
   final PokerTable? table;
+  // Showdown fields for SHOWDOWN_RESULT
+  @JsonKey(name: 'winners')
+  final List<WinnerDTO>? winners;
+  @JsonKey(name: 'showdownPot')
+  final int? showdownPot;
 
   NotificationDTO(
     this.type, {
@@ -838,6 +862,8 @@ class NotificationDTO {
     this.gameReadyToPlay,
     this.countdown,
     this.table,
+    this.winners,
+    this.showdownPot,
   });
 
   factory NotificationDTO.fromJson(Map<String, dynamic> json) =>
@@ -859,6 +885,24 @@ class NotificationDTO {
     // Include table snapshot if present (for PLAYER_JOINED, PLAYER_LEFT, etc.)
     if (table != null) {
       n.table = table!.toProtobuf();
+    }
+    // Include showdown data if present (for SHOWDOWN_RESULT)
+    if (winners != null && winners!.isNotEmpty) {
+      final showdown = pr.Showdown();
+      for (final w in winners!) {
+        final winner = pr.Winner()
+          ..playerId = w.playerId
+          ..handRank = pr.HandRank.valueOf(w.handRank) ?? pr.HandRank.HIGH_CARD
+          ..winnings = Int64(w.winnings);
+        if (w.bestHand != null) {
+          winner.bestHand.addAll(w.bestHand!.map((c) => c.toProtobuf()));
+        }
+        showdown.winners.add(winner);
+      }
+      if (showdownPot != null) {
+        showdown.pot = Int64(showdownPot!);
+      }
+      n.showdown = showdown;
     }
     return n;
   }

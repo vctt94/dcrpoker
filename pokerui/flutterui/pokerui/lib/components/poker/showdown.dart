@@ -1,15 +1,81 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
-class ShowdownView extends StatelessWidget {
+class ShowdownView extends StatefulWidget {
   const ShowdownView({super.key, required this.model});
   final PokerModel model;
 
   @override
+  State<ShowdownView> createState() => _ShowdownViewState();
+}
+
+class _ShowdownViewState extends State<ShowdownView> {
+  Timer? _countdownTimer;
+  int _secondsRemaining = 5;
+  bool _countdownStarted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _maybeStartCountdown();
+  }
+
+  @override
+  void dispose() {
+    _countdownTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant ShowdownView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _maybeStartCountdown();
+  }
+
+  void _resetCountdown() {
+    _countdownTimer?.cancel();
+    _countdownStarted = false;
+    _secondsRemaining = 5;
+  }
+
+  void _startCountdown() {
+    _resetCountdown();
+    _countdownStarted = true;
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        if (_secondsRemaining > 0) {
+          _secondsRemaining--;
+        }
+        if (_secondsRemaining <= 0) {
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  void _maybeStartCountdown() {
+    if (widget.model.isGameEndPending) {
+      if (!_countdownStarted) {
+        _startCountdown();
+      }
+    } else {
+      if (_countdownStarted) {
+        _resetCountdown();
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final model = widget.model;
     final game = model.game;
     if (game == null) {
       return const Center(child: Text('No game data available'));
@@ -140,23 +206,66 @@ class ShowdownView extends StatelessWidget {
             ),
           ),
 
-        // Leave table control anchored away from action buttons to avoid accidental taps
-        Positioned(
-          bottom: 0,
-          left: 0,
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: ElevatedButton.icon(
-                onPressed: model.leaveTable,
-                icon: const Icon(Icons.logout),
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-                label: const Text('Leave Table'),
+        // Countdown and Skip button at bottom center (only if game end is pending)
+        if (model.isGameEndPending)
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Countdown indicator
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.amber, width: 2),
+                        ),
+                        child: Center(
+                          child: Text(
+                            '$_secondsRemaining',
+                            style: const TextStyle(
+                              color: Colors.amber,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Skip button
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          model.skipShowdown();
+                        },
+                        icon: const Icon(Icons.skip_next, size: 18),
+                        label: const Text('Continue'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade700,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }

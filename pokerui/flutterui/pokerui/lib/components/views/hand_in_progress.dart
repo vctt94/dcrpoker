@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/dialogs/last_showdown.dart';
 
 class HandInProgressView extends StatefulWidget {
   const HandInProgressView({super.key, required this.model});
@@ -50,6 +51,47 @@ class _HandInProgressViewState extends State<HandInProgressView> {
         // Bet/call FX overlay
         _BetFxOverlay(model: widget.model),
 
+        // "Last Hand" button at bottom left
+        if (widget.model.hasLastShowdown)
+          Positioned(
+            bottom: 12,
+            left: 12,
+            child: SafeArea(
+              child: Tooltip(
+                message: 'View last showdown',
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => LastShowdownDialog.show(context, widget.model),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.3), width: 1),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.history, color: Colors.white70, size: 16),
+                          SizedBox(width: 6),
+                          Text(
+                            'Last Hand',
+                            style:
+                                TextStyle(color: Colors.white70, fontSize: 12),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
         // Action buttons overlay - positioned at bottom right
         Positioned(
           bottom: 0,
@@ -73,7 +115,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                if (widget.model.isMyTurn) ...[
+                if (widget.model.canAct) ...[
                   // Fold is always available on your turn
                   ElevatedButton(
                     onPressed: () => widget.model.fold(),
@@ -250,7 +292,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      'Waiting...',
+                      widget.model.autoAdvanceAllIn
+                          ? 'Auto-advancing (all-in)'
+                          : 'Waiting...',
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                     ),
                   ),
