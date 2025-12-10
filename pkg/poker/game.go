@@ -88,6 +88,9 @@ type Game struct {
 	autoAdvanceTimer    *time.Timer
 	autoAdvanceCanceled atomic.Bool
 
+	// Shutdown coordination to avoid scheduling new work while stopping
+	shuttingDown atomic.Bool
+
 	// Logger
 	log slog.Logger
 
@@ -1203,19 +1206,20 @@ func (g *Game) dealHoleCards() error {
 // Close stops all player state machines and cleans up resources.
 // This must be called when a game is no longer needed to prevent goroutine leaks.
 func (g *Game) Close() {
-	// Grab references while holding lock
+	// Mark shutdown early to prevent new timers/events from scheduling
+	g.shuttingDown.Store(true)
+
+	// Grab references while holding lock and cancel timers
 	g.mu.Lock()
 	players := make([]*Player, len(g.players))
 	copy(players, g.players)
 	sm := g.sm
-	autoStartTimer := g.autoStartTimer
-	autoAdvanceTimer := g.autoAdvanceTimer
 	playerCh := g.playerEventChan
+	// Cancel timers under lock so callbacks bail before FSM is stopped
+	g.cancelAutoAdvance()
+	g.cancelAutoStart()
 	// Cancel auto-advance under lock so the timer callback sees the canceled flag
 	// before we stop the state machine (prevents send on closed inbox).
-	if autoAdvanceTimer != nil {
-		g.cancelAutoAdvance()
-	}
 	g.mu.Unlock()
 
 	// Cancel all player timebank timers and sever their event channels
@@ -1251,14 +1255,6 @@ func (g *Game) Close() {
 	g.sm = nil
 	g.playerEventChan = nil
 	g.mu.Unlock()
-
-	// Cancel timers if running (timer.Stop() is safe to call concurrently)
-	if autoStartTimer != nil {
-		autoStartTimer.Stop()
-	}
-	if autoAdvanceTimer != nil {
-		autoAdvanceTimer.Stop()
-	}
 }
 
 // SetPlayers sets the players for this game from table users
@@ -1518,41 +1514,6 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 
 	// Check if betting round is complete and notify table
 	g.maybeCompleteBettingRound()
-
-	return nil
-}
-
-// handleTimebankAutoCheck handles the special case where a player's per-turn
-// timebank expires on a street with no aggressor and no outstanding bet.
-// It advances the turn but intentionally skips betting-round completion checks
-// so that a sequence of pure auto-checks does NOT silently advance the street.
-// Requires: g.mu held.
-func (g *Game) handleTimebankAutoCheck(playerID string) error {
-	mustHeld(&g.mu)
-
-	player := g.getPlayerByID(playerID)
-	if player == nil {
-		return fmt.Errorf("player not found in game")
-	}
-
-	if g.currentPlayerID() != playerID {
-		return fmt.Errorf("not your turn to act")
-	}
-
-	// Sanity: ensure the player is allowed to auto-check (no bet to call).
-	if player.currentBet < g.currentBet {
-		return fmt.Errorf("cannot auto-check when there's a bet to call (player bet: %d, current bet: %d)",
-			player.currentBet, g.currentBet)
-	}
-
-	// Match HandlePlayerCheck semantics for per-player bookkeeping, but do NOT
-	// run maybeCompleteBettingRound() afterward.
-	player.mu.Lock()
-	player.lastAction = time.Now()
-	player.mu.Unlock()
-
-	player.EndTurn()
-	g.advanceToNextPlayer(time.Now())
 
 	return nil
 }
@@ -2496,14 +2457,23 @@ func (g *Game) ClearPreFlopNotification() {
 
 // scheduleAutoStart schedules automatic start of next hand after configured delay
 func (g *Game) ScheduleAutoStart() {
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.scheduleAutoStart()
 }
 
 // scheduleAutoStart is the internal implementation
 func (g *Game) scheduleAutoStart() {
 	mustHeld(&g.mu)
+	if g.shuttingDown.Load() {
+		return
+	}
 	// Cancel any existing auto-start timer
 	g.cancelAutoStart()
 
@@ -2519,11 +2489,11 @@ func (g *Game) scheduleAutoStart() {
 	// Mark that auto-start is pending
 	g.autoStartCanceled.Store(false)
 	g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
-		if g.autoStartCanceled.Load() {
+		if g.shuttingDown.Load() || g.autoStartCanceled.Load() {
 			return
 		}
 		g.mu.Lock()
-		if g.autoStartCanceled.Load() {
+		if g.shuttingDown.Load() || g.autoStartCanceled.Load() {
 			g.mu.Unlock()
 			return
 		}
@@ -2546,8 +2516,14 @@ func (g *Game) cancelAutoStart() {
 // ScheduleAutoAdvance schedules automatic advance to next street when all players are all-in.
 // This function acquires g.mu internally - safe to call without holding the lock.
 func (g *Game) ScheduleAutoAdvance() {
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.scheduleAutoAdvance()
 }
 
@@ -2567,6 +2543,9 @@ func (g *Game) cancelAutoAdvance() {
 // Requires: g.mu held
 func (g *Game) scheduleAutoAdvance() {
 	mustHeld(&g.mu)
+	if g.shuttingDown.Load() {
+		return
+	}
 
 	// Cancel any existing auto-advance timer
 	g.cancelAutoAdvance()
@@ -2986,24 +2965,10 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 
 			if need <= 0 {
 				// Auto-check path when there's nothing to call.
+				// Treat exactly like a normal check so betting-round completion
+				// logic runs and the street can advance after everyone checks.
 				act = "check"
-
-				// Special case: avoid advancing the street when EVERY action on
-				// the street is an auto-check due to timebank expiry.
-				//
-				// We detect the "pure auto-check street" by requiring:
-				//   - no aggressor yet (no voluntary bet/raise)
-				//   - table currentBet == 0 (no outstanding bet)
-				//
-				// In that case we still end the player's turn and advance to
-				// the next player, but we intentionally skip
-				// maybeCompleteBettingRound() so that the betting round does
-				// NOT silently advance when everyone times out.
-				if g.lastAggressor < 0 && g.currentBet == 0 {
-					allowAdvance = false
-				} else {
-					allowAdvance = true
-				}
+				allowAdvance = true
 			} else {
 				// Facing a bet: auto-fold.
 				act = "fold"
@@ -3015,16 +2980,7 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		switch act {
 		case "check":
 			if allowAdvance {
-				// Normal path: treat as an explicit check so that betting-round
-				// completion and auto-advance semantics remain unchanged.
 				_ = g.HandlePlayerCheck(e.id)
-			} else {
-				// Timebank-only check on a street with no aggressor and no bet.
-				// We only advance the turn, without evaluating betting-round
-				// completion, so the street does not silently advance.
-				g.mu.Lock()
-				_ = g.handleTimebankAutoCheck(e.id)
-				g.mu.Unlock()
 			}
 		case "fold":
 			_ = g.HandlePlayerFold(e.id)

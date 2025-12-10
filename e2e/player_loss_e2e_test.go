@@ -17,8 +17,6 @@ import (
 // with 3 players, have two shove until one busts, and assert the busted player
 // disappears from the game state roster.
 func TestPlayerLostPrunesGameRoster_E2E(t *testing.T) {
-	t.Parallel()
-
 	env := testenv.New(t)
 	defer env.Close()
 

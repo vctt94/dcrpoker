@@ -21,6 +21,7 @@ type Machine[T any] struct {
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
 	closeOnce sync.Once
+	sendMu    sync.RWMutex
 }
 
 // New creates a machine with an initial state and buffered inbox.
@@ -60,10 +61,13 @@ func (m *Machine[T]) Start(ctx context.Context) {
 // Stop cancels and waits for the loop to exit.
 func (m *Machine[T]) Stop() {
 	m.closeOnce.Do(func() {
+		// Serialize with senders so we never close a channel while a send is in flight.
+		m.sendMu.Lock()
 		// First, signal senders to stop enqueuing before we close the inbox to
 		// avoid the send-after-close race reported by the race detector.
 		close(m.closed)
 		close(m.inbox) // unblock receivers with ok=false
+		m.sendMu.Unlock()
 		if m.cancel != nil {
 			m.cancel() // optional, keep for outside listeners
 		}
@@ -73,22 +77,30 @@ func (m *Machine[T]) Stop() {
 
 // Send enqueues an event (may block if inbox is full).
 func (m *Machine[T]) Send(ev any) {
+	m.sendMu.RLock()
 	select {
 	case <-m.closed:
+		m.sendMu.RUnlock()
 		return // drop silently if machine is stopping/stopped
 	default:
-		m.inbox <- ev
 	}
+	// Keep the send outside the select to avoid holding the lock longer than needed.
+	m.inbox <- ev
+	m.sendMu.RUnlock()
 }
 
 // TrySend enqueues without blocking; returns false if full.
 func (m *Machine[T]) TrySend(ev any) bool {
+	m.sendMu.RLock()
 	select {
 	case <-m.closed:
+		m.sendMu.RUnlock()
 		return false
 	case m.inbox <- ev:
+		m.sendMu.RUnlock()
 		return true
 	default:
+		m.sendMu.RUnlock()
 		return false
 	}
 }

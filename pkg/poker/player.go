@@ -3,6 +3,7 @@ package poker
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -73,6 +74,8 @@ type Player struct {
 	timebankCanceled atomic.Bool
 	timebankDelay    time.Duration
 	playerEventChan  chan<- PlayerEvent
+	timebankMu       sync.Mutex     // serialize timer arm/stop
+	timebankWG       sync.WaitGroup // track in-flight timer callback
 }
 
 func NewPlayer(id, name string, balance int64) *Player {
@@ -1010,15 +1013,20 @@ func (p *Player) EndTurn() {
 // scheduleTimebank sets up a per-player timer to auto-act when their timebank expires.
 // Safe to call without holding any external locks.
 func (p *Player) scheduleTimebank() {
-	// Stop any existing timer
+	p.timebankMu.Lock()
+	// Stop any existing timer and account for its callback.
 	p.timebankCanceled.Store(true)
 	if t := p.timebankTimer; t != nil {
-		_ = t.Stop()
+		if t.Stop() {
+			// Callback will not run; clear the pending WG slot if it was armed.
+			p.timebankWG.Done()
+		}
 		p.timebankTimer = nil
 	}
 
 	// Only schedule if delay is positive
 	if p.timebankDelay <= 0 {
+		p.timebankMu.Unlock()
 		return
 	}
 	pid := p.ID()
@@ -1026,26 +1034,40 @@ func (p *Player) scheduleTimebank() {
 
 	// Arm the timer
 	p.timebankCanceled.Store(false)
+	p.timebankWG.Add(1)
 	p.timebankTimer = time.AfterFunc(delay, func() {
+		defer p.timebankWG.Done()
 		if p.timebankCanceled.Load() {
+			// Swallow late fires after cancellation.
 			return
 		}
-		if ch := p.playerEventChan; ch != nil {
+		p.mu.RLock()
+		ch := p.playerEventChan
+		p.mu.RUnlock()
+		if ch != nil {
 			select {
 			case ch <- PlayerEvent{Type: PlayerEventTimebankExpired, PlayerID: pid}:
 			default:
 			}
 		}
 	})
+	p.timebankMu.Unlock()
 }
 
 // CancelTimebank cancels any scheduled timebank timer for this player.
 func (p *Player) cancelTimebank() {
+	p.timebankMu.Lock()
 	p.timebankCanceled.Store(true)
 	if t := p.timebankTimer; t != nil {
-		_ = t.Stop()
+		if t.Stop() {
+			// If we stopped it before it fired, clear the pending callback slot.
+			p.timebankWG.Done()
+		}
 		p.timebankTimer = nil
 	}
+	p.timebankMu.Unlock()
+	// Wait for any in-flight callback to finish to avoid racing with Close().
+	p.timebankWG.Wait()
 }
 
 // Marker interface for player events (optional, for readability).

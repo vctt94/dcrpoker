@@ -827,6 +827,8 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 // preventing the game from getting stuck in SHOWDOWN.
 func TestTimeoutCompletesShowdownAndAutoStarts(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	// Re-enable auto-start for this scenario so a new hand begins after the timeout showdown.
+	tbl.config.AutoStartDelay = 100 * time.Millisecond
 	user1, err := tbl.AddNewUser("p1", nil)
 	require.NoError(t, err)
 	user2, err := tbl.AddNewUser("p2", nil)
@@ -1835,16 +1837,14 @@ func TestTimebank_DualAutoCheckAdvancesStreet(t *testing.T) {
 	secondID := second.ID()
 	require.NotEqual(t, firstID, secondID)
 
-	// Second player also times out and auto-checks; current (buggy) code will
-	// advance the street. The expected (desired) behavior is to remain on FLOP
-	// because no one bet and action ended via auto-checks. This should fail
-	// until the bug is fixed.
+	// Second player also times out and auto-checks; after both have checked
+	// the betting round should complete and advance to the next street.
 	g.TriggerTimebankExpiredFor(secondID)
 
-	time.Sleep(150 * time.Millisecond) // allow auto-advance timer (10ms) to fire if enabled
-
-	require.Equal(t, pokerrpc.GamePhase_FLOP, g.GetPhase(),
-		"street should NOT advance after dual auto-checks (currently buggy code does)")
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_TURN
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"street should advance after dual auto-checks")
 
 	// Neither player should have been forced to fold by the auto-check path.
 	for _, p := range g.GetPlayers() {
@@ -1874,7 +1874,16 @@ func TestAllIn_ActivePlayer_AutoAdvancesWithOneActive(t *testing.T) {
 		AutoStartDelay:   10 * time.Millisecond,
 		AutoAdvanceDelay: 100 * time.Millisecond,
 	})
-	defer tbl.Close()
+	eventChan := make(chan TableEvent, 32)
+	tbl.SetEventChannel(eventChan)
+	go func() {
+		for range eventChan {
+		}
+	}()
+	defer func() {
+		tbl.Close()
+		close(eventChan)
+	}()
 
 	// Add two players
 	u1, err := tbl.AddNewUser("p1-deep", nil)

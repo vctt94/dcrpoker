@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/decred/slog"
@@ -111,6 +112,10 @@ func (t *Table) SetEventChannel(eventChannel chan<- TableEvent) {
 
 // PublishEvent publishes an event from the table (non-blocking)
 func (t *Table) PublishEvent(eventType pokerrpc.NotificationType, tableID string, payload interface{}) {
+	if t.closedFlag.Load() {
+		// Silently drop events after shutdown has begun to avoid noisy logs or lock contention.
+		return
+	}
 	t.eventManager.PublishEvent(eventType, tableID, payload)
 }
 
@@ -144,9 +149,9 @@ type Table struct {
 	gameEventStop chan struct{}
 
 	// Shutdown management
-	closeOnce sync.Once
-	closed    bool
-	wg        sync.WaitGroup
+	closeOnce  sync.Once
+	closedFlag atomic.Bool
+	wg         sync.WaitGroup
 }
 
 // NewTable creates a new poker table
@@ -180,21 +185,20 @@ func NewTable(cfg TableConfig) *Table {
 // It is safe to call Close() multiple times (idempotent).
 func (t *Table) Close() {
 	t.closeOnce.Do(func() {
+		// Mark closed immediately to short-circuit new publishes/snapshots without taking locks.
+		t.closedFlag.Store(true)
+		// Mark closed up front so callers bail before we tear down channels/SM.
+		t.mu.Lock()
+		game := t.game
+		sm := t.sm
+		t.mu.Unlock()
+
 		// Signal stop to all background goroutines
 		close(t.timeoutStop)
 		close(t.gameEventStop)
 
 		// Wait for all background goroutines to finish
 		t.wg.Wait()
-
-		// Grab references while holding lock
-		t.mu.Lock()
-		game := t.game
-		sm := t.sm
-		t.game = nil
-		t.sm = nil
-		t.closed = true
-		t.mu.Unlock()
 
 		// Clean up the game (without holding lock to avoid deadlock)
 		if game != nil {
@@ -205,6 +209,12 @@ func (t *Table) Close() {
 		if sm != nil {
 			sm.Stop()
 		}
+
+		// Clear references after shutdown to aid GC; keep outside of hot path.
+		t.mu.Lock()
+		t.game = nil
+		t.sm = nil
+		t.mu.Unlock()
 	})
 }
 
@@ -351,7 +361,14 @@ func (t *Table) handleGameOver(winnerID string) {
 	t.mu.RLock()
 	game := t.game
 	tableID := t.config.ID
-	users := t.users
+	users := make([]*User, 0, len(t.users)) // snapshot to avoid races with concurrent removal
+	for _, u := range t.users {
+		users = append(users, u)
+	}
+	var totalPot int64
+	if t.lastShowdown != nil {
+		totalPot = t.lastShowdown.TotalPot
+	}
 	t.mu.RUnlock()
 
 	defer func() {
@@ -383,14 +400,6 @@ func (t *Table) handleGameOver(winnerID string) {
 			break
 		}
 	}
-
-	// Calculate total pot from showdown result if available
-	var totalPot int64
-	t.mu.RLock()
-	if t.lastShowdown != nil {
-		totalPot = t.lastShowdown.TotalPot
-	}
-	t.mu.RUnlock()
 
 	// Construct matchID for referee settlement (table_id is the match identifier for SNG)
 	matchID := tableID
@@ -1393,8 +1402,11 @@ func (t *Table) GetUserAtSeat(seat int) *User {
 
 // RemoveUser removes a user from the table
 func (t *Table) RemoveUser(userID string) error {
+	if t.closedFlag.Load() {
+		return fmt.Errorf("table closed")
+	}
+
 	t.mu.Lock()
-	sm := t.sm
 	if _, exists := t.users[userID]; !exists {
 		t.mu.Unlock()
 		return fmt.Errorf("user not at table")
@@ -1404,7 +1416,13 @@ func (t *Table) RemoveUser(userID string) error {
 	t.mu.Unlock()
 
 	// Trigger state machine update to check if we should transition back to WAITING_FOR_PLAYERS
-	sm.Send(evUsersChanged{})
+	if err := t.sendTableEvent(evUsersChanged{}); err != nil {
+		// If the table is already shutting down, treat this as a no-op.
+		if err.Error() == "table closed" {
+			return nil
+		}
+		return err
+	}
 
 	return nil
 }
@@ -1434,11 +1452,14 @@ func (t *Table) SetHost(newHostID string) error {
 }
 
 func (t *Table) sendTableEvent(ev any) (err error) {
+	if t.closedFlag.Load() {
+		return fmt.Errorf("table closed")
+	}
+
 	t.mu.RLock()
-	closed := t.closed
 	sm := t.sm
 	t.mu.RUnlock()
-	if closed || sm == nil {
+	if sm == nil {
 		return fmt.Errorf("table closed")
 	}
 	defer func() {
@@ -1584,6 +1605,9 @@ type TableStateSnapshot struct {
 
 // GetStateSnapshot returns an atomic snapshot of the table state for safe concurrent access
 func (t *Table) GetStateSnapshot() TableStateSnapshot {
+	if t.closedFlag.Load() {
+		return TableStateSnapshot{}
+	}
 	// Grab table data while holding lock
 	t.mu.RLock()
 
