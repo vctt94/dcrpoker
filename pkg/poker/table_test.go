@@ -17,19 +17,30 @@ import (
 func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChips int64) *Table {
 	t.Helper()
 	tbl := NewTable(TableConfig{
-		ID:               "tbl-test",
-		Log:              createTestLogger(),
-		GameLog:          createTestLogger(),
-		HostID:           "host",
-		BuyIn:            0,
-		MinPlayers:       minPlayers,
-		MaxPlayers:       maxPlayers,
-		SmallBlind:       sb,
-		BigBlind:         bb,
-		StartingChips:    startingChips,
-		TimeBank:         5 * time.Second,
-		AutoStartDelay:   100 * time.Millisecond,
+		ID:            "tbl-test",
+		Log:           createTestLogger(),
+		GameLog:       createTestLogger(),
+		HostID:        "host",
+		BuyIn:         0,
+		MinPlayers:    minPlayers,
+		MaxPlayers:    maxPlayers,
+		SmallBlind:    sb,
+		BigBlind:      bb,
+		StartingChips: startingChips,
+		TimeBank:      5 * time.Second,
+		// Disable auto-start to keep unit tests from spinning new hands forever.
+		AutoStartDelay:   0,
 		AutoAdvanceDelay: 1 * time.Second,
+	})
+	eventChan := make(chan TableEvent, 16)
+	tbl.SetEventChannel(eventChan)
+	go func() {
+		for range eventChan {
+		}
+	}()
+	t.Cleanup(func() {
+		tbl.Close()
+		close(eventChan)
 	})
 	return tbl
 }
@@ -520,6 +531,8 @@ func TestAllInFlag_HeadsUpCallTriggersShowdown(t *testing.T) {
 //   - This test verifies the game does NOT hang when the short-stack is all-in from blinds.
 func TestShortStackSBCall_AllInNoHang(t *testing.T) {
 	tbl := newTestTable(t, 2, 2, 10, 20, 20)
+	// This scenario relies on auto-starting the next hand; re-enable it for the test.
+	tbl.config.AutoStartDelay = 100 * time.Millisecond
 	user1, err := tbl.AddNewUser("p1", nil)
 	require.NoError(t, err)
 	user2, err := tbl.AddNewUser("p2", nil)
@@ -1023,9 +1036,7 @@ func TestTableClose_Idempotent(t *testing.T) {
 	table.Close()
 
 	// Verify table is marked as closed
-	table.mu.RLock()
-	closed := table.closed
-	table.mu.RUnlock()
+	closed := table.closedFlag.Load()
 
 	if !closed {
 		t.Error("Expected table.closed to be true after Close()")
@@ -1072,9 +1083,7 @@ func TestTableClose_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	// Verify table is closed
-	table.mu.RLock()
-	closed := table.closed
-	table.mu.RUnlock()
+	closed := table.closedFlag.Load()
 
 	if !closed {
 		t.Error("Expected table.closed to be true after concurrent Close() calls")
@@ -1150,10 +1159,10 @@ func TestTableClose_WithGame(t *testing.T) {
 
 	// Now close the table
 	table.Close()
+	closed := table.closedFlag.Load()
 
 	// Verify everything is cleaned up
 	table.mu.RLock()
-	closed := table.closed
 	game := table.game
 	sm := table.sm
 	table.mu.RUnlock()
@@ -1208,9 +1217,7 @@ func TestTableClose_BackgroundGoroutinesStop(t *testing.T) {
 	}
 
 	// Verify closed
-	table.mu.RLock()
-	closed := table.closed
-	table.mu.RUnlock()
+	closed := table.closedFlag.Load()
 
 	if !closed {
 		t.Error("Expected table.closed to be true")

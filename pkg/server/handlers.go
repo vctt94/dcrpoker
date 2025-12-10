@@ -429,35 +429,92 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		}, nil
 	}
 
-	// Build players list from snapshot data
+	// Build players list from the authoritative game snapshot when available.
+	// If the game snapshot lacks per-player data (e.g., early phases in tests),
+	// fall back to the table-level snapshots so we still emit complete rosters.
+	userSnapshots := make(map[string]*PlayerSnapshot, len(tableSnapshot.Players))
+	for _, us := range tableSnapshot.Players {
+		if us != nil && us.ID != "" {
+			userSnapshots[us.ID] = us
+		}
+	}
+
+	gPlayers := tableSnapshot.GameSnapshot.Players
+	if len(gPlayers) == 0 {
+		gPlayers = make([]poker.PlayerSnapshot, 0, len(tableSnapshot.Players))
+		for _, us := range tableSnapshot.Players {
+			if us == nil || us.ID == "" {
+				continue
+			}
+			gPlayers = append(gPlayers, poker.PlayerSnapshot{
+				ID:              us.ID,
+				Name:            us.Name,
+				TableSeat:       us.TableSeat,
+				IsReady:         us.IsReady,
+				IsDisconnected:  us.IsDisconnected,
+				LastAction:      us.LastAction,
+				Balance:         us.Balance,
+				StartingBalance: us.StartingBalance,
+				Folded:          us.HasFolded,
+				IsAllIn:         us.IsAllIn,
+				Hand:            us.Hand,
+				CurrentBet:      us.HasBet,
+				IsDealer:        us.IsDealer,
+				IsSmallBlind:    us.IsSmallBlind,
+				IsBigBlind:      us.IsBigBlind,
+				IsTurn:          us.IsTurn,
+				StateString:     us.GameState,
+				HandDescription: us.HandDescription,
+			})
+		}
+	}
+
 	var players []*pokerrpc.Player
-	for _, ps := range tableSnapshot.Players {
-		player := &pokerrpc.Player{
-			Id:             ps.ID,
-			Name:           ps.Name,
-			Balance:        ps.Balance,
-			IsReady:        ps.IsReady,
-			Folded:         ps.HasFolded,
-			IsAllIn:        ps.IsAllIn,
-			CurrentBet:     ps.HasBet,
-			IsDealer:       ps.IsDealer,
-			IsSmallBlind:   ps.IsSmallBlind,
-			IsBigBlind:     ps.IsBigBlind,
-			IsDisconnected: ps.IsDisconnected,
-			// Use FSM-derived snapshot value. UIs should prefer
-			// GameUpdate.CurrentPlayer for highlighting.
-			IsTurn:          ps.IsTurn,
-			EscrowId:        ps.EscrowID,
-			EscrowReady:     ps.EscrowReady,
-			PresignComplete: ps.PresignComplete,
-			TableSeat:       int32(ps.TableSeat),
+	for _, gps := range gPlayers {
+		if gps.ID == "" {
+			continue
+		}
+		// If the table roster no longer contains this player (e.g., after PLAYER_LOST),
+		// skip it to keep the game state aligned with the current table membership.
+		userSnap, ok := userSnapshots[gps.ID]
+		if !ok {
+			continue
 		}
 
-		if ps.ID == requestingPlayerID {
+		player := &pokerrpc.Player{
+			Id:             gps.ID,
+			Name:           gps.Name,
+			Balance:        gps.Balance,
+			IsReady:        gps.IsReady,
+			Folded:         gps.Folded,
+			IsAllIn:        gps.IsAllIn,
+			CurrentBet:     gps.CurrentBet,
+			IsDealer:       gps.IsDealer,
+			IsSmallBlind:   gps.IsSmallBlind,
+			IsBigBlind:     gps.IsBigBlind,
+			IsDisconnected: gps.IsDisconnected,
+			IsTurn:         gps.IsTurn,
+			TableSeat:      int32(gps.TableSeat),
+		}
+
+		// Prefer table-level metadata when present.
+		if userSnap != nil {
+			if userSnap.Name != "" {
+				player.Name = userSnap.Name
+			}
+			player.IsReady = player.IsReady || userSnap.IsReady
+			player.IsDisconnected = player.IsDisconnected || userSnap.IsDisconnected
+			player.TableSeat = int32(userSnap.TableSeat)
+			player.EscrowId = userSnap.EscrowID
+			player.EscrowReady = userSnap.EscrowReady
+			player.PresignComplete = userSnap.PresignComplete
+		}
+
+		if gps.ID == requestingPlayerID {
 			// Show own cards during all active game phases
-			if len(ps.Hand) > 0 {
-				player.Hand = make([]*pokerrpc.Card, len(ps.Hand))
-				for i, card := range ps.Hand {
+			if len(gps.Hand) > 0 {
+				player.Hand = make([]*pokerrpc.Card, len(gps.Hand))
+				for i, card := range gps.Hand {
 					player.Hand[i] = &pokerrpc.Card{
 						Suit:  card.GetSuit(),
 						Value: card.GetValue(),
@@ -466,9 +523,9 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 			}
 		} else if tableSnapshot.GameSnapshot.Phase == pokerrpc.GamePhase_SHOWDOWN {
 			// Show other players' cards only during showdown
-			player.Hand = make([]*pokerrpc.Card, len(ps.Hand))
-			player.HandDescription = ps.HandDescription
-			for i, card := range ps.Hand {
+			player.Hand = make([]*pokerrpc.Card, len(gps.Hand))
+			player.HandDescription = gps.HandDescription
+			for i, card := range gps.Hand {
 				player.Hand[i] = &pokerrpc.Card{
 					Suit:  card.GetSuit(),
 					Value: card.GetValue(),
@@ -494,10 +551,9 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 	if tableSnapshot != nil {
 		if tb := tableSnapshot.Config.TimeBank; tb > 0 {
 			tbSec = int32(tb.Seconds())
-			// find current player snapshot and add tb to LastAction
 			curID := tableSnapshot.GameSnapshot.CurrentPlayer
 			if curID != "" {
-				for _, ps := range tableSnapshot.Players {
+				for _, ps := range gPlayers {
 					if ps.ID == curID {
 						dl := ps.LastAction.Add(tableSnapshot.Config.TimeBank)
 						deadlineMs = dl.UnixMilli()
@@ -519,7 +575,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		CurrentPlayer:      tableSnapshot.GameSnapshot.CurrentPlayer,
 		GameStarted:        tableSnapshot.State.GameStarted,
 		PlayersRequired:    int32(tableSnapshot.Config.MinPlayers),
-		PlayersJoined:      int32(tableSnapshot.State.PlayerCount),
+		PlayersJoined:      int32(len(players)),
 		TimeBankSeconds:    tbSec,
 		TurnDeadlineUnixMs: deadlineMs,
 		SmallBlind:         tableSnapshot.Config.SmallBlind,

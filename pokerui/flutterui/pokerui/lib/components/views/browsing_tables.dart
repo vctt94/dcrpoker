@@ -20,9 +20,17 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
   String _shortId(String s, [int n = 8]) => s.isEmpty ? '' : (s.length <= n ? s : s.substring(0, n));
   double _toDcr(int atoms) => atoms / 1e8;
 
+  String _playerLabel(UiPlayer p) {
+    final name = p.name.trim();
+    if (name.isNotEmpty) {
+      return name.length > 14 ? '${name.substring(0, 14)}...' : name;
+    }
+    return _shortId(p.id, 10);
+  }
+
   Widget _playerPill(UiPlayer p) {
     final ready = p.isReady;
-    final color = ready ? Colors.green.shade600 : Colors.orange.shade700;
+    final color = ready ? Colors.green.shade600 : Colors.blue.shade400;
     final icon = ready ? Icons.check_circle : Icons.hourglass_empty;
     final escrowColor = p.escrowId.isEmpty
         ? Colors.white30
@@ -36,7 +44,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
-          Text(_shortId(p.id, 10), style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+          Text(_playerLabel(p), style: TextStyle(color: color, fontWeight: FontWeight.w600)),
           if (p.escrowId.isNotEmpty) ...[
             const SizedBox(width: 8),
             Container(
@@ -166,7 +174,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
             // Allow opening the table even if full when already seated; otherwise
             // block joins for started games or full seats.
             final canJoin = alreadySeated || (!started && !full);
-            final statusColor = started ? Colors.green : Colors.orange;
+            final statusColor = started ? Colors.green : Colors.blue.shade500;
             final statusText = started ? 'In Progress' : 'Waiting';
 
             return Card(

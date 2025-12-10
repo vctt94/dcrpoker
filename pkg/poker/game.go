@@ -88,6 +88,9 @@ type Game struct {
 	autoAdvanceTimer    *time.Timer
 	autoAdvanceCanceled atomic.Bool
 
+	// Shutdown coordination to avoid scheduling new work while stopping
+	shuttingDown atomic.Bool
+
 	// Logger
 	log slog.Logger
 
@@ -445,6 +448,26 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 	return statePreFlop
 }
 
+// countActivePlayersLocked returns how many players are still actionable
+// (i.e. in the hand and not all-in). g.mu MUST be held.
+func (g *Game) countActivePlayers() int {
+	mustHeld(&g.mu)
+
+	active := 0
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		// Folded and all-in are not actionable
+		if state == FOLDED_STATE || state == ALL_IN_STATE {
+			continue
+		}
+		active++
+	}
+	return active
+}
+
 func statePreFlop(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.phase = pokerrpc.GamePhase_PRE_FLOP
@@ -485,22 +508,30 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_FLOP
 	g.lastAggressor = -1
-	// Initialize first actor for the new street (post-flop: player after dealer)
-	g.initializeCurrentPlayer()
 
-	// Check if auto-advance is enabled (all players all-in)
+	// Snapshot auto-advance flag and count actionable players
 	autoAdvance := g.autoAdvanceEnabled
-	activePlayers := 0
-	for _, p := range g.players {
-		if p == nil {
-			continue
+	activePlayers := g.countActivePlayers()
+
+	// Decide current player & whether to start a turn timer
+	if activePlayers == 0 {
+		// Nobody can act; don't assign a current player
+		g.currentPlayer = -1
+	} else if !autoAdvance || activePlayers >= 2 {
+		// Normal betting round (no auto-advance, or multi-way street):
+		// pick first actor and start their turn.
+		g.currentPlayer = g.computeFirstActorIndex()
+		if g.currentPlayer >= 0 {
+			g.players[g.currentPlayer].StartTurn()
 		}
-		state := p.GetCurrentStateString()
-		if state != FOLDED_STATE && state != ALL_IN_STATE {
-			activePlayers++
-		}
+	} else {
+		// autoAdvance == true && activePlayers == 1:
+		// streets will auto-advance; DO NOT start a turn timer.
+		g.currentPlayer = -1
 	}
-	g.log.Debugf("stateFlop: entered, autoAdvanceEnabled=%v, activePlayers=%d", autoAdvance, activePlayers)
+
+	g.log.Debugf("stateFlop: entered, autoAdvanceEnabled=%v, activePlayers=%d",
+		autoAdvance, activePlayers)
 	g.mu.Unlock()
 
 	// Emit betting round complete event AFTER dealing and state mutation
@@ -509,14 +540,13 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 
 	// If auto-advance is enabled, schedule the next advance unless there are
 	// 2+ active players. With 0 or 1 active player, we auto-advance streets.
-	if autoAdvance {
-		if activePlayers <= 1 {
-			g.log.Debugf("stateFlop: auto-advance enabled (active=%d), scheduling advance to TURN", activePlayers)
-			g.ScheduleAutoAdvance()
-		}
+	if autoAdvance && activePlayers <= 1 {
+		g.log.Debugf("stateFlop: auto-advance enabled (active=%d), scheduling advance to TURN",
+			activePlayers)
+		g.ScheduleAutoAdvance()
 	}
 
-	// wait events ...
+	// Wait for events...
 	for ev := range in {
 		if next, handled := handleGameEvent(g, ev); handled {
 			if next != nil {
@@ -535,40 +565,31 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 
 func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
-	// Deal turn on entry; guard against double-deal
 	g.dealTurn()
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_TURN
 	g.lastAggressor = -1
-	// Initialize first actor for the new street
-	g.initializeCurrentPlayer()
 
-	// Check if auto-advance is enabled (all players all-in)
 	autoAdvance := g.autoAdvanceEnabled
-	activePlayers := 0
-	for _, p := range g.players {
-		if p == nil {
-			continue
+	activePlayers := g.countActivePlayers()
+
+	if !autoAdvance || activePlayers >= 2 {
+		g.currentPlayer = g.computeFirstActorIndex()
+		if g.currentPlayer >= 0 {
+			g.players[g.currentPlayer].StartTurn()
 		}
-		state := p.GetCurrentStateString()
-		if state != FOLDED_STATE && state != ALL_IN_STATE {
-			activePlayers++
-		}
+	} else {
+		g.currentPlayer = -1
 	}
+
 	g.log.Debugf("stateTurn: entered, autoAdvanceEnabled=%v, activePlayers=%d", autoAdvance, activePlayers)
 	g.mu.Unlock()
 
-	// Emit betting round complete event AFTER dealing and state mutation
-	// This allows clients to see the turn card with the correct phase
 	g.sendTableEvent(GameEvent{Type: GameEventBettingRoundComplete})
 
-	// If auto-advance is enabled, schedule the next advance unless there are
-	// 2+ active players. With 0 or 1 active player, we auto-advance streets.
-	if autoAdvance {
-		if activePlayers <= 1 {
-			g.log.Debugf("stateTurn: auto-advance enabled (active=%d), scheduling advance to RIVER", activePlayers)
-			g.ScheduleAutoAdvance()
-		}
+	if autoAdvance && activePlayers <= 1 {
+		g.log.Debugf("stateTurn: auto-advance enabled (active=%d), scheduling advance to RIVER", activePlayers)
+		g.ScheduleAutoAdvance()
 	}
 
 	for ev := range in {
@@ -594,22 +615,29 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.currentBet = 0
 	g.phase = pokerrpc.GamePhase_RIVER
 	g.lastAggressor = -1
-	// Initialize first actor for the new street
-	g.initializeCurrentPlayer()
 
-	// Check if auto-advance is enabled (all players all-in)
+	// Check if auto-advance is enabled and count actionable players
 	autoAdvance := g.autoAdvanceEnabled
-	activePlayers := 0
-	for _, p := range g.players {
-		if p == nil {
-			continue
+	activePlayers := g.countActivePlayers()
+
+	// Decide who (if anyone) is the current actor and whether to start a turn
+	if activePlayers == 0 {
+		// Nobody can act
+		g.currentPlayer = -1
+	} else if !autoAdvance || activePlayers >= 2 {
+		// Normal betting round: pick first actor and start their turn
+		g.currentPlayer = g.computeFirstActorIndex()
+		if g.currentPlayer >= 0 {
+			g.players[g.currentPlayer].StartTurn()
 		}
-		state := p.GetCurrentStateString()
-		if state != FOLDED_STATE && state != ALL_IN_STATE {
-			activePlayers++
-		}
+	} else {
+		// autoAdvance == true && activePlayers == 1:
+		// Streets will auto-advance; DO NOT start a timed turn on the last active player.
+		g.currentPlayer = -1
 	}
-	g.log.Debugf("stateRiver: entered, autoAdvanceEnabled=%v, activePlayers=%d", autoAdvance, activePlayers)
+
+	g.log.Debugf("stateRiver: entered, autoAdvanceEnabled=%v, activePlayers=%d",
+		autoAdvance, activePlayers)
 	g.mu.Unlock()
 
 	// Emit betting round complete event AFTER dealing and state mutation
@@ -621,6 +649,7 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	if autoAdvance {
 		if activePlayers <= 1 {
 			g.log.Debugf("stateRiver: auto-advance enabled (active=%d), scheduling advance to SHOWDOWN", activePlayers)
+
 			// Disable auto-advance for showdown (it's the final state)
 			g.mu.Lock()
 			g.autoAdvanceEnabled = false
@@ -867,6 +896,7 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 			if balance <= 0 {
 				g.log.Debugf("stateShowdown: player %s has 0 chips, sending GameEventPlayerLost", id)
 				g.sendTableEvent(GameEvent{Type: GameEventPlayerLost, PlayerID: id})
+				g.pruneEliminatedPlayer(id)
 			}
 		}
 	}
@@ -939,6 +969,16 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		}
 	}
 	return nil
+}
+
+func (g *Game) pruneEliminatedPlayer(playerID string) {
+	mustHeld(&g.mu)
+	for i, p := range g.players {
+		if p != nil && p.id == playerID {
+			g.players = append(g.players[:i], g.players[i+1:]...)
+			break
+		}
+	}
 }
 
 func stateEnd(*Game, <-chan any) GameStateFn { return nil }
@@ -1166,19 +1206,20 @@ func (g *Game) dealHoleCards() error {
 // Close stops all player state machines and cleans up resources.
 // This must be called when a game is no longer needed to prevent goroutine leaks.
 func (g *Game) Close() {
-	// Grab references while holding lock
+	// Mark shutdown early to prevent new timers/events from scheduling
+	g.shuttingDown.Store(true)
+
+	// Grab references while holding lock and cancel timers
 	g.mu.Lock()
 	players := make([]*Player, len(g.players))
 	copy(players, g.players)
 	sm := g.sm
-	autoStartTimer := g.autoStartTimer
-	autoAdvanceTimer := g.autoAdvanceTimer
 	playerCh := g.playerEventChan
+	// Cancel timers under lock so callbacks bail before FSM is stopped
+	g.cancelAutoAdvance()
+	g.cancelAutoStart()
 	// Cancel auto-advance under lock so the timer callback sees the canceled flag
 	// before we stop the state machine (prevents send on closed inbox).
-	if autoAdvanceTimer != nil {
-		g.cancelAutoAdvance()
-	}
 	g.mu.Unlock()
 
 	// Cancel all player timebank timers and sever their event channels
@@ -1214,14 +1255,6 @@ func (g *Game) Close() {
 	g.sm = nil
 	g.playerEventChan = nil
 	g.mu.Unlock()
-
-	// Cancel timers if running (timer.Stop() is safe to call concurrently)
-	if autoStartTimer != nil {
-		autoStartTimer.Stop()
-	}
-	if autoAdvanceTimer != nil {
-		autoAdvanceTimer.Stop()
-	}
 }
 
 // SetPlayers sets the players for this game from table users
@@ -1485,41 +1518,6 @@ func (g *Game) handlePlayerCheck(playerID string) error {
 	return nil
 }
 
-// handleTimebankAutoCheck handles the special case where a player's per-turn
-// timebank expires on a street with no aggressor and no outstanding bet.
-// It advances the turn but intentionally skips betting-round completion checks
-// so that a sequence of pure auto-checks does NOT silently advance the street.
-// Requires: g.mu held.
-func (g *Game) handleTimebankAutoCheck(playerID string) error {
-	mustHeld(&g.mu)
-
-	player := g.getPlayerByID(playerID)
-	if player == nil {
-		return fmt.Errorf("player not found in game")
-	}
-
-	if g.currentPlayerID() != playerID {
-		return fmt.Errorf("not your turn to act")
-	}
-
-	// Sanity: ensure the player is allowed to auto-check (no bet to call).
-	if player.currentBet < g.currentBet {
-		return fmt.Errorf("cannot auto-check when there's a bet to call (player bet: %d, current bet: %d)",
-			player.currentBet, g.currentBet)
-	}
-
-	// Match HandlePlayerCheck semantics for per-player bookkeeping, but do NOT
-	// run maybeCompleteBettingRound() afterward.
-	player.mu.Lock()
-	player.lastAction = time.Now()
-	player.mu.Unlock()
-
-	player.EndTurn()
-	g.advanceToNextPlayer(time.Now())
-
-	return nil
-}
-
 // HandlePlayerBet handles a player betting in the game (external API)
 func (g *Game) HandlePlayerBet(playerID string, amount int64) error {
 	g.mu.Lock()
@@ -1666,34 +1664,47 @@ func (g *Game) currentPlayerID() string {
 	return g.players[g.currentPlayer].ID()
 }
 
-// advanceToNextPlayer moves to the next active player
+// advanceToNextPlayer moves to the next active player.
 // Note: The caller (action handlers like bet, call, check, fold) is responsible
 // for ending the current player's turn before calling this function.
+//
+// This function checks shouldSkipTurnTimer() before starting a turn timer.
+// If auto-advance conditions are met (e.g., all other players are all-in),
+// we update currentPlayer but do NOT start a timer—maybeCompleteBettingRound
+// will handle scheduling auto-advance instead.
 func (g *Game) advanceToNextPlayer(now time.Time) {
 	mustHeld(&g.mu)
 	if len(g.players) == 0 {
 		return
 	}
 
-	playersChecked := 0
 	maxPlayers := len(g.players)
+	foundNext := false
 
-	for {
-		g.currentPlayer = (g.currentPlayer + 1) % len(g.players)
-		playersChecked++
+	// Find the next IN_GAME player
+	for i := 0; i < maxPlayers; i++ {
+		g.currentPlayer = (g.currentPlayer + 1) % maxPlayers
 
-		if playersChecked >= maxPlayers {
-			break
-		}
-
-		// Only start turn for players that are actively in the hand.
-		// This avoids blocking StartTurn on players whose FSM is in AT_TABLE.
 		if g.players[g.currentPlayer].GetCurrentStateString() == IN_GAME_STATE {
-			g.players[g.currentPlayer].StartTurn()
+			foundNext = true
 			break
 		}
 		// Skip FOLDED, ALL_IN, AT_TABLE, LEFT, etc.
 	}
+
+	if !foundNext {
+		// No actionable player found
+		return
+	}
+
+	// Check if we should skip starting the turn timer (auto-advance scenario)
+	if g.shouldSkipTurnTimer() {
+		// Don't start timer - maybeCompleteBettingRound will handle auto-advance
+		return
+	}
+
+	// Normal case: start the player's turn timer
+	g.players[g.currentPlayer].StartTurn()
 }
 
 // ShowdownPlayerInfo captures each player's state at showdown
@@ -2010,6 +2021,77 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	return result, nil
 }
 
+// shouldSkipTurnTimer returns true if auto-advance conditions are met and we should
+// NOT start a player's turn timer. This happens when:
+// - All remaining players are all-in/folded (active == 0), OR
+// - Only one can act but all others are all-in with matched bets
+//
+// This is a pure check function that does NOT mutate any state.
+// Requires: g.mu held.
+func (g *Game) shouldSkipTurnTimer() bool {
+	mustHeld(&g.mu)
+
+	// Find the effective bet and count player states
+	maxAllInBet := int64(0)
+	alive, active, unmatched := 0, 0, 0
+
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+
+		// Skip folded entirely
+		if state == FOLDED_STATE {
+			continue
+		}
+
+		alive++
+
+		if state == ALL_IN_STATE {
+			p.mu.RLock()
+			allInBet := p.currentBet
+			p.mu.RUnlock()
+			if allInBet > maxAllInBet {
+				maxAllInBet = allInBet
+			}
+			continue
+		}
+
+		active++
+	}
+
+	// Calculate effective bet
+	effectiveBet := g.currentBet
+	if maxAllInBet > 0 && maxAllInBet < effectiveBet {
+		effectiveBet = maxAllInBet
+	}
+
+	// Count unmatched active players
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		state := p.GetCurrentStateString()
+		if state == FOLDED_STATE || state == ALL_IN_STATE {
+			continue
+		}
+		p.mu.RLock()
+		cb := p.currentBet
+		p.mu.RUnlock()
+		if cb < effectiveBet {
+			unmatched++
+		}
+	}
+
+	allInCount := alive - active
+
+	// Skip turn timer if:
+	// - No active players (all are all-in or folded), OR
+	// - Only one active player but others are all-in with matched bets
+	return active == 0 || (active == 1 && allInCount > 0 && unmatched == 0)
+}
+
 // maybeCompleteBettingRound checks if the betting round is complete and advances to next phase.
 // Goal: advance street only when the acting turn finished AND all actionable players are matched.
 // - Do NOT touch per-player currentBet (used for pot building).
@@ -2198,75 +2280,43 @@ func (g *Game) AdvanceToNextPlayer(now time.Time) {
 	g.advanceToNextPlayer(now)
 }
 
-// InitializeCurrentPlayer sets the current player with proper locking (external API)
-func (g *Game) InitializeCurrentPlayer() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.initializeCurrentPlayer()
-}
-
-// initializeCurrentPlayer sets the current player based on game phase and rules
-func (g *Game) initializeCurrentPlayer() {
+// computeFirstActorIndex returns the index of the first player who should act
+// on the current street, or -1 if no player can act.
+// This is a pure function that does NOT mutate any state.
+// Requires: g.mu held.
+func (g *Game) computeFirstActorIndex() int {
 	mustHeld(&g.mu)
+
 	if len(g.players) == 0 {
-		g.currentPlayer = -1
-		return
+		return -1
 	}
 
 	numPlayers := len(g.players)
+	var startIdx int
 
-	// In pre-flop, start with Under the Gun (player after big blind)
 	if g.phase == pokerrpc.GamePhase_PRE_FLOP {
 		if numPlayers == 2 {
-			// In heads-up, after blinds are posted, small blind acts first
-			// The small blind IS the dealer in heads-up
-			g.currentPlayer = g.dealer
+			startIdx = g.dealer
 		} else {
-			// In multi-way, Under the Gun acts first (after big blind)
-			g.currentPlayer = (g.dealer + 3) % numPlayers
+			startIdx = (g.dealer + 3) % numPlayers
 		}
 	} else {
-		// Post-flop action order:
-		// - Heads-up: Big blind acts first (dealer is SB, so dealer+1 = BB acts first)
-		// - Multi-way: Small blind acts first (dealer+1 = SB acts first)
-		//
-		// In both cases, the formula is the same: (dealer + 1) % numPlayers
-		g.currentPlayer = (g.dealer + 1) % numPlayers
+		startIdx = (g.dealer + 1) % numPlayers
 	}
 
-	// Ensure we start with an active player and handle edge cases
-	playersChecked := 0
-	maxPlayers := len(g.players)
-
-	for {
-		// Validate currentPlayer is within bounds
-		if g.currentPlayer < 0 || g.currentPlayer >= len(g.players) {
-			g.currentPlayer = 0 // Reset to first player if out of bounds
+	// Find first IN_GAME player starting from startIdx
+	idx := startIdx
+	for i := 0; i < numPlayers; i++ {
+		if idx < 0 || idx >= numPlayers {
+			idx = 0
 		}
-
-		// Use the unified player state directly; only IN_GAME can act.
-		if g.players[g.currentPlayer].GetCurrentStateString() == IN_GAME_STATE {
-			break
+		if g.players[idx].GetCurrentStateString() == IN_GAME_STATE {
+			return idx
 		}
-
-		g.currentPlayer = (g.currentPlayer + 1) % len(g.players)
-		playersChecked++
-
-		// Prevent infinite loop by checking all players at most once
-		if playersChecked >= maxPlayers {
-			// All players have folded - this shouldn't happen during initialization
-			// Default to first player
-			g.currentPlayer = 0
-			break
-		}
+		idx = (idx + 1) % numPlayers
 	}
 
-	// Start turn for the new current player only if actively in the hand
-	if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-		if g.players[g.currentPlayer].GetCurrentStateString() == IN_GAME_STATE {
-			g.players[g.currentPlayer].StartTurn()
-		}
-	}
+	return -1
 }
 
 // GetRound returns the current round number
@@ -2321,8 +2371,6 @@ func (g *Game) SetGameState(dealer, round int, currentBet, pot int64, phase poke
 	g.phase = phase
 	// Note: Pot will be restored through the potManager when restoring player bets
 	// We can't directly set the pot value, but it will be calculated from player bets
-
-	g.initializeCurrentPlayer()
 }
 
 // RestoreGameState rebuilds all derived state from persisted player data
@@ -2357,7 +2405,7 @@ func (g *Game) RestoreGameState(tableID string) {
 	// 3) (re)choose a valid current player from rules, not from snapshot
 	// Skip setting a current player at SHOWDOWN (no actions allowed).
 	if g.phase != pokerrpc.GamePhase_SHOWDOWN {
-		g.initializeCurrentPlayer() // uses phase/dealer and skips folded/all-in/disconnected
+		g.currentPlayer = g.computeFirstActorIndex() // uses phase/dealer and skips folded/all-in/disconnected
 	} else {
 		g.currentPlayer = -1
 		for _, p := range g.players {
@@ -2409,14 +2457,23 @@ func (g *Game) ClearPreFlopNotification() {
 
 // scheduleAutoStart schedules automatic start of next hand after configured delay
 func (g *Game) ScheduleAutoStart() {
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.scheduleAutoStart()
 }
 
 // scheduleAutoStart is the internal implementation
 func (g *Game) scheduleAutoStart() {
 	mustHeld(&g.mu)
+	if g.shuttingDown.Load() {
+		return
+	}
 	// Cancel any existing auto-start timer
 	g.cancelAutoStart()
 
@@ -2432,11 +2489,11 @@ func (g *Game) scheduleAutoStart() {
 	// Mark that auto-start is pending
 	g.autoStartCanceled.Store(false)
 	g.autoStartTimer = time.AfterFunc(g.config.AutoStartDelay, func() {
-		if g.autoStartCanceled.Load() {
+		if g.shuttingDown.Load() || g.autoStartCanceled.Load() {
 			return
 		}
 		g.mu.Lock()
-		if g.autoStartCanceled.Load() {
+		if g.shuttingDown.Load() || g.autoStartCanceled.Load() {
 			g.mu.Unlock()
 			return
 		}
@@ -2459,8 +2516,14 @@ func (g *Game) cancelAutoStart() {
 // ScheduleAutoAdvance schedules automatic advance to next street when all players are all-in.
 // This function acquires g.mu internally - safe to call without holding the lock.
 func (g *Game) ScheduleAutoAdvance() {
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if g.shuttingDown.Load() {
+		return
+	}
 	g.scheduleAutoAdvance()
 }
 
@@ -2480,6 +2543,9 @@ func (g *Game) cancelAutoAdvance() {
 // Requires: g.mu held
 func (g *Game) scheduleAutoAdvance() {
 	mustHeld(&g.mu)
+	if g.shuttingDown.Load() {
+		return
+	}
 
 	// Cancel any existing auto-advance timer
 	g.cancelAutoAdvance()
@@ -2810,8 +2876,6 @@ type evMaybeCompleteReq struct{}
 
 type evAdvanceToNextPlayerReq struct{ now time.Time }
 
-type evInitializeCurrentPlayerReq struct{}
-
 type evSetCurrentPlayerByIDReq struct{ id string }
 
 type evStateFlopReq struct{ reply chan struct{} }
@@ -2901,24 +2965,10 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 
 			if need <= 0 {
 				// Auto-check path when there's nothing to call.
+				// Treat exactly like a normal check so betting-round completion
+				// logic runs and the street can advance after everyone checks.
 				act = "check"
-
-				// Special case: avoid advancing the street when EVERY action on
-				// the street is an auto-check due to timebank expiry.
-				//
-				// We detect the "pure auto-check street" by requiring:
-				//   - no aggressor yet (no voluntary bet/raise)
-				//   - table currentBet == 0 (no outstanding bet)
-				//
-				// In that case we still end the player's turn and advance to
-				// the next player, but we intentionally skip
-				// maybeCompleteBettingRound() so that the betting round does
-				// NOT silently advance when everyone times out.
-				if g.lastAggressor < 0 && g.currentBet == 0 {
-					allowAdvance = false
-				} else {
-					allowAdvance = true
-				}
+				allowAdvance = true
 			} else {
 				// Facing a bet: auto-fold.
 				act = "fold"
@@ -2930,16 +2980,7 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		switch act {
 		case "check":
 			if allowAdvance {
-				// Normal path: treat as an explicit check so that betting-round
-				// completion and auto-advance semantics remain unchanged.
 				_ = g.HandlePlayerCheck(e.id)
-			} else {
-				// Timebank-only check on a street with no aggressor and no bet.
-				// We only advance the turn, without evaluating betting-round
-				// completion, so the street does not silently advance.
-				g.mu.Lock()
-				_ = g.handleTimebankAutoCheck(e.id)
-				g.mu.Unlock()
 			}
 		case "fold":
 			_ = g.HandlePlayerFold(e.id)
@@ -2950,11 +2991,6 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 	case evAdvanceToNextPlayerReq:
 		g.mu.Lock()
 		g.advanceToNextPlayer(e.now)
-		g.mu.Unlock()
-		return nil, true
-	case evInitializeCurrentPlayerReq:
-		g.mu.Lock()
-		g.initializeCurrentPlayer()
 		g.mu.Unlock()
 		return nil, true
 	case evSetCurrentPlayerByIDReq:

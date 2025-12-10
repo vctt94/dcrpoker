@@ -701,7 +701,21 @@ func (s *Server) processTableEvents(eventChan <-chan poker.TableEvent) {
 			s.log.Errorf("failed to build %s event: %v", event.Type, err)
 			continue
 		}
+
+		// Publish to notification/state handlers
 		s.eventProcessor.PublishEvent(ev)
+
+		// Only after publishing (so snapshots include the busted player) do we remove
+		// eliminated players from the table to avoid racing with snapshot collection.
+		if ev.Type == pokerrpc.NotificationType_PLAYER_LOST {
+			if pl, ok := ev.Payload.(PlayerLostPayload); ok {
+				if t, exists := s.getTable(event.TableID); exists {
+					if err := t.RemoveUser(pl.PlayerID); err != nil {
+						s.log.Warnf("failed to remove player %s after PLAYER_LOST: %v", pl.PlayerID, err)
+					}
+				}
+			}
+		}
 	}
 }
 
