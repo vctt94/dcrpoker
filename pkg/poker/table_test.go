@@ -17,17 +17,17 @@ import (
 func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChips int64) *Table {
 	t.Helper()
 	tbl := NewTable(TableConfig{
-		ID:               "tbl-test",
-		Log:              createTestLogger(),
-		GameLog:          createTestLogger(),
-		HostID:           "host",
-		BuyIn:            0,
-		MinPlayers:       minPlayers,
-		MaxPlayers:       maxPlayers,
-		SmallBlind:       sb,
-		BigBlind:         bb,
-		StartingChips:    startingChips,
-		TimeBank:         5 * time.Second,
+		ID:            "tbl-test",
+		Log:           createTestLogger(),
+		GameLog:       createTestLogger(),
+		HostID:        "host",
+		BuyIn:         0,
+		MinPlayers:    minPlayers,
+		MaxPlayers:    maxPlayers,
+		SmallBlind:    sb,
+		BigBlind:      bb,
+		StartingChips: startingChips,
+		TimeBank:      5 * time.Second,
 		// Disable auto-start to keep unit tests from spinning new hands forever.
 		AutoStartDelay:   0,
 		AutoAdvanceDelay: 1 * time.Second,
