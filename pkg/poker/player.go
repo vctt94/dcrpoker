@@ -464,6 +464,11 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 
 	for ev := range in {
 		switch e := ev.(type) {
+		case evDeductBlind:
+			// Already all-in; nothing further to deduct
+			if e.Reply != nil {
+				e.Reply <- 0
+			}
 		case evStartTurn:
 			// All-in players cannot act; acknowledge to avoid blocking senders
 			if e.Reply != nil {
@@ -602,6 +607,30 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 			}
 
 			if shouldTransition {
+				return stateHandAllIn
+			}
+
+		case evDeductBlind:
+			p.mu.Lock()
+			amount := e.Amt
+			if amount > p.balance {
+				amount = p.balance
+			}
+			allInAfter := false
+			if amount > 0 {
+				p.balance -= amount
+				p.currentBet += amount
+				p.lastAction = time.Now()
+				if p.balance == 0 && p.currentBet > 0 {
+					p.isAllIn = true
+					allInAfter = true
+				}
+			}
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- amount
+			}
+			if amount > 0 && allInAfter {
 				return stateHandAllIn
 			}
 
@@ -969,6 +998,25 @@ func (p *Player) SetCurrentBet(bet int64) {
 	p.mu.Lock()
 	p.currentBet = bet
 	p.mu.Unlock()
+}
+
+// DeductBlind routes a blind deduction through the hand participation FSM so
+// per-hand flags stay consistent. It returns the amount actually deducted.
+func (p *Player) DeductBlind(amount int64) (int64, error) {
+	p.mu.RLock()
+	hp := p.handParticipation
+	p.mu.RUnlock()
+	if hp == nil {
+		return 0, fmt.Errorf("hand participation not started")
+	}
+	if amount <= 0 {
+		return 0, nil
+	}
+
+	reply := make(chan int64, 1)
+	hp.Send(evDeductBlind{Amt: amount, Reply: reply})
+	deducted := <-reply
+	return deducted, nil
 }
 
 func (p *Player) StartTurn() {

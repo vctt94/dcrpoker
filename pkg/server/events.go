@@ -28,6 +28,7 @@ type TableSnapshot struct {
 	ID           string
 	Players      []*PlayerSnapshot
 	GameSnapshot *poker.GameStateSnapshot
+	LastShowdown *poker.ShowdownResult
 	Config       poker.TableConfig
 	State        TableState
 	Timestamp    time.Time

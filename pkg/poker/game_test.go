@@ -665,10 +665,10 @@ func TestPreFlopAllInAutoDealShowdown(t *testing.T) {
 
 	// Mark both players as all-in and not folded
 	// Set up all-in state (balance=0, currentBet>0)
-	game.players[0].balance = 0
-	game.players[0].currentBet = 100
-	game.players[1].balance = 0
-	game.players[1].currentBet = 100
+	game.players[0].SetBalance(0)
+	game.players[0].SetCurrentBet(100)
+	game.players[1].SetBalance(0)
+	game.players[1].SetCurrentBet(100)
 
 	// Send events to trigger state machine to detect all-in condition
 	game.players[0].handParticipation.Send(evStartTurn{})
@@ -721,8 +721,8 @@ func TestAutoStartAllowsShortStackAllIn(t *testing.T) {
 	game.SetPlayers(users)
 
 	// Simulate balances: short < big blind, deep >> big blind
-	game.players[0].balance = 10   // short stack
-	game.players[1].balance = 1990 // deep stack
+	game.players[0].SetBalance(10)   // short stack
+	game.players[1].SetBalance(1990) // deep stack
 
 	// Set up event channel to receive auto-start events
 	eventCh := make(chan GameEvent, 10)
@@ -821,6 +821,132 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 
 	// After advancing to FLOP, currentBet is reset to 0
 	assert.Equal(t, int64(0), g.GetCurrentBet(), "Table currentBet should be 0 after advancing to FLOP")
+}
+
+// When blinds alone put a player all-in and only one actionable player remains,
+// the hand should auto-advance without waiting for a redundant check/fold.
+func TestAutoAdvanceWhenBlindsShortStackAllIn(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		StartingChips:    100, // Override per-player balances below
+		SmallBlind:       5,
+		BigBlind:         10,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 50 * time.Millisecond,
+	}
+	g, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("short", nil, nil), // Dealer/SB
+		NewUser("deep", nil, nil),  // BB
+	}
+	g.SetPlayers(users)
+
+	// Make the small blind a short stack so posting the blind leaves them all-in.
+	g.players[0].SetBalance(5)
+	g.players[1].SetBalance(100)
+
+	// Start the game FSM and first hand
+	go g.Start(context.Background())
+	g.sm.Send(evStartHand{})
+
+	// Wait for PRE_FLOP to be reached (blinds posted, hand started)
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "Game should reach PRE_FLOP")
+
+	// The short stack should already be all-in from posting the small blind.
+	snap := g.GetStateSnapshot()
+	require.True(t, snap.Players[0].IsAllIn, "SB should be all-in after posting blind")
+	require.False(t, snap.Players[1].IsAllIn, "BB should still have chips to act with")
+
+	// With no other actionable players, auto-advance should trigger without any actions.
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_FLOP
+	}, 1*time.Second, 20*time.Millisecond, "Hand should auto-advance from blinds when only one active player remains")
+}
+
+// Reproduces a stall when the pre-flop aggressor is all-in: action never
+// returns to them, so the betting round should still complete once all other
+// players match the bet.
+// Currently fails due to the bug: the game stays in PRE_FLOP instead of
+// advancing to FLOP after both callers act.
+func TestPreFlopAllInAggressorShouldAdvance(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       3,
+		StartingChips:    1000,
+		SmallBlind:       30,
+		BigBlind:         60,
+		AutoStartDelay:   0,
+		TimeBank:         0,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 10 * time.Millisecond,
+	}
+	g, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("dealer", nil, nil),
+		NewUser("smallblind", nil, nil),
+		NewUser("bigblind", nil, nil),
+	}
+	g.SetPlayers(users)
+
+	// Make the dealer a short stack to force an all-in open, while the blinds
+	// remain deep and actionable after calling.
+	g.players[0].SetBalance(200)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+	g.sm.Send(evStartHand{})
+
+	// Wait for PRE_FLOP with the dealer acting first (UTG in 3-handed).
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP && g.GetCurrentPlayer() == 0
+	}, 2*time.Second, 10*time.Millisecond, "dealer should act first pre-flop")
+
+	// Dealer shoves over the blinds.
+	allInAmount := g.GetCurrentBet() + g.players[0].Balance()
+	require.NoError(t, g.HandlePlayerBet(users[0].ID, allInAmount))
+	require.Eventually(t, func() bool {
+		return g.players[0].GetCurrentStateString() == ALL_IN_STATE
+	}, 200*time.Millisecond, 10*time.Millisecond, "dealer should be marked all-in")
+
+	// Both blinds call the shove (but keep chips).
+	require.NoError(t, g.HandlePlayerCall(users[1].ID))
+	require.NoError(t, g.HandlePlayerCall(users[2].ID))
+
+	// Snapshot state after calls to aid debugging.
+	g.mu.Lock()
+	stateStrings := make([]string, len(g.players))
+	currentBets := make([]int64, len(g.players))
+	balances := make([]int64, len(g.players))
+	for i, p := range g.players {
+		if p != nil {
+			stateStrings[i] = p.GetCurrentStateString()
+			currentBets[i] = p.currentBet
+			balances[i] = p.balance
+		}
+	}
+	phase := g.phase
+	cur := g.currentPlayer
+	lastAgg := g.lastAggressor
+	autoAdv := g.autoAdvanceEnabled
+	timerSet := g.autoAdvanceTimer != nil
+	g.mu.Unlock()
+	t.Logf("post-calls: phase=%v currentPlayer=%d lastAggressor=%d autoAdvanceEnabled=%v timerSet=%v states=%v bets=%v balances=%v",
+		phase, cur, lastAgg, autoAdv, timerSet, stateStrings, currentBets, balances)
+
+	// With all bets matched and aggressor all-in, betting round should complete.
+	require.Eventually(t, func() bool {
+		p := g.GetPhase()
+		return p == pokerrpc.GamePhase_FLOP ||
+			p == pokerrpc.GamePhase_TURN ||
+			p == pokerrpc.GamePhase_RIVER ||
+			p == pokerrpc.GamePhase_SHOWDOWN
+	}, 300*time.Millisecond, 10*time.Millisecond, "pre-flop should advance after calls even though aggressor is all-in")
 }
 
 // Verifies that a timeout-triggered fold completes the round to SHOWDOWN and auto-starts a new hand,
@@ -1288,16 +1414,10 @@ func TestShowdownBugReproduction(t *testing.T) {
 	go game.Start(context.Background())
 
 	// Set custom balances BEFORE starting the hand (after FSM is started but before evStartHand)
-	game.mu.Lock()
-	game.players[0].mu.Lock()
-	game.players[0].balance = 1060
-	game.players[0].startingBalance = 1060
-	game.players[0].mu.Unlock()
-	game.players[1].mu.Lock()
-	game.players[1].balance = 940
-	game.players[1].startingBalance = 940
-	game.players[1].mu.Unlock()
-	game.mu.Unlock()
+	game.players[0].SetBalance(1060)
+	game.players[0].SetStartingBalance(1060)
+	game.players[1].SetBalance(940)
+	game.players[1].SetStartingBalance(940)
 
 	// Start the hand - the FSM will handle creating currentHand and dealing cards
 	// Flow: evStartHand → statePreDeal (creates Hand, posts blinds) → stateDeal (deals cards) → stateBlinds → statePreFlop
@@ -1904,8 +2024,8 @@ func TestAllIn_ActivePlayer_AutoAdvancesWithOneActive(t *testing.T) {
 
 	// Set asymmetric stacks: p1 has 1000, p2 has only 500
 	// This way when p1 bets big, p2 goes all-in but p1 stays active
-	g.players[0].balance = 1000 // deep stack
-	g.players[1].balance = 500  // short stack
+	g.players[0].SetBalance(1000) // deep stack
+	g.players[1].SetBalance(500)  // short stack
 
 	// Wait for PRE_FLOP
 	require.Eventually(t, func() bool {
@@ -2012,30 +2132,20 @@ func TestShowdownWithFoldedPlayer(t *testing.T) {
 	require.NoError(t, game.players[2].StartHandParticipation())
 
 	// Mark player 1 as folded
-	game.players[0].mu.Lock()
-	game.players[0].hasFolded = true
-	game.players[0].balance = 980 // Started with 1000, bet 20
-	game.players[0].currentBet = 20
-	game.players[0].mu.Unlock()
+	game.players[0].SetBalance(980)   // Started with 1000, bet 20
+	game.players[0].SetCurrentBet(20) // Mirror posted bet
 	// Send fold event to transition to folded state
 	game.players[0].handParticipation.Send(evFoldReq{Reply: make(chan error, 1)})
 
 	// Mark players 2 and 3 as all-in
-	game.players[1].mu.Lock()
-	game.players[1].balance = 0
-	game.players[1].currentBet = 1000
-	game.players[1].isAllIn = true // Set flag
-	game.players[1].mu.Unlock()
-
-	game.players[2].mu.Lock()
-	game.players[2].balance = 0
-	game.players[2].currentBet = 1000
-	game.players[2].isAllIn = true // Set flag
-	game.players[2].mu.Unlock()
+	game.players[1].SetBalance(0)
+	game.players[1].SetCurrentBet(1000)
+	game.players[2].SetBalance(0)
+	game.players[2].SetCurrentBet(1000)
 
 	// Send events to trigger state machine to detect all-in condition
-	game.players[1].handParticipation.Send(evStartTurn{})
-	game.players[2].handParticipation.Send(evStartTurn{})
+	game.players[1].handParticipation.Send(evCall{})
+	game.players[2].handParticipation.Send(evCall{})
 
 	// Wait for state transitions
 	require.Eventually(t, func() bool {
@@ -2107,10 +2217,7 @@ func TestAutoStartAfterElimination(t *testing.T) {
 		return game.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
 	}, 2*time.Second, 10*time.Millisecond, "Game should reach PRE_FLOP")
 
-	// Simulate a hand where player3 loses all chips and is eliminated
-	// We'll manually set up the game state after a showdown where player3 is eliminated
-	game.mu.Lock()
-
+	// Simulate a hand where player3 loses all chips and is eliminated.
 	// Find player3 and set balance to 0 (eliminated after losing)
 	var player3Idx int = -1
 	for i, p := range game.players {
@@ -2122,9 +2229,7 @@ func TestAutoStartAfterElimination(t *testing.T) {
 	require.GreaterOrEqual(t, player3Idx, 0, "Should find player3")
 
 	// Set player3 balance to 0 (eliminated)
-	game.players[player3Idx].mu.Lock()
-	game.players[player3Idx].balance = 0
-	game.players[player3Idx].mu.Unlock()
+	game.players[player3Idx].SetBalance(0)
 
 	// Verify: 2 players have chips > 0, 1 player has 0 chips
 	readyCount := 0
@@ -2133,7 +2238,6 @@ func TestAutoStartAfterElimination(t *testing.T) {
 			readyCount++
 		}
 	}
-	game.mu.Unlock()
 
 	require.Equal(t, 2, readyCount, "Should have 2 players with chips remaining")
 	require.Equal(t, 2, tbl.config.MinPlayers, "Table should have minPlayers=2")

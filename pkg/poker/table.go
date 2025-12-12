@@ -313,6 +313,10 @@ func (t *Table) handleGameEvent(event GameEvent) {
 			// Publish PLAYER_LOST notification before removing the player
 			// This allows the UI to show a message before the stream disconnects
 			t.PublishEvent(pokerrpc.NotificationType_PLAYER_LOST, t.config.ID, PlayerLostPayload{PlayerID: event.PlayerID})
+			// Remove the eliminated user from the table.
+			if err := t.RemoveUser(event.PlayerID); err != nil {
+				t.log.Debugf("RemoveUser for eliminated player %s returned: %v", event.PlayerID, err)
+			}
 		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
@@ -371,18 +375,6 @@ func (t *Table) handleGameOver(winnerID string) {
 	}
 	t.mu.RUnlock()
 
-	defer func() {
-		// Shutdown the finished game outside table lock to avoid deadlocks.
-		if game != nil {
-			game.Close()
-		}
-
-		// Notify the table state machine that the game has ended.
-		if err := t.sendTableEvent(evGameEnded{}); err != nil {
-			t.log.Warnf("Failed to send evGameEnded after game over: %v", err)
-		}
-	}()
-
 	if game != nil {
 		game.mu.Lock()
 		game.cancelAutoStart()
@@ -415,6 +407,15 @@ func (t *Table) handleGameOver(winnerID string) {
 		TotalPot:   totalPot,
 	})
 
+	// Transition table FSM to GAME_ENDED terminal state.
+	if err := t.sendTableEvent(evGameEnded{}); err != nil {
+		t.log.Warnf("Failed to send evGameEnded after game over: %v", err)
+	}
+
+	// Shutdown the finished game outside table lock to avoid deadlocks.
+	if game != nil {
+		game.Close()
+	}
 }
 
 // Thread-safe readiness check for state fns.
@@ -539,7 +540,7 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 			// Start the game from the ready state
 			return tableStateGameActive
 		case evGameEnded:
-			return tableStateWaitingForPlayers
+			return tableStateEnded
 		default:
 		}
 	}
@@ -570,9 +571,17 @@ func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 				e.reply <- err
 			}
 		case evGameEnded:
-			return tableStateWaitingForPlayers
+			return tableStateEnded
 		default:
 		}
+	}
+	return nil
+}
+
+// GAME_ENDED - terminal state until table cleanup.
+func tableStateEnded(t *Table, in <-chan any) TableStateFn {
+	for range in {
+		// ignore all events
 	}
 	return nil
 }
@@ -597,6 +606,8 @@ func (t *Table) GetTableStateString() string {
 		return "PLAYERS_READY"
 	case fmt.Sprintf("%p", tableStateGameActive):
 		return "GAME_ACTIVE"
+	case fmt.Sprintf("%p", tableStateEnded):
+		return "GAME_ENDED"
 	default:
 		return "UNKNOWN"
 	}
@@ -671,6 +682,10 @@ func (t *Table) CheckAllPlayersReadyForGameStart() bool {
 func (t *Table) StartGame() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if t.GetTableStateString() == "GAME_ENDED" {
+		return fmt.Errorf("cannot start game: table has ended")
+	}
 
 	// 1) Ensure readiness under the table lock.
 	// Requires: t.mu held
@@ -820,9 +835,42 @@ func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
 	t.log.Debugf("handleShowdownComplete: stored showdown result for round %d with %d winners", currentRound, len(result.Winners))
 
 	// Now publish the SHOWDOWN_RESULT event with the complete payload
+	players := make([]*pokerrpc.ShowdownPlayer, 0, len(result.Players))
+	for _, p := range result.Players {
+		if p.ID == "" {
+			continue
+		}
+		finalState := pokerrpc.PlayerState_PLAYER_STATE_UNINITIALIZED
+		switch p.FinalState {
+		case ALL_IN_STATE:
+			finalState = pokerrpc.PlayerState_PLAYER_STATE_ALL_IN
+		case FOLDED_STATE:
+			finalState = pokerrpc.PlayerState_PLAYER_STATE_FOLDED
+		case IN_GAME_STATE:
+			finalState = pokerrpc.PlayerState_PLAYER_STATE_IN_GAME
+		case AT_TABLE_STATE:
+			finalState = pokerrpc.PlayerState_PLAYER_STATE_AT_TABLE
+		case LEFT_TABLE_STATE:
+			finalState = pokerrpc.PlayerState_PLAYER_STATE_LEFT
+		}
+
+		players = append(players, &pokerrpc.ShowdownPlayer{
+			PlayerId:     p.ID,
+			HoleCards:    p.HoleCards,
+			FinalState:   finalState,
+			HandRank:     p.HandRank,
+			BestHand:     p.BestHand,
+			Contribution: p.Contribution,
+		})
+	}
+
 	showdownPayload := &pokerrpc.Showdown{
 		Winners: result.WinnerInfo,
 		Pot:     result.TotalPot,
+		Board:   result.Board,
+		Players: players,
+		HandId:  result.HandID,
+		Round:   int32(result.Round),
 	}
 	t.PublishEvent(pokerrpc.NotificationType_SHOWDOWN_RESULT, t.config.ID, showdownPayload)
 
@@ -1123,14 +1171,6 @@ func (t *Table) HandleFold(userID string) error {
 		return fmt.Errorf("not your turn to act")
 	}
 
-	// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
-	if cp := t.game.GetCurrentPlayerObject(); cp != nil {
-		if cp.GetCurrentStateString() != IN_GAME_STATE {
-			t.mu.Unlock()
-			return fmt.Errorf("player cannot act in current state")
-		}
-	}
-
 	if t.game.sm == nil {
 		t.mu.Unlock()
 		return fmt.Errorf("game state machine not running")
@@ -1237,13 +1277,6 @@ func (t *Table) HandleCheck(userID string) error {
 			return fmt.Errorf("game state machine not running")
 		}
 
-		// Disallow actions when current player is not actively IN_GAME (e.g., ALL_IN)
-		if cp := t.game.GetCurrentPlayerObject(); cp != nil {
-			if cp.GetCurrentStateString() != IN_GAME_STATE {
-				t.mu.Unlock()
-				return fmt.Errorf("player cannot act in current state")
-			}
-		}
 		reply := make(chan error, 1)
 		t.game.sm.Send(evHandleCheckReq{id: userID, reply: reply})
 
