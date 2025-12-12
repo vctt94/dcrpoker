@@ -349,9 +349,22 @@ message Notification {
   bool is_winner = 19;      // True if recipient is the winner (personalized per player)
 }
 
+message ShowdownPlayer {
+  string player_id = 1;
+  repeated Card hole_cards = 2;
+  PlayerState final_state = 3; // PLAYER_STATE_FOLDED / IN_GAME / ALL_IN
+  HandRank hand_rank = 4;
+  repeated Card best_hand = 5;
+  int64 contribution = 6; // Total chips contributed this hand
+}
+
 message Showdown {
   repeated Winner winners = 1;
   int64 pot = 2;
+  repeated Card board = 3; // Community cards snapshot at showdown
+  repeated ShowdownPlayer players = 4; // Per-player showdown snapshot (hole cards + state)
+  string hand_id = 5; // Unique hand identifier for this showdown
+  int32 round = 6; // Game round number when this showdown occurred
 }
 
 // Common Messages
