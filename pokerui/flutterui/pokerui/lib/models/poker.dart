@@ -113,6 +113,10 @@ class UiPlayer {
   }
 
   UiPlayer copyWith({
+    String? name,
+    bool? isReady,
+    bool? isDisconnected,
+    String? handDesc,
     String? escrowId,
     bool? escrowReady,
     String? escrowState,
@@ -121,9 +125,33 @@ class UiPlayer {
   }) {
     return UiPlayer(
       id: id,
-      name: name,
+      name: name ?? this.name,
       balance: balance,
       hand: hand,
+      currentBet: currentBet,
+      folded: folded,
+      isTurn: isTurn,
+      isAllIn: isAllIn,
+      isDealer: isDealer,
+      isSmallBlind: isSmallBlind,
+      isBigBlind: isBigBlind,
+      isReady: isReady ?? this.isReady,
+      isDisconnected: isDisconnected ?? this.isDisconnected,
+      handDesc: handDesc ?? this.handDesc,
+      escrowId: escrowId ?? this.escrowId,
+      escrowReady: escrowReady ?? this.escrowReady,
+      escrowState: escrowState ?? this.escrowState,
+      presignComplete: presignComplete ?? this.presignComplete,
+      tableSeat: tableSeat ?? this.tableSeat,
+    );
+  }
+
+  UiPlayer withHand(List<pr.Card> newHand) {
+    return UiPlayer(
+      id: id,
+      name: name,
+      balance: balance,
+      hand: List<pr.Card>.unmodifiable(newHand),
       currentBet: currentBet,
       folded: folded,
       isTurn: isTurn,
@@ -134,11 +162,11 @@ class UiPlayer {
       isReady: isReady,
       isDisconnected: isDisconnected,
       handDesc: handDesc,
-      escrowId: escrowId ?? this.escrowId,
-      escrowReady: escrowReady ?? this.escrowReady,
-      escrowState: escrowState ?? this.escrowState,
-      presignComplete: presignComplete ?? this.presignComplete,
-      tableSeat: tableSeat ?? this.tableSeat,
+      escrowId: escrowId,
+      escrowReady: escrowReady,
+      escrowState: escrowState,
+      presignComplete: presignComplete,
+      tableSeat: tableSeat,
     );
   }
 }
@@ -335,6 +363,7 @@ class PokerModel extends ChangeNotifier {
   List<pr.Card> _showdownCommunityCards = const [];
   int _showdownPot = 0;
   bool _showdownCaptured = false;
+  final Map<String, List<pr.Card>> _showdownHandsCache = {};
   List<UiPlayer> get showdownPlayers => _showdownPlayers;
   List<pr.Card> get showdownCommunityCards => _showdownCommunityCards;
   int get showdownPot => _showdownPot;
@@ -556,7 +585,6 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.GAME_ENDED:
         if (n.tableId == currentTableId) {
           final msg = n.message.isNotEmpty ? n.message : 'Game ended';
-          _cacheShowdownSnapshot();
           // Always queue game end so we can finish showing the last showdown
           _queueGameEnd(msg);
         }
@@ -567,7 +595,6 @@ class PokerModel extends ChangeNotifier {
           final msg = n.message.isNotEmpty
               ? n.message
               : 'You lost all your chips and have been removed from the table.';
-          _cacheShowdownSnapshot();
           // Always queue game end so we can show the final showdown before leaving
           _queueGameEnd(msg);
         }
@@ -609,7 +636,7 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.SHOWDOWN_RESULT:
         // Handle showdown notification with winners data
         if (n.tableId == currentTableId || n.tableId.isEmpty) {
-          _cacheShowdownSnapshot(showdown: n.showdown);
+          _cacheShowdownSnapshot(n.showdown);
           _handleShowdownNotification(n);
         }
         break;
@@ -698,7 +725,6 @@ class PokerModel extends ChangeNotifier {
     _pendingGameEndMessage = message;
     // Cancel any existing timer
     _showdownTimer?.cancel();
-    _cacheShowdownSnapshot();
     if (_state == PokerState.showdown) {
       // Wait a few seconds so the user can see showdown results.
       _gameEndPending = true;
@@ -724,7 +750,6 @@ class PokerModel extends ChangeNotifier {
       // Nothing to do.
       return;
     }
-    _cacheShowdownSnapshot();
     gameEndingMessage = _pendingGameEndMessage ?? 'Game ended';
     _pendingGameEndMessage = null;
     _gameEndPending = false;
@@ -763,7 +788,7 @@ class PokerModel extends ChangeNotifier {
     }
 
     // Cache current game state for showdown display
-    _cacheShowdownSnapshot(showdown: n.showdown);
+    _cacheShowdownSnapshot(n.showdown);
 
     // Transition to showdown state
     _state = PokerState.showdown;
@@ -787,6 +812,8 @@ class PokerModel extends ChangeNotifier {
       // Just became my turn - play notification sound
       _soundService.playTurnNotification();
     }
+    // Preserve showdown hole cards before any redactions in later snapshots.
+    _stashShowdownHands(gameUpdate);
 
     // Update game state from the stream update
     game = UiGameState.fromUpdate(gameUpdate);
@@ -799,7 +826,6 @@ class PokerModel extends ChangeNotifier {
     final phase = gameUpdate.phase;
     if (phase == pr.GamePhase.SHOWDOWN) {
       _state = PokerState.showdown;
-      _cacheShowdownSnapshot(fromUpdate: gameUpdate);
     } else if (gameUpdate.gameStarted || phase != pr.GamePhase.WAITING) {
       // Game is active if gameStarted flag is true OR phase is not WAITING
       _state = PokerState.handInProgress;
@@ -811,6 +837,38 @@ class PokerModel extends ChangeNotifier {
     _previousCurrentPlayerId = newCurrentPlayer;
 
     notifyListeners();
+  }
+
+  // Keep last known showdown hole cards so they remain visible even if later snapshots clear them.
+  void _stashShowdownHands(pr.GameUpdate gameUpdate) {
+    final isShowdown = gameUpdate.phase == pr.GamePhase.SHOWDOWN;
+    for (final p in gameUpdate.players) {
+      if (p.hand.isNotEmpty) {
+        _showdownHandsCache[p.id] = List<pr.Card>.unmodifiable(p.hand);
+        if (p.id == playerId) {
+          _myHoleCardsCache = List<pr.Card>.unmodifiable(p.hand);
+        }
+      } else if (isShowdown &&
+          p.id == playerId &&
+          _showdownHandsCache.containsKey(p.id)) {
+        // Restore our own cards from cache if later snapshots redact them.
+        _myHoleCardsCache =
+            List<pr.Card>.unmodifiable(_showdownHandsCache[p.id]!);
+      }
+    }
+  }
+
+  List<UiPlayer> _hydrateShowdownHands(List<UiPlayer> players) {
+    return players
+        .map((p) {
+          if (p.hand.isNotEmpty) return p;
+          final cached = _showdownHandsCache[p.id];
+          if (cached != null && cached.isNotEmpty) {
+            return p.withHand(cached);
+          }
+          return p;
+        })
+        .toList();
   }
 
   // -------- Lobby / Tables ----------
@@ -1215,37 +1273,56 @@ class PokerModel extends ChangeNotifier {
     _showdownPot = 0;
     _showdownCaptured = false;
     lastWinners = const [];
+    _showdownHandsCache.clear();
   }
 
   // Capture the latest known hand state to back the last-showdown dialog
   // when the table ends without an explicit SHOWDOWN_RESULT.
-  void _cacheShowdownSnapshot({pr.Showdown? showdown, pr.GameUpdate? fromUpdate}) {
-    // Don't overwrite once captured for this hand.
-    if (_showdownCaptured) return;
-    if (showdown != null) {
-      // Prefer explicit showdown payload for pot; players from current game.
-      _showdownPlayers = List.unmodifiable(game?.players ?? _showdownPlayers);
-      if (_showdownPot == 0) {
-        _showdownPot = showdown.pot.toInt();
-      }
-    } else if (fromUpdate != null) {
-      // Use game update snapshot (e.g., phase SHOWDOWN).
-      _showdownPlayers =
-          List.unmodifiable(fromUpdate.players.map(UiPlayer.fromProto));
-      _showdownCommunityCards = List.unmodifiable(fromUpdate.communityCards);
-      if (_showdownPot == 0) {
-        _showdownPot = fromUpdate.pot.toInt();
-      }
-    } else if (game != null) {
-      // Fallback to current game state.
-      _showdownPlayers = List.unmodifiable(game!.players);
-      _showdownCommunityCards = List.unmodifiable(
-          game!.communityCards.isNotEmpty ? game!.communityCards : <pr.Card>[]);
-      if (_showdownPot == 0) {
-        _showdownPot = game!.pot;
-      }
+  void _cacheShowdownSnapshot(pr.Showdown? showdown) {
+    // Only persist explicit showdown payloads from the server.
+    if (_showdownCaptured || showdown == null) return;
+
+    debugPrint(
+        '[SHOWDOWN_CACHE_IN] players=${showdown.players.length} board=${showdown.board.length} pot=${showdown.pot}');
+
+    if (showdown.board.isNotEmpty) {
+      _showdownCommunityCards = List.unmodifiable(showdown.board);
     }
+
+    if (showdown.players.isNotEmpty) {
+      final merged = showdown.players.map(_uiPlayerFromShowdown).toList();
+      _showdownPlayers = List.unmodifiable(_hydrateShowdownHands(merged));
+    }
+
+    if (_showdownPot == 0 && showdown.pot != 0) {
+      _showdownPot = showdown.pot.toInt();
+    }
+
+    debugPrint(
+        '[SHOWDOWN_CACHE] players=${_showdownPlayers.length} board=${_showdownCommunityCards.length} pot=$_showdownPot');
+
     _showdownCaptured = true;
+  }
+
+  UiPlayer _uiPlayerFromShowdown(pr.ShowdownPlayer sp) {
+    final folded = sp.finalState == pr.PlayerState.PLAYER_STATE_FOLDED;
+    final allIn = sp.finalState == pr.PlayerState.PLAYER_STATE_ALL_IN;
+    return UiPlayer(
+      id: sp.playerId,
+      name: '',
+      balance: 0,
+      hand: List<pr.Card>.unmodifiable(sp.holeCards),
+      currentBet: 0,
+      folded: folded,
+      isTurn: false,
+      isAllIn: allIn,
+      isDealer: false,
+      isSmallBlind: false,
+      isBigBlind: false,
+      isReady: false,
+      isDisconnected: false,
+      handDesc: '',
+    );
   }
 
   Future<void> _restoreCurrentTable() async {
@@ -1524,7 +1601,6 @@ class PokerModel extends ChangeNotifier {
       final phase = gameUpdate.phase;
       if (phase == pr.GamePhase.SHOWDOWN) {
         _state = PokerState.showdown;
-        _cacheShowdownSnapshot(fromUpdate: gameUpdate);
         _maybeRefreshLastWinners();
       } else if (gameUpdate.gameStarted || phase != pr.GamePhase.WAITING) {
         // Game is active if gameStarted flag is true OR phase is not WAITING

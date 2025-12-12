@@ -2816,14 +2816,126 @@ class Notification extends $pb.GeneratedMessage {
   void clearIsWinner() => $_clearField(19);
 }
 
+class ShowdownPlayer extends $pb.GeneratedMessage {
+  factory ShowdownPlayer({
+    $core.String? playerId,
+    $core.Iterable<Card>? holeCards,
+    PlayerState? finalState,
+    HandRank? handRank,
+    $core.Iterable<Card>? bestHand,
+    $fixnum.Int64? contribution,
+  }) {
+    final result = create();
+    if (playerId != null) result.playerId = playerId;
+    if (holeCards != null) result.holeCards.addAll(holeCards);
+    if (finalState != null) result.finalState = finalState;
+    if (handRank != null) result.handRank = handRank;
+    if (bestHand != null) result.bestHand.addAll(bestHand);
+    if (contribution != null) result.contribution = contribution;
+    return result;
+  }
+
+  ShowdownPlayer._();
+
+  factory ShowdownPlayer.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory ShowdownPlayer.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'ShowdownPlayer',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'playerId')
+    ..pPM<Card>(2, _omitFieldNames ? '' : 'holeCards', subBuilder: Card.create)
+    ..aE<PlayerState>(3, _omitFieldNames ? '' : 'finalState',
+        enumValues: PlayerState.values)
+    ..aE<HandRank>(4, _omitFieldNames ? '' : 'handRank',
+        enumValues: HandRank.values)
+    ..pPM<Card>(5, _omitFieldNames ? '' : 'bestHand', subBuilder: Card.create)
+    ..aInt64(6, _omitFieldNames ? '' : 'contribution')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ShowdownPlayer clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  ShowdownPlayer copyWith(void Function(ShowdownPlayer) updates) =>
+      super.copyWith((message) => updates(message as ShowdownPlayer))
+          as ShowdownPlayer;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static ShowdownPlayer create() => ShowdownPlayer._();
+  @$core.override
+  ShowdownPlayer createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static ShowdownPlayer getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<ShowdownPlayer>(create);
+  static ShowdownPlayer? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get playerId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set playerId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPlayerId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPlayerId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $pb.PbList<Card> get holeCards => $_getList(1);
+
+  @$pb.TagNumber(3)
+  PlayerState get finalState => $_getN(2);
+  @$pb.TagNumber(3)
+  set finalState(PlayerState value) => $_setField(3, value);
+  @$pb.TagNumber(3)
+  $core.bool hasFinalState() => $_has(2);
+  @$pb.TagNumber(3)
+  void clearFinalState() => $_clearField(3);
+
+  @$pb.TagNumber(4)
+  HandRank get handRank => $_getN(3);
+  @$pb.TagNumber(4)
+  set handRank(HandRank value) => $_setField(4, value);
+  @$pb.TagNumber(4)
+  $core.bool hasHandRank() => $_has(3);
+  @$pb.TagNumber(4)
+  void clearHandRank() => $_clearField(4);
+
+  @$pb.TagNumber(5)
+  $pb.PbList<Card> get bestHand => $_getList(4);
+
+  @$pb.TagNumber(6)
+  $fixnum.Int64 get contribution => $_getI64(5);
+  @$pb.TagNumber(6)
+  set contribution($fixnum.Int64 value) => $_setInt64(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasContribution() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearContribution() => $_clearField(6);
+}
+
 class Showdown extends $pb.GeneratedMessage {
   factory Showdown({
     $core.Iterable<Winner>? winners,
     $fixnum.Int64? pot,
+    $core.Iterable<Card>? board,
+    $core.Iterable<ShowdownPlayer>? players,
+    $core.String? handId,
+    $core.int? round,
   }) {
     final result = create();
     if (winners != null) result.winners.addAll(winners);
     if (pot != null) result.pot = pot;
+    if (board != null) result.board.addAll(board);
+    if (players != null) result.players.addAll(players);
+    if (handId != null) result.handId = handId;
+    if (round != null) result.round = round;
     return result;
   }
 
@@ -2843,6 +2955,11 @@ class Showdown extends $pb.GeneratedMessage {
     ..pPM<Winner>(1, _omitFieldNames ? '' : 'winners',
         subBuilder: Winner.create)
     ..aInt64(2, _omitFieldNames ? '' : 'pot')
+    ..pPM<Card>(3, _omitFieldNames ? '' : 'board', subBuilder: Card.create)
+    ..pPM<ShowdownPlayer>(4, _omitFieldNames ? '' : 'players',
+        subBuilder: ShowdownPlayer.create)
+    ..aOS(5, _omitFieldNames ? '' : 'handId')
+    ..aI(6, _omitFieldNames ? '' : 'round')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2874,6 +2991,30 @@ class Showdown extends $pb.GeneratedMessage {
   $core.bool hasPot() => $_has(1);
   @$pb.TagNumber(2)
   void clearPot() => $_clearField(2);
+
+  @$pb.TagNumber(3)
+  $pb.PbList<Card> get board => $_getList(2);
+
+  @$pb.TagNumber(4)
+  $pb.PbList<ShowdownPlayer> get players => $_getList(3);
+
+  @$pb.TagNumber(5)
+  $core.String get handId => $_getSZ(4);
+  @$pb.TagNumber(5)
+  set handId($core.String value) => $_setString(4, value);
+  @$pb.TagNumber(5)
+  $core.bool hasHandId() => $_has(4);
+  @$pb.TagNumber(5)
+  void clearHandId() => $_clearField(5);
+
+  @$pb.TagNumber(6)
+  $core.int get round => $_getIZ(5);
+  @$pb.TagNumber(6)
+  set round($core.int value) => $_setSignedInt32(5, value);
+  @$pb.TagNumber(6)
+  $core.bool hasRound() => $_has(5);
+  @$pb.TagNumber(6)
+  void clearRound() => $_clearField(6);
 }
 
 /// Common Messages

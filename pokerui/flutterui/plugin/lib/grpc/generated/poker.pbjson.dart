@@ -829,6 +829,55 @@ final $typed_data.Uint8List notificationDescriptor = $convert.base64Decode(
     'Cgt3aW5uZXJfc2VhdBgRIAEoBVIKd2lubmVyU2VhdBIZCghtYXRjaF9pZBgSIAEoCVIHbWF0Y2'
     'hJZBIbCglpc193aW5uZXIYEyABKAhSCGlzV2lubmVy');
 
+@$core.Deprecated('Use showdownPlayerDescriptor instead')
+const ShowdownPlayer$json = {
+  '1': 'ShowdownPlayer',
+  '2': [
+    {'1': 'player_id', '3': 1, '4': 1, '5': 9, '10': 'playerId'},
+    {
+      '1': 'hole_cards',
+      '3': 2,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Card',
+      '10': 'holeCards'
+    },
+    {
+      '1': 'final_state',
+      '3': 3,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.PlayerState',
+      '10': 'finalState'
+    },
+    {
+      '1': 'hand_rank',
+      '3': 4,
+      '4': 1,
+      '5': 14,
+      '6': '.poker.HandRank',
+      '10': 'handRank'
+    },
+    {
+      '1': 'best_hand',
+      '3': 5,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.Card',
+      '10': 'bestHand'
+    },
+    {'1': 'contribution', '3': 6, '4': 1, '5': 3, '10': 'contribution'},
+  ],
+};
+
+/// Descriptor for `ShowdownPlayer`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List showdownPlayerDescriptor = $convert.base64Decode(
+    'Cg5TaG93ZG93blBsYXllchIbCglwbGF5ZXJfaWQYASABKAlSCHBsYXllcklkEioKCmhvbGVfY2'
+    'FyZHMYAiADKAsyCy5wb2tlci5DYXJkUglob2xlQ2FyZHMSMwoLZmluYWxfc3RhdGUYAyABKA4y'
+    'Ei5wb2tlci5QbGF5ZXJTdGF0ZVIKZmluYWxTdGF0ZRIsCgloYW5kX3JhbmsYBCABKA4yDy5wb2'
+    'tlci5IYW5kUmFua1IIaGFuZFJhbmsSKAoJYmVzdF9oYW5kGAUgAygLMgsucG9rZXIuQ2FyZFII'
+    'YmVzdEhhbmQSIgoMY29udHJpYnV0aW9uGAYgASgDUgxjb250cmlidXRpb24=');
+
 @$core.Deprecated('Use showdownDescriptor instead')
 const Showdown$json = {
   '1': 'Showdown',
@@ -842,13 +891,26 @@ const Showdown$json = {
       '10': 'winners'
     },
     {'1': 'pot', '3': 2, '4': 1, '5': 3, '10': 'pot'},
+    {'1': 'board', '3': 3, '4': 3, '5': 11, '6': '.poker.Card', '10': 'board'},
+    {
+      '1': 'players',
+      '3': 4,
+      '4': 3,
+      '5': 11,
+      '6': '.poker.ShowdownPlayer',
+      '10': 'players'
+    },
+    {'1': 'hand_id', '3': 5, '4': 1, '5': 9, '10': 'handId'},
+    {'1': 'round', '3': 6, '4': 1, '5': 5, '10': 'round'},
   ],
 };
 
 /// Descriptor for `Showdown`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List showdownDescriptor = $convert.base64Decode(
     'CghTaG93ZG93bhInCgd3aW5uZXJzGAEgAygLMg0ucG9rZXIuV2lubmVyUgd3aW5uZXJzEhAKA3'
-    'BvdBgCIAEoA1IDcG90');
+    'BvdBgCIAEoA1IDcG90EiEKBWJvYXJkGAMgAygLMgsucG9rZXIuQ2FyZFIFYm9hcmQSLwoHcGxh'
+    'eWVycxgEIAMoCzIVLnBva2VyLlNob3dkb3duUGxheWVyUgdwbGF5ZXJzEhcKB2hhbmRfaWQYBS'
+    'ABKAlSBmhhbmRJZBIUCgVyb3VuZBgGIAEoBVIFcm91bmQ=');
 
 @$core.Deprecated('Use playerDescriptor instead')
 const Player$json = {

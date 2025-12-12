@@ -22,7 +22,7 @@ dynamic _decodeIfString(dynamic value) {
   dynamic v = value;
   for (var i = 0; i < 2 && v is String; i++) {
     try {
-      v = jsonDecode(v as String);
+      v = jsonDecode(v);
     } catch (_) {
       break;
     }
@@ -34,7 +34,7 @@ dynamic _decodeIfString(dynamic value) {
 // StateError if the final value is not a Map.
 Map<String, dynamic> _asJsonMap(dynamic value) {
   final v = _decodeIfString(value);
-  if (v is Map) return Map<String, dynamic>.from(v as Map);
+  if (v is Map) return Map<String, dynamic>.from(v);
   throw StateError('Expected Map, got ${v.runtimeType}: $v');
 }
 
@@ -815,9 +815,108 @@ class WinnerDTO {
 
   WinnerDTO(this.playerId, this.handRank, this.winnings, {this.bestHand});
 
-  factory WinnerDTO.fromJson(Map<String, dynamic> json) =>
-      _$WinnerDTOFromJson(json);
+  factory WinnerDTO.fromJson(Map<String, dynamic> json) {
+    final pid = (json['playerId'] ?? json['player_id'] ?? '').toString();
+    final hrRaw = json['handRank'] ?? json['hand_rank'];
+    final handRank = hrRaw is num ? hrRaw.toInt() : int.tryParse('$hrRaw') ?? 0;
+    final winningsRaw = json['winnings'];
+    final winnings =
+        winningsRaw is num ? winningsRaw.toInt() : int.tryParse('$winningsRaw') ?? 0;
+    final bestRaw = json['bestHand'] ?? json['best_hand'];
+    List<CardDTO>? bestHand;
+    if (bestRaw is List) {
+      bestHand = bestRaw
+          .map((e) => CardDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    return WinnerDTO(pid, handRank, winnings, bestHand: bestHand);
+  }
   Map<String, dynamic> toJson() => _$WinnerDTOToJson(this);
+}
+
+@JsonSerializable()
+class ShowdownPlayerDTO {
+  @JsonKey(name: 'playerId')
+  final String playerId;
+  @JsonKey(name: 'holeCards')
+  final List<CardDTO>? holeCards;
+  @JsonKey(name: 'finalState')
+  final int? finalState;
+  @JsonKey(name: 'handRank')
+  final int? handRank;
+  @JsonKey(name: 'bestHand')
+  final List<CardDTO>? bestHand;
+  @JsonKey(name: 'contribution')
+  final int? contribution;
+
+  ShowdownPlayerDTO(
+    this.playerId, {
+    this.holeCards,
+    this.finalState,
+    this.handRank,
+    this.bestHand,
+    this.contribution,
+  });
+
+  factory ShowdownPlayerDTO.fromJson(Map<String, dynamic> json) {
+    final pid = (json['playerId'] ?? json['player_id'] ?? '').toString();
+    List<CardDTO>? holeCards;
+    final holeRaw = json['holeCards'] ?? json['hole_cards'];
+    if (holeRaw is List) {
+      holeCards = holeRaw
+          .map((e) => CardDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    final bestRaw = json['bestHand'] ?? json['best_hand'];
+    List<CardDTO>? bestHand;
+    if (bestRaw is List) {
+      bestHand = bestRaw
+          .map((e) => CardDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    final fsRaw = json['finalState'] ?? json['final_state'];
+    final hrRaw = json['handRank'] ?? json['hand_rank'];
+    final contribRaw = json['contribution'];
+    return ShowdownPlayerDTO(
+      pid,
+      holeCards: holeCards,
+      finalState: fsRaw is num ? fsRaw.toInt() : int.tryParse('$fsRaw'),
+      handRank: hrRaw is num ? hrRaw.toInt() : int.tryParse('$hrRaw'),
+      bestHand: bestHand,
+      contribution:
+          contribRaw is num ? contribRaw.toInt() : int.tryParse('$contribRaw'),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'playerId': playerId,
+        'holeCards': holeCards?.map((c) => c.toJson()).toList(),
+        'finalState': finalState,
+        'handRank': handRank,
+        'bestHand': bestHand?.map((c) => c.toJson()).toList(),
+        'contribution': contribution,
+      };
+
+  pr.ShowdownPlayer toProtobuf() {
+    final sp = pr.ShowdownPlayer()..playerId = playerId;
+    if (holeCards != null) {
+      sp.holeCards.addAll(holeCards!.map((c) => c.toProtobuf()));
+    }
+    if (bestHand != null) {
+      sp.bestHand.addAll(bestHand!.map((c) => c.toProtobuf()));
+    }
+    if (finalState != null) {
+      sp.finalState =
+          pr.PlayerState.valueOf(finalState!) ?? pr.PlayerState.PLAYER_STATE_UNINITIALIZED;
+    }
+    if (handRank != null) {
+      sp.handRank = pr.HandRank.valueOf(handRank!) ?? pr.HandRank.HIGH_CARD;
+    }
+    if (contribution != null) {
+      sp.contribution = Int64(contribution!);
+    }
+    return sp;
+  }
 }
 
 @JsonSerializable()
@@ -849,6 +948,10 @@ class NotificationDTO {
   final List<WinnerDTO>? winners;
   @JsonKey(name: 'showdownPot')
   final int? showdownPot;
+  @JsonKey(name: 'players')
+  final List<ShowdownPlayerDTO>? showdownPlayers;
+  @JsonKey(name: 'board')
+  final List<CardDTO>? board;
 
   NotificationDTO(
     this.type, {
@@ -864,10 +967,61 @@ class NotificationDTO {
     this.table,
     this.winners,
     this.showdownPot,
+    this.showdownPlayers,
+    this.board,
   });
 
-  factory NotificationDTO.fromJson(Map<String, dynamic> json) =>
-      _$NotificationDTOFromJson(json);
+  factory NotificationDTO.fromJson(Map<String, dynamic> json) {
+    final rawType = (json['type'] as num).toInt();
+    final winnersRaw = json['winners'];
+    List<WinnerDTO>? winners;
+    if (winnersRaw is List) {
+      winners = winnersRaw
+          .map((e) => WinnerDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    final playersRaw = json['players'];
+    List<ShowdownPlayerDTO>? showdownPlayers;
+    if (playersRaw is List) {
+      showdownPlayers = playersRaw
+          .map((e) => ShowdownPlayerDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    final boardRaw = json['board'];
+    List<CardDTO>? board;
+    if (boardRaw is List) {
+      board = boardRaw
+          .map((e) => CardDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
+    final showdownPotRaw = json['showdownPot'] ?? json['showdown_pot'];
+    final showdownPot = showdownPotRaw is num
+        ? showdownPotRaw.toInt()
+        : int.tryParse('$showdownPotRaw');
+
+    debugPrint(
+        '[NtfParse] type=$rawType winners=${winners?.length ?? 0} players=${showdownPlayers?.length ?? 0} board=${board?.length ?? 0} pot=${showdownPot ?? 0}');
+
+    return NotificationDTO(
+      rawType,
+      message: json['message'] as String?,
+      tableId: (json['tableId'] ?? json['table_id'])?.toString(),
+      playerId: (json['playerId'] ?? json['player_id'])?.toString(),
+      amount: (json['amount'] as num?)?.toInt(),
+      newBalance: (json['newBalance'] as num?)?.toInt(),
+      ready: json['ready'] as bool?,
+      started: json['started'] as bool?,
+      gameReadyToPlay: json['gameReadyToPlay'] as bool?,
+      countdown: (json['countdown'] as num?)?.toInt(),
+      table: json['table'] == null
+          ? null
+          : PokerTable.fromJson(Map<String, dynamic>.from(json['table'] as Map)),
+      winners: winners,
+      showdownPot: showdownPot,
+      showdownPlayers: showdownPlayers,
+      board: board,
+    );
+  }
   Map<String, dynamic> toJson() => _$NotificationDTOToJson(this);
 
   pr.Notification toProtobuf() {
@@ -901,6 +1055,12 @@ class NotificationDTO {
       }
       if (showdownPot != null) {
         showdown.pot = Int64(showdownPot!);
+      }
+      if (showdownPlayers != null && showdownPlayers!.isNotEmpty) {
+        showdown.players.addAll(showdownPlayers!.map((p) => p.toProtobuf()));
+      }
+      if (board != null && board!.isNotEmpty) {
+        showdown.board.addAll(board!.map((c) => c.toProtobuf()));
       }
       n.showdown = showdown;
     }

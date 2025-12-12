@@ -549,6 +549,30 @@ Map<String, dynamic> _$WinnerDTOToJson(WinnerDTO instance) => <String, dynamic>{
   'winnings': instance.winnings,
 };
 
+ShowdownPlayerDTO _$ShowdownPlayerDTOFromJson(Map<String, dynamic> json) =>
+    ShowdownPlayerDTO(
+      json['playerId'] as String,
+      holeCards: (json['holeCards'] as List<dynamic>?)
+          ?.map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      finalState: (json['finalState'] as num?)?.toInt(),
+      handRank: (json['handRank'] as num?)?.toInt(),
+      bestHand: (json['bestHand'] as List<dynamic>?)
+          ?.map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      contribution: (json['contribution'] as num?)?.toInt(),
+    );
+
+Map<String, dynamic> _$ShowdownPlayerDTOToJson(ShowdownPlayerDTO instance) =>
+    <String, dynamic>{
+      'playerId': instance.playerId,
+      'holeCards': instance.holeCards,
+      'finalState': instance.finalState,
+      'handRank': instance.handRank,
+      'bestHand': instance.bestHand,
+      'contribution': instance.contribution,
+    };
+
 NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
     NotificationDTO(
       (json['type'] as num).toInt(),
@@ -568,6 +592,12 @@ NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
           ?.map((e) => WinnerDTO.fromJson(e as Map<String, dynamic>))
           .toList(),
       showdownPot: (json['showdownPot'] as num?)?.toInt(),
+      showdownPlayers: (json['players'] as List<dynamic>?)
+          ?.map((e) => ShowdownPlayerDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      board: (json['board'] as List<dynamic>?)
+          ?.map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
     );
 
 Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
@@ -585,6 +615,8 @@ Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
       'table': instance.table,
       'winners': instance.winners,
       'showdownPot': instance.showdownPot,
+      'players': instance.showdownPlayers,
+      'board': instance.board,
     };
 
 RunState _$RunStateFromJson(Map<String, dynamic> json) => RunState(
