@@ -277,7 +277,7 @@ func (pm *PotManager) addBet(playerIndex int, amount int64, players []*Player) {
     foldStatus := make([]bool, len(players))
     for i, p := range players {
         if p != nil {
-            foldStatus[i] = (p.getCurrentStateString() == "FOLDED")
+            foldStatus[i] = (p.getCurrentStateString() == FOLDED_STATE)
         }
     }
     

@@ -1,4 +1,4 @@
-cmd/bot/bot
+cmd/pokerd/pokerd
 cmd/client/client
 CLAUDE.md
 bin
@@ -6,3 +6,5 @@ AGENTS.md
 grpc/generated
 .gobuildcache
 .gocache
+.cache
+releases/

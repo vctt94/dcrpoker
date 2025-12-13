@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com" "\0"
-            VALUE "FileDescription", "bisonpoker" "\0"
+            VALUE "FileDescription", "dcrpoker" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "bisonpoker" "\0"
+            VALUE "InternalName", "dcrpoker" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2024 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "bisonpoker.exe" "\0"
-            VALUE "ProductName", "bisonpoker" "\0"
+            VALUE "OriginalFilename", "dcrpoker.exe" "\0"
+            VALUE "ProductName", "dcrpoker" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
