@@ -60,9 +60,10 @@ class GameEndedView extends StatelessWidget {
             ),
           ],
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
             // Game over icon
             Icon(
               isWin
@@ -234,6 +235,7 @@ class GameEndedView extends StatelessWidget {
               ],
             ),
           ],
+          ),
         ),
       ),
     );
