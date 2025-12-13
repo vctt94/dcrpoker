@@ -158,6 +158,10 @@ void drawPlayers(
     );
 
     if (player.id != currentPlayerId) {
+      // Skip rendering hole cards for folded opponents to avoid implying they are still in-hand.
+      if (player.folded) {
+        continue;
+      }
       final hasAnyCards = player.hand.isNotEmpty;
       if (gameState.phase == pr.GamePhase.SHOWDOWN) {
         if (hasAnyCards) {
@@ -211,9 +215,10 @@ void drawPlayer(
   UiGameState gameState,
 ) {
   final isHero = player.id == currentPlayerId;
+  final isFolded = player.folded;
   // Compute turn highlight based on authoritative currentPlayerId from
   // the game state to avoid transient races in per-player isTurn flags.
-  final isCurrent = player.id == gameState.currentPlayerId;
+  final isCurrent = player.id == gameState.currentPlayerId && !isFolded;
   const heroColor = Color(0xFF2E6DD8);
   final otherColor = Colors.grey.shade700;
   
@@ -221,7 +226,7 @@ void drawPlayer(
   final playerPaint = Paint()
     ..color = player.isDisconnected
         ? Colors.red.shade700
-        : (isHero ? heroColor : otherColor)
+        : (isFolded ? Colors.grey.shade800 : (isHero ? heroColor : otherColor))
     ..style = PaintingStyle.fill;
 
   canvas.drawCircle(Offset(x, y), radius, playerPaint);
@@ -239,24 +244,49 @@ void drawPlayer(
   final borderPaint = Paint()
     ..color = player.isDisconnected
         ? Colors.orangeAccent
-        : (isCurrent ? Colors.yellowAccent : Colors.white24)
+        : (isFolded ? Colors.white24.withOpacity(0.6) : (isCurrent ? Colors.yellowAccent : Colors.white24))
     ..style = PaintingStyle.stroke
     ..strokeWidth = isCurrent ? 2.5 : 1.5;
   
   canvas.drawCircle(Offset(x, y), radius, borderPaint);
   
+  // Dim folded players with an overlay
+  if (isFolded) {
+    final foldOverlay = Paint()..color = Colors.black.withOpacity(0.45);
+    canvas.drawCircle(Offset(x, y), radius, foldOverlay);
+    // Keep a red marker around folded players for quick recognition.
+    final foldRing = Paint()
+      ..color = Colors.redAccent.withOpacity(0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawCircle(Offset(x, y), radius + 3, foldRing);
+    final arrowPaint = Paint()
+      ..color = Colors.redAccent.withOpacity(0.85)
+      ..style = PaintingStyle.fill;
+    final arrow = Path()
+      ..moveTo(x, y + radius + 6)
+      ..lineTo(x - 7, y + radius + 16)
+      ..lineTo(x + 7, y + radius + 16)
+      ..close();
+    canvas.drawPath(arrow, arrowPaint);
+  }
+  
   // Player name (show more characters)
   final displayName = player.name.isNotEmpty
       ? player.name
       : 'Player ${index + 1}';
+  final nameStyle = TextStyle(
+    color: isFolded ? Colors.white70 : Colors.white,
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+    decoration: isFolded ? TextDecoration.lineThrough : TextDecoration.none,
+    decorationColor: isFolded ? Colors.white54 : null,
+    decorationThickness: isFolded ? 2 : null,
+  );
   final textPainter = TextPainter(
     text: TextSpan(
       text: displayName,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 13,
-        fontWeight: FontWeight.w800,
-      ),
+      style: nameStyle,
     ),
     textDirection: TextDirection.ltr,
     maxLines: 1,
