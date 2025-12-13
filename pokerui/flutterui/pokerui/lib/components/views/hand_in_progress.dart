@@ -362,6 +362,8 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
         layout.center,
         layout.ringRadiusX,
         layout.ringRadiusY,
+        clampBounds: layout.viewport,
+        playerOffset: layout.playerOffset,
       );
       final from = seatPositions[fx.playerId] ?? layout.center;
       final to = _potLabelCenterInBox(box); // pot label center

@@ -685,7 +685,15 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
       final layout = resolveTableLayout(size);
       final box = layout.viewport;
       final center = layout.center;
-      final seats = seatPositionsFor(widget.players, widget.heroId, center, layout.ringRadiusX, layout.ringRadiusY);
+      final seats = seatPositionsFor(
+        widget.players,
+        widget.heroId,
+        center,
+        layout.ringRadiusX,
+        layout.ringRadiusY,
+        clampBounds: layout.viewport,
+        playerOffset: layout.playerOffset,
+      );
 
       final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
       final ch = cw * 1.4;

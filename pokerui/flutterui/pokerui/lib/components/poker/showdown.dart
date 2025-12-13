@@ -305,7 +305,14 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
       final chipWidgets = <Widget>[];
       if (winners.isNotEmpty && game.players.isNotEmpty) {
         final targets = seatPositionsFor(
-            game.players, widget.model.playerId, center, layout.ringRadiusX, layout.ringRadiusY);
+          game.players,
+          widget.model.playerId,
+          center,
+          layout.ringRadiusX,
+          layout.ringRadiusY,
+          clampBounds: layout.viewport,
+          playerOffset: layout.playerOffset,
+        );
         final potOrigin = _potLabelCenterInBox(box);
 
         for (int i = 0; i < winners.length; i++) {

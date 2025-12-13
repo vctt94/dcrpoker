@@ -17,7 +17,15 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
     if (players.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
       final layout = resolveTableLayout(c.biggest);
-      final seats = seatPositionsFor(players, heroId, layout.center, layout.ringRadiusX, layout.ringRadiusY);
+      final seats = seatPositionsFor(
+        players,
+        heroId,
+        layout.center,
+        layout.ringRadiusX,
+        layout.ringRadiusY,
+        clampBounds: layout.viewport,
+        playerOffset: layout.playerOffset,
+      );
 
       final widgets = <Widget>[];
       for (final p in players) {
