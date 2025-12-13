@@ -16,12 +16,11 @@ class ShowdownView extends StatefulWidget {
 class _ShowdownViewState extends State<ShowdownView> {
   Timer? _countdownTimer;
   int _secondsRemaining = 5;
-  bool _countdownStarted = false;
 
   @override
   void initState() {
     super.initState();
-    _maybeStartCountdown();
+    _startCountdown();
   }
 
   @override
@@ -30,47 +29,19 @@ class _ShowdownViewState extends State<ShowdownView> {
     super.dispose();
   }
 
-  @override
-  void didUpdateWidget(covariant ShowdownView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _maybeStartCountdown();
-  }
-
-  void _resetCountdown() {
-    _countdownTimer?.cancel();
-    _countdownStarted = false;
-    _secondsRemaining = 5;
-  }
-
   void _startCountdown() {
-    _resetCountdown();
-    _countdownStarted = true;
+    _secondsRemaining = 5;
+    _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        if (_secondsRemaining > 0) {
+      if (mounted) {
+        setState(() {
           _secondsRemaining--;
-        }
-        if (_secondsRemaining <= 0) {
-          timer.cancel();
-        }
-      });
+          if (_secondsRemaining <= 0) {
+            timer.cancel();
+          }
+        });
+      }
     });
-  }
-
-  void _maybeStartCountdown() {
-    if (widget.model.isGameEndPending) {
-      if (!_countdownStarted) {
-        _startCountdown();
-      }
-    } else {
-      if (_countdownStarted) {
-        _resetCountdown();
-      }
-    }
   }
 
   @override

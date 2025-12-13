@@ -22,6 +22,15 @@ String cardId(pr.Card? c) {
   return '$v$s';
 }
 
+Color suitColor(String suit) {
+  final s = suit.toLowerCase();
+  if (s == 'hearts' || suit == '♥' || suit == '\u2665') return const Color(0xFFD7263D);
+  if (s == 'diamonds' || suit == '♦' || suit == '\u2666') return const Color(0xFFE65100);
+  if (s == 'clubs' || suit == '♣' || suit == '\u2663') return const Color(0xFF0F6D32);
+  if (s == 'spades' || suit == '♠' || suit == '\u2660') return const Color(0xFF123769);
+  return Colors.black;
+}
+
 class CardFace extends StatelessWidget {
   const CardFace({super.key, required pr.Card? card}) : _card = card;
   final pr.Card? _card;
@@ -30,8 +39,8 @@ class CardFace extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = _card?.value ?? '';
     final suit = _card?.suit ?? '';
-    final isRed = suit.toLowerCase() == 'hearts' || suit.toLowerCase() == 'diamonds' || suit == '♥' || suit == '♦';
     final suitSymbol = suitSym(suit);
+    final suitTint = suitColor(suit);
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, c) {
@@ -40,7 +49,8 @@ class CardFace extends StatelessWidget {
           final rankFs = (w * 0.30).clamp(10.0, 28.0).toDouble();
           final suitFs = (w * 0.26).clamp(8.0, 24.0).toDouble();
           final centerFs = (math.min(w, h) * 0.35).clamp(12.0, 40.0).toDouble();
-          final textColor = isRed ? Colors.red : Colors.black;
+          final textColor = suitTint;
+          final borderColor = Colors.black87;
           return Container(
             constraints: const BoxConstraints(
               minWidth: 20.0,
@@ -49,7 +59,7 @@ class CardFace extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.black, width: 2),
+              border: Border.all(color: borderColor, width: 2),
               boxShadow: [
                 BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 6, spreadRadius: 1),
               ],
