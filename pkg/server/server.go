@@ -230,8 +230,14 @@ func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load server config: %v", err)
 	}
+	// Use LogFile from config if set, otherwise default to datadir/logs/{appname}.log
+	logFile := cfg.LogFile
+	if logFile == "" {
+		appName := strings.TrimSuffix(filename, ".conf")
+		logFile = filepath.Join(datadir, "logs", appName+".log")
+	}
 	logBackend, err := logging.NewLogBackend(logging.LogConfig{
-		LogFile:        filepath.Join(datadir, "logs", "server.log"),
+		LogFile:        logFile,
 		DebugLevel:     cfg.Debug,
 		MaxLogFiles:    cfg.MaxLogFiles,
 		MaxBufferLines: cfg.MaxBufferLines,
