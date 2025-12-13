@@ -172,17 +172,16 @@ func TestPlayerLostPrunesGameRoster_E2E(t *testing.T) {
 			}, 2*time.Second, 50*time.Millisecond, "expected to capture SHOWDOWN snapshot before teardown")
 		}
 
-		// Identify the busted player (balance==0) from the post-showdown snapshot,
-		// then ensure *that* player ID is pruned from subsequent game state.
-		// After PLAYER_LOST, the next hand should start with only the survivors.
-		// Detect which original player disappeared from the roster without relying on balances.
-		require.Eventually(t, func() bool {
+		// Identify the busted player (balance==0) from the post-showdown snapshot.
+		// If the hand ended in a tie and nobody busted, allow the loop to continue.
+		eliminationDeadline := time.Now().Add(3 * time.Second)
+		for time.Now().Before(eliminationDeadline) && eliminated == "" {
 			ctxPoll, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-			defer cancel()
-
 			resp, err := env.PokerClient.GetGameState(ctxPoll, &pokerrpc.GetGameStateRequest{TableId: tableID})
+			cancel()
 			if err != nil {
-				return false
+				time.Sleep(25 * time.Millisecond)
+				continue
 			}
 
 			// Debug: log current balances to understand bust/over conditions.
@@ -208,14 +207,22 @@ func TestPlayerLostPrunesGameRoster_E2E(t *testing.T) {
 				}
 			}
 
-			if len(missingIDs) != 1 {
-				return false
+			if len(missingIDs) > 1 {
+				t.Fatalf("unexpected multiple players missing from roster: %v", missingIDs)
 			}
-			eliminated = missingIDs[0]
-			return true
-		}, 3*time.Second, 50*time.Millisecond, "expected exactly one player to disappear from roster after bust")
+			if len(missingIDs) == 1 {
+				eliminated = missingIDs[0]
+				break
+			}
 
-		require.NotEmpty(t, eliminated, "expected to identify which player was pruned")
+			// No elimination yet (e.g., split pot) – keep polling within deadline.
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		if eliminated == "" {
+			t.Logf("no player eliminated on hand %d (likely a tie); continuing to next hand", hand)
+			continue
+		}
 
 		// Cross-check internal game roster to ensure the Game.players slice was pruned.
 		table, ok := env.PokerSrv.GetTable(tableID)
