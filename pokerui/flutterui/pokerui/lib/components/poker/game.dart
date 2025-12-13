@@ -158,62 +158,71 @@ class PokerGame {
                                 )),
 
                           // Hover hints for disconnected players
-                          DisconnectedBadgesOverlay(players: gameState.players, heroId: playerId),
+                          DisconnectedBadgesOverlay(
+                            players: gameState.players,
+                            heroId: playerId,
+                            hasCurrentBet: gameState.currentBet > 0,
+                          ),
 
                           // Pot and betting info overlay
                           IgnorePointer(
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                // Pot display (show final pot at showdown if gameState.pot was reset)
-                                Positioned(
-                                  top: 20,
-                                  left: 0,
-                                  right: 0,
-                                  child: Center(
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withOpacity(0.7),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(color: Colors.amber, width: 2),
-                                      ),
-                                      child: Text(
-                                        'Pot: ${_potForDisplay(gameState)}',
-                                        style: const TextStyle(
-                                          color: Colors.amber,
-                                          fontSize: 20,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                // Current bet display
-                                if (gameState.currentBet > 0)
-                                  Positioned(
-                                    top: 60,
-                                    left: 0,
-                                    right: 0,
-                                    child: Center(
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: Colors.red.withOpacity(0.8),
-                                          borderRadius: BorderRadius.circular(15),
-                                        ),
-                                        child: Text(
-                                          'Current Bet: ${gameState.currentBet}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
+                            child: LayoutBuilder(
+                              builder: (context, overlayConstraints) {
+                                final layout = resolveTableLayout(overlayConstraints.biggest);
+                                final hasCurrentBet = gameState.currentBet > 0;
+                                final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
+                                return Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Positioned(
+                                      top: overlay.potTop,
+                                      left: 0,
+                                      right: 0,
+                                      child: Center(
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(0.7),
+                                            borderRadius: BorderRadius.circular(20),
+                                            border: Border.all(color: Colors.amber, width: 2),
+                                          ),
+                                          child: Text(
+                                            'Pot: ${_potForDisplay(gameState)}',
+                                            style: const TextStyle(
+                                              color: Colors.amber,
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                           ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                    if (hasCurrentBet)
+                                      Positioned(
+                                        top: overlay.currentBetTop,
+                                        left: 0,
+                                        right: 0,
+                                        child: Center(
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                            decoration: BoxDecoration(
+                                              color: Colors.red.withOpacity(0.8),
+                                              borderRadius: BorderRadius.circular(15),
+                                            ),
+                                            child: Text(
+                                              'Current Bet: ${gameState.currentBet}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                );
+                              },
                             ),
                           ),
 
@@ -543,9 +552,11 @@ class PokerPainter extends CustomPainter {
   final String currentPlayerId;
   // Used to stagger simple reveal animations at showdown
   final int showdownStartMs;
+  final double minSeatTop;
   
   PokerPainter(this.gameState, this.currentPlayerId, {Listenable? repaint})
       : showdownStartMs = DateTime.now().millisecondsSinceEpoch,
+        minSeatTop = 0,
         super(repaint: repaint);
 
   @override
@@ -555,6 +566,8 @@ class PokerPainter extends CustomPainter {
     final centerY = layout.center.dy;
     final tableRadiusX = layout.tableRadiusX;
     final tableRadiusY = layout.tableRadiusY;
+    final hasCurrentBet = gameState.currentBet > 0;
+    final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
 
     // Draw poker table
     drawPokerTable(canvas, centerX, centerY, tableRadiusX, tableRadiusY);
@@ -573,6 +586,7 @@ class PokerPainter extends CustomPainter {
       size,
       playerOffsetOverride: layout.playerOffset,
       clampBounds: layout.viewport,
+      minSeatTop: minSeatTop,
     );
 
     _drawHeroHoleCards(canvas, size);
@@ -589,6 +603,7 @@ class PokerPainter extends CustomPainter {
       tableRadiusY,
       playerOffset: layout.playerOffset,
       clampBounds: layout.viewport,
+      minSeatTop: minSeatTop,
     );
   }
 
@@ -685,6 +700,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
       final layout = resolveTableLayout(size);
       final box = layout.viewport;
       final center = layout.center;
+      final minSeatTop = minSeatTopFor(layout.viewport, false);
       final seats = seatPositionsFor(
         widget.players,
         widget.heroId,
@@ -692,7 +708,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
         layout.ringRadiusX,
         layout.ringRadiusY,
         clampBounds: layout.viewport,
-        playerOffset: layout.playerOffset,
+        minSeatTop: minSeatTop,
       );
 
       final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
@@ -704,6 +720,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
         if (p.id == widget.heroId) continue;
         final pos = seats[p.id];
         if (pos == null) continue;
+        final isTopHalf = pos.dy < center.dy;
         final pairW = (cw * 2) + gap;
         final minLeft = box.left + 8.0;
         final maxLeft = box.right - pairW - 8.0;
@@ -712,7 +729,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
 
         final minTop = box.top + 8.0;
         final maxTop = box.bottom - ch - 8.0;
-        final baseTop = pos.dy - ch - 6.0;
+        final baseTop = isTopHalf ? pos.dy + kPlayerRadius + 6.0 : pos.dy - ch - 6.0;
         final top = baseTop.clamp(minTop, maxTop).toDouble();
 
         final snap = _shownHands[p.id];

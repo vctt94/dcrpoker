@@ -7,10 +7,12 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
     super.key,
     required this.players,
     required this.heroId,
+    required this.hasCurrentBet,
   });
 
   final List<UiPlayer> players;
   final String heroId;
+  final bool hasCurrentBet;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +26,7 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         layout.ringRadiusX,
         layout.ringRadiusY,
         clampBounds: layout.viewport,
-        playerOffset: layout.playerOffset,
+        minSeatTop: minSeatTopFor(layout.viewport, hasCurrentBet),
       );
 
       final widgets = <Widget>[];

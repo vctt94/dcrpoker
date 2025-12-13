@@ -205,18 +205,16 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final centerX = layout.center.dx;
       final centerY = layout.center.dy;
       
-      // Position hero cards directly above the hero player (who is at bottom center)
-      // Hero is at angle pi/2 (90 degrees = bottom)
-      // For ellipse: x = centerX + radiusX * cos(π/2) = centerX, y = centerY + radiusY * sin(π/2) = centerY + radiusY
+      // Position hero cards tighter to the hero label instead of drifting toward center.
       final ringRadiusY = layout.ringRadiusY;
       // Clamp hero seat so cards track the rendered player when the viewport is tight.
-      final seatPadding = kPlayerRadius + layout.playerOffset + 14.0;
+      final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
       final heroY = (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
       
       // Lightly scale spacing so cards stay tethered to the hero as width grows.
-      const minSpacingAbovePlayer = 40.0;
-      const maxSpacingAbovePlayer = 72.0;
-      final spacingAbovePlayer = (ringRadiusY * 0.18).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
+      const minSpacingAbovePlayer = 28.0;
+      const maxSpacingAbovePlayer = 54.0;
+      final spacingAbovePlayer = (ringRadiusY * 0.14).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
       
       // Calculate primary position: above player with damped spacing
       var y = heroY - kPlayerRadius - spacingAbovePlayer - ch;
@@ -225,10 +223,9 @@ class HeroCardFlipOverlay extends StatelessWidget {
       // Scale the minimum gap proportionally with table radius to maintain relative spacing
       final communityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
       final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
-      // Minimum gap scales with table radius to maintain relative spacing
-      final minGapFromCommunity = math.max(24.0, layout.tableRadiusY * 0.24);
+      final minGapFromCommunity = math.max(16.0, layout.tableRadiusY * 0.16);
       final minSafeY = communityCardsBottom + minGapFromCommunity;
-      final maxAllowedY = heroY - kPlayerRadius - ch - 6.0; // avoid overlapping the seat
+      final maxAllowedY = heroY - kPlayerRadius - ch - 4.0; // avoid overlapping the seat
       // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.
       if (minSafeY > maxAllowedY) {
         y = maxAllowedY;

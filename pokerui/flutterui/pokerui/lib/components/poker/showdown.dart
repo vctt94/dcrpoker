@@ -301,6 +301,8 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
       final layout = resolveTableLayout(size);
       final box = layout.viewport;
       final center = layout.center;
+      final hasCurrentBet = game.currentBet > 0;
+      final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
 
       final chipWidgets = <Widget>[];
       if (winners.isNotEmpty && game.players.isNotEmpty) {
@@ -311,9 +313,10 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
           layout.ringRadiusX,
           layout.ringRadiusY,
           clampBounds: layout.viewport,
-          playerOffset: layout.playerOffset,
+          minSeatTop: minSeatTop,
         );
-        final potOrigin = _potLabelCenterInBox(box);
+        final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
+        final potOrigin = overlay.potCenter(box);
 
         for (int i = 0; i < winners.length; i++) {
           final w = winners[i];
@@ -386,11 +389,4 @@ class _AnimatedChip extends StatelessWidget {
       },
     );
   }
-}
-
-Offset _potLabelCenterInBox(Rect box) {
-  const double top = 20.0;
-  const double labelHeightApprox = 40.0;
-  return Offset(
-      box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
 }

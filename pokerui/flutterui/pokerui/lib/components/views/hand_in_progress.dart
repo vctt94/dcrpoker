@@ -411,6 +411,8 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
       final size = c.biggest;
       final layout = resolveTableLayout(size);
       final box = layout.viewport;
+      final hasCurrentBet = game.currentBet > 0;
+      final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
       final seatPositions = seatPositionsFor(
         game.players,
         widget.model.playerId,
@@ -418,10 +420,11 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
         layout.ringRadiusX,
         layout.ringRadiusY,
         clampBounds: layout.viewport,
-        playerOffset: layout.playerOffset,
+        minSeatTop: minSeatTop,
       );
       final from = seatPositions[fx.playerId] ?? layout.center;
-      final to = _potLabelCenterInBox(box); // pot label center
+      final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
+      final to = overlay.potCenter(box); // pot label center
 
       final anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
       final t = Tween(begin: 0.0, end: 1.0).animate(anim);
@@ -436,12 +439,6 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
       return IgnorePointer(child: Stack(children: children));
     });
   }
-}
-
-Offset _potLabelCenterInBox(Rect box) {
-  const double top = 20.0;
-  const double labelHeightApprox = 40.0; // padding + text height
-  return Offset(box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
 }
 
 class _AnimatedChip extends StatelessWidget {
