@@ -6,12 +6,12 @@ set -euo pipefail
 #   ./build-macos-amd64.sh            # defaults to v0.0.1
 #
 # It packages the Flutter macOS app bundle:
-#   ../pokerui/flutterui/pokerui/build/macos/Build/Products/Release/bisonpoker.app
+#   ../pokerui/flutterui/pokerui/build/macos/Build/Products/Release/dcrpoker.app
 #
 # Output:
-#   ../releases/bisonpoker-macos-amd64-<version>.dmg
+#   ../releases/dcrpoker-macos-amd64-<version>.dmg
 
-APP="bisonpoker"
+APP="dcrpoker"
 VER="${1:-v0.0.1}"
 PLAT="macos-amd64"
 
