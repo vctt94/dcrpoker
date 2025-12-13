@@ -18,7 +18,7 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/server"
 )
 
-const appName = "pokerbot"
+const appName = "pokerd"
 
 var (
 	datadirFlag        = flag.String("datadir", "", "Data directory for bot files")
