@@ -12,13 +12,8 @@ class HandInProgressView extends StatefulWidget {
   State<HandInProgressView> createState() => _HandInProgressViewState();
 
   static int calculateTotalBet(int amt, int currentBet, int myBet, int bb) {
-    // If we've already contributed chips this street (blinds or a prior bet),
-    // treat the input as additional chips to add on top of what is already in.
-    if (myBet > 0) {
-      return myBet + amt;
-    }
-
-    // No prior contribution: the entered amount is the target total.
+    // Treat the entered amount as the target total bet, regardless of prior
+    // contribution (blinds or previous bet).
     return amt;
   }
 }
@@ -26,6 +21,8 @@ class HandInProgressView extends StatefulWidget {
 class _HandInProgressViewState extends State<HandInProgressView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
+  bool _wasMyTurn = false;
+
 
   @override
   void dispose() {
@@ -39,6 +36,24 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     if (game == null) {
       return const Center(child: Text('No game data available'));
     }
+
+    // Close the raise input when it's no longer our turn so we come back to the
+    // compact button row on the next action.
+    final canAct = widget.model.canAct;
+    if (canAct && !_wasMyTurn) {
+      // New turn: clear any stale raise input so defaults reseed correctly.
+      _betCtrl.clear();
+    }
+    if (_showBetInput && _wasMyTurn && !canAct) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _showBetInput = false;
+          });
+        }
+      });
+    }
+    _wasMyTurn = canAct;
 
     final focusNode = FocusNode();
     final pokerGame = PokerGame(widget.model.playerId, widget.model);
@@ -213,6 +228,8 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                             _betCtrl.text = targetTotal.toString();
                           }
 
+                          final myBalance = widget.model.me?.balance ?? 0;
+                          final wouldBeAllIn = myBalance > 0 && myBalance <= (currentBet - myBet);
                           if (!_showBetInput) {
                             return ElevatedButton(
                               onPressed: () {
@@ -222,7 +239,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                 if (_betCtrl.text.isEmpty) seedDefault();
                               },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                              child: Text(isRaise ? 'Raise' : 'Bet'),
+                              child: Text(isRaise
+                                  ? (wouldBeAllIn ? 'All-in' : 'Raise')
+                                  : 'Bet'),
                             );
                           }
 
@@ -230,26 +249,54 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                           return Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              SizedBox(
-                                width: 90,
-                                child: TextField(
-                                  controller: _betCtrl,
-                                  keyboardType: TextInputType.number,
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                    hintText: isRaise ? 'Raise' : 'Bet',
-                                    hintStyle: const TextStyle(color: Colors.white70),
-                                    filled: true,
-                                    fillColor: Colors.black54,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                      borderSide: const BorderSide(color: Colors.white24),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 110,
+                                    child: TextField(
+                                      controller: _betCtrl,
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(color: Colors.white),
+                                      decoration: InputDecoration(
+                                        labelText: isRaise ? 'Total raise' : 'Total bet',
+                                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                                        isDense: true,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        hintText: isRaise ? 'e.g. ${currentBet > 0 ? currentBet : bb}' : 'e.g. ${bb > 0 ? bb * 3 : 50}',
+                                        hintStyle: const TextStyle(color: Colors.white54),
+                                        filled: true,
+                                        fillColor: Colors.black54,
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Colors.white24),
+                                        ),
+                                      ),
+                                      onSubmitted: (_) => submitBet(),
                                     ),
                                   ),
-                                  onSubmitted: (_) => submitBet(),
-                                ),
+                                  const SizedBox(height: 4),
+                                  Builder(builder: (context) {
+                                    final entered = int.tryParse(_betCtrl.text.trim()) ?? 0;
+                                    final delta = entered > myBet ? (entered - myBet) : 0;
+                                    final maxTotal = (widget.model.me?.balance ?? 0) + myBet;
+                                    final capped = entered > maxTotal ? maxTotal : entered;
+                                    final displayEntered =
+                                        capped > 0 ? capped : (isRaise ? currentBet : bb * 3);
+                                    final displayDelta = displayEntered > myBet ? (displayEntered - myBet) : 0;
+                                    if (displayDelta == displayEntered) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final isAllIn = displayEntered == maxTotal && maxTotal > 0;
+                                    final label = isAllIn
+                                        ? 'All-in $displayEntered'
+                                        : 'Adds $displayDelta, total $displayEntered';
+                                    return Text(
+                                      label,
+                                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                    );
+                                  }),
+                                ],
                               ),
                               const SizedBox(width: 6),
                               Builder(
@@ -267,7 +314,15 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               ElevatedButton(
                                 onPressed: submitBet,
                                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                child: Text(isRaise ? 'Raise' : 'Bet'),
+                                child: Text(() {
+                                  final meBal = widget.model.me?.balance ?? 0;
+                                  final entered = int.tryParse(_betCtrl.text.trim()) ?? 0;
+                                  final target = entered > 0 ? entered : currentBet;
+                                  final myTotal = meBal + myBet;
+                                  final isAllIn = target >= myTotal && myTotal > 0;
+                                  if (isAllIn) return 'All-in';
+                                  return isRaise ? 'Raise' : 'Bet';
+                                }()),
                               ),
                               const SizedBox(width: 6),
                               TextButton(
