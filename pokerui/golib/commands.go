@@ -307,7 +307,6 @@ func AsyncCallStr(typ CmdType, id, clientHandle int32, payload string) {
 	go func() { cmdResultChan <- call(cmd) }()
 }
 
-// notificationDTO is a simple struct for JSON marshaling of protobuf notifications
 type notificationDTO struct {
 	Type            int32         `json:"type"` // enum as int
 	Message         string        `json:"message,omitempty"`
@@ -325,6 +324,11 @@ type notificationDTO struct {
 	WinnerSeat int32  `json:"winnerSeat,omitempty"`
 	MatchId    string `json:"matchId,omitempty"`
 	IsWinner   bool   `json:"isWinner,omitempty"`
+	// Showdown fields for SHOWDOWN_RESULT notifications
+	Winners         []*pokerrpc.Winner         `json:"winners,omitempty"`
+	ShowdownPot     int64                      `json:"showdownPot,omitempty"`
+	ShowdownPlayers []*pokerrpc.ShowdownPlayer `json:"players,omitempty"`
+	Board           []*pokerrpc.Card           `json:"board,omitempty"`
 }
 
 func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
@@ -367,6 +371,30 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 		dto.MatchId = n.MatchId
 	}
 	dto.IsWinner = n.IsWinner
+	// Carry full showdown payload so Flutter can render last showdown correctly.
+	if n.Showdown != nil {
+		fmt.Printf("[notify] showdown payload winners=%d players=%d board=%d pot=%d\n",
+			len(n.Showdown.Winners), len(n.Showdown.Players), len(n.Showdown.Board), n.Showdown.Pot)
+		if n.Showdown.Pot != 0 {
+			dto.ShowdownPot = n.Showdown.Pot
+		}
+		if len(n.Showdown.Winners) > 0 {
+			dto.Winners = n.Showdown.Winners
+		}
+		if len(n.Showdown.Players) > 0 {
+			dto.ShowdownPlayers = n.Showdown.Players
+		}
+		if len(n.Showdown.Board) > 0 {
+			dto.Board = n.Showdown.Board
+		}
+	} else if len(n.Winners) > 0 {
+		// Fallback to top-level winners slice if present.
+		dto.Winners = n.Winners
+	}
+	if len(dto.ShowdownPlayers) > 0 || len(dto.Winners) > 0 {
+		fmt.Printf("[notify] DTO showdown winners=%d players=%d board=%d pot=%d\n",
+			len(dto.Winners), len(dto.ShowdownPlayers), len(dto.Board), dto.ShowdownPot)
+	}
 	return dto
 }
 

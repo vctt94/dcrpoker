@@ -183,6 +183,7 @@ func (pc *PokerClient) LeaveTable(ctx context.Context) error {
 	if tableID == "" {
 		return fmt.Errorf("not currently in a table")
 	}
+	pc.log.Debugf("LeaveTable called for table %s", tableID)
 
 	// Stop game stream first
 	pc.stopGameStream()
@@ -516,6 +517,14 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 
 	case pokerrpc.NotificationType_PLAYER_LOST:
 		pc.log.Infof("Player %s lost (removed from table %s): %s", ntfn.PlayerId, ntfn.TableId, ntfn.Message)
+		if ntfn.PlayerId == pc.ID.String() {
+			// Stop consuming updates from the finished table and clear local state.
+			pc.stopGameStream()
+			pc.SetCurrentTableID("")
+			pc.Lock()
+			pc.IsReady = false
+			pc.Unlock()
+		}
 
 	case pokerrpc.NotificationType_ESCROW_FUNDING:
 		pc.log.Infof("Escrow funding: %s", ntfn.Message)

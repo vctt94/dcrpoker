@@ -83,6 +83,7 @@ func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 	gameStarted := t.IsGameStarted()
 	allPlayersReady := t.CheckAllPlayersReady()
 	game := t.GetGame() // Get reference
+	lastShowdown := t.GetLastShowdown()
 
 	// Collect game snapshot if game exists (acquires Game.mu internally)
 	var gameSnapshot *poker.GameStateSnapshot
@@ -111,6 +112,7 @@ func (s *Server) collectTableSnapshot(tableID string) (*TableSnapshot, error) {
 		ID:           tableID,
 		Players:      players,
 		GameSnapshot: gameSnapshot,
+		LastShowdown: lastShowdown,
 		Config:       config,
 		State:        tableState,
 		Timestamp:    time.Now(),

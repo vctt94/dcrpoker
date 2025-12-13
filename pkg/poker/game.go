@@ -346,8 +346,17 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 			}
 		}
 
-		// POST BLINDS before starting hand participation
-		// This allows HandleStartHand to detect all-in from blinds and start in the correct state
+		// Start hand participation FSMs for this hand BEFORE posting blinds so
+		// blind deductions flow through player state machines.
+		for _, p := range g.players {
+			if p != nil {
+				if err := p.HandleStartHand(); err != nil {
+					g.log.Errorf("Failed to start hand for player %s: %v", p.ID(), err)
+				}
+			}
+		}
+
+		// Post blinds through player FSMs so short stacks become ALL_IN immediately
 		postBlind := func(pos int, amount int64) {
 			p := g.players[pos]
 			if p == nil {
@@ -366,16 +375,20 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 			if delta > balance {
 				delta = balance
 			}
+			if delta <= 0 {
+				return
+			}
 
-			// Update player's currentBet and balance
-			p.mu.Lock()
-			p.balance -= delta
-			p.currentBet = already + delta
-			p.mu.Unlock()
+			// Route blind payment through the player's hand FSM
+			paid, err := p.DeductBlind(delta)
+			if err != nil {
+				g.log.Errorf("Failed to post blind for player %s: %v", p.ID(), err)
+				return
+			}
 
 			// Reflect into pot manager and table-wide current bet
-			g.potManager.addBet(pos, delta, g.players) // contract: g.mu held
-			finalBet := already + delta
+			g.potManager.addBet(pos, paid, g.players) // contract: g.mu held
+			finalBet := already + paid
 			if finalBet > g.currentBet {
 				g.currentBet = finalBet
 			}
@@ -384,15 +397,6 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 		postBlind(sbPos, g.config.SmallBlind)
 		postBlind(bbPos, g.config.BigBlind)
 
-		// AFTER blinds are posted, start hand participation for all players
-		// This starts their hand participation FSM in the appropriate state
-		for _, p := range g.players {
-			if p != nil {
-				if err := p.HandleStartHand(); err != nil {
-					g.log.Errorf("Failed to start hand for player %s: %v", p.ID(), err)
-				}
-			}
-		}
 	}
 
 	g.log.Debugf("statePreDeal: transitioned to PRE_FLOP phase, round=%d, dealer=%d", g.round, g.dealer)
@@ -439,6 +443,9 @@ func stateBlinds(g *Game, in <-chan any) GameStateFn {
 			// If initial player is ALL_IN from posting blinds, skip to next active player
 			if p.GetCurrentStateString() == ALL_IN_STATE {
 				g.advanceToNextPlayer(time.Now())
+			} else if g.shouldSkipTurnTimer() {
+				// Auto-advance scenario (e.g. everyone else all-in)
+				g.maybeCompleteBettingRound()
 			} else {
 				p.StartTurn()
 			}
@@ -474,6 +481,11 @@ func statePreFlop(g *Game, in <-chan any) GameStateFn {
 	// Reset aggressor at the start of a new street
 	g.lastAggressor = -1
 	ch := g.preFlopReached // Read channel reference under lock
+	g.mu.Unlock()
+
+	// Evaluate immediate betting completion (e.g., blind all-ins) now that phase is set.
+	g.mu.Lock()
+	g.maybeCompleteBettingRound()
 	g.mu.Unlock()
 
 	// Signal that we've reached PRE_FLOP (non-blocking)
@@ -2208,12 +2220,16 @@ func (g *Game) maybeCompleteBettingRound() {
 	// - If there was no aggressor (all checks), the round ends when action
 	//   returns to the street starter.
 	if g.lastAggressor >= 0 {
-		if g.currentPlayer != g.lastAggressor {
-			return
+		// If aggressor exists and is still actionable, require action to have
+		// returned to them. If they're not actionable (all-in/folded), treat
+		// them as satisfied so we don't block advancement.
+		if g.lastAggressor < len(g.players) {
+			if p := g.players[g.lastAggressor]; p != nil && p.GetCurrentStateString() == IN_GAME_STATE && g.currentPlayer != g.lastAggressor {
+				return
+			}
 		}
-	}
-	// No aggressor case: round ends when action returns to street starter
-	if g.lastAggressor < 0 {
+	} else {
+		// No aggressor case: round ends when action returns to street starter
 		starter := g.computeStreetStarterIndex()
 		if starter < 0 || g.currentPlayer != starter {
 			return

@@ -12,33 +12,57 @@ class NewConfigModel extends ChangeNotifier {
 
   final List<String> appArgs;
   String _appDataDir = '';
+  late final Future<void> _initFuture;
   // String _brDataDir = '';
 
   // ─── Construction ───────────────────────────────────────────────────────
-  NewConfigModel(this.appArgs) {
-    _initialiseDefaults();
+  NewConfigModel(
+    this.appArgs, {
+    String? initialDataDir,
+    String? initialGrpcCertPath,
+  }) {
+    _initFuture = _initialiseDefaults(
+      initialDataDir: initialDataDir,
+      initialGrpcCertPath: initialGrpcCertPath,
+    );
   }
 
-  factory NewConfigModel.fromConfig(Config c) => NewConfigModel([])
-    ..serverAddr         = c.serverAddr
-    ..grpcCertPath       = c.grpcCertPath
-    ..address            = c.address
-    ..debugLevel         = c.debugLevel
-    ..soundsEnabled      = c.soundsEnabled;
+  factory NewConfigModel.fromConfig(Config c) => NewConfigModel(
+        [],
+        initialDataDir: c.dataDir,
+        initialGrpcCertPath: c.grpcCertPath,
+      )
+        ..serverAddr = c.serverAddr
+        ..address = c.address
+        ..debugLevel = c.debugLevel
+        ..soundsEnabled = c.soundsEnabled;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
-  Future<void> _initialiseDefaults() async {
-    _appDataDir = await defaultAppDataDir();
+  Future<void> _initialiseDefaults({
+    String? initialDataDir,
+    String? initialGrpcCertPath,
+  }) async {
+    final resolvedDataDir = initialDataDir?.trim().isNotEmpty == true
+        ? cleanAndExpandPath(initialDataDir!)
+        : await defaultAppDataDir();
 
-    grpcCertPath = p.join(_appDataDir, 'server.cert');
+    _appDataDir = resolvedDataDir;
+    grpcCertPath = (initialGrpcCertPath?.trim().isNotEmpty ?? false)
+        ? initialGrpcCertPath!
+        : p.join(resolvedDataDir, 'server.cert');
 
     notifyListeners();
   }
 
-  String appDatadir() => _appDataDir;
+  Future<String> appDatadir() async {
+    await _initFuture;
+    return _appDataDir;
+  }
 
-  Future<String> getConfigFilePath() async =>
-      p.join(_appDataDir, '$APPNAME.conf');
+  Future<String> getConfigFilePath() async {
+    await _initFuture;
+    return p.join(_appDataDir, '$APPNAME.conf');
+  }
 
   // expose the resolved data directory to the UI for display
   String get dataDir => _appDataDir;

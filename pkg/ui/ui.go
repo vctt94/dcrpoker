@@ -765,6 +765,14 @@ func (m *PokerUI) handleNotification(notification *pokerrpc.Notification) tea.Cm
 		m.message = notification.Message
 		return nil
 
+	case pokerrpc.NotificationType_PLAYER_LOST:
+		// If we are the one who lost, return to main menu; otherwise just show the message.
+		if notification.PlayerId == m.clientID {
+			m.resetToMainMenu()
+		}
+		m.message = notification.Message
+		return nil
+
 	case pokerrpc.NotificationType_SHOWDOWN_RESULT:
 		// Store showdown results and immediately reflect SHOWDOWN phase in UI
 		m.winners = notification.Winners

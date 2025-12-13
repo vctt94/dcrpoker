@@ -102,6 +102,9 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     try {
+      // Ensure defaults have resolved before using paths.
+      await widget.model.appDatadir();
+
       // update model from fields
       widget.model
         ..serverAddr        = _serverAddr.text
