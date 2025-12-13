@@ -1,4 +1,4 @@
-package com.bisonpoker
+package com.dcrpoker
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -4,9 +4,9 @@ import 'package:golib_plugin/golib_plugin.dart';
 import 'package:path_provider/path_provider.dart';
 
 // Logical app name (used for .conf and log filenames).
-const APPNAME = "bisonpoker";
+const APPNAME = "dcrpoker";
 // macOS Application Support directory name (matches bundle identifier).
-const APP_SUPPORT_DIR = "com.bisonpoker";
+const APP_SUPPORT_DIR = "com.dcrpoker";
 String mainConfigFilename = "";
 
 class Config {
