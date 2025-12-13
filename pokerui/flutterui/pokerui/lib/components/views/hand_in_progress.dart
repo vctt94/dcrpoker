@@ -1,7 +1,7 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/dialogs/last_showdown.dart';
 
 class HandInProgressView extends StatefulWidget {
@@ -354,11 +354,16 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
 
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-      final box = _pokerViewportRect(size);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
-      final seatPositions = _seatPositionsFor(game.players, widget.model.playerId, center, tableRadius + 50);
-      final from = seatPositions[fx.playerId] ?? center;
+      final layout = resolveTableLayout(size);
+      final box = layout.viewport;
+      final seatPositions = seatPositionsFor(
+        game.players,
+        widget.model.playerId,
+        layout.center,
+        layout.ringRadiusX,
+        layout.ringRadiusY,
+      );
+      final from = seatPositions[fx.playerId] ?? layout.center;
       final to = _potLabelCenterInBox(box); // pot label center
 
       final anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
@@ -374,57 +379,6 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
       return IgnorePointer(child: Stack(children: children));
     });
   }
-}
-
-Map<String, Offset> _seatPositionsFor(List<UiPlayer> ps, String heroId, Offset center, double ringRadius) {
-  final map = <String, Offset>{};
-  if (ps.isEmpty) return map;
-  final count = ps.length;
-  final heroIndex = ps.indexWhere((p) => p.id == heroId);
-  const playerRadius = 30.0;
-
-  for (int i = 0; i < count; i++) {
-    double angle;
-    if (i == heroIndex) {
-      angle = math.pi / 2;
-    } else if (heroIndex == -1) {
-      angle = (i * 2 * math.pi) / count;
-    } else {
-      final adjustedIndex = i > heroIndex ? i - 1 : i;
-      final otherCount = count - 1;
-      if (otherCount > 0) {
-        final step = (2 * math.pi) / (otherCount + 1);
-        angle = math.pi + (adjustedIndex + 1) * step;
-      } else {
-        angle = (i * 2 * math.pi) / count;
-      }
-    }
-    final x = center.dx + (ringRadius) * math.cos(angle);
-    final y = center.dy + (ringRadius) * math.sin(angle);
-    map[ps[i].id] = Offset(x, y - playerRadius);
-  }
-  return map;
-}
-
-// Approximate the pot label center used in PokerGame overlay (top: 20, padding/text heights)
-Rect _pokerViewportRect(Size size) {
-  const double aspect = 16 / 9;
-  final double containerAspect = size.width / (size.height == 0 ? 1 : size.height);
-  double w, h, left, top;
-  if (containerAspect > aspect) {
-    // container is wider than 16:9; height bound
-    h = size.height;
-    w = h * aspect;
-    left = (size.width - w) / 2;
-    top = 0;
-  } else {
-    // container is taller than 16:9; width bound
-    w = size.width;
-    h = w / aspect;
-    left = 0;
-    top = (size.height - h) / 2;
-  }
-  return Rect.fromLTWH(left, top, w, h);
 }
 
 Offset _potLabelCenterInBox(Rect box) {

@@ -25,12 +25,11 @@ class PokerTableBackground extends StatelessWidget {
 class _TableBackgroundPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    // Match the elliptical table shape from PokerPainter
-    // Table is wider than tall (typical poker table shape)
-    final tableRadiusX = (size.width * 0.4).clamp(100.0, 200.0);
-    final tableRadiusY = (size.height * 0.35).clamp(80.0, 150.0);
+    final layout = resolveTableLayout(size);
+    final centerX = layout.center.dx;
+    final centerY = layout.center.dy;
+    final tableRadiusX = layout.tableRadiusX;
+    final tableRadiusY = layout.tableRadiusY;
 
     // Draw table surface as ellipse
     final tableRect = Rect.fromCenter(
@@ -551,22 +550,46 @@ class PokerPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final centerX = size.width / 2;
-    final centerY = size.height / 2;
-    // Ellipse: wider than tall (typical poker table shape)
-    final tableRadiusX = (size.width * 0.4).clamp(100.0, 200.0);
-    final tableRadiusY = (size.height * 0.35).clamp(80.0, 150.0);
+    final layout = resolveTableLayout(size);
+    final centerX = layout.center.dx;
+    final centerY = layout.center.dy;
+    final tableRadiusX = layout.tableRadiusX;
+    final tableRadiusY = layout.tableRadiusY;
 
     // Draw poker table
     drawPokerTable(canvas, centerX, centerY, tableRadiusX, tableRadiusY);
     
     // Draw players
-    drawPlayers(canvas, gameState.players, currentPlayerId, gameState, centerX, centerY, tableRadiusX, tableRadiusY, showdownStartMs, size);
+    drawPlayers(
+      canvas,
+      gameState.players,
+      currentPlayerId,
+      gameState,
+      centerX,
+      centerY,
+      tableRadiusX,
+      tableRadiusY,
+      showdownStartMs,
+      size,
+      playerOffsetOverride: layout.playerOffset,
+      clampBounds: layout.viewport,
+    );
 
     _drawHeroHoleCards(canvas, size);
 
     // Draw current player's timebank badge last so it sits above cards/badges.
-    drawCurrentTimebank(canvas, size, gameState, currentPlayerId, centerX, centerY, tableRadiusX, tableRadiusY);
+    drawCurrentTimebank(
+      canvas,
+      size,
+      gameState,
+      currentPlayerId,
+      centerX,
+      centerY,
+      tableRadiusX,
+      tableRadiusY,
+      playerOffset: layout.playerOffset,
+      clampBounds: layout.viewport,
+    );
   }
 
 
@@ -659,11 +682,10 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
     if (widget.players.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-      final box = pokerViewportRect(size);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadiusX = (box.width * 0.4).clamp(100.0, 200.0);
-      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
-      final seats = seatPositionsFor(widget.players, widget.heroId, center, tableRadiusX + 50, tableRadiusY + 50);
+      final layout = resolveTableLayout(size);
+      final box = layout.viewport;
+      final center = layout.center;
+      final seats = seatPositionsFor(widget.players, widget.heroId, center, layout.ringRadiusX, layout.ringRadiusY);
 
       final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
       final ch = cw * 1.4;

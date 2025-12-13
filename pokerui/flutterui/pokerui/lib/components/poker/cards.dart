@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'package:pokerui/components/poker/table.dart';
 
 // Shared card rendering widgets to ensure a single source of truth
 // for card visuals across the app (faces, backs, and flip animation).
@@ -186,40 +187,38 @@ class HeroCardFlipOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-      final box = _viewport16by9(size);
-      final cw = math.max(math.min(box.width * 0.06, 54.0), 40.0);
+      final layout = resolveTableLayout(size);
+      final box = layout.viewport;
+      final cw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
       final ch = cw * 1.4;
       final gap = cw * 0.12;
-      final centerX = box.left + box.width / 2;
-      final centerY = box.top + box.height / 2;
-      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
+      final centerX = layout.center.dx;
+      final centerY = layout.center.dy;
       
       // Position hero cards directly above the hero player (who is at bottom center)
       // Hero is at angle pi/2 (90 degrees = bottom)
       // For ellipse: x = centerX + radiusX * cos(π/2) = centerX, y = centerY + radiusY * sin(π/2) = centerY + radiusY
-      const playerRadius = 30.0;
-      const playerOffset = 50.0; // Offset from table edge to player center (matches painter)
-      final ringRadiusY = tableRadiusY + playerOffset;
+      final ringRadiusY = layout.ringRadiusY;
       // Clamp hero seat so cards track the rendered player when the viewport is tight.
-      const seatPadding = playerRadius + 60.0;
+      final seatPadding = kPlayerRadius + layout.playerOffset + 14.0;
       final heroY = (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
       
       // Lightly scale spacing so cards stay tethered to the hero as width grows.
       const minSpacingAbovePlayer = 40.0;
-      const maxSpacingAbovePlayer = 60.0;
+      const maxSpacingAbovePlayer = 72.0;
       final spacingAbovePlayer = (ringRadiusY * 0.18).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
       
       // Calculate primary position: above player with damped spacing
-      var y = heroY - playerRadius - spacingAbovePlayer - ch;
+      var y = heroY - kPlayerRadius - spacingAbovePlayer - ch;
       
       // Soft constraint: ensure reasonable gap from community cards if they would be too close
       // Scale the minimum gap proportionally with table radius to maintain relative spacing
       final communityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
       final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
       // Minimum gap scales with table radius to maintain relative spacing
-      final minGapFromCommunity = math.max(24.0, tableRadiusY * 0.24);
+      final minGapFromCommunity = math.max(24.0, layout.tableRadiusY * 0.24);
       final minSafeY = communityCardsBottom + minGapFromCommunity;
-      final maxAllowedY = heroY - playerRadius - ch - 6.0; // avoid overlapping the seat
+      final maxAllowedY = heroY - kPlayerRadius - ch - 6.0; // avoid overlapping the seat
       // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.
       if (minSafeY > maxAllowedY) {
         y = maxAllowedY;
@@ -299,24 +298,6 @@ class HeroCardFlipOverlay extends StatelessWidget {
       ]);
     });
   }
-}
-
-Rect _viewport16by9(Size size) {
-  const aspect = 16 / 9;
-  final containerAspect = size.width / (size.height == 0 ? 1 : size.height);
-  double w, h, left, top;
-  if (containerAspect > aspect) {
-    h = size.height;
-    w = h * aspect;
-    left = (size.width - w) / 2;
-    top = 0;
-  } else {
-    w = size.width;
-    h = w / aspect;
-    left = 0;
-    top = (size.height - h) / 2;
-  }
-  return Rect.fromLTWH(left, top, w, h);
 }
 
 // Canvas-based card drawing utilities for CustomPainter usage

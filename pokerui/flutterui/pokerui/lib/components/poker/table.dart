@@ -5,6 +5,64 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'cards.dart';
 
 // Canvas-based table and player drawing utilities for CustomPainter usage
+const double kPlayerRadius = 30.0;
+const double _minPlayerOffset = 32.0;
+const double _maxPlayerOffset = 50.0;
+const double _edgePadding = 12.0;
+
+class TableLayout {
+  const TableLayout({
+    required this.viewport,
+    required this.center,
+    required this.tableRadiusX,
+    required this.tableRadiusY,
+    required this.playerOffset,
+  });
+
+  final Rect viewport;
+  final Offset center;
+  final double tableRadiusX;
+  final double tableRadiusY;
+  final double playerOffset;
+
+  double get ringRadiusX => tableRadiusX + playerOffset;
+  double get ringRadiusY => tableRadiusY + playerOffset;
+}
+
+double _playerOffsetForViewport(Rect viewport) {
+  final scaled = viewport.shortestSide * 0.08;
+  return scaled.clamp(_minPlayerOffset, _maxPlayerOffset);
+}
+
+TableLayout resolveTableLayout(Size size) {
+  final viewport = pokerViewportRect(size);
+  final center = Offset(viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
+  final playerOffset = _playerOffsetForViewport(viewport);
+
+  const desiredMinRadiusX = 180.0;
+  const desiredMinRadiusY = 130.0;
+
+  final availableX = (viewport.width / 2) - (playerOffset + kPlayerRadius + _edgePadding);
+  final availableY = (viewport.height / 2) - (playerOffset + kPlayerRadius + _edgePadding);
+
+  double clampRadius(double target, double available, double minDesired) {
+    final maxRadius = available.clamp(0.0, double.infinity);
+    if (maxRadius <= 0) return 0;
+    final minRadius = math.min(minDesired, maxRadius);
+    return target.clamp(minRadius, maxRadius);
+  }
+
+  final tableRadiusX = clampRadius(viewport.width * 0.42, availableX, desiredMinRadiusX);
+  final tableRadiusY = clampRadius(viewport.height * 0.34, availableY, desiredMinRadiusY);
+
+  return TableLayout(
+    viewport: viewport,
+    center: center,
+    tableRadiusX: tableRadiusX,
+    tableRadiusY: tableRadiusY,
+    playerOffset: playerOffset,
+  );
+}
 
 void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadiusX, double tableRadiusY) {
   // Table surface - draw as ellipse
@@ -39,8 +97,12 @@ void drawPlayers(
   double tableRadiusY,
   int showdownStartMs,
   Size size,
+  {double? playerOffsetOverride, Rect? clampBounds}
 ) {
-  const playerRadius = 30.0;
+  const playerRadius = kPlayerRadius;
+  final playerOffset = playerOffsetOverride ??
+      _playerOffsetForViewport(clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height));
+  final clampRect = clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height);
   final count = players.length;
   if (count == 0) return;
 
@@ -76,13 +138,12 @@ void drawPlayers(
     
     // Position players on ellipse perimeter
     // For ellipse: x = centerX + radiusX * cos(angle), y = centerY + radiusY * sin(angle)
-    final playerOffset = 50.0; // Distance from table edge
     final rawX = centerX + (tableRadiusX + playerOffset) * math.cos(angle);
     final rawY = centerY + (tableRadiusY + playerOffset) * math.sin(angle);
     // Ensure players don't get cut off at edges (with padding for badges/cards)
-    final padding = playerRadius + 60.0; // Extra space for badges and cards
-    final playerX = rawX.clamp(padding, size.width - padding);
-    final playerY = rawY.clamp(padding, size.height - padding);
+    final padding = playerRadius + playerOffset + 12.0; // Extra space for badges and cards
+    final playerX = rawX.clamp(clampRect.left + padding, clampRect.right - padding);
+    final playerY = rawY.clamp(clampRect.top + padding, clampRect.bottom - padding);
 
     drawPlayer(
       canvas,
@@ -185,9 +246,9 @@ void drawPlayer(
   canvas.drawCircle(Offset(x, y), radius, borderPaint);
   
   // Player name (show more characters)
-  final displayName = player.name.isNotEmpty 
-      ? (player.name.length > 2 ? player.name.substring(0, 2).toUpperCase() : player.name.toUpperCase())
-      : 'P${index + 1}';
+  final displayName = player.name.isNotEmpty
+      ? player.name
+      : 'Player ${index + 1}';
   final textPainter = TextPainter(
     text: TextSpan(
       text: displayName,
@@ -198,8 +259,10 @@ void drawPlayer(
       ),
     ),
     textDirection: TextDirection.ltr,
+    maxLines: 1,
+    ellipsis: '…',
   );
-  textPainter.layout();
+  textPainter.layout(maxWidth: 98.0);
   textPainter.paint(
     canvas,
     Offset(x - textPainter.width / 2, y - textPainter.height / 2),
@@ -332,6 +395,7 @@ void drawCurrentTimebank(
   double centerY,
   double tableRadiusX,
   double tableRadiusY,
+  {double playerOffset = _maxPlayerOffset, Rect? clampBounds}
 ) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -362,8 +426,7 @@ void drawCurrentTimebank(
     }
   }
 
-  const playerRadius = 30.0;
-  const playerOffset = 50.0;
+  const playerRadius = kPlayerRadius;
   final playerX = centerX + (tableRadiusX + playerOffset) * math.cos(angle);
   final playerY = centerY + (tableRadiusY + playerOffset) * math.sin(angle);
 
@@ -430,10 +493,11 @@ void drawCurrentTimebank(
   by = badgeCenterY - gapAboveBadges - badgeH;
   
   // Ensure timebank doesn't clip at screen edges
-  if (bx < 2) bx = 2;
-  if (bx + badgeW > size.width - 2) bx = size.width - badgeW - 2;
-  if (by < 2) by = 2;
-  if (by + badgeH > size.height - 2) by = size.height - badgeH - 2;
+  final bounds = clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height);
+  if (bx < bounds.left + 2) bx = bounds.left + 2;
+  if (bx + badgeW > bounds.right - 2) bx = bounds.right - badgeW - 2;
+  if (by < bounds.top + 2) by = bounds.top + 2;
+  if (by + badgeH > bounds.bottom - 2) by = bounds.bottom - badgeH - 2;
 
   final badgeRect = RRect.fromRectAndRadius(
     Rect.fromLTWH(bx, by, badgeW, badgeH),
@@ -484,7 +548,7 @@ Map<String, Offset> seatPositionsFor(List<UiPlayer> ps, String heroId, Offset ce
   if (ps.isEmpty) return map;
   final count = ps.length;
   final heroIndex = ps.indexWhere((p) => p.id == heroId);
-  const playerRadius = 30.0;
+  const playerRadius = kPlayerRadius;
 
   for (int i = 0; i < count; i++) {
     double angle;
