@@ -313,10 +313,8 @@ func (t *Table) handleGameEvent(event GameEvent) {
 			// Publish PLAYER_LOST notification before removing the player
 			// This allows the UI to show a message before the stream disconnects
 			t.PublishEvent(pokerrpc.NotificationType_PLAYER_LOST, t.config.ID, PlayerLostPayload{PlayerID: event.PlayerID})
-			// Remove the eliminated user from the table.
-			if err := t.RemoveUser(event.PlayerID); err != nil {
-				t.log.Debugf("RemoveUser for eliminated player %s returned: %v", event.PlayerID, err)
-			}
+			// Removal is handled after notifications are broadcast to ensure snapshots
+			// include the eliminated player for the final showdown/game-end payloads.
 		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)

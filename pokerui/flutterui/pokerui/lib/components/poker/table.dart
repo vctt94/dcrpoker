@@ -5,6 +5,143 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'cards.dart';
 
 // Canvas-based table and player drawing utilities for CustomPainter usage
+const double kPlayerRadius = 30.0;
+const double _minPlayerOffset = 32.0;
+const double _maxPlayerOffset = 50.0;
+const double _edgePadding = 12.0;
+// Top overlay sizing so we can reserve space for pot/current bet labels.
+const double kPotOverlayHeight = 42.0;
+const double kCurrentBetOverlayHeight = 28.0;
+const double kTopOverlayGap = 8.0;
+const double kTopOverlayMargin = 6.0;
+const double kOverlaySeatGap = 6.0;
+
+class TableLayout {
+  const TableLayout({
+    required this.viewport,
+    required this.center,
+    required this.tableRadiusX,
+    required this.tableRadiusY,
+    required this.playerOffset,
+  });
+
+  final Rect viewport;
+  final Offset center;
+  final double tableRadiusX;
+  final double tableRadiusY;
+  final double playerOffset;
+
+  double get ringRadiusX => tableRadiusX + playerOffset;
+  double get ringRadiusY => tableRadiusY + playerOffset;
+}
+
+double _playerOffsetForViewport(Rect viewport) {
+  final scaled = viewport.shortestSide * 0.08;
+  return scaled.clamp(_minPlayerOffset, _maxPlayerOffset);
+}
+
+double minSeatTopFor(Rect viewport, bool hasCurrentBet) {
+  final overlayHeight = kPotOverlayHeight +
+      (hasCurrentBet ? (kTopOverlayGap + kCurrentBetOverlayHeight) : 0);
+  return viewport.top + kTopOverlayMargin + overlayHeight + kOverlaySeatGap;
+}
+
+class TopOverlayLayout {
+  const TopOverlayLayout({required this.potTop, required this.currentBetTop});
+
+  final double potTop;
+  final double currentBetTop;
+
+  Offset potCenter(Rect viewport) =>
+      Offset(viewport.left + viewport.width / 2, potTop + kPotOverlayHeight / 2);
+}
+
+TopOverlayLayout computeTopOverlayLayout(Rect viewport, bool hasCurrentBet) {
+  final potTop = viewport.top + kTopOverlayMargin;
+  final cbTop =
+      potTop + kPotOverlayHeight + (hasCurrentBet ? kTopOverlayGap : 0);
+  return TopOverlayLayout(
+    potTop: potTop,
+    currentBetTop: hasCurrentBet ? cbTop : potTop,
+  );
+}
+
+Offset _positionForSeat(
+  int idx,
+  int heroIndex,
+  int count,
+  Offset center,
+  double ringRadiusX,
+  double ringRadiusY,
+  Rect? clampBounds,
+  double? minSeatTop,
+) {
+  final angle = _angleForPlayerIndex(idx, heroIndex, count);
+  var x = center.dx + ringRadiusX * math.cos(angle);
+  var y = center.dy + ringRadiusY * math.sin(angle);
+
+  if (minSeatTop != null) {
+    final seatTop = y - kPlayerRadius;
+    if (seatTop < minSeatTop) {
+      y += (minSeatTop - seatTop);
+    }
+  }
+
+  if (clampBounds != null) {
+    const hPad = kPlayerRadius + 12.0;
+    const vPad = kPlayerRadius + 12.0;
+    final left = clampBounds.left + hPad;
+    final right = clampBounds.right - hPad;
+    final top = clampBounds.top + vPad;
+    final bottom = clampBounds.bottom - vPad;
+    x = x.clamp(left, right);
+    y = y.clamp(top, bottom);
+  }
+
+  return Offset(x, y);
+}
+
+double _angleForPlayerIndex(int idx, int heroIndex, int count) {
+  if (count <= 0) return 0;
+  if (heroIndex < 0 || heroIndex >= count) {
+    return (idx * 2 * math.pi) / count;
+  }
+  final step = (2 * math.pi) / count;
+  var angle = (math.pi / 2) + (idx - heroIndex) * step;
+  angle %= (2 * math.pi);
+  if (angle < 0) angle += 2 * math.pi;
+  return angle;
+}
+
+TableLayout resolveTableLayout(Size size) {
+  final viewport = pokerViewportRect(size);
+  final center = Offset(viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
+  final playerOffset = _playerOffsetForViewport(viewport);
+
+  const desiredMinRadiusX = 180.0;
+  const desiredMinRadiusY = 130.0;
+
+  final availableX = (viewport.width / 2) - (playerOffset + kPlayerRadius + _edgePadding);
+  final availableY = (viewport.height / 2) - (playerOffset + kPlayerRadius + _edgePadding);
+
+  double clampRadius(double target, double available, double minDesired) {
+    final maxRadius = available.clamp(0.0, double.infinity);
+    if (maxRadius <= 0) return 0;
+    final minRadius = math.min(minDesired, maxRadius);
+    return target.clamp(minRadius, maxRadius);
+  }
+
+  final tableRadiusX = clampRadius(viewport.width * 0.42, availableX, desiredMinRadiusX);
+  final tableRadiusY = clampRadius(viewport.height * 0.34, availableY, desiredMinRadiusY);
+
+  return TableLayout(
+    viewport: viewport,
+    center: center,
+    tableRadiusX: tableRadiusX,
+    tableRadiusY: tableRadiusY,
+    playerOffset: playerOffset,
+  );
+}
 
 void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadiusX, double tableRadiusY) {
   // Table surface - draw as ellipse
@@ -39,8 +176,12 @@ void drawPlayers(
   double tableRadiusY,
   int showdownStartMs,
   Size size,
+  {double? playerOffsetOverride, Rect? clampBounds, double? minSeatTop}
 ) {
-  const playerRadius = 30.0;
+  const playerRadius = kPlayerRadius;
+  final playerOffset = playerOffsetOverride ??
+      _playerOffsetForViewport(clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height));
+  final clampRect = clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height);
   final count = players.length;
   if (count == 0) return;
 
@@ -49,54 +190,37 @@ void drawPlayers(
 
   for (int i = 0; i < count; i++) {
     final player = players[i];
-    
-    // Position hero at the bottom (pi/2 radians = 90 degrees = bottom)
-    // Other players arranged around the table
-    double angle;
-    if (i == heroIndex) {
-      // Hero always at bottom
-      angle = math.pi / 2;
-    } else if (heroIndex == -1) {
-      // No hero found, distribute evenly
-      angle = (i * 2 * math.pi) / count;
-    } else {
-      // Arrange other players around the table
-      // Adjust index to account for hero being at bottom
-      final adjustedIndex = i > heroIndex ? i - 1 : i;
-      final otherCount = count - 1; // excluding hero
-      if (otherCount > 0) {
-        // Distribute others around the top half/sides
-        // Start from left (pi) and go counterclockwise, skipping bottom (pi/2)
-        final step = (2 * math.pi) / (otherCount + 1);
-        angle = math.pi + (adjustedIndex + 1) * step;
-      } else {
-        angle = (i * 2 * math.pi) / count;
-      }
-    }
-    
-    // Position players on ellipse perimeter
-    // For ellipse: x = centerX + radiusX * cos(angle), y = centerY + radiusY * sin(angle)
-    final playerOffset = 50.0; // Distance from table edge
-    final rawX = centerX + (tableRadiusX + playerOffset) * math.cos(angle);
-    final rawY = centerY + (tableRadiusY + playerOffset) * math.sin(angle);
-    // Ensure players don't get cut off at edges (with padding for badges/cards)
-    final padding = playerRadius + 60.0; // Extra space for badges and cards
-    final playerX = rawX.clamp(padding, size.width - padding);
-    final playerY = rawY.clamp(padding, size.height - padding);
+    final pos = _positionForSeat(
+      i,
+      heroIndex,
+      count,
+      Offset(centerX, centerY),
+      tableRadiusX + playerOffset,
+      tableRadiusY + playerOffset,
+      clampRect,
+      minSeatTop,
+    );
 
     drawPlayer(
       canvas,
-      playerX,
-      playerY,
+      pos.dx,
+      pos.dy,
       playerRadius,
       player,
       i,
-      angle,
+      Offset(centerX, centerY),
       currentPlayerId,
       gameState,
     );
 
     if (player.id != currentPlayerId) {
+      final playerX = pos.dx;
+      final playerY = pos.dy;
+      final isTopHalf = playerY < clampRect.center.dy;
+      // Skip rendering hole cards for folded opponents to avoid implying they are still in-hand.
+      if (player.folded) {
+        continue;
+      }
       final hasAnyCards = player.hand.isNotEmpty;
       if (gameState.phase == pr.GamePhase.SHOWDOWN) {
         if (hasAnyCards) {
@@ -105,11 +229,15 @@ void drawPlayers(
           const ch = cw * 1.4;
           const gap = 4.0;
           final startX = playerX - cw - gap / 2;
-          final baseY = playerY - playerRadius - ch - 6;
+          final baseY = isTopHalf
+              ? playerY + playerRadius + 6
+              : playerY - playerRadius - ch - 6;
           final now = DateTime.now().millisecondsSinceEpoch;
           final elapsed = (now - showdownStartMs - i * 120);
           final t = (elapsed / 450.0).clamp(0.0, 1.0);
-          final y = baseY + (1.0 - t) * 14.0;
+          final y = isTopHalf
+              ? (baseY - (1.0 - t) * 14.0)
+              : (baseY + (1.0 - t) * 14.0);
           drawCardFace(canvas, startX, y, cw, ch, player.hand[0]);
           if (player.hand.length > 1) {
             drawCardFace(canvas, startX + cw + gap, y, cw, ch, player.hand[1]);
@@ -120,7 +248,9 @@ void drawPlayers(
           const ch = cw * 1.4;
           const gap = 4.0;
           final startX = playerX - cw - gap / 2;
-          final y = playerY - playerRadius - ch - 6;
+          final y = isTopHalf
+              ? playerY + playerRadius + 6
+              : playerY - playerRadius - ch - 6;
           drawCardBack(canvas, startX, y, cw, ch);
           drawCardBack(canvas, startX + cw + gap, y, cw, ch);
         }
@@ -130,7 +260,9 @@ void drawPlayers(
         const ch = cw * 1.4;
         const gap = 4.0;
         final startX = playerX - cw - gap / 2;
-        final y = playerY - playerRadius - ch - 6; // place just above the seat circle
+        final y = isTopHalf
+            ? playerY + playerRadius + 6
+            : playerY - playerRadius - ch - 6; // place just above/below the seat circle
         drawCardBack(canvas, startX, y, cw, ch);
         drawCardBack(canvas, startX + cw + gap, y, cw, ch);
       }
@@ -145,14 +277,15 @@ void drawPlayer(
   double radius,
   UiPlayer player,
   int index,
-  double angle,
+  Offset tableCenter,
   String currentPlayerId,
   UiGameState gameState,
 ) {
   final isHero = player.id == currentPlayerId;
+  final isFolded = player.folded;
   // Compute turn highlight based on authoritative currentPlayerId from
   // the game state to avoid transient races in per-player isTurn flags.
-  final isCurrent = player.id == gameState.currentPlayerId;
+  final isCurrent = player.id == gameState.currentPlayerId && !isFolded;
   const heroColor = Color(0xFF2E6DD8);
   final otherColor = Colors.grey.shade700;
   
@@ -160,7 +293,7 @@ void drawPlayer(
   final playerPaint = Paint()
     ..color = player.isDisconnected
         ? Colors.red.shade700
-        : (isHero ? heroColor : otherColor)
+        : (isFolded ? Colors.grey.shade800 : (isHero ? heroColor : otherColor))
     ..style = PaintingStyle.fill;
 
   canvas.drawCircle(Offset(x, y), radius, playerPaint);
@@ -178,28 +311,55 @@ void drawPlayer(
   final borderPaint = Paint()
     ..color = player.isDisconnected
         ? Colors.orangeAccent
-        : (isCurrent ? Colors.yellowAccent : Colors.white24)
+        : (isFolded ? Colors.white24.withOpacity(0.6) : (isCurrent ? Colors.yellowAccent : Colors.white24))
     ..style = PaintingStyle.stroke
     ..strokeWidth = isCurrent ? 2.5 : 1.5;
   
   canvas.drawCircle(Offset(x, y), radius, borderPaint);
   
+  // Dim folded players with an overlay
+  if (isFolded) {
+    final foldOverlay = Paint()..color = Colors.black.withOpacity(0.45);
+    canvas.drawCircle(Offset(x, y), radius, foldOverlay);
+    // Keep a red marker around folded players for quick recognition.
+    final foldRing = Paint()
+      ..color = Colors.redAccent.withOpacity(0.9)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+    canvas.drawCircle(Offset(x, y), radius + 3, foldRing);
+    final arrowPaint = Paint()
+      ..color = Colors.redAccent.withOpacity(0.85)
+      ..style = PaintingStyle.fill;
+    final arrow = Path()
+      ..moveTo(x, y + radius + 6)
+      ..lineTo(x - 7, y + radius + 16)
+      ..lineTo(x + 7, y + radius + 16)
+      ..close();
+    canvas.drawPath(arrow, arrowPaint);
+  }
+  
   // Player name (show more characters)
-  final displayName = player.name.isNotEmpty 
-      ? (player.name.length > 2 ? player.name.substring(0, 2).toUpperCase() : player.name.toUpperCase())
-      : 'P${index + 1}';
+  final displayName = player.name.isNotEmpty
+      ? player.name
+      : 'Player ${index + 1}';
+  final nameStyle = TextStyle(
+    color: isFolded ? Colors.white70 : Colors.white,
+    fontSize: 13,
+    fontWeight: FontWeight.w800,
+    decoration: isFolded ? TextDecoration.lineThrough : TextDecoration.none,
+    decorationColor: isFolded ? Colors.white54 : null,
+    decorationThickness: isFolded ? 2 : null,
+  );
   final textPainter = TextPainter(
     text: TextSpan(
       text: displayName,
-      style: const TextStyle(
-        color: Colors.white,
-        fontSize: 13,
-        fontWeight: FontWeight.w800,
-      ),
+      style: nameStyle,
     ),
     textDirection: TextDirection.ltr,
+    maxLines: 1,
+    ellipsis: '…',
   );
-  textPainter.layout();
+  textPainter.layout(maxWidth: 98.0);
   textPainter.paint(
     canvas,
     Offset(x - textPainter.width / 2, y - textPainter.height / 2),
@@ -224,6 +384,7 @@ void drawPlayer(
 
   // Player chips (styled like a badge)
   if (player.balance > 0) {
+    final onTopHalf = y < tableCenter.dy;
     final chipText = TextPainter(
       text: TextSpan(
         text: '${player.balance}',
@@ -240,11 +401,19 @@ void drawPlayer(
     // Draw chip badge background
     final chipBadgeWidth = chipText.width + 12;
     const chipBadgeHeight = 16.0;
-    final chipBadgeY = y + radius + 8;
+    double chipBadgeX, chipBadgeY;
+    if (onTopHalf) {
+      chipBadgeX = x + radius + 10;
+      chipBadgeY = y - (chipBadgeHeight / 2);
+    } else {
+      chipBadgeX = x - chipBadgeWidth / 2;
+      chipBadgeY = y + radius + 8;
+    }
+    final chipBadgeYClamped = math.max(chipBadgeY, 4.0);
     final chipBadgeRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
-        x - chipBadgeWidth / 2,
-        chipBadgeY,
+        chipBadgeX,
+        chipBadgeYClamped,
         chipBadgeWidth,
         chipBadgeHeight,
       ),
@@ -255,15 +424,18 @@ void drawPlayer(
     
     chipText.paint(
       canvas,
-      Offset(x - chipText.width / 2, chipBadgeY + 2),
+      Offset(
+        onTopHalf ? chipBadgeX + (chipBadgeWidth - chipText.width) / 2 : x - chipText.width / 2,
+        chipBadgeYClamped + 2,
+      ),
     );
   }
   
   // Draw role badges to the left of the player circle
-  drawRoleBadges(canvas, x, y, radius, badges, isHero, angle);
+  drawRoleBadges(canvas, x, y, radius, badges, isHero);
 }
 
-void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<SeatBadge> badges, bool isHero, double angle) {
+void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<SeatBadge> badges, bool isHero) {
   if (badges.isEmpty) return;
 
   const double badgeHeight = 18.0;
@@ -332,6 +504,7 @@ void drawCurrentTimebank(
   double centerY,
   double tableRadiusX,
   double tableRadiusY,
+  {double playerOffset = _maxPlayerOffset, Rect? clampBounds, double? minSeatTop}
 ) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
@@ -346,26 +519,18 @@ void drawCurrentTimebank(
   final idx = players.indexWhere((p) => p.id == gameState.currentPlayerId);
   if (idx < 0) return;
 
-  double angle;
-  if (idx == heroIndex) {
-    angle = math.pi / 2;
-  } else if (heroIndex == -1) {
-    angle = (idx * 2 * math.pi) / count;
-  } else {
-    final adjustedIndex = idx > heroIndex ? idx - 1 : idx;
-    final otherCount = count - 1;
-    if (otherCount > 0) {
-      final step = (2 * math.pi) / (otherCount + 1);
-      angle = math.pi + (adjustedIndex + 1) * step;
-    } else {
-      angle = (idx * 2 * math.pi) / count;
-    }
-  }
-
-  const playerRadius = 30.0;
-  const playerOffset = 50.0;
-  final playerX = centerX + (tableRadiusX + playerOffset) * math.cos(angle);
-  final playerY = centerY + (tableRadiusY + playerOffset) * math.sin(angle);
+  final bounds = clampBounds ?? pokerViewportRect(size);
+  const playerRadius = kPlayerRadius;
+  final pos = _positionForSeat(
+    idx,
+    heroIndex,
+    count,
+    Offset(centerX, centerY),
+    tableRadiusX + playerOffset,
+    tableRadiusY + playerOffset,
+    bounds,
+    minSeatTop,
+  );
 
   final tbText = TextPainter(
     text: TextSpan(
@@ -386,8 +551,8 @@ void drawCurrentTimebank(
   const spacingFromCircle = 8.0;
   const angleRadians = math.pi / 6; // 30 degrees
   const distanceFromCenter = playerRadius + spacingFromCircle;
-  final badgeLeftEdgeX = playerX + distanceFromCenter * math.cos(angleRadians);
-  final badgeLeftEdgeY = playerY + distanceFromCenter * math.sin(angleRadians);
+  final badgeLeftEdgeX = pos.dx + distanceFromCenter * math.cos(angleRadians);
+  final badgeLeftEdgeY = pos.dy + distanceFromCenter * math.sin(angleRadians);
   
   // Calculate total width of badges for current player
   final currentPlayer = players[idx];
@@ -430,10 +595,10 @@ void drawCurrentTimebank(
   by = badgeCenterY - gapAboveBadges - badgeH;
   
   // Ensure timebank doesn't clip at screen edges
-  if (bx < 2) bx = 2;
-  if (bx + badgeW > size.width - 2) bx = size.width - badgeW - 2;
-  if (by < 2) by = 2;
-  if (by + badgeH > size.height - 2) by = size.height - badgeH - 2;
+  if (bx < bounds.left + 2) bx = bounds.left + 2;
+  if (bx + badgeW > bounds.right - 2) bx = bounds.right - badgeW - 2;
+  if (by < bounds.top + 2) by = bounds.top + 2;
+  if (by + badgeH > bounds.bottom - 2) by = bounds.bottom - badgeH - 2;
 
   final badgeRect = RRect.fromRectAndRadius(
     Rect.fromLTWH(bx, by, badgeW, badgeH),
@@ -479,33 +644,33 @@ Rect pokerViewportRect(Size size) {
   return Rect.fromLTWH(left, top, w, h);
 }
 
-Map<String, Offset> seatPositionsFor(List<UiPlayer> ps, String heroId, Offset center, double ringRadiusX, double ringRadiusY) {
+Map<String, Offset> seatPositionsFor(
+  List<UiPlayer> ps,
+  String heroId,
+  Offset center,
+  double ringRadiusX,
+  double ringRadiusY, {
+  Rect? clampBounds,
+  double? minSeatTop,
+}) {
   final map = <String, Offset>{};
   if (ps.isEmpty) return map;
   final count = ps.length;
   final heroIndex = ps.indexWhere((p) => p.id == heroId);
-  const playerRadius = 30.0;
+  const playerRadius = kPlayerRadius;
 
   for (int i = 0; i < count; i++) {
-    double angle;
-    if (i == heroIndex) {
-      angle = math.pi / 2;
-    } else if (heroIndex == -1) {
-      angle = (i * 2 * math.pi) / count;
-    } else {
-      final adjustedIndex = i > heroIndex ? i - 1 : i;
-      final otherCount = count - 1;
-      if (otherCount > 0) {
-        final step = (2 * math.pi) / (otherCount + 1);
-        angle = math.pi + (adjustedIndex + 1) * step;
-      } else {
-        angle = (i * 2 * math.pi) / count;
-      }
-    }
-    // Position on ellipse perimeter
-    final x = center.dx + ringRadiusX * math.cos(angle);
-    final y = center.dy + ringRadiusY * math.sin(angle);
-    map[ps[i].id] = Offset(x, y - playerRadius);
+    final pos = _positionForSeat(
+      i,
+      heroIndex,
+      count,
+      center,
+      ringRadiusX,
+      ringRadiusY,
+      clampBounds,
+      minSeatTop,
+    );
+    map[ps[i].id] = Offset(pos.dx, pos.dy - playerRadius);
   }
   return map;
 }

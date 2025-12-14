@@ -7,21 +7,27 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
     super.key,
     required this.players,
     required this.heroId,
+    required this.hasCurrentBet,
   });
 
   final List<UiPlayer> players;
   final String heroId;
+  final bool hasCurrentBet;
 
   @override
   Widget build(BuildContext context) {
     if (players.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final box = _pokerViewportRect(size);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadiusX = (box.width * 0.4).clamp(100.0, 200.0);
-      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
-      final seats = seatPositionsFor(players, heroId, center, tableRadiusX + 50, tableRadiusY + 50);
+      final layout = resolveTableLayout(c.biggest);
+      final seats = seatPositionsFor(
+        players,
+        heroId,
+        layout.center,
+        layout.ringRadiusX,
+        layout.ringRadiusY,
+        clampBounds: layout.viewport,
+        minSeatTop: minSeatTopFor(layout.viewport, hasCurrentBet),
+      );
 
       final widgets = <Widget>[];
       for (final p in players) {
@@ -65,24 +71,6 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         child: Stack(children: widgets),
       );
     });
-  }
-
-  static Rect _pokerViewportRect(Size size) {
-    const double aspect = 16 / 9;
-    final double containerAspect = size.width / (size.height == 0 ? 1 : size.height);
-    double w, h, left, top;
-    if (containerAspect > aspect) {
-      h = size.height;
-      w = h * aspect;
-      left = (size.width - w) / 2;
-      top = 0;
-    } else {
-      w = size.width;
-      h = w / aspect;
-      left = 0;
-      top = (size.height - h) / 2;
-    }
-    return Rect.fromLTWH(left, top, w, h);
   }
 
   static String _shortName(String name) {

@@ -16,6 +16,11 @@ class SharedLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    final isHomeRoute = route?.settings.name == Navigator.defaultRouteName;
+    final showBackButton = navigator.canPop() && !isHomeRoute;
+
     // Try to get PokerModel, but don't throw if it's not available
     PokerModel? pokerModel;
     Future<void> Function()? logoutCb = onLogout;
@@ -38,11 +43,14 @@ class SharedLayout extends StatelessWidget {
         backgroundColor: const Color(0xFF1A1A1A), // Dark app bar
         foregroundColor: Colors.white, // White text and icons
         title: Text(title),
-        leading: Navigator.of(context).canPop()
+        leading: showBackButton
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
-                onPressed: () {
-                  Navigator.of(context).pop();
+                onPressed: () async {
+                  final didPop = await navigator.maybePop();
+                  if (!didPop && navigator.canPop()) {
+                    navigator.popUntil((route) => route.isFirst);
+                  }
                 },
               )
             : null,
@@ -84,8 +92,9 @@ class SharedLayout extends StatelessWidget {
                       title: const Text('Home',
                           style: TextStyle(color: Colors.white)),
                       onTap: () {
+                        navigator.pop();
                         pokerModel?.showHomeView();
-                        Navigator.of(context).pushReplacementNamed('/');
+                        navigator.popUntil((route) => route.isFirst);
                       },
                     ),
                     ListTile(

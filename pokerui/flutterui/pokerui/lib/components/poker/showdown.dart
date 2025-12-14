@@ -16,12 +16,11 @@ class ShowdownView extends StatefulWidget {
 class _ShowdownViewState extends State<ShowdownView> {
   Timer? _countdownTimer;
   int _secondsRemaining = 5;
-  bool _countdownStarted = false;
 
   @override
   void initState() {
     super.initState();
-    _maybeStartCountdown();
+    _startCountdown();
   }
 
   @override
@@ -30,47 +29,19 @@ class _ShowdownViewState extends State<ShowdownView> {
     super.dispose();
   }
 
-  @override
-  void didUpdateWidget(covariant ShowdownView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    _maybeStartCountdown();
-  }
-
-  void _resetCountdown() {
-    _countdownTimer?.cancel();
-    _countdownStarted = false;
-    _secondsRemaining = 5;
-  }
-
   void _startCountdown() {
-    _resetCountdown();
-    _countdownStarted = true;
+    _secondsRemaining = 5;
+    _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      setState(() {
-        if (_secondsRemaining > 0) {
+      if (mounted) {
+        setState(() {
           _secondsRemaining--;
-        }
-        if (_secondsRemaining <= 0) {
-          timer.cancel();
-        }
-      });
+          if (_secondsRemaining <= 0) {
+            timer.cancel();
+          }
+        });
+      }
     });
-  }
-
-  void _maybeStartCountdown() {
-    if (widget.model.isGameEndPending) {
-      if (!_countdownStarted) {
-        _startCountdown();
-      }
-    } else {
-      if (_countdownStarted) {
-        _resetCountdown();
-      }
-    }
   }
 
   @override
@@ -327,16 +298,25 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
 
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-      final box = pokerViewportRect(size);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadiusX = (box.width * 0.4).clamp(100.0, 200.0);
-      final tableRadiusY = (box.height * 0.35).clamp(80.0, 150.0);
+      final layout = resolveTableLayout(size);
+      final box = layout.viewport;
+      final center = layout.center;
+      final hasCurrentBet = game.currentBet > 0;
+      final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
 
       final chipWidgets = <Widget>[];
       if (winners.isNotEmpty && game.players.isNotEmpty) {
         final targets = seatPositionsFor(
-            game.players, widget.model.playerId, center, tableRadiusX + 50, tableRadiusY + 50);
-        final potOrigin = _potLabelCenterInBox(box);
+          game.players,
+          widget.model.playerId,
+          center,
+          layout.ringRadiusX,
+          layout.ringRadiusY,
+          clampBounds: layout.viewport,
+          minSeatTop: minSeatTop,
+        );
+        final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
+        final potOrigin = overlay.potCenter(box);
 
         for (int i = 0; i < winners.length; i++) {
           final w = winners[i];
@@ -409,11 +389,4 @@ class _AnimatedChip extends StatelessWidget {
       },
     );
   }
-}
-
-Offset _potLabelCenterInBox(Rect box) {
-  const double top = 20.0;
-  const double labelHeightApprox = 40.0;
-  return Offset(
-      box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
 }

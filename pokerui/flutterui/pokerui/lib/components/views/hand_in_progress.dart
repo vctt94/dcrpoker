@@ -1,7 +1,7 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/dialogs/last_showdown.dart';
 
 class HandInProgressView extends StatefulWidget {
@@ -12,13 +12,8 @@ class HandInProgressView extends StatefulWidget {
   State<HandInProgressView> createState() => _HandInProgressViewState();
 
   static int calculateTotalBet(int amt, int currentBet, int myBet, int bb) {
-    // If we've already contributed chips this street (blinds or a prior bet),
-    // treat the input as additional chips to add on top of what is already in.
-    if (myBet > 0) {
-      return myBet + amt;
-    }
-
-    // No prior contribution: the entered amount is the target total.
+    // Treat the entered amount as the target total bet, regardless of prior
+    // contribution (blinds or previous bet).
     return amt;
   }
 }
@@ -26,6 +21,8 @@ class HandInProgressView extends StatefulWidget {
 class _HandInProgressViewState extends State<HandInProgressView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
+  bool _wasMyTurn = false;
+
 
   @override
   void dispose() {
@@ -39,6 +36,24 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     if (game == null) {
       return const Center(child: Text('No game data available'));
     }
+
+    // Close the raise input when it's no longer our turn so we come back to the
+    // compact button row on the next action.
+    final canAct = widget.model.canAct;
+    if (canAct && !_wasMyTurn) {
+      // New turn: clear any stale raise input so defaults reseed correctly.
+      _betCtrl.clear();
+    }
+    if (_showBetInput && _wasMyTurn && !canAct) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          setState(() {
+            _showBetInput = false;
+          });
+        }
+      });
+    }
+    _wasMyTurn = canAct;
 
     final focusNode = FocusNode();
     final pokerGame = PokerGame(widget.model.playerId, widget.model);
@@ -213,6 +228,8 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                             _betCtrl.text = targetTotal.toString();
                           }
 
+                          final myBalance = widget.model.me?.balance ?? 0;
+                          final wouldBeAllIn = myBalance > 0 && myBalance <= (currentBet - myBet);
                           if (!_showBetInput) {
                             return ElevatedButton(
                               onPressed: () {
@@ -222,7 +239,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                 if (_betCtrl.text.isEmpty) seedDefault();
                               },
                               style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                              child: Text(isRaise ? 'Raise' : 'Bet'),
+                              child: Text(isRaise
+                                  ? (wouldBeAllIn ? 'All-in' : 'Raise')
+                                  : 'Bet'),
                             );
                           }
 
@@ -230,26 +249,54 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                           return Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              SizedBox(
-                                width: 90,
-                                child: TextField(
-                                  controller: _betCtrl,
-                                  keyboardType: TextInputType.number,
-                                  style: const TextStyle(color: Colors.white),
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                    hintText: isRaise ? 'Raise' : 'Bet',
-                                    hintStyle: const TextStyle(color: Colors.white70),
-                                    filled: true,
-                                    fillColor: Colors.black54,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(8),
-                                      borderSide: const BorderSide(color: Colors.white24),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  SizedBox(
+                                    width: 110,
+                                    child: TextField(
+                                      controller: _betCtrl,
+                                      keyboardType: TextInputType.number,
+                                      style: const TextStyle(color: Colors.white),
+                                      decoration: InputDecoration(
+                                        labelText: isRaise ? 'Total raise' : 'Total bet',
+                                        labelStyle: const TextStyle(color: Colors.white70, fontSize: 12),
+                                        isDense: true,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                        hintText: isRaise ? 'e.g. ${currentBet > 0 ? currentBet : bb}' : 'e.g. ${bb > 0 ? bb * 3 : 50}',
+                                        hintStyle: const TextStyle(color: Colors.white54),
+                                        filled: true,
+                                        fillColor: Colors.black54,
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                          borderSide: const BorderSide(color: Colors.white24),
+                                        ),
+                                      ),
+                                      onSubmitted: (_) => submitBet(),
                                     ),
                                   ),
-                                  onSubmitted: (_) => submitBet(),
-                                ),
+                                  const SizedBox(height: 4),
+                                  Builder(builder: (context) {
+                                    final entered = int.tryParse(_betCtrl.text.trim()) ?? 0;
+                                    final delta = entered > myBet ? (entered - myBet) : 0;
+                                    final maxTotal = (widget.model.me?.balance ?? 0) + myBet;
+                                    final capped = entered > maxTotal ? maxTotal : entered;
+                                    final displayEntered =
+                                        capped > 0 ? capped : (isRaise ? currentBet : bb * 3);
+                                    final displayDelta = displayEntered > myBet ? (displayEntered - myBet) : 0;
+                                    if (displayDelta == displayEntered) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final isAllIn = displayEntered == maxTotal && maxTotal > 0;
+                                    final label = isAllIn
+                                        ? 'All-in $displayEntered'
+                                        : 'Adds $displayDelta, total $displayEntered';
+                                    return Text(
+                                      label,
+                                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                                    );
+                                  }),
+                                ],
                               ),
                               const SizedBox(width: 6),
                               Builder(
@@ -267,7 +314,15 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               ElevatedButton(
                                 onPressed: submitBet,
                                 style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                                child: Text(isRaise ? 'Raise' : 'Bet'),
+                                child: Text(() {
+                                  final meBal = widget.model.me?.balance ?? 0;
+                                  final entered = int.tryParse(_betCtrl.text.trim()) ?? 0;
+                                  final target = entered > 0 ? entered : currentBet;
+                                  final myTotal = meBal + myBet;
+                                  final isAllIn = target >= myTotal && myTotal > 0;
+                                  if (isAllIn) return 'All-in';
+                                  return isRaise ? 'Raise' : 'Bet';
+                                }()),
                               ),
                               const SizedBox(width: 6),
                               TextButton(
@@ -354,12 +409,22 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
 
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-      final box = _pokerViewportRect(size);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final tableRadius = (box.width * 0.4).clamp(100.0, 200.0);
-      final seatPositions = _seatPositionsFor(game.players, widget.model.playerId, center, tableRadius + 50);
-      final from = seatPositions[fx.playerId] ?? center;
-      final to = _potLabelCenterInBox(box); // pot label center
+      final layout = resolveTableLayout(size);
+      final box = layout.viewport;
+      final hasCurrentBet = game.currentBet > 0;
+      final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
+      final seatPositions = seatPositionsFor(
+        game.players,
+        widget.model.playerId,
+        layout.center,
+        layout.ringRadiusX,
+        layout.ringRadiusY,
+        clampBounds: layout.viewport,
+        minSeatTop: minSeatTop,
+      );
+      final from = seatPositions[fx.playerId] ?? layout.center;
+      final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
+      final to = overlay.potCenter(box); // pot label center
 
       final anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
       final t = Tween(begin: 0.0, end: 1.0).animate(anim);
@@ -374,63 +439,6 @@ class _BetFxOverlayState extends State<_BetFxOverlay> with SingleTickerProviderS
       return IgnorePointer(child: Stack(children: children));
     });
   }
-}
-
-Map<String, Offset> _seatPositionsFor(List<UiPlayer> ps, String heroId, Offset center, double ringRadius) {
-  final map = <String, Offset>{};
-  if (ps.isEmpty) return map;
-  final count = ps.length;
-  final heroIndex = ps.indexWhere((p) => p.id == heroId);
-  const playerRadius = 30.0;
-
-  for (int i = 0; i < count; i++) {
-    double angle;
-    if (i == heroIndex) {
-      angle = math.pi / 2;
-    } else if (heroIndex == -1) {
-      angle = (i * 2 * math.pi) / count;
-    } else {
-      final adjustedIndex = i > heroIndex ? i - 1 : i;
-      final otherCount = count - 1;
-      if (otherCount > 0) {
-        final step = (2 * math.pi) / (otherCount + 1);
-        angle = math.pi + (adjustedIndex + 1) * step;
-      } else {
-        angle = (i * 2 * math.pi) / count;
-      }
-    }
-    final x = center.dx + (ringRadius) * math.cos(angle);
-    final y = center.dy + (ringRadius) * math.sin(angle);
-    map[ps[i].id] = Offset(x, y - playerRadius);
-  }
-  return map;
-}
-
-// Approximate the pot label center used in PokerGame overlay (top: 20, padding/text heights)
-Rect _pokerViewportRect(Size size) {
-  const double aspect = 16 / 9;
-  final double containerAspect = size.width / (size.height == 0 ? 1 : size.height);
-  double w, h, left, top;
-  if (containerAspect > aspect) {
-    // container is wider than 16:9; height bound
-    h = size.height;
-    w = h * aspect;
-    left = (size.width - w) / 2;
-    top = 0;
-  } else {
-    // container is taller than 16:9; width bound
-    w = size.width;
-    h = w / aspect;
-    left = 0;
-    top = (size.height - h) / 2;
-  }
-  return Rect.fromLTWH(left, top, w, h);
-}
-
-Offset _potLabelCenterInBox(Rect box) {
-  const double top = 20.0;
-  const double labelHeightApprox = 40.0; // padding + text height
-  return Offset(box.left + box.width / 2, box.top + top + labelHeightApprox / 2);
 }
 
 class _AnimatedChip extends StatelessWidget {

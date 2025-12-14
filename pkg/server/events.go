@@ -227,6 +227,13 @@ func (w *eventWorker) processEvent(event *GameEvent) {
 	w.processNotifications(event)
 	w.processGameStateUpdates(event)
 	w.processPersistence(event)
+
+	// After broadcasting PLAYER_LOST, remove the eliminated player from the table
+	// so future snapshots do not include them. This runs after notifications to
+	// ensure clients see a consistent final state.
+	if event.Type == pokerrpc.NotificationType_PLAYER_LOST {
+		w.removeEliminatedPlayer(event)
+	}
 }
 
 // processNotifications handles notification broadcasting for the event
@@ -245,6 +252,20 @@ func (w *eventWorker) processGameStateUpdates(event *GameEvent) {
 func (w *eventWorker) processPersistence(event *GameEvent) {
 	handler := NewPersistenceHandler(w.processor.server)
 	handler.SaveTableStateAsync(event)
+}
+
+// removeEliminatedPlayer prunes a busted player from the table after the
+// PLAYER_LOST notification has been sent.
+func (w *eventWorker) removeEliminatedPlayer(event *GameEvent) {
+	pl, ok := event.Payload.(PlayerLostPayload)
+	if !ok {
+		return
+	}
+	if t, exists := w.processor.server.getTable(event.TableID); exists {
+		if err := t.RemoveUser(pl.PlayerID); err != nil {
+			w.processor.log.Warnf("failed to remove player %s after PLAYER_LOST: %v", pl.PlayerID, err)
+		}
+	}
 }
 
 // processTableRemoved enforces ordering for table shutdown to avoid races.

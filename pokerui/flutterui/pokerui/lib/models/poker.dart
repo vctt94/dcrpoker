@@ -716,6 +716,19 @@ class PokerModel extends ChangeNotifier {
     } else {
       tables = List<UiTable>.unmodifiable([...tables, updatedTable]);
     }
+    // Mirror lobby player readiness/escrow changes into the current game snapshot
+    // while we're still waiting to start. Avoid mutating in-hand state.
+    final isCurrentTable = updatedTable.id == currentTableId;
+    final waitingGame = game != null &&
+        game!.phase == pr.GamePhase.WAITING &&
+        !game!.gameStarted;
+    if (isCurrentTable && waitingGame) {
+      final updatedPlayers =
+          List<UiPlayer>.unmodifiable(tableSnapshot.players.map(
+        UiPlayer.fromProto,
+      ));
+      game = game!.copyWith(players: updatedPlayers);
+    }
     notifyListeners();
   }
 
