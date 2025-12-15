@@ -337,10 +337,10 @@ void drawPlayer(
     badges.add(const SeatBadge('D', Colors.amber));
   }
   if (player.isSmallBlind) {
-    badges.add(const SeatBadge('SB', Colors.cyan));
+    badges.add(const SeatBadge('SB', decredBlue));
   }
   if (player.isBigBlind) {
-    badges.add(const SeatBadge('BB', Colors.pinkAccent));
+    badges.add(const SeatBadge('BB', decredGreen));
   }
   // Add ALL-IN badge when player is all-in
   if (player.isAllIn) {

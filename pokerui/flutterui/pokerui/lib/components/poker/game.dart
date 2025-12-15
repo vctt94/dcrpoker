@@ -384,7 +384,7 @@ class PokerGame {
                       decoration: BoxDecoration(
                         color: const Color(0xFF091440), // DCR Dark Blue
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF2970FF), width: 2), // DCR Key Blue
+                        border: Border.all(color: decredBlue, width: 2),
                       ),
                       child: const Center(
                         child: Icon(
@@ -410,7 +410,7 @@ class PokerGame {
                       decoration: BoxDecoration(
                         color: const Color(0xFF091440), // DCR Dark Blue
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF2970FF), width: 2), // DCR Key Blue
+                        border: Border.all(color: decredBlue, width: 2),
                       ),
                       child: const Center(
                         child: Icon(

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/config.dart';
 
+/// Decred brand colors
+const Color decredBlue = Color(0xFF2970FF);
+const Color decredGreen = Color(0xFF2ED6A1);
+
 class CardColorTheme {
   final Color heartsColor;
   final Color diamondsColor;
@@ -24,8 +28,8 @@ class CardColorTheme {
 
   /// DCR-themed card colors (bright for hearts/diamonds, dark for clubs/spades)
   static const CardColorTheme decred = CardColorTheme(
-    heartsColor: Color(0xFF2ED6A1), // Decred green (bright)
-    diamondsColor: Color(0xFF2970FF), // Decred blue (bright)
+    heartsColor: decredGreen,
+    diamondsColor: decredBlue,
     clubsColor: Color(0xFF0D2B5A), // Darker blue (dark, still readable)
     spadesColor: Color(0xFF0A4A3A), // Darker green (dark, still readable)
   );
@@ -48,7 +52,7 @@ class TableThemeConfig {
     key: 'decred',
     displayName: 'Decred Blue',
     feltColor: Color(0xFF091440),
-    borderColor: Color(0xFF2ED6A1), // Decred green
+    borderColor: decredGreen,
   );
 
   static const TableThemeConfig classic = TableThemeConfig(
@@ -61,7 +65,7 @@ class TableThemeConfig {
   static const TableThemeConfig decredInverse = TableThemeConfig(
     key: 'decred_inverse',
     displayName: 'Decred Green',
-    feltColor: Color(0xFF2ED6A1), // Decred green as felt
+    feltColor: decredGreen,
     borderColor: Color(0xFF091440), // Dark blue as border
   );
 
