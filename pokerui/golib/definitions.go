@@ -278,12 +278,30 @@ type createDefaultConfigArgs struct {
 	GRPCCertPath    string `json:"grpc_cert_path"`
 	DebugLevel      string `json:"debug_level"`
 	SoundsEnabled   bool   `json:"sounds_enabled"`
+	TableTheme      string `json:"table_theme"`
+	CardTheme       string `json:"card_theme"`
+	HideTableLogo   bool   `json:"hide_table_logo"`
 	BrRpcUrl        string `json:"br_rpc_url"`
 	BrClientCert    string `json:"br_client_cert"`
 	BrClientRpcCert string `json:"br_client_rpc_cert"`
 	BrClientRpcKey  string `json:"br_client_rpc_key"`
 	RpcUser         string `json:"rpc_user"`
 	RpcPass         string `json:"rpc_pass"`
+}
+
+type updateConfigArgs struct {
+	DataDir       string `json:"datadir"`
+	ServerAddr    string `json:"server_addr"`
+	GRPCCertPath  string `json:"grpc_cert_path"`
+	Address       string `json:"address"`
+	DebugLevel    string `json:"debug_level"`
+	TableTheme    string `json:"table_theme"`
+	CardTheme     string `json:"card_theme"`
+	CardSize      string `json:"card_size"`
+	UISize        string `json:"ui_size"`
+	SoundsEnabled bool   `json:"sounds_enabled"`
+	HideTableLogo bool   `json:"hide_table_logo"`
+	LogoPosition  string `json:"logo_position"`
 }
 
 // JSON payloads from Flutter
@@ -744,8 +762,10 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 	return &localInfo{ID: clientID.String(), Nick: nick}, nil
 }
 
-// createDefaultConfig creates a default configuration file when none exists
-func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel string, soundsEnabled bool) error {
+// createDefaultConfig creates a default configuration file when none exists.
+// Only core connectivity and logging options are configurable; UI-related
+// values (themes, sounds, logo visibility) are set to sane defaults here.
+func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel string) error {
 	// Ensure the data directory exists
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data directory: %v", err)
@@ -756,26 +776,48 @@ func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel string, s
 		serverAddr = "178.156.178.191:50050" // Default server
 	}
 
+	// defaults for a newly created config.
+	const (
+		// logs
+		defaultMaxLogFiles    = 5
+		defaultMaxBufferLines = 1000
+		// theme
+		defaultTableTheme = "classic"
+		defaultCardTheme  = "standard"
+		defaultCardSize   = "medium"
+		defaultHideLogo   = false
+		// sounds
+		defaultSoundsOn = true
+	)
+
 	// Note: grpcHost and grpcPort are not needed for the INI format
 	// The Flutter config loader will parse the serverAddr directly
 
 	// Create the configuration file content in the correct INI format
-	configPath := filepath.Join(dataDir, "pokerui.conf")
+	configPath := filepath.Join(dataDir, appName+".conf")
 	content := fmt.Sprintf(`[default]
 serveraddr=%s
 datadir=%s
 grpcservercert=%s
-address=
+address= %s
+
+[theme]
+cardtheme=%s
+tabletheme=%s
+cardsize=%s
+hidetablelogo=%t
 
 [sounds]
 soundsenabled=%t
 
 [log]
 debuglevel=%s
-maxlogfiles=10
-maxbufferlines=1000
-`,
-		serverAddr, dataDir, grpcCertPath, soundsEnabled, debugLevel)
+maxlogfiles=%d
+maxbufferlines=%d
+	`,
+		serverAddr, dataDir, grpcCertPath, "",
+		defaultCardTheme, defaultTableTheme, defaultCardSize, defaultHideLogo,
+		defaultSoundsOn, debugLevel, defaultMaxLogFiles, defaultMaxBufferLines)
 
 	// Write the configuration file
 	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
@@ -798,7 +840,11 @@ maxbufferlines=1000
 		Debug:          debugLevel,
 		MaxLogFiles:    5,
 		MaxBufferLines: 1000,
-		SoundsEnabled:  soundsEnabled,
+		SoundsEnabled:  defaultSoundsOn,
+		TableTheme:     defaultTableTheme,
+		CardTheme:      defaultCardTheme,
+		CardSize:       defaultCardSize,
+		HideTableLogo:  defaultHideLogo,
 	}
 	if err := client.WriteClientConfigFile(pcConf, filepath.Join(dataDir, appName+".conf")); err != nil {
 		return fmt.Errorf("failed to write %s.conf: %v", appName, err)
@@ -816,8 +862,7 @@ maxbufferlines=1000
 
 // handleCreateDefaultConfig handles the CTCreateDefaultConfig command
 func handleCreateDefaultConfig(args createDefaultConfigArgs) (map[string]string, error) {
-	if err := createDefaultConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.DebugLevel,
-		args.SoundsEnabled); err != nil {
+	if err := createDefaultConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.DebugLevel); err != nil {
 		return nil, err
 	}
 
@@ -836,6 +881,32 @@ func handleCreateDefaultServerCert(certPath string) (map[string]string, error) {
 	return map[string]string{
 		"status":    "created",
 		"cert_path": certPath,
+	}, nil
+}
+
+// updateConfig updates configurable settings in an existing config file
+func updateConfig(dataDir, serverAddr, grpcCertPath, address, debugLevel string, theme *client.ThemeConfig) error {
+	return client.UpdateClientConfig(dataDir, appName+".conf", serverAddr, grpcCertPath, address, debugLevel, theme)
+}
+
+// handleUpdateConfig handles the CTUpdateConfig command
+func handleUpdateConfig(args updateConfigArgs) (map[string]string, error) {
+	theme := &client.ThemeConfig{
+		TableTheme:    args.TableTheme,
+		CardTheme:     args.CardTheme,
+		CardSize:      args.CardSize,
+		UISize:        args.UISize,
+		SoundsEnabled: args.SoundsEnabled,
+		HideTableLogo: args.HideTableLogo,
+		LogoPosition:  args.LogoPosition,
+	}
+	if err := updateConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.Address, args.DebugLevel, theme); err != nil {
+		return nil, err
+	}
+
+	return map[string]string{
+		"status":      "updated",
+		"config_path": filepath.Join(args.DataDir, appName+".conf"),
 	}, nil
 }
 
@@ -867,10 +938,16 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 		"server_addr":    serverAddr,
 		"grpc_cert_path": cfg.GRPCCertPath,
 
-		"debug_level":    cfg.Debug,
-		"sounds_enabled": cfg.SoundsEnabled,
-		"datadir":        cfg.Datadir,
-		"payout_address": cfg.PayoutAddress,
+		"debug_level":     cfg.Debug,
+		"sounds_enabled":  cfg.SoundsEnabled,
+		"datadir":         cfg.Datadir,
+		"payout_address":  cfg.PayoutAddress,
+		"table_theme":     cfg.TableTheme,
+		"card_theme":      cfg.CardTheme,
+		"card_size":       cfg.CardSize,
+		"ui_size":         cfg.UISize,
+		"hide_table_logo": cfg.HideTableLogo,
+		"logo_position":   cfg.LogoPosition,
 	}
 
 	return res, nil

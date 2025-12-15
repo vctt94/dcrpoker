@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class ShowdownView extends StatefulWidget {
@@ -53,7 +54,11 @@ class _ShowdownViewState extends State<ShowdownView> {
     }
 
     final focusNode = FocusNode();
-    final pokerGame = PokerGame(model.playerId, model);
+    final pokerGame = PokerGame(
+      model.playerId,
+      model,
+      theme: PokerThemeConfig.fromContext(context),
+    );
     final winners = model.lastWinners;
     final players = game.players;
 

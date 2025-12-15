@@ -59,7 +59,6 @@ CreateDefaultConfig _$CreateDefaultConfigFromJson(Map<String, dynamic> json) =>
       json['server_addr'] as String,
       json['grpc_cert_path'] as String,
       json['debug_level'] as String,
-      json['sounds_enabled'] as bool,
     );
 
 Map<String, dynamic> _$CreateDefaultConfigToJson(
@@ -69,8 +68,38 @@ Map<String, dynamic> _$CreateDefaultConfigToJson(
   'server_addr': instance.serverAddr,
   'grpc_cert_path': instance.grpcCertPath,
   'debug_level': instance.debugLevel,
-  'sounds_enabled': instance.soundsEnabled,
 };
+
+UpdateConfig _$UpdateConfigFromJson(Map<String, dynamic> json) => UpdateConfig(
+  json['datadir'] as String,
+  json['server_addr'] as String,
+  json['grpc_cert_path'] as String,
+  json['address'] as String,
+  json['debug_level'] as String,
+  json['table_theme'] as String,
+  json['card_theme'] as String,
+  json['card_size'] as String,
+  json['ui_size'] as String,
+  json['sounds_enabled'] as bool,
+  json['hide_table_logo'] as bool,
+  json['logo_position'] as String,
+);
+
+Map<String, dynamic> _$UpdateConfigToJson(UpdateConfig instance) =>
+    <String, dynamic>{
+      'datadir': instance.dataDir,
+      'server_addr': instance.serverAddr,
+      'grpc_cert_path': instance.grpcCertPath,
+      'address': instance.address,
+      'debug_level': instance.debugLevel,
+      'table_theme': instance.tableTheme,
+      'card_theme': instance.cardTheme,
+      'card_size': instance.cardSize,
+      'ui_size': instance.uiSize,
+      'sounds_enabled': instance.soundsEnabled,
+      'hide_table_logo': instance.hideTableLogo,
+      'logo_position': instance.logoPosition,
+    };
 
 IDInit _$IDInitFromJson(Map<String, dynamic> json) =>
     IDInit(json['id'] as String, json['nick'] as String);

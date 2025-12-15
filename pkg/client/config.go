@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"google.golang.org/grpc"
@@ -51,7 +53,13 @@ type PokerConf struct {
 	MaxBufferLines int
 
 	// UI-only settings
-	SoundsEnabled bool // Enable/disable sound effects in UI
+	SoundsEnabled bool   // Enable/disable sound effects in UI
+	TableTheme    string // Visual theme for the poker table (e.g., "decred", "classic")
+	CardTheme     string // Visual theme for playing cards (e.g., "standard", "decred")
+	CardSize      string // Card size multiplier (e.g., "small", "medium", "large")
+	UISize        string // UI size multiplier for icons, fonts, player circles (e.g., "small", "medium", "large")
+	HideTableLogo bool   // Whether to hide the center table logo overlay
+	LogoPosition  string // Logo position: "center", "bottom_left", "bottom_right", "top_left", "top_right"
 }
 
 // parseClientConfigFile parses the config file at the given path into a PokerConf struct.
@@ -112,6 +120,18 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 			}
 		case "soundsenabled":
 			cfg.SoundsEnabled = value == "1" || strings.ToLower(value) == "true"
+		case "tabletheme":
+			cfg.TableTheme = strings.TrimSpace(strings.ToLower(value))
+		case "cardtheme":
+			cfg.CardTheme = strings.TrimSpace(strings.ToLower(value))
+		case "cardsize":
+			cfg.CardSize = strings.TrimSpace(strings.ToLower(value))
+		case "uisize":
+			cfg.UISize = strings.TrimSpace(strings.ToLower(value))
+		case "hidetablelogo":
+			cfg.HideTableLogo = value == "1" || strings.ToLower(value) == "true"
+		case "logoposition":
+			cfg.LogoPosition = strings.TrimSpace(strings.ToLower(value))
 		default:
 			// Ignore unknown keys to preserve forward-compatibility with older configs.
 			continue
@@ -150,6 +170,21 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 	}
 	if cfg.MaxBufferLines == 0 {
 		cfg.MaxBufferLines = 1000
+	}
+	if cfg.TableTheme == "" {
+		cfg.TableTheme = "classic"
+	}
+	if cfg.CardTheme == "" {
+		cfg.CardTheme = "standard"
+	}
+	if cfg.CardSize == "" {
+		cfg.CardSize = "medium"
+	}
+	if cfg.UISize == "" {
+		cfg.UISize = "medium"
+	}
+	if cfg.LogoPosition == "" {
+		cfg.LogoPosition = "center"
 	}
 
 	return cfg, nil
@@ -206,6 +241,12 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 		MaxLogFiles:    5,
 		MaxBufferLines: 1000,
 		SoundsEnabled:  true, // Default to enabled
+		TableTheme:     "classic",
+		CardTheme:      "standard",
+		CardSize:       "medium",
+		UISize:         "medium",
+		HideTableLogo:  false,
+		LogoPosition:   "center",
 	}
 
 	// Write default config
@@ -227,6 +268,10 @@ func WriteClientConfigFile(cfg *PokerConf, configPath string) error {
 	if cfg.SoundsEnabled {
 		soundsEnabledVal = 1
 	}
+	hideLogoVal := 0
+	if cfg.HideTableLogo {
+		hideLogoVal = 1
+	}
 	configData := fmt.Sprintf(
 		`datadir=%s
 grpchost=%s
@@ -238,6 +283,12 @@ debug=%s
 maxlogfiles=%d
 maxbufferlines=%d
 soundsenabled=%d
+tabletheme=%s
+cardtheme=%s
+cardsize=%s
+uisize=%s
+hidetablelogo=%d
+logoposition=%s
 `,
 		cfg.Datadir,
 		cfg.GRPCHost,
@@ -249,6 +300,12 @@ soundsenabled=%d
 		cfg.MaxLogFiles,
 		cfg.MaxBufferLines,
 		soundsEnabledVal,
+		cfg.TableTheme,
+		cfg.CardTheme,
+		cfg.CardSize,
+		cfg.UISize,
+		hideLogoVal,
+		cfg.LogoPosition,
 	)
 
 	return os.WriteFile(configPath, []byte(configData), 0600)
@@ -257,6 +314,259 @@ soundsenabled=%d
 // writeClientConfigFile is a wrapper for backward compatibility.
 func writeClientConfigFile(cfg *PokerConf, configPath string) error {
 	return WriteClientConfigFile(cfg, configPath)
+}
+
+// ValidTableThemes lists all valid table theme keys
+var ValidTableThemes = map[string]bool{
+	"classic":        true,
+	"decred":         true,
+	"decred_inverse": true,
+}
+
+// ValidCardThemes lists all valid card theme keys
+var ValidCardThemes = map[string]bool{
+	"standard": true,
+	"decred":   true,
+}
+
+// ValidCardSizes lists all valid card size keys
+var ValidCardSizes = map[string]bool{
+	"xs":     true,
+	"small":  true,
+	"medium": true,
+	"large":  true,
+	"xl":     true,
+}
+
+// ValidUISizes lists all valid UI size keys
+var ValidUISizes = map[string]bool{
+	"xs":     true,
+	"small":  true,
+	"medium": true,
+	"large":  true,
+	"xl":     true,
+}
+
+// ValidLogoPositions lists all valid logo position keys
+var ValidLogoPositions = map[string]bool{
+	"center":       true,
+	"bottom_left":  true,
+	"bottom_right": true,
+	"top_left":     true,
+	"top_right":    true,
+}
+
+// ThemeConfig bundles all visual theme settings for the poker table
+type ThemeConfig struct {
+	TableTheme    string // Visual theme for the poker table (e.g., "decred", "classic")
+	CardTheme     string // Visual theme for playing cards (e.g., "standard", "decred")
+	CardSize      string // Card size multiplier (e.g., "small", "medium", "large")
+	UISize        string // UI size multiplier for icons, fonts, player circles (e.g., "small", "medium", "large")
+	SoundsEnabled bool   // Enable/disable sound effects in UI
+	HideTableLogo bool   // Whether to hide the center table logo overlay
+	LogoPosition  string // Logo position: "center", "bottom_left", "bottom_right", "top_left", "top_right"
+}
+
+// Validate validates all theme settings
+func (tc *ThemeConfig) Validate() error {
+	if tc.TableTheme != "" {
+		if err := ValidateTheme(tc.TableTheme, ValidTableThemes, "table"); err != nil {
+			return err
+		}
+	}
+	if tc.CardTheme != "" {
+		if err := ValidateTheme(tc.CardTheme, ValidCardThemes, "card"); err != nil {
+			return err
+		}
+	}
+	if tc.CardSize != "" {
+		if err := ValidateTheme(tc.CardSize, ValidCardSizes, "card"); err != nil {
+			return err
+		}
+	}
+	if tc.UISize != "" {
+		if err := ValidateTheme(tc.UISize, ValidUISizes, "UI"); err != nil {
+			return err
+		}
+	}
+	if tc.LogoPosition != "" {
+		if err := ValidateTheme(tc.LogoPosition, ValidLogoPositions, "logo position"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidateCertPath checks if the certificate path is valid
+func ValidateCertPath(certPath string) error {
+	if certPath == "" {
+		return nil // Empty is allowed (will use default)
+	}
+
+	// Check if path is absolute or relative
+	absPath := certPath
+	if !filepath.IsAbs(certPath) {
+		// For relative paths, check if the directory exists
+		dir := filepath.Dir(certPath)
+		if dir != "." && dir != "" {
+			if _, err := os.Stat(dir); os.IsNotExist(err) {
+				return fmt.Errorf("certificate directory does not exist: %s", dir)
+			}
+		}
+	} else {
+		// For absolute paths, check if parent directory exists
+		dir := filepath.Dir(absPath)
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			return fmt.Errorf("certificate directory does not exist: %s", dir)
+		}
+	}
+
+	return nil
+}
+
+// XXX Remove address option from config, as it will only be set by sign
+// address.
+func ValidateAddress(addr string) error {
+	if addr == "" {
+		return nil // Empty is allowed
+	}
+
+	addr = strings.TrimSpace(addr)
+
+	// Check if it's a hex-encoded pubkey (33 or 65 bytes = 66 or 130 hex chars)
+	if len(addr) == 66 || len(addr) == 130 {
+		// Validate hex format
+		decoded, err := hex.DecodeString(addr)
+		if err != nil {
+			return fmt.Errorf("invalid hex format for pubkey: %v", err)
+		}
+		// Validate length matches expected pubkey sizes
+		if len(decoded) != 33 && len(decoded) != 65 {
+			return fmt.Errorf("invalid pubkey length: expected 33 or 65 bytes, got %d", len(decoded))
+		}
+		return nil
+	}
+
+	// If we couldn't decode as address or pubkey, return error
+	return fmt.Errorf("invalid address/pubkey format: must be a valid Decred address or hex-encoded 33/65-byte pubkey")
+}
+
+// ValidateTheme checks if a theme key is valid
+func ValidateTheme(theme string, validThemes map[string]bool, themeType string) error {
+	if theme == "" {
+		return nil // Empty is allowed (will use default)
+	}
+
+	normalized := strings.ToLower(strings.TrimSpace(theme))
+	if !validThemes[normalized] {
+		validKeys := make([]string, 0, len(validThemes))
+		for k := range validThemes {
+			validKeys = append(validKeys, k)
+		}
+		return fmt.Errorf("invalid %s theme '%s' (valid options: %v)", themeType, theme, validKeys)
+	}
+
+	return nil
+}
+
+// ValidateServerAddress validates server address format (host:port)
+func ValidateServerAddress(serverAddr string) error {
+	if serverAddr == "" {
+		return nil // Empty is allowed
+	}
+
+	host, port, ok := strings.Cut(serverAddr, ":")
+	if !ok || host == "" || port == "" {
+		return fmt.Errorf("invalid server address format (expected host:port): %s", serverAddr)
+	}
+
+	// Validate port is numeric and in valid range
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("invalid port number '%s': %v", port, err)
+	}
+	if portNum < 1 || portNum > 65535 {
+		return fmt.Errorf("port number out of range (1-65535): %d", portNum)
+	}
+
+	return nil
+}
+
+// UpdateClientConfig updates configurable settings in an existing config file with validation
+func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath, address, debugLevel string, theme *ThemeConfig) error {
+	configPath := filepath.Join(dataDir, configFileName)
+
+	// Validate inputs
+	if err := ValidateCertPath(grpcCertPath); err != nil {
+		return fmt.Errorf("invalid cert path: %v", err)
+	}
+
+	if err := ValidateAddress(address); err != nil {
+		return fmt.Errorf("invalid address/pubkey: %v", err)
+	}
+
+	if err := ValidateServerAddress(serverAddr); err != nil {
+		return fmt.Errorf("invalid server address: %v", err)
+	}
+
+	// Validate theme config if provided
+	if theme != nil {
+		if err := theme.Validate(); err != nil {
+			return err
+		}
+	}
+
+	// Load existing config
+	cfg, err := LoadClientConf(dataDir, configFileName)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %v", err)
+	}
+
+	// Update server address (split into host:port)
+	if serverAddr != "" {
+		host, port, _ := strings.Cut(serverAddr, ":")
+		cfg.GRPCHost = host
+		cfg.GRPCPort = port
+	}
+
+	// Update other fields if provided
+	if grpcCertPath != "" {
+		cfg.GRPCCertPath = grpcCertPath
+	}
+	if address != "" {
+		cfg.PayoutAddress = address
+	}
+	if debugLevel != "" {
+		cfg.Debug = debugLevel
+	}
+
+	// Update theme settings if provided
+	if theme != nil {
+		if theme.TableTheme != "" {
+			cfg.TableTheme = strings.ToLower(strings.TrimSpace(theme.TableTheme))
+		}
+		if theme.CardTheme != "" {
+			cfg.CardTheme = strings.ToLower(strings.TrimSpace(theme.CardTheme))
+		}
+		if theme.CardSize != "" {
+			cfg.CardSize = strings.ToLower(strings.TrimSpace(theme.CardSize))
+		}
+		if theme.UISize != "" {
+			cfg.UISize = strings.ToLower(strings.TrimSpace(theme.UISize))
+		}
+		if theme.LogoPosition != "" {
+			cfg.LogoPosition = strings.ToLower(strings.TrimSpace(theme.LogoPosition))
+		}
+		cfg.SoundsEnabled = theme.SoundsEnabled
+		cfg.HideTableLogo = theme.HideTableLogo
+	}
+
+	// Write updated config back
+	if err := WriteClientConfigFile(cfg, configPath); err != nil {
+		return fmt.Errorf("failed to write config: %v", err)
+	}
+
+	return nil
 }
 
 // CreateDefaultServerCert creates a basic server certificate file for testing

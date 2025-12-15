@@ -129,20 +129,64 @@ class CreateDefaultConfig {
   final String grpcCertPath;
   @JsonKey(name: 'debug_level')
   final String debugLevel;
-  @JsonKey(name: 'sounds_enabled')
-  final bool soundsEnabled;
 
   CreateDefaultConfig(
     this.dataDir,
     this.serverAddr,
     this.grpcCertPath,
     this.debugLevel,
-    this.soundsEnabled,
   );
 
   factory CreateDefaultConfig.fromJson(Map<String, dynamic> json) =>
       _$CreateDefaultConfigFromJson(json);
   Map<String, dynamic> toJson() => _$CreateDefaultConfigToJson(this);
+}
+
+@JsonSerializable(explicitToJson: true)
+class UpdateConfig {
+  @JsonKey(name: 'datadir')
+  final String dataDir;
+  @JsonKey(name: 'server_addr')
+  final String serverAddr;
+  @JsonKey(name: 'grpc_cert_path')
+  final String grpcCertPath;
+  @JsonKey(name: 'address')
+  final String address;
+  @JsonKey(name: 'debug_level')
+  final String debugLevel;
+  @JsonKey(name: 'table_theme')
+  final String tableTheme;
+  @JsonKey(name: 'card_theme')
+  final String cardTheme;
+  @JsonKey(name: 'card_size')
+  final String cardSize;
+  @JsonKey(name: 'ui_size')
+  final String uiSize;
+  @JsonKey(name: 'sounds_enabled')
+  final bool soundsEnabled;
+  @JsonKey(name: 'hide_table_logo')
+  final bool hideTableLogo;
+  @JsonKey(name: 'logo_position')
+  final String logoPosition;
+
+  UpdateConfig(
+    this.dataDir,
+    this.serverAddr,
+    this.grpcCertPath,
+    this.address,
+    this.debugLevel,
+    this.tableTheme,
+    this.cardTheme,
+    this.cardSize,
+    this.uiSize,
+    this.soundsEnabled,
+    this.hideTableLogo,
+    this.logoPosition,
+  );
+
+  factory UpdateConfig.fromJson(Map<String, dynamic> json) =>
+      _$UpdateConfigFromJson(json);
+  Map<String, dynamic> toJson() => _$UpdateConfigToJson(this);
 }
 
 @JsonSerializable()
@@ -1367,6 +1411,13 @@ abstract class PluginPlatform {
     return _asJsonMap(res);
   }
 
+  Future<Map<String, dynamic>> updateConfig(
+    UpdateConfig args,
+  ) async {
+    final res = await asyncCall(CTUpdateConfig, args.toJson());
+    return _asJsonMap(res);
+  }
+
   Future<Map<String, dynamic>> loadConfig(String filepath) async {
     final res = await asyncCall(CTLoadConfig, filepath);
     return _asJsonMap(res);
@@ -1687,6 +1738,7 @@ const int CTCreatePokerTable = 0x14;
 const int CTLeavePokerTable = 0x15;
 const int CTCreateDefaultConfig = 0x17;
 const int CTCreateDefaultServerCert = 0x18;
+const int CTUpdateConfig = 0x20;
 const int CTShowCards = 0x19;
 const int CTHideCards = 0x1a;
 const int CTMakeBet = 0x1b;

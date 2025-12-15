@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/cards.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/config.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 /// Dialog to show the last showdown results during an active game.
@@ -69,6 +71,7 @@ class LastShowdownDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardTheme = cardColorThemeFromKey(context.cardTheme);
     final communityCards = model.showdownCommunityCards;
     final players = model.showdownPlayers;
     final winners = model.lastWinners;
@@ -167,7 +170,7 @@ class LastShowdownDialog extends StatelessWidget {
                           child: SizedBox(
                             width: 50,
                             height: 70,
-                            child: CardFace(card: card),
+                            child: CardFace(card: card, cardTheme: cardTheme),
                           ),
                         );
                       }).toList(),

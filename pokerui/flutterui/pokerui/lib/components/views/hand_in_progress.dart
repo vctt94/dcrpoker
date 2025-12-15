@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/components/dialogs/last_showdown.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
-import 'package:pokerui/components/dialogs/last_showdown.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/config.dart';
+import 'package:pokerui/models/poker.dart';
 
 class HandInProgressView extends StatefulWidget {
   const HandInProgressView({super.key, required this.model});
@@ -56,7 +58,11 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     _wasMyTurn = canAct;
 
     final focusNode = FocusNode();
-    final pokerGame = PokerGame(widget.model.playerId, widget.model);
+    final pokerGame = PokerGame(
+      widget.model.playerId,
+      widget.model,
+      theme: PokerThemeConfig.fromContext(context),
+    );
 
     return Stack(
       children: [

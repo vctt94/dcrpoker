@@ -98,7 +98,7 @@ class PokerBootstrapApp extends StatefulWidget {
 }
 
 class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
-  Config? _config;
+  late final ConfigNotifier _configNotifier;
   NotificationModel? _notificationModel;
   PokerModel? _pokerModel;
   bool _loading = true;
@@ -118,15 +118,31 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   @override
   void initState() {
     super.initState();
-    _config = widget.initialConfig;
+    _configNotifier = ConfigNotifier();
+    _configNotifier.updateConfig(widget.initialConfig);
+    // Listen to config changes
+    _configNotifier.addListener(_onConfigChanged);
     _bootstrap();
   }
 
   @override
   void dispose() {
+    _configNotifier.removeListener(_onConfigChanged);
+    _configNotifier.dispose();
     _disposeCurrentModel();
     super.dispose();
   }
+
+  void _onConfigChanged() {
+    // When config changes, update sound service and trigger rebuild
+    if (_configNotifier.hasConfig) {
+      SoundService().setEnabled(_configNotifier.value.soundsEnabled);
+      if (mounted) {
+        setState(() {});
+      }
+    }
+  }
+
 
   void _disposeCurrentModel() {
     _pokerModel?.dispose();
@@ -160,10 +176,10 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   }
 
   Future<void> _bootstrap({LoginResponse? loginResp, String? nickname}) async {
-    final cfg = _config;
-    if (cfg == null) {
+    if (!_configNotifier.hasConfig) {
       return;
     }
+    final cfg = _configNotifier.value;
 
     // If nickname is provided, proceed with initialization
     if (nickname != null) {
@@ -249,15 +265,17 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 
   Future<bool> _reloadConfig() async {
     try {
-      final updated = await configFromArgs([]);
+      // Reload config from golib - this reads the file from disk
+      await _configNotifier.reload();
       if (!mounted) return false;
-      // Update sound service immediately with new config value
-      SoundService().setEnabled(updated.soundsEnabled);
+      
       setState(() {
-        _config = updated;
         _attemptedSessionRestore = false;
       });
-      await _bootstrap();
+      // Only bootstrap if we have a valid config
+      if (_configNotifier.hasConfig) {
+        await _bootstrap();
+      }
       return _pokerModel != null && !_loading;
     } catch (error, stackTrace) {
       developer.log(
@@ -276,13 +294,14 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   }
 
   Future<void> _openConfig(BuildContext context) async {
-    final cfg = _config ?? Config.filled();
+    final cfg = _configNotifier.hasConfig ? _configNotifier.value : Config.filled();
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
         builder: (_) => NewConfigScreen(
           model: NewConfigModel.fromConfig(cfg),
           onConfigSaved: () async {
+            // Reload config from golib after save
             final success = await _reloadConfig();
             if (!success) {
               throw Exception('Configuration still missing required values.');
@@ -321,7 +340,17 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 
   @override
   Widget build(BuildContext context) {
-    final cfg = _config;
+    if (!_configNotifier.hasConfig) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: _theme,
+        home: const Scaffold(
+          body: Center(child: CircularProgressIndicator.adaptive()),
+        ),
+      );
+    }
+    
+    final cfg = _configNotifier.value;
 
     // Show login screen if needed
     if (_needsLogin && !_loading && _lastError == null) {
@@ -329,7 +358,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         debugShowCheckedModeBanner: false,
         theme: _theme,
         home: LoginScreen(
-          config: cfg!,
+          config: cfg,
           onLoginSuccess: (resp) {
             _bootstrap(loginResp: resp);
           },
@@ -339,16 +368,16 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 
     if (_pokerModel != null &&
         _notificationModel != null &&
-        cfg != null &&
         !_loading &&
         _lastError == null) {
       return MultiProvider(
         providers: [
           ChangeNotifierProvider.value(value: _notificationModel!),
           ChangeNotifierProvider.value(value: _pokerModel!),
+          ChangeNotifierProvider.value(value: _configNotifier),
           Provider<Future<void> Function()?>.value(value: _handleLogout),
         ],
-        child: MyApp(cfg, onLogout: _handleLogout),
+        child: MyApp(onLogout: _handleLogout),
       );
     }
 
@@ -359,7 +388,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         home: StartupErrorScreen(
           message: _lastError.toString(),
           missingFields: _missingFields,
-          dataDir: cfg?.dataDir ?? '',
+          dataDir: cfg.dataDir,
           onRetry: () => _bootstrap(nickname: _nickname),
           onOpenConfig: _openConfig,
         ),
@@ -382,7 +411,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       home: StartupErrorScreen(
         message: 'Poker UI failed to start',
         missingFields: _missingFields,
-        dataDir: cfg?.dataDir ?? '',
+        dataDir: cfg.dataDir,
         onRetry: () => _bootstrap(nickname: _nickname),
         onOpenConfig: _openConfig,
       ),
@@ -406,12 +435,14 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 }
 
 class MyApp extends StatelessWidget {
-  final Config cfg;
   final Future<void> Function()? onLogout;
-  const MyApp(this.cfg, {super.key, this.onLogout});
+  const MyApp({super.key, this.onLogout});
 
   @override
   Widget build(BuildContext context) {
+    // Watch config notifier to ensure MaterialApp rebuilds when config changes
+    context.watch<ConfigNotifier>();
+    
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Poker UI',
@@ -435,17 +466,17 @@ class MyApp extends StatelessWidget {
               value: onLogout,
               child: const PokerHomeScreen(),
             ),
-        '/settings': (context) => NewConfigScreen(
-              model: NewConfigModel.fromConfig(cfg),
-              onConfigSaved: () async {
-                try {
-                  final updatedCfg = await configFromArgs([]);
-                  runPokerBootstrap(updatedCfg);
-                } catch (e) {
-                  rethrow;
-                }
-              },
-            ),
+        '/settings': (context) {
+              // Get the current config from the notifier
+              final currentConfigNotifier = context.watch<ConfigNotifier>();
+              return NewConfigScreen(
+                model: NewConfigModel.fromConfig(currentConfigNotifier.value),
+                onConfigSaved: () async {
+                  // Reload config from golib
+                  await currentConfigNotifier.reload();
+                },
+              );
+            },
         '/logs': (context) => const LogsScreen(),
         '/sign-address': (context) => const SignAddressScreen(),
         '/open-escrow': (context) => const OpenEscrowScreen(),

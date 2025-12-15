@@ -98,22 +98,6 @@ class SharedLayout extends StatelessWidget {
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.settings, color: Colors.white),
-                      title: const Text('Settings',
-                          style: TextStyle(color: Colors.white)),
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/settings');
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.description, color: Colors.white),
-                      title: const Text('Logs',
-                          style: TextStyle(color: Colors.white)),
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/logs');
-                      },
-                    ),
-                    ListTile(
                       leading: const Icon(Icons.verified, color: Colors.white),
                       title: const Text('Sign Address',
                           style: TextStyle(color: Colors.white)),
@@ -130,19 +114,27 @@ class SharedLayout extends StatelessWidget {
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.undo, color: Colors.white),
-                      title: const Text('Refund Tools',
-                          style: TextStyle(color: Colors.white)),
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/refund');
-                      },
-                    ),
-                    ListTile(
                       leading: const Icon(Icons.history, color: Colors.white),
                       title: const Text('Escrow History',
                           style: TextStyle(color: Colors.white)),
                       onTap: () {
                         Navigator.of(context).pushNamed('/escrow-history');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.description, color: Colors.white),
+                      title: const Text('Logs',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/logs');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.settings, color: Colors.white),
+                      title: const Text('Settings',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/settings');
                       },
                     ),
                     if (logoutCb != null)
@@ -174,31 +166,40 @@ class SharedLayout extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      Icon(
-                        pokerModel.state != PokerState.idle
-                            ? Icons.check_circle
-                            : Icons.cloud_off,
-                        color:
-                            pokerModel.state != PokerState.idle ? Colors.green : Colors.red,
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        pokerModel.state != PokerState.idle ? "Connected" : "Disconnected",
-                        style: TextStyle(
+                  Flexible(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          pokerModel.state != PokerState.idle
+                              ? Icons.check_circle
+                              : Icons.cloud_off,
                           color:
                               pokerModel.state != PokerState.idle ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.bold,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            pokerModel.state != PokerState.idle ? "Connected" : "Disconnected",
+                            style: TextStyle(
+                              color:
+                                  pokerModel.state != PokerState.idle ? Colors.green : Colors.red,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  Text(
-                    "Player ID: ${pokerModel.playerId}",
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontWeight: FontWeight.w500,
+                  Flexible(
+                    child: Text(
+                      "Player ID: ${pokerModel.playerId}",
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ],

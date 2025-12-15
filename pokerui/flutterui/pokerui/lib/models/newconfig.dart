@@ -7,8 +7,14 @@ class NewConfigModel extends ChangeNotifier {
   String serverAddr = '';
   String grpcCertPath = '';
   String address = '';
-  String debugLevel = 'debug';
+  String debugLevel = 'info';
   bool soundsEnabled = true;
+  String tableTheme = 'classic';
+  String cardTheme = 'standard';
+  String cardSize = 'medium';
+  String uiSize = 'medium';
+  bool hideTableLogo = false;
+  String logoPosition = 'center';
 
   final List<String> appArgs;
   String _appDataDir = '';
@@ -35,7 +41,13 @@ class NewConfigModel extends ChangeNotifier {
         ..serverAddr = c.serverAddr
         ..address = c.address
         ..debugLevel = c.debugLevel
-        ..soundsEnabled = c.soundsEnabled;
+        ..soundsEnabled = c.soundsEnabled
+        ..tableTheme = c.tableTheme
+        ..cardTheme = c.cardTheme
+        ..cardSize = c.cardSize
+        ..uiSize = c.uiSize
+        ..hideTableLogo = c.hideTableLogo
+        ..logoPosition = c.logoPosition;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
   Future<void> _initialiseDefaults({

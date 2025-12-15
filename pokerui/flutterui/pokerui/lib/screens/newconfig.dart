@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:pokerui/components/shared_layout.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/newconfig.dart';
 import 'package:pokerui/services/sound_service.dart';
 import 'package:golib_plugin/golib_plugin.dart';
@@ -32,12 +33,24 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   late final _debugLvl      = TextEditingController(text: widget.model.debugLevel);
 
   bool _soundsEnabled = true;
+  late String _tableTheme;
+  late String _cardTheme;
+  late String _cardSize;
+  late String _uiSize;
+  late bool _hideTableLogo;
+  late String _logoPosition;
   String _cfgPath = '', _dataDir = '';
 
   @override
   void initState() {
     super.initState();
     _soundsEnabled = widget.model.soundsEnabled;
+    _tableTheme = widget.model.tableTheme;
+    _cardTheme = widget.model.cardTheme;
+    _cardSize = widget.model.cardSize;
+    _uiSize = widget.model.uiSize;
+    _hideTableLogo = widget.model.hideTableLogo;
+    _logoPosition = widget.model.logoPosition;
     _initHeaderInfo();
   }
 
@@ -59,7 +72,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   }
 
   // Create config using the new command
-  Future<void> _createConfigViaCommand() async {
+  Future<void> _createConfigCmd() async {
     try {
       // Create the config using the native plugin
       final config = CreateDefaultConfig(
@@ -67,7 +80,6 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.serverAddr,
         widget.model.grpcCertPath,
         widget.model.debugLevel,
-        widget.model.soundsEnabled,
       );
       
       // Call the native plugin command
@@ -81,6 +93,36 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
       // Surface native error to UI
       debugPrint('Native plugin createDefaultConfig error: $e');
       throw Exception('Create config failed: $e');
+    }
+  }
+
+  // Update config with all settings
+  Future<void> _updateConfigCmd() async {
+    try {
+      final updateArgs = UpdateConfig(
+        widget.model.dataDir,
+        widget.model.serverAddr,
+        widget.model.grpcCertPath,
+        widget.model.address,
+        widget.model.debugLevel,
+        _tableTheme,
+        _cardTheme,
+        _cardSize,
+        _uiSize,
+        _soundsEnabled,
+        _hideTableLogo,
+        _logoPosition,
+      );
+      
+      final result = await Golib.updateConfig(updateArgs);
+      
+      if (result['status'] != 'updated') {
+        final err = result['error'] ?? 'unknown error';
+        throw Exception('Failed to update config: $err');
+      }
+    } catch (e) {
+      debugPrint('Native plugin updateConfig error: $e');
+      throw Exception('Update config failed: $e');
     }
   }
 
@@ -111,12 +153,21 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ..grpcCertPath      = _grpcCert.text
         ..address           = _address.text
         ..debugLevel        = _debugLvl.text
-        ..soundsEnabled     = _soundsEnabled;
+        ..soundsEnabled     = _soundsEnabled
+        ..tableTheme        = _tableTheme
+        ..cardTheme         = _cardTheme
+        ..cardSize          = _cardSize
+        ..uiSize            = _uiSize
+        ..hideTableLogo     = _hideTableLogo
+        ..logoPosition      = _logoPosition;
 
       await _prepareDataDir();
       
       // Use the new command to create config instead of direct file writing
-      await _createConfigViaCommand();
+      await _createConfigCmd();
+      
+      // Update theme and sound settings
+      await _updateConfigCmd();
       
       // Update sound service immediately after saving config
       SoundService().setEnabled(_soundsEnabled);
@@ -127,6 +178,13 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Config saved!')));
         await _initHeaderInfo();           // refresh header box
+        // Close settings so callers can immediately reflect new config (theme/logo) without manual refresh.
+        if (mounted) {
+          final nav = Navigator.of(context);
+          if (nav.canPop()) {
+            nav.pop(true);
+          }
+        }
       }
     } catch (e, st) {
       debugPrint('Error saving config: $e\n$st');
@@ -166,6 +224,203 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                     Switch(value: _soundsEnabled,
                            onChanged: (v) => setState(() => _soundsEnabled = v)),
                   ],
+                ),
+                const SizedBox(height: 12),
+                const Text('Table Appearance', 
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _tableTheme,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Table Theme',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: TableThemeConfig.presets
+                      .map((t) => DropdownMenuItem(
+                            value: t.key,
+                            child: Text(t.displayName, style: const TextStyle(color: Colors.white)),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _tableTheme = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _cardTheme,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Card Theme',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: cardColorThemePresets
+                      .map((t) => DropdownMenuItem(
+                            value: cardColorThemeKey(t),
+                            child: Text(cardColorThemeDisplayName(t), style: const TextStyle(color: Colors.white)),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _cardTheme = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _cardSize,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Card Size',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'xs',
+                      child: Text('Extra Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'small',
+                      child: Text('Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'medium',
+                      child: Text('Medium', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'large',
+                      child: Text('Large', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'xl',
+                      child: Text('Extra Large', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _cardSize = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _uiSize,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'UI Size (Icons, Fonts, Player Circles)',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'xs',
+                      child: Text('Extra Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'small',
+                      child: Text('Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'medium',
+                      child: Text('Medium', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'large',
+                      child: Text('Large', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'xl',
+                      child: Text('Extra Large', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _uiSize = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Show Table Logo', style: TextStyle(color: Colors.white)),
+                    Switch(
+                      value: !_hideTableLogo,
+                      onChanged: (v) => setState(() => _hideTableLogo = !v),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _logoPosition,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Logo Position',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'center',
+                      child: Text('Center', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'top_left',
+                      child: Text('Top Left', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'top_right',
+                      child: Text('Top Right', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'bottom_left',
+                      child: Text('Bottom Left', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'bottom_right',
+                      child: Text('Bottom Right', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _logoPosition = value);
+                    }
+                  },
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(onPressed: _save, child: const Text('Save Config')),

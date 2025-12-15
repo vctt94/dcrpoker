@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pokerui/config.dart';
 
 class StartupErrorScreen extends StatelessWidget {
   const StartupErrorScreen({
@@ -20,7 +21,7 @@ class StartupErrorScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final configPath =
-        dataDir.isNotEmpty ? '$dataDir/pokerui.conf' : 'pokerui.conf';
+        dataDir.isNotEmpty ? '$dataDir/$APPNAME.conf' : '$APPNAME.conf';
     final suggestions = _buildSuggestions();
 
     return Scaffold(

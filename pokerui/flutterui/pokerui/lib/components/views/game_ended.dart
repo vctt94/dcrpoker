@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/dialogs/last_showdown.dart';
 import 'package:pokerui/components/poker/cards.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/config.dart';
 
 class GameEndedView extends StatelessWidget {
   const GameEndedView({super.key, required this.model});
@@ -33,6 +35,7 @@ class GameEndedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardTheme = cardColorThemeFromKey(context.cardTheme);
     final message = model.gameEndingMessage;
     final isWin = message.toLowerCase().contains('won') ||
         message.toLowerCase().contains('congratulations');
@@ -188,7 +191,7 @@ class GameEndedView extends StatelessWidget {
                                         child: SizedBox(
                                           width: 40,
                                           height: 56,
-                                          child: CardFace(card: c),
+                                          child: CardFace(card: c, cardTheme: cardTheme),
                                         ),
                                       ))
                                   .toList(),
