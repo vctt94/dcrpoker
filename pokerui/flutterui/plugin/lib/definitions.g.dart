@@ -78,6 +78,8 @@ UpdateConfig _$UpdateConfigFromJson(Map<String, dynamic> json) => UpdateConfig(
   json['debug_level'] as String,
   json['table_theme'] as String,
   json['card_theme'] as String,
+  json['card_size'] as String,
+  json['ui_size'] as String,
   json['sounds_enabled'] as bool,
   json['hide_table_logo'] as bool,
 );
@@ -91,6 +93,8 @@ Map<String, dynamic> _$UpdateConfigToJson(UpdateConfig instance) =>
       'debug_level': instance.debugLevel,
       'table_theme': instance.tableTheme,
       'card_theme': instance.cardTheme,
+      'card_size': instance.cardSize,
+      'ui_size': instance.uiSize,
       'sounds_enabled': instance.soundsEnabled,
       'hide_table_logo': instance.hideTableLogo,
     };

@@ -56,6 +56,8 @@ type PokerConf struct {
 	SoundsEnabled bool   // Enable/disable sound effects in UI
 	TableTheme    string // Visual theme for the poker table (e.g., "decred", "classic")
 	CardTheme     string // Visual theme for playing cards (e.g., "standard", "decred")
+	CardSize      string // Card size multiplier (e.g., "small", "medium", "large")
+	UISize        string // UI size multiplier for icons, fonts, player circles (e.g., "small", "medium", "large")
 	HideTableLogo bool   // Whether to hide the center table logo overlay
 }
 
@@ -121,6 +123,10 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 			cfg.TableTheme = strings.TrimSpace(strings.ToLower(value))
 		case "cardtheme":
 			cfg.CardTheme = strings.TrimSpace(strings.ToLower(value))
+		case "cardsize":
+			cfg.CardSize = strings.TrimSpace(strings.ToLower(value))
+		case "uisize":
+			cfg.UISize = strings.TrimSpace(strings.ToLower(value))
 		case "hidetablelogo":
 			cfg.HideTableLogo = value == "1" || strings.ToLower(value) == "true"
 		default:
@@ -167,6 +173,12 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 	}
 	if cfg.CardTheme == "" {
 		cfg.CardTheme = "standard"
+	}
+	if cfg.CardSize == "" {
+		cfg.CardSize = "medium"
+	}
+	if cfg.UISize == "" {
+		cfg.UISize = "medium"
 	}
 
 	return cfg, nil
@@ -225,6 +237,8 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 		SoundsEnabled:  true, // Default to enabled
 		TableTheme:     "classic",
 		CardTheme:      "standard",
+		CardSize:       "medium",
+		UISize:         "medium",
 		HideTableLogo:  false,
 	}
 
@@ -264,6 +278,8 @@ maxbufferlines=%d
 soundsenabled=%d
 tabletheme=%s
 cardtheme=%s
+cardsize=%s
+uisize=%s
 hidetablelogo=%d
 `,
 		cfg.Datadir,
@@ -278,6 +294,8 @@ hidetablelogo=%d
 		soundsEnabledVal,
 		cfg.TableTheme,
 		cfg.CardTheme,
+		cfg.CardSize,
+		cfg.UISize,
 		hideLogoVal,
 	)
 
@@ -300,6 +318,59 @@ var ValidTableThemes = map[string]bool{
 var ValidCardThemes = map[string]bool{
 	"standard": true,
 	"decred":   true,
+}
+
+// ValidCardSizes lists all valid card size keys
+var ValidCardSizes = map[string]bool{
+	"xs":     true,
+	"small":  true,
+	"medium": true,
+	"large":  true,
+	"xl":     true,
+}
+
+// ValidUISizes lists all valid UI size keys
+var ValidUISizes = map[string]bool{
+	"xs":     true,
+	"small":  true,
+	"medium": true,
+	"large":  true,
+	"xl":     true,
+}
+
+// ThemeConfig bundles all visual theme settings for the poker table
+type ThemeConfig struct {
+	TableTheme    string // Visual theme for the poker table (e.g., "decred", "classic")
+	CardTheme     string // Visual theme for playing cards (e.g., "standard", "decred")
+	CardSize      string // Card size multiplier (e.g., "small", "medium", "large")
+	UISize        string // UI size multiplier for icons, fonts, player circles (e.g., "small", "medium", "large")
+	SoundsEnabled bool   // Enable/disable sound effects in UI
+	HideTableLogo bool   // Whether to hide the center table logo overlay
+}
+
+// Validate validates all theme settings
+func (tc *ThemeConfig) Validate() error {
+	if tc.TableTheme != "" {
+		if err := ValidateTheme(tc.TableTheme, ValidTableThemes, "table"); err != nil {
+			return err
+		}
+	}
+	if tc.CardTheme != "" {
+		if err := ValidateTheme(tc.CardTheme, ValidCardThemes, "card"); err != nil {
+			return err
+		}
+	}
+	if tc.CardSize != "" {
+		if err := ValidateTheme(tc.CardSize, ValidCardSizes, "card"); err != nil {
+			return err
+		}
+	}
+	if tc.UISize != "" {
+		if err := ValidateTheme(tc.UISize, ValidUISizes, "UI"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ValidateCertPath checks if the certificate path is valid
@@ -398,7 +469,7 @@ func ValidateServerAddress(serverAddr string) error {
 }
 
 // UpdateClientConfig updates configurable settings in an existing config file with validation
-func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath, address, debugLevel, tableTheme, cardTheme string, soundsEnabled, hideTableLogo bool) error {
+func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath, address, debugLevel string, theme *ThemeConfig) error {
 	configPath := filepath.Join(dataDir, configFileName)
 
 	// Validate inputs
@@ -414,12 +485,11 @@ func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath
 		return fmt.Errorf("invalid server address: %v", err)
 	}
 
-	if err := ValidateTheme(tableTheme, ValidTableThemes, "table"); err != nil {
-		return err
-	}
-
-	if err := ValidateTheme(cardTheme, ValidCardThemes, "card"); err != nil {
-		return err
+	// Validate theme config if provided
+	if theme != nil {
+		if err := theme.Validate(); err != nil {
+			return err
+		}
 	}
 
 	// Load existing config
@@ -445,14 +515,24 @@ func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath
 	if debugLevel != "" {
 		cfg.Debug = debugLevel
 	}
-	if tableTheme != "" {
-		cfg.TableTheme = strings.ToLower(strings.TrimSpace(tableTheme))
+
+	// Update theme settings if provided
+	if theme != nil {
+		if theme.TableTheme != "" {
+			cfg.TableTheme = strings.ToLower(strings.TrimSpace(theme.TableTheme))
+		}
+		if theme.CardTheme != "" {
+			cfg.CardTheme = strings.ToLower(strings.TrimSpace(theme.CardTheme))
+		}
+		if theme.CardSize != "" {
+			cfg.CardSize = strings.ToLower(strings.TrimSpace(theme.CardSize))
+		}
+		if theme.UISize != "" {
+			cfg.UISize = strings.ToLower(strings.TrimSpace(theme.UISize))
+		}
+		cfg.SoundsEnabled = theme.SoundsEnabled
+		cfg.HideTableLogo = theme.HideTableLogo
 	}
-	if cardTheme != "" {
-		cfg.CardTheme = strings.ToLower(strings.TrimSpace(cardTheme))
-	}
-	cfg.SoundsEnabled = soundsEnabled
-	cfg.HideTableLogo = hideTableLogo
 
 	// Write updated config back
 	if err := WriteClientConfigFile(cfg, configPath); err != nil {

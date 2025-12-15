@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/config.dart';
 
 // Shared card rendering widgets to ensure a single source of truth
 // for card visuals across the app (faces, backs, and flip animation).
@@ -200,11 +201,13 @@ class HeroCardFlipOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardSizeMultiplier = cardSizeMultiplierFromKey(context.cardSize);
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
       final layout = resolveTableLayout(size);
       final box = layout.viewport;
-      final cw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
+      final baseCw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
+      final cw = baseCw * cardSizeMultiplier;
       final ch = cw * 1.4;
       final gap = cw * 0.12;
       final centerX = layout.center.dx;
@@ -226,7 +229,8 @@ class HeroCardFlipOverlay extends StatelessWidget {
       
       // Soft constraint: ensure reasonable gap from community cards if they would be too close
       // Scale the minimum gap proportionally with table radius to maintain relative spacing
-      final communityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
+      final baseCommunityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
+      final communityCardHeight = baseCommunityCardHeight * cardSizeMultiplier;
       final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
       final minGapFromCommunity = math.max(16.0, layout.tableRadiusY * 0.16);
       final minSafeY = communityCardsBottom + minGapFromCommunity;

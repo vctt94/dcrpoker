@@ -21,6 +21,8 @@ class Config {
   final String address;
   final String tableTheme;
   final String cardTheme;
+  final String cardSize;
+  final String uiSize;
   final bool hideTableLogo;
 
   Config({
@@ -33,6 +35,8 @@ class Config {
     required this.address,
     required this.tableTheme,
     required this.cardTheme,
+    required this.cardSize,
+    required this.uiSize,
     required this.hideTableLogo,
   });
 
@@ -44,9 +48,11 @@ class Config {
         soundsEnabled: true,
         dataDir: '',
         address: '',
-        tableTheme: 'decred',
-        cardTheme: 'standard',
-        hideTableLogo: false,
+      tableTheme: 'decred',
+      cardTheme: 'standard',
+      cardSize: 'medium',
+      uiSize: 'medium',
+      hideTableLogo: false,
       );
 
   // Synchronous fallback for UI prefill when async is not possible.
@@ -73,9 +79,11 @@ class Config {
       soundsEnabled: (m['sounds_enabled'] ?? true) == true,
       dataDir: pickPath('datadir'),
       address: pick('address'),
-      tableTheme: pick('table_theme').isNotEmpty ? pick('table_theme') : 'decred',
-      cardTheme: pick('card_theme').isNotEmpty ? pick('card_theme') : 'standard',
-      hideTableLogo: (m['hide_table_logo'] ?? false) == true,
+      tableTheme: pick('table_theme').isNotEmpty ? pick('table_theme') : (pick('tabletheme').isNotEmpty ? pick('tabletheme') : 'decred'),
+      cardTheme: pick('card_theme').isNotEmpty ? pick('card_theme') : (pick('cardtheme').isNotEmpty ? pick('cardtheme') : 'standard'),
+      cardSize: pick('card_size').isNotEmpty ? pick('card_size') : (pick('cardsize').isNotEmpty ? pick('cardsize') : 'medium'),
+      uiSize: pick('ui_size').isNotEmpty ? pick('ui_size') : (pick('uisize').isNotEmpty ? pick('uisize') : 'medium'),
+      hideTableLogo: (m['hide_table_logo'] ?? false) == true || (m['hidetablelogo'] ?? false) == true,
     );
   }
 
@@ -95,6 +103,8 @@ class Config {
     String? address,
     String? tableTheme,
     String? cardTheme,
+    String? cardSize,
+    String? uiSize,
     bool? hideTableLogo,
   }) {
     return Config(
@@ -107,6 +117,8 @@ class Config {
       address: address ?? this.address,
       tableTheme: tableTheme ?? this.tableTheme,
       cardTheme: cardTheme ?? this.cardTheme,
+      cardSize: cardSize ?? this.cardSize,
+      uiSize: uiSize ?? this.uiSize,
       hideTableLogo: hideTableLogo ?? this.hideTableLogo,
     );
   }
@@ -269,6 +281,12 @@ extension ConfigExtension on BuildContext {
   
   /// Get the card theme from config
   String get cardTheme => config.cardTheme;
+  
+  /// Get the card size from config
+  String get cardSize => config.cardSize;
+  
+  /// Get the UI size from config
+  String get uiSize => config.uiSize;
   
   /// Get the table theme from config
   String get tableTheme => config.tableTheme;

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
@@ -58,9 +57,7 @@ class _ShowdownViewState extends State<ShowdownView> {
     final pokerGame = PokerGame(
       model.playerId,
       model,
-      tableTheme: TableThemeConfig.fromKey(context.tableTheme),
-      cardTheme: cardColorThemeFromKey(context.cardTheme),
-      showTableLogo: context.showTableLogo,
+      theme: PokerThemeConfig.fromContext(context),
     );
     final winners = model.lastWinners;
     final players = game.players;

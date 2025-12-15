@@ -11,6 +11,8 @@ class NewConfigModel extends ChangeNotifier {
   bool soundsEnabled = true;
   String tableTheme = 'classic';
   String cardTheme = 'standard';
+  String cardSize = 'medium';
+  String uiSize = 'medium';
   bool hideTableLogo = false;
 
   final List<String> appArgs;
@@ -41,6 +43,8 @@ class NewConfigModel extends ChangeNotifier {
         ..soundsEnabled = c.soundsEnabled
         ..tableTheme = c.tableTheme
         ..cardTheme = c.cardTheme
+        ..cardSize = c.cardSize
+        ..uiSize = c.uiSize
         ..hideTableLogo = c.hideTableLogo;
 
   // ─── Helpers ────────────────────────────────────────────────────────────

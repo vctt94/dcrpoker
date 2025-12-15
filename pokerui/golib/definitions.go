@@ -297,6 +297,8 @@ type updateConfigArgs struct {
 	DebugLevel    string `json:"debug_level"`
 	TableTheme    string `json:"table_theme"`
 	CardTheme     string `json:"card_theme"`
+	CardSize      string `json:"card_size"`
+	UISize        string `json:"ui_size"`
 	SoundsEnabled bool   `json:"sounds_enabled"`
 	HideTableLogo bool   `json:"hide_table_logo"`
 }
@@ -781,6 +783,7 @@ func createDefaultConfig(dataDir, serverAddr, grpcCertPath, debugLevel string) e
 		// theme
 		defaultTableTheme = "classic"
 		defaultCardTheme  = "standard"
+		defaultCardSize   = "medium"
 		defaultHideLogo   = false
 		// sounds
 		defaultSoundsOn = true
@@ -800,6 +803,7 @@ address= %s
 [theme]
 cardtheme=%s
 tabletheme=%s
+cardsize=%s
 hidetablelogo=%t
 
 [sounds]
@@ -811,7 +815,7 @@ maxlogfiles=%d
 maxbufferlines=%d
 	`,
 		serverAddr, dataDir, grpcCertPath, "",
-		defaultCardTheme, defaultTableTheme, defaultHideLogo,
+		defaultCardTheme, defaultTableTheme, defaultCardSize, defaultHideLogo,
 		defaultSoundsOn, debugLevel, defaultMaxLogFiles, defaultMaxBufferLines)
 
 	// Write the configuration file
@@ -838,6 +842,7 @@ maxbufferlines=%d
 		SoundsEnabled:  defaultSoundsOn,
 		TableTheme:     defaultTableTheme,
 		CardTheme:      defaultCardTheme,
+		CardSize:       defaultCardSize,
 		HideTableLogo:  defaultHideLogo,
 	}
 	if err := client.WriteClientConfigFile(pcConf, filepath.Join(dataDir, appName+".conf")); err != nil {
@@ -879,13 +884,21 @@ func handleCreateDefaultServerCert(certPath string) (map[string]string, error) {
 }
 
 // updateConfig updates configurable settings in an existing config file
-func updateConfig(dataDir, serverAddr, grpcCertPath, address, debugLevel, tableTheme, cardTheme string, soundsEnabled, hideTableLogo bool) error {
-	return client.UpdateClientConfig(dataDir, appName+".conf", serverAddr, grpcCertPath, address, debugLevel, tableTheme, cardTheme, soundsEnabled, hideTableLogo)
+func updateConfig(dataDir, serverAddr, grpcCertPath, address, debugLevel string, theme *client.ThemeConfig) error {
+	return client.UpdateClientConfig(dataDir, appName+".conf", serverAddr, grpcCertPath, address, debugLevel, theme)
 }
 
 // handleUpdateConfig handles the CTUpdateConfig command
 func handleUpdateConfig(args updateConfigArgs) (map[string]string, error) {
-	if err := updateConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.Address, args.DebugLevel, args.TableTheme, args.CardTheme, args.SoundsEnabled, args.HideTableLogo); err != nil {
+	theme := &client.ThemeConfig{
+		TableTheme:    args.TableTheme,
+		CardTheme:     args.CardTheme,
+		CardSize:      args.CardSize,
+		UISize:        args.UISize,
+		SoundsEnabled: args.SoundsEnabled,
+		HideTableLogo: args.HideTableLogo,
+	}
+	if err := updateConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.Address, args.DebugLevel, theme); err != nil {
 		return nil, err
 	}
 
@@ -929,6 +942,8 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 		"payout_address":  cfg.PayoutAddress,
 		"table_theme":     cfg.TableTheme,
 		"card_theme":      cfg.CardTheme,
+		"card_size":       cfg.CardSize,
+		"ui_size":         cfg.UISize,
 		"hide_table_logo": cfg.HideTableLogo,
 	}
 

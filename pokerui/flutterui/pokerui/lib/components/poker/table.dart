@@ -177,9 +177,11 @@ void drawPlayers(
   double tableRadiusY,
   int showdownStartMs,
   Size size,
+  double cardSizeMultiplier,
+  double uiSizeMultiplier,
   {double? playerOffsetOverride, Rect? clampBounds, double? minSeatTop}
 ) {
-  const playerRadius = kPlayerRadius;
+  final playerRadius = kPlayerRadius * uiSizeMultiplier;
   final playerOffset = playerOffsetOverride ??
       _playerOffsetForViewport(clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height));
   final clampRect = clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height);
@@ -212,6 +214,7 @@ void drawPlayers(
       Offset(centerX, centerY),
       currentPlayerId,
       gameState,
+      uiSizeMultiplier,
     );
 
     if (player.id != currentPlayerId) {
@@ -226,9 +229,10 @@ void drawPlayers(
       if (gameState.phase == pr.GamePhase.SHOWDOWN) {
         if (hasAnyCards) {
           // Reveal known opponent hands near their seat with a subtle slide-in.
-          const cw = 18.0;
-          const ch = cw * 1.4;
-          const gap = 4.0;
+          final baseCw = 18.0;
+          final cw = baseCw * cardSizeMultiplier;
+          final ch = cw * 1.4;
+          final gap = 4.0 * cardSizeMultiplier;
           final startX = playerX - cw - gap / 2;
           final baseY = isTopHalf
               ? playerY + playerRadius + 6
@@ -245,9 +249,10 @@ void drawPlayers(
           }
         } else {
           // If still hidden at showdown, show subtle backs.
-          const cw = 16.0;
-          const ch = cw * 1.4;
-          const gap = 4.0;
+          final baseCw = 16.0;
+          final cw = baseCw * cardSizeMultiplier;
+          final ch = cw * 1.4;
+          final gap = 4.0 * cardSizeMultiplier;
           final startX = playerX - cw - gap / 2;
           final y = isTopHalf
               ? playerY + playerRadius + 6
@@ -257,9 +262,10 @@ void drawPlayers(
         }
       } else if (!hasAnyCards && (gameState.phase != pr.GamePhase.WAITING && gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
         // Non-showdown phases: use backs to indicate in-hand cards for opponents.
-        const cw = 16.0;
-        const ch = cw * 1.4;
-        const gap = 4.0;
+        final baseCw = 16.0;
+        final cw = baseCw * cardSizeMultiplier;
+        final ch = cw * 1.4;
+        final gap = 4.0 * cardSizeMultiplier;
         final startX = playerX - cw - gap / 2;
         final y = isTopHalf
             ? playerY + playerRadius + 6
@@ -281,6 +287,7 @@ void drawPlayer(
   Offset tableCenter,
   String currentPlayerId,
   UiGameState gameState,
+  double uiSizeMultiplier,
 ) {
   final isHero = player.id == currentPlayerId;
   final isFolded = player.folded;
@@ -305,7 +312,7 @@ void drawPlayer(
       ..color = Colors.yellowAccent.withOpacity(0.3)
       ..style = PaintingStyle.fill
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
-    canvas.drawCircle(Offset(x, y), radius + 4, haloPaint);
+    canvas.drawCircle(Offset(x, y), radius + 4 * uiSizeMultiplier, haloPaint);
   }
   
   // Player border
@@ -314,7 +321,7 @@ void drawPlayer(
         ? Colors.orangeAccent
         : (isFolded ? Colors.white24.withOpacity(0.6) : (isCurrent ? Colors.yellowAccent : Colors.white24))
     ..style = PaintingStyle.stroke
-    ..strokeWidth = isCurrent ? 2.5 : 1.5;
+    ..strokeWidth = (isCurrent ? 2.5 : 1.5) * uiSizeMultiplier;
   
   canvas.drawCircle(Offset(x, y), radius, borderPaint);
   
@@ -326,15 +333,15 @@ void drawPlayer(
     final foldRing = Paint()
       ..color = Colors.redAccent.withOpacity(0.9)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0;
-    canvas.drawCircle(Offset(x, y), radius + 3, foldRing);
+      ..strokeWidth = 2.0 * uiSizeMultiplier;
+    canvas.drawCircle(Offset(x, y), radius + 3 * uiSizeMultiplier, foldRing);
     final arrowPaint = Paint()
       ..color = Colors.redAccent.withOpacity(0.85)
       ..style = PaintingStyle.fill;
     final arrow = Path()
-      ..moveTo(x, y + radius + 6)
-      ..lineTo(x - 7, y + radius + 16)
-      ..lineTo(x + 7, y + radius + 16)
+      ..moveTo(x, y + radius + 6 * uiSizeMultiplier)
+      ..lineTo(x - 7 * uiSizeMultiplier, y + radius + 16 * uiSizeMultiplier)
+      ..lineTo(x + 7 * uiSizeMultiplier, y + radius + 16 * uiSizeMultiplier)
       ..close();
     canvas.drawPath(arrow, arrowPaint);
   }
@@ -345,11 +352,11 @@ void drawPlayer(
       : 'Player ${index + 1}';
   final nameStyle = TextStyle(
     color: isFolded ? Colors.white70 : Colors.white,
-    fontSize: 13,
+    fontSize: 13 * uiSizeMultiplier,
     fontWeight: FontWeight.w800,
     decoration: isFolded ? TextDecoration.lineThrough : TextDecoration.none,
     decorationColor: isFolded ? Colors.white54 : null,
-    decorationThickness: isFolded ? 2 : null,
+    decorationThickness: isFolded ? 2 * uiSizeMultiplier : null,
   );
   final textPainter = TextPainter(
     text: TextSpan(
@@ -360,7 +367,7 @@ void drawPlayer(
     maxLines: 1,
     ellipsis: '…',
   );
-  textPainter.layout(maxWidth: 98.0);
+  textPainter.layout(maxWidth: 98.0 * uiSizeMultiplier);
   textPainter.paint(
     canvas,
     Offset(x - textPainter.width / 2, y - textPainter.height / 2),
@@ -389,9 +396,9 @@ void drawPlayer(
     final chipText = TextPainter(
       text: TextSpan(
         text: '${player.balance}',
-        style: const TextStyle(
+        style: TextStyle(
           color: Colors.white,
-          fontSize: 10,
+          fontSize: 10 * uiSizeMultiplier,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -400,15 +407,15 @@ void drawPlayer(
     chipText.layout();
     
     // Draw chip badge background
-    final chipBadgeWidth = chipText.width + 12;
-    const chipBadgeHeight = 16.0;
+    final chipBadgeWidth = chipText.width + 12 * uiSizeMultiplier;
+    final chipBadgeHeight = 16.0 * uiSizeMultiplier;
     double chipBadgeX, chipBadgeY;
     if (onTopHalf) {
-      chipBadgeX = x + radius + 10;
+      chipBadgeX = x + radius + 10 * uiSizeMultiplier;
       chipBadgeY = y - (chipBadgeHeight / 2);
     } else {
       chipBadgeX = x - chipBadgeWidth / 2;
-      chipBadgeY = y + radius + 8;
+      chipBadgeY = y + radius + 8 * uiSizeMultiplier;
     }
     final chipBadgeYClamped = math.max(chipBadgeY, 4.0);
     final chipBadgeRect = RRect.fromRectAndRadius(
@@ -433,18 +440,18 @@ void drawPlayer(
   }
   
   // Draw role badges to the left of the player circle
-  drawRoleBadges(canvas, x, y, radius, badges, isHero);
+  drawRoleBadges(canvas, x, y, radius, badges, isHero, uiSizeMultiplier);
 }
 
-void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<SeatBadge> badges, bool isHero) {
+void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<SeatBadge> badges, bool isHero, double uiSizeMultiplier) {
   if (badges.isEmpty) return;
 
-  const double badgeHeight = 18.0;
-  const double horizontalPadding = 8.0;
-  const double gap = 5.0;
-  const textStyle = TextStyle(
+  final double badgeHeight = 18.0 * uiSizeMultiplier;
+  final double horizontalPadding = 8.0 * uiSizeMultiplier;
+  final double gap = 5.0 * uiSizeMultiplier;
+  final textStyle = TextStyle(
     color: Colors.black,
-    fontSize: 11,
+    fontSize: 11 * uiSizeMultiplier,
     fontWeight: FontWeight.w900,
   );
 
@@ -459,7 +466,7 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
   }
 
   // Position badges to the right of the player circle, 30 degrees south (downward)
-  const spacingFromCircle = 8.0; // Gap between player circle and badges
+  final spacingFromCircle = 8.0 * uiSizeMultiplier; // Gap between player circle and badges
   // 30 degrees south from right = 0° + 30° = 30° = π/6 radians
   const angleRadians = math.pi / 6; // 30 degrees
   final distanceFromCenter = radius + spacingFromCircle;
@@ -505,6 +512,7 @@ void drawCurrentTimebank(
   double centerY,
   double tableRadiusX,
   double tableRadiusY,
+  double uiSizeMultiplier,
   {double playerOffset = _maxPlayerOffset, Rect? clampBounds, double? minSeatTop}
 ) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
@@ -521,7 +529,7 @@ void drawCurrentTimebank(
   if (idx < 0) return;
 
   final bounds = clampBounds ?? pokerViewportRect(size);
-  const playerRadius = kPlayerRadius;
+  final playerRadius = kPlayerRadius * uiSizeMultiplier;
   final pos = _positionForSeat(
     idx,
     heroIndex,
@@ -536,22 +544,22 @@ void drawCurrentTimebank(
   final tbText = TextPainter(
     text: TextSpan(
       text: '⏱ ${remSec.toStringAsFixed(1)}s',
-      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700),
+      style: TextStyle(color: Colors.white, fontSize: 11 * uiSizeMultiplier, fontWeight: FontWeight.w700),
     ),
     textDirection: TextDirection.ltr,
   )..layout();
 
-  final badgeW = tbText.width + 12;
-  const badgeH = 18.0;
+  final badgeW = tbText.width + 12 * uiSizeMultiplier;
+  final badgeH = 18.0 * uiSizeMultiplier;
   
   // Position timebank above role badges (consistent for all players)
   final isHero = (idx == heroIndex);
   double bx, by;
   
   // Calculate where role badges are positioned (same logic as drawRoleBadges)
-  const spacingFromCircle = 8.0;
+  final spacingFromCircle = 8.0 * uiSizeMultiplier;
   const angleRadians = math.pi / 6; // 30 degrees
-  const distanceFromCenter = playerRadius + spacingFromCircle;
+  final distanceFromCenter = playerRadius + spacingFromCircle;
   final badgeLeftEdgeX = pos.dx + distanceFromCenter * math.cos(angleRadians);
   final badgeLeftEdgeY = pos.dy + distanceFromCenter * math.sin(angleRadians);
   
@@ -564,12 +572,12 @@ void drawCurrentTimebank(
   if (currentPlayer.isAllIn) badges.add('ALL-IN');
   
   double totalBadgeWidth = 0.0;
-  const roleBadgeHeight = 18.0;
-  const horizontalPadding = 8.0;
-  const gap = 5.0;
-  const textStyle = TextStyle(
+  final roleBadgeHeight = 18.0 * uiSizeMultiplier;
+  final horizontalPadding = 8.0 * uiSizeMultiplier;
+  final gap = 5.0 * uiSizeMultiplier;
+  final textStyle = TextStyle(
     color: Colors.black,
-    fontSize: 11,
+    fontSize: 11 * uiSizeMultiplier,
     fontWeight: FontWeight.w900,
   );
   
@@ -588,22 +596,23 @@ void drawCurrentTimebank(
   if (totalBadgeWidth == 0) return; // No badges, don't show timebank
   
   // Center timebank on the badge area, with left margin (more for hero)
-  final leftMargin = isHero ? 15.0 : 0.0;
+  final leftMargin = (isHero ? 15.0 : 0.0) * uiSizeMultiplier;
   bx = badgeLeftEdgeX + (totalBadgeWidth - badgeW) / 2 - leftMargin;
   // Position above badges with a gap - larger gap for hero to avoid buttons
-  final gapAboveBadges = isHero ? 30.0 : 4.0;
+  final gapAboveBadges = (isHero ? 30.0 : 4.0) * uiSizeMultiplier;
   final badgeCenterY = badgeLeftEdgeY - roleBadgeHeight / 2;
   by = badgeCenterY - gapAboveBadges - badgeH;
   
   // Ensure timebank doesn't clip at screen edges
-  if (bx < bounds.left + 2) bx = bounds.left + 2;
-  if (bx + badgeW > bounds.right - 2) bx = bounds.right - badgeW - 2;
-  if (by < bounds.top + 2) by = bounds.top + 2;
-  if (by + badgeH > bounds.bottom - 2) by = bounds.bottom - badgeH - 2;
+  final edgePadding = 2.0 * uiSizeMultiplier;
+  if (bx < bounds.left + edgePadding) bx = bounds.left + edgePadding;
+  if (bx + badgeW > bounds.right - edgePadding) bx = bounds.right - badgeW - edgePadding;
+  if (by < bounds.top + edgePadding) by = bounds.top + edgePadding;
+  if (by + badgeH > bounds.bottom - edgePadding) by = bounds.bottom - badgeH - edgePadding;
 
   final badgeRect = RRect.fromRectAndRadius(
     Rect.fromLTWH(bx, by, badgeW, badgeH),
-    const Radius.circular(8),
+    Radius.circular(8 * uiSizeMultiplier),
   );
   final tbBg = Paint()..color = Colors.black.withOpacity(0.9);
   canvas.drawRRect(badgeRect, tbBg);

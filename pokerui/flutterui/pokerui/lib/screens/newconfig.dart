@@ -35,6 +35,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   bool _soundsEnabled = true;
   late String _tableTheme;
   late String _cardTheme;
+  late String _cardSize;
+  late String _uiSize;
   late bool _hideTableLogo;
   String _cfgPath = '', _dataDir = '';
 
@@ -44,6 +46,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
     _soundsEnabled = widget.model.soundsEnabled;
     _tableTheme = widget.model.tableTheme;
     _cardTheme = widget.model.cardTheme;
+    _cardSize = widget.model.cardSize;
+    _uiSize = widget.model.uiSize;
     _hideTableLogo = widget.model.hideTableLogo;
     _initHeaderInfo();
   }
@@ -101,6 +105,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.debugLevel,
         _tableTheme,
         _cardTheme,
+        _cardSize,
+        _uiSize,
         _soundsEnabled,
         _hideTableLogo,
       );
@@ -147,6 +153,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ..soundsEnabled     = _soundsEnabled
         ..tableTheme        = _tableTheme
         ..cardTheme         = _cardTheme
+        ..cardSize          = _cardSize
+        ..uiSize            = _uiSize
         ..hideTableLogo     = _hideTableLogo;
 
       await _prepareDataDir();
@@ -267,6 +275,92 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   onChanged: (value) {
                     if (value != null) {
                       setState(() => _cardTheme = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _cardSize,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Card Size',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'xs',
+                      child: Text('Extra Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'small',
+                      child: Text('Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'medium',
+                      child: Text('Medium', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'large',
+                      child: Text('Large', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'xl',
+                      child: Text('Extra Large', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _cardSize = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _uiSize,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'UI Size (Icons, Fonts, Player Circles)',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'xs',
+                      child: Text('Extra Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'small',
+                      child: Text('Small', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'medium',
+                      child: Text('Medium', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'large',
+                      child: Text('Large', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'xl',
+                      child: Text('Extra Large', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _uiSize = value);
                     }
                   },
                 ),

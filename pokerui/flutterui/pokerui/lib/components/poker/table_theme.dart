@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pokerui/config.dart';
 
 class CardColorTheme {
   final Color heartsColor;
@@ -104,3 +105,88 @@ const List<CardColorTheme> cardColorThemePresets = [
   CardColorTheme.standard,
   CardColorTheme.decred,
 ];
+
+/// Get card size multiplier from config key
+/// Returns: xs=0.6, small=0.8, medium=1.0, large=1.2, xl=1.4
+double cardSizeMultiplierFromKey(String key) {
+  final normalized = key.toLowerCase();
+  switch (normalized) {
+    case 'xs':
+      return 0.6;
+    case 'small':
+      return 0.8;
+    case 'large':
+      return 1.2;
+    case 'xl':
+      return 1.4;
+    case 'medium':
+    default:
+      return 1.0;
+  }
+}
+
+/// Get UI size multiplier from config key (affects icons, fonts, player circles, etc.)
+/// Returns: xs=0.7, small=0.85, medium=1.0, large=1.15, xl=1.3
+double uiSizeMultiplierFromKey(String key) {
+  final normalized = key.toLowerCase();
+  switch (normalized) {
+    case 'xs':
+      return 0.7;
+    case 'small':
+      return 0.85;
+    case 'large':
+      return 1.15;
+    case 'xl':
+      return 1.3;
+    case 'medium':
+    default:
+      return 1.0;
+  }
+}
+
+/// Bundles all visual theme settings for the poker table
+class PokerThemeConfig {
+  final TableThemeConfig tableTheme;
+  final CardColorTheme cardTheme;
+  final double cardSizeMultiplier;
+  final double uiSizeMultiplier;
+  final bool showTableLogo;
+
+  const PokerThemeConfig({
+    required this.tableTheme,
+    required this.cardTheme,
+    required this.cardSizeMultiplier,
+    required this.uiSizeMultiplier,
+    required this.showTableLogo,
+  });
+
+  /// Create from config values using BuildContext extension
+  factory PokerThemeConfig.fromContext(BuildContext context) {
+    return PokerThemeConfig(
+      tableTheme: TableThemeConfig.fromKey(context.tableTheme),
+      cardTheme: cardColorThemeFromKey(context.cardTheme),
+      cardSizeMultiplier: cardSizeMultiplierFromKey(context.cardSize),
+      uiSizeMultiplier: uiSizeMultiplierFromKey(context.uiSize),
+      showTableLogo: context.showTableLogo,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PokerThemeConfig &&
+          runtimeType == other.runtimeType &&
+          tableTheme == other.tableTheme &&
+          cardTheme == other.cardTheme &&
+          cardSizeMultiplier == other.cardSizeMultiplier &&
+          uiSizeMultiplier == other.uiSizeMultiplier &&
+          showTableLogo == other.showTableLogo;
+
+  @override
+  int get hashCode =>
+      tableTheme.hashCode ^
+      cardTheme.hashCode ^
+      cardSizeMultiplier.hashCode ^
+      uiSizeMultiplier.hashCode ^
+      showTableLogo.hashCode;
+}

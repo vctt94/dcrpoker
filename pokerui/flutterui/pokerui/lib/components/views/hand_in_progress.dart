@@ -61,9 +61,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     final pokerGame = PokerGame(
       widget.model.playerId,
       widget.model,
-      tableTheme: TableThemeConfig.fromKey(context.tableTheme),
-      cardTheme: cardColorThemeFromKey(context.cardTheme),
-      showTableLogo: context.showTableLogo,
+      theme: PokerThemeConfig.fromContext(context),
     );
 
     return Stack(

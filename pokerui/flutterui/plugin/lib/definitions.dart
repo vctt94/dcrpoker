@@ -158,6 +158,10 @@ class UpdateConfig {
   final String tableTheme;
   @JsonKey(name: 'card_theme')
   final String cardTheme;
+  @JsonKey(name: 'card_size')
+  final String cardSize;
+  @JsonKey(name: 'ui_size')
+  final String uiSize;
   @JsonKey(name: 'sounds_enabled')
   final bool soundsEnabled;
   @JsonKey(name: 'hide_table_logo')
@@ -171,6 +175,8 @@ class UpdateConfig {
     this.debugLevel,
     this.tableTheme,
     this.cardTheme,
+    this.cardSize,
+    this.uiSize,
     this.soundsEnabled,
     this.hideTableLogo,
   );
