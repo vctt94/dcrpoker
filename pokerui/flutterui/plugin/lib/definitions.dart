@@ -166,6 +166,8 @@ class UpdateConfig {
   final bool soundsEnabled;
   @JsonKey(name: 'hide_table_logo')
   final bool hideTableLogo;
+  @JsonKey(name: 'logo_position')
+  final String logoPosition;
 
   UpdateConfig(
     this.dataDir,
@@ -179,6 +181,7 @@ class UpdateConfig {
     this.uiSize,
     this.soundsEnabled,
     this.hideTableLogo,
+    this.logoPosition,
   );
 
   factory UpdateConfig.fromJson(Map<String, dynamic> json) =>

@@ -98,22 +98,6 @@ class SharedLayout extends StatelessWidget {
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.settings, color: Colors.white),
-                      title: const Text('Settings',
-                          style: TextStyle(color: Colors.white)),
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/settings');
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.description, color: Colors.white),
-                      title: const Text('Logs',
-                          style: TextStyle(color: Colors.white)),
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/logs');
-                      },
-                    ),
-                    ListTile(
                       leading: const Icon(Icons.verified, color: Colors.white),
                       title: const Text('Sign Address',
                           style: TextStyle(color: Colors.white)),
@@ -130,19 +114,27 @@ class SharedLayout extends StatelessWidget {
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.undo, color: Colors.white),
-                      title: const Text('Refund Tools',
-                          style: TextStyle(color: Colors.white)),
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/refund');
-                      },
-                    ),
-                    ListTile(
                       leading: const Icon(Icons.history, color: Colors.white),
                       title: const Text('Escrow History',
                           style: TextStyle(color: Colors.white)),
                       onTap: () {
                         Navigator.of(context).pushNamed('/escrow-history');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.description, color: Colors.white),
+                      title: const Text('Logs',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/logs');
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.settings, color: Colors.white),
+                      title: const Text('Settings',
+                          style: TextStyle(color: Colors.white)),
+                      onTap: () {
+                        Navigator.of(context).pushNamed('/settings');
                       },
                     ),
                     if (logoutCb != null)

@@ -59,6 +59,7 @@ type PokerConf struct {
 	CardSize      string // Card size multiplier (e.g., "small", "medium", "large")
 	UISize        string // UI size multiplier for icons, fonts, player circles (e.g., "small", "medium", "large")
 	HideTableLogo bool   // Whether to hide the center table logo overlay
+	LogoPosition  string // Logo position: "center", "bottom_left", "bottom_right", "top_left", "top_right"
 }
 
 // parseClientConfigFile parses the config file at the given path into a PokerConf struct.
@@ -129,6 +130,8 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 			cfg.UISize = strings.TrimSpace(strings.ToLower(value))
 		case "hidetablelogo":
 			cfg.HideTableLogo = value == "1" || strings.ToLower(value) == "true"
+		case "logoposition":
+			cfg.LogoPosition = strings.TrimSpace(strings.ToLower(value))
 		default:
 			// Ignore unknown keys to preserve forward-compatibility with older configs.
 			continue
@@ -179,6 +182,9 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 	}
 	if cfg.UISize == "" {
 		cfg.UISize = "medium"
+	}
+	if cfg.LogoPosition == "" {
+		cfg.LogoPosition = "center"
 	}
 
 	return cfg, nil
@@ -240,6 +246,7 @@ func LoadClientConf(configPath string, fileName string) (*PokerConf, error) {
 		CardSize:       "medium",
 		UISize:         "medium",
 		HideTableLogo:  false,
+		LogoPosition:   "center",
 	}
 
 	// Write default config
@@ -281,6 +288,7 @@ cardtheme=%s
 cardsize=%s
 uisize=%s
 hidetablelogo=%d
+logoposition=%s
 `,
 		cfg.Datadir,
 		cfg.GRPCHost,
@@ -297,6 +305,7 @@ hidetablelogo=%d
 		cfg.CardSize,
 		cfg.UISize,
 		hideLogoVal,
+		cfg.LogoPosition,
 	)
 
 	return os.WriteFile(configPath, []byte(configData), 0600)
@@ -338,6 +347,15 @@ var ValidUISizes = map[string]bool{
 	"xl":     true,
 }
 
+// ValidLogoPositions lists all valid logo position keys
+var ValidLogoPositions = map[string]bool{
+	"center":       true,
+	"bottom_left":  true,
+	"bottom_right": true,
+	"top_left":     true,
+	"top_right":    true,
+}
+
 // ThemeConfig bundles all visual theme settings for the poker table
 type ThemeConfig struct {
 	TableTheme    string // Visual theme for the poker table (e.g., "decred", "classic")
@@ -346,6 +364,7 @@ type ThemeConfig struct {
 	UISize        string // UI size multiplier for icons, fonts, player circles (e.g., "small", "medium", "large")
 	SoundsEnabled bool   // Enable/disable sound effects in UI
 	HideTableLogo bool   // Whether to hide the center table logo overlay
+	LogoPosition  string // Logo position: "center", "bottom_left", "bottom_right", "top_left", "top_right"
 }
 
 // Validate validates all theme settings
@@ -367,6 +386,11 @@ func (tc *ThemeConfig) Validate() error {
 	}
 	if tc.UISize != "" {
 		if err := ValidateTheme(tc.UISize, ValidUISizes, "UI"); err != nil {
+			return err
+		}
+	}
+	if tc.LogoPosition != "" {
+		if err := ValidateTheme(tc.LogoPosition, ValidLogoPositions, "logo position"); err != nil {
 			return err
 		}
 	}
@@ -529,6 +553,9 @@ func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath
 		}
 		if theme.UISize != "" {
 			cfg.UISize = strings.ToLower(strings.TrimSpace(theme.UISize))
+		}
+		if theme.LogoPosition != "" {
+			cfg.LogoPosition = strings.ToLower(strings.TrimSpace(theme.LogoPosition))
 		}
 		cfg.SoundsEnabled = theme.SoundsEnabled
 		cfg.HideTableLogo = theme.HideTableLogo

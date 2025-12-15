@@ -38,6 +38,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   late String _cardSize;
   late String _uiSize;
   late bool _hideTableLogo;
+  late String _logoPosition;
   String _cfgPath = '', _dataDir = '';
 
   @override
@@ -49,6 +50,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
     _cardSize = widget.model.cardSize;
     _uiSize = widget.model.uiSize;
     _hideTableLogo = widget.model.hideTableLogo;
+    _logoPosition = widget.model.logoPosition;
     _initHeaderInfo();
   }
 
@@ -109,6 +111,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         _uiSize,
         _soundsEnabled,
         _hideTableLogo,
+        _logoPosition,
       );
       
       final result = await Golib.updateConfig(updateArgs);
@@ -155,7 +158,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ..cardTheme         = _cardTheme
         ..cardSize          = _cardSize
         ..uiSize            = _uiSize
-        ..hideTableLogo     = _hideTableLogo;
+        ..hideTableLogo     = _hideTableLogo
+        ..logoPosition      = _logoPosition;
 
       await _prepareDataDir();
       
@@ -374,6 +378,49 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                       onChanged: (v) => setState(() => _hideTableLogo = !v),
                     ),
                   ],
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _logoPosition,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Logo Position',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'center',
+                      child: Text('Center', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'top_left',
+                      child: Text('Top Left', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'top_right',
+                      child: Text('Top Right', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'bottom_left',
+                      child: Text('Bottom Left', style: TextStyle(color: Colors.white)),
+                    ),
+                    DropdownMenuItem(
+                      value: 'bottom_right',
+                      child: Text('Bottom Right', style: TextStyle(color: Colors.white)),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _logoPosition = value);
+                    }
+                  },
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(onPressed: _save, child: const Text('Save Config')),

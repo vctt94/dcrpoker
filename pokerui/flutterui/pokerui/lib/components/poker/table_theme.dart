@@ -151,6 +151,7 @@ class PokerThemeConfig {
   final double cardSizeMultiplier;
   final double uiSizeMultiplier;
   final bool showTableLogo;
+  final String logoPosition;
 
   const PokerThemeConfig({
     required this.tableTheme,
@@ -158,6 +159,7 @@ class PokerThemeConfig {
     required this.cardSizeMultiplier,
     required this.uiSizeMultiplier,
     required this.showTableLogo,
+    required this.logoPosition,
   });
 
   /// Create from config values using BuildContext extension
@@ -168,6 +170,7 @@ class PokerThemeConfig {
       cardSizeMultiplier: cardSizeMultiplierFromKey(context.cardSize),
       uiSizeMultiplier: uiSizeMultiplierFromKey(context.uiSize),
       showTableLogo: context.showTableLogo,
+      logoPosition: context.logoPosition,
     );
   }
 
@@ -180,7 +183,8 @@ class PokerThemeConfig {
           cardTheme == other.cardTheme &&
           cardSizeMultiplier == other.cardSizeMultiplier &&
           uiSizeMultiplier == other.uiSizeMultiplier &&
-          showTableLogo == other.showTableLogo;
+          showTableLogo == other.showTableLogo &&
+          logoPosition == other.logoPosition;
 
   @override
   int get hashCode =>
@@ -188,5 +192,6 @@ class PokerThemeConfig {
       cardTheme.hashCode ^
       cardSizeMultiplier.hashCode ^
       uiSizeMultiplier.hashCode ^
-      showTableLogo.hashCode;
+      showTableLogo.hashCode ^
+      logoPosition.hashCode;
 }

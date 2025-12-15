@@ -301,6 +301,7 @@ type updateConfigArgs struct {
 	UISize        string `json:"ui_size"`
 	SoundsEnabled bool   `json:"sounds_enabled"`
 	HideTableLogo bool   `json:"hide_table_logo"`
+	LogoPosition  string `json:"logo_position"`
 }
 
 // JSON payloads from Flutter
@@ -897,6 +898,7 @@ func handleUpdateConfig(args updateConfigArgs) (map[string]string, error) {
 		UISize:        args.UISize,
 		SoundsEnabled: args.SoundsEnabled,
 		HideTableLogo: args.HideTableLogo,
+		LogoPosition:  args.LogoPosition,
 	}
 	if err := updateConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.Address, args.DebugLevel, theme); err != nil {
 		return nil, err
@@ -945,6 +947,7 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 		"card_size":       cfg.CardSize,
 		"ui_size":         cfg.UISize,
 		"hide_table_logo": cfg.HideTableLogo,
+		"logo_position":   cfg.LogoPosition,
 	}
 
 	return res, nil

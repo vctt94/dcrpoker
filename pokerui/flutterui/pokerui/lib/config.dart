@@ -24,6 +24,7 @@ class Config {
   final String cardSize;
   final String uiSize;
   final bool hideTableLogo;
+  final String logoPosition;
 
   Config({
     required this.serverAddr,
@@ -38,6 +39,7 @@ class Config {
     required this.cardSize,
     required this.uiSize,
     required this.hideTableLogo,
+    required this.logoPosition,
   });
 
   factory Config.empty() => Config(
@@ -53,6 +55,7 @@ class Config {
       cardSize: 'medium',
       uiSize: 'medium',
       hideTableLogo: false,
+      logoPosition: 'center',
       );
 
   // Synchronous fallback for UI prefill when async is not possible.
@@ -84,6 +87,7 @@ class Config {
       cardSize: pick('card_size').isNotEmpty ? pick('card_size') : (pick('cardsize').isNotEmpty ? pick('cardsize') : 'medium'),
       uiSize: pick('ui_size').isNotEmpty ? pick('ui_size') : (pick('uisize').isNotEmpty ? pick('uisize') : 'medium'),
       hideTableLogo: (m['hide_table_logo'] ?? false) == true || (m['hidetablelogo'] ?? false) == true,
+      logoPosition: pick('logo_position').isNotEmpty ? pick('logo_position') : (pick('logoposition').isNotEmpty ? pick('logoposition') : 'center'),
     );
   }
 
@@ -120,6 +124,7 @@ class Config {
       cardSize: cardSize ?? this.cardSize,
       uiSize: uiSize ?? this.uiSize,
       hideTableLogo: hideTableLogo ?? this.hideTableLogo,
+      logoPosition: logoPosition ?? this.logoPosition,
     );
   }
 
@@ -293,6 +298,9 @@ extension ConfigExtension on BuildContext {
   
   /// Get whether to show the table logo from config
   bool get showTableLogo => config.showTableLogo;
+  
+  /// Get the logo position from config
+  String get logoPosition => config.logoPosition;
   
   /// Get whether sounds are enabled from config
   bool get soundsEnabled => config.soundsEnabled;

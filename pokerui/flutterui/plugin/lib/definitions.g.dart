@@ -82,6 +82,7 @@ UpdateConfig _$UpdateConfigFromJson(Map<String, dynamic> json) => UpdateConfig(
   json['ui_size'] as String,
   json['sounds_enabled'] as bool,
   json['hide_table_logo'] as bool,
+  json['logo_position'] as String,
 );
 
 Map<String, dynamic> _$UpdateConfigToJson(UpdateConfig instance) =>
@@ -97,6 +98,7 @@ Map<String, dynamic> _$UpdateConfigToJson(UpdateConfig instance) =>
       'ui_size': instance.uiSize,
       'sounds_enabled': instance.soundsEnabled,
       'hide_table_logo': instance.hideTableLogo,
+      'logo_position': instance.logoPosition,
     };
 
 IDInit _$IDInitFromJson(Map<String, dynamic> json) =>

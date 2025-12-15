@@ -133,7 +133,40 @@ class PokerGame {
                           final layout = resolveTableLayout(stackConstraints.biggest);
                           final centerX = layout.center.dx;
                           final centerY = layout.center.dy;
-                          final logoSize = (layout.tableRadiusX * 0.3).clamp(40.0, 120.0);
+                          final tableRadiusX = layout.tableRadiusX;
+                          final tableRadiusY = layout.tableRadiusY;
+                          final logoSize = (tableRadiusX * 0.3).clamp(40.0, 120.0);
+                          
+                          // Calculate logo position based on theme setting
+                          // Position inside the table ellipse bounds, closer to edges but still fully inside
+                          final padding = 12.0 * theme.uiSizeMultiplier;
+                          // Use a percentage of the radius to position logo near edges but inside bounds
+                          final offsetFactor = 0.75; // 75% from center toward edge
+                          
+                          double logoLeft, logoTop;
+                          switch (theme.logoPosition) {
+                            case 'top_left':
+                              logoLeft = centerX - (tableRadiusX * offsetFactor) + padding;
+                              logoTop = centerY - (tableRadiusY * offsetFactor) + padding;
+                              break;
+                            case 'top_right':
+                              logoLeft = centerX + (tableRadiusX * offsetFactor) - logoSize - padding;
+                              logoTop = centerY - (tableRadiusY * offsetFactor) + padding;
+                              break;
+                            case 'bottom_left':
+                              logoLeft = centerX - (tableRadiusX * offsetFactor) + padding;
+                              logoTop = centerY + (tableRadiusY * offsetFactor) - logoSize - padding;
+                              break;
+                            case 'bottom_right':
+                              logoLeft = centerX + (tableRadiusX * offsetFactor) - logoSize - padding;
+                              logoTop = centerY + (tableRadiusY * offsetFactor) - logoSize - padding;
+                              break;
+                            case 'center':
+                            default:
+                              logoLeft = centerX - logoSize / 2;
+                              logoTop = centerY - logoSize / 2;
+                              break;
+                          }
                           
                           return Stack(
                             fit: StackFit.expand,
@@ -151,8 +184,8 @@ class PokerGame {
                               // DCR logo overlay (render above painted table)
                               if (theme.showTableLogo)
                                 Positioned(
-                                  left: centerX - logoSize / 2,
-                                  top: centerY - logoSize / 2,
+                                  left: logoLeft,
+                                  top: logoTop,
                                   width: logoSize,
                                   height: logoSize,
                                   child: IgnorePointer(

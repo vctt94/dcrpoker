@@ -14,6 +14,7 @@ class NewConfigModel extends ChangeNotifier {
   String cardSize = 'medium';
   String uiSize = 'medium';
   bool hideTableLogo = false;
+  String logoPosition = 'center';
 
   final List<String> appArgs;
   String _appDataDir = '';
@@ -45,7 +46,8 @@ class NewConfigModel extends ChangeNotifier {
         ..cardTheme = c.cardTheme
         ..cardSize = c.cardSize
         ..uiSize = c.uiSize
-        ..hideTableLogo = c.hideTableLogo;
+        ..hideTableLogo = c.hideTableLogo
+        ..logoPosition = c.logoPosition;
 
   // ─── Helpers ────────────────────────────────────────────────────────────
   Future<void> _initialiseDefaults({
