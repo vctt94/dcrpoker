@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'cards.dart';
+import 'table_theme.dart';
 
 // Canvas-based table and player drawing utilities for CustomPainter usage
 const double kPlayerRadius = 30.0;
@@ -143,10 +144,10 @@ TableLayout resolveTableLayout(Size size) {
   );
 }
 
-void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadiusX, double tableRadiusY) {
-  // Table surface - draw as ellipse
+void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadiusX, double tableRadiusY, TableThemeConfig theme) {
+  // Table surface - draw as ellipse using theme colors
   final tablePaint = Paint()
-    ..color = const Color(0xFF0D4F3C)
+    ..color = theme.feltColor
     ..style = PaintingStyle.fill;
   
   final tableRect = Rect.fromCenter(
@@ -158,7 +159,7 @@ void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableR
   
   // Table border
   final borderPaint = Paint()
-    ..color = const Color(0xFF8B4513)
+    ..color = theme.borderColor
     ..style = PaintingStyle.stroke
     ..strokeWidth = 8;
   

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/table.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
 
 // Shared card rendering widgets to ensure a single source of truth
 // for card visuals across the app (faces, backs, and flip animation).
@@ -22,25 +23,27 @@ String cardId(pr.Card? c) {
   return '$v$s';
 }
 
-Color suitColor(String suit) {
+Color suitColor(String suit, {CardColorTheme? cardTheme}) {
+  final theme = cardTheme ?? CardColorTheme.standard;
   final s = suit.toLowerCase();
-  if (s == 'hearts' || suit == '♥' || suit == '\u2665') return const Color(0xFFD7263D);
-  if (s == 'diamonds' || suit == '♦' || suit == '\u2666') return const Color(0xFFE65100);
-  if (s == 'clubs' || suit == '♣' || suit == '\u2663') return const Color(0xFF0F6D32);
-  if (s == 'spades' || suit == '♠' || suit == '\u2660') return const Color(0xFF123769);
+  if (s == 'hearts' || suit == '♥' || suit == '\u2665') return theme.heartsColor;
+  if (s == 'diamonds' || suit == '♦' || suit == '\u2666') return theme.diamondsColor;
+  if (s == 'clubs' || suit == '♣' || suit == '\u2663') return theme.clubsColor;
+  if (s == 'spades' || suit == '♠' || suit == '\u2660') return theme.spadesColor;
   return Colors.black;
 }
 
 class CardFace extends StatelessWidget {
-  const CardFace({super.key, required pr.Card? card}) : _card = card;
+  const CardFace({super.key, required pr.Card? card, this.cardTheme}) : _card = card;
   final pr.Card? _card;
+  final CardColorTheme? cardTheme;
 
   @override
   Widget build(BuildContext context) {
     final value = _card?.value ?? '';
     final suit = _card?.suit ?? '';
     final suitSymbol = suitSym(suit);
-    final suitTint = suitColor(suit);
+    final suitTint = suitColor(suit, cardTheme: cardTheme);
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, c) {
@@ -140,16 +143,17 @@ class CardBack extends StatelessWidget {
 }
 
 class FlipCard extends StatelessWidget {
-  const FlipCard({super.key, required this.faceUp, required this.card});
+  const FlipCard({super.key, required this.faceUp, required this.card, this.cardTheme});
   final bool faceUp;
   final pr.Card? card;
+  final CardColorTheme? cardTheme;
 
   @override
   Widget build(BuildContext context) {
     final id = cardId(card);
     final frontKey = ValueKey('face_$id');
     final backKey = ValueKey('back_$id');
-    final front = CardFace(card: card, key: frontKey);
+    final front = CardFace(card: card, key: frontKey, cardTheme: cardTheme);
     final back = CardBack(key: backKey);
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 280),
@@ -185,13 +189,14 @@ class FlipCard extends StatelessWidget {
 }
 
 class HeroCardFlipOverlay extends StatelessWidget {
-  const HeroCardFlipOverlay({super.key, required this.cards, required this.showFace, this.onToggle, this.showHint});
+  const HeroCardFlipOverlay({super.key, required this.cards, required this.showFace, this.onToggle, this.showHint, this.cardTheme});
   final List<pr.Card> cards;
   final bool showFace;
   final VoidCallback? onToggle;
   // When provided, overrides the default hint behavior. If null, falls back
   // to showing the hint when !showFace.
   final bool? showHint;
+  final CardColorTheme? cardTheme;
 
   @override
   Widget build(BuildContext context) {
@@ -236,8 +241,8 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final x2 = centerX + gap / 2;
 
       final children = <Widget>[
-        Positioned(left: x1, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.isNotEmpty ? cards[0] : null)),
-        Positioned(left: x2, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.length > 1 ? cards[1] : null)),
+        Positioned(left: x1, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.isNotEmpty ? cards[0] : null, cardTheme: cardTheme)),
+        Positioned(left: x2, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.length > 1 ? cards[1] : null, cardTheme: cardTheme)),
       ];
 
       final shouldShowHint = (showHint ?? !showFace) && onToggle != null;
@@ -308,7 +313,7 @@ class HeroCardFlipOverlay extends StatelessWidget {
 }
 
 // Canvas-based card drawing utilities for CustomPainter usage
-void drawCardFace(Canvas canvas, double x, double y, double width, double height, pr.Card card) {
+void drawCardFace(Canvas canvas, double x, double y, double width, double height, pr.Card card, {CardColorTheme? cardTheme}) {
   // Card background
   final cardPaint = Paint()
     ..color = Colors.white
@@ -333,7 +338,7 @@ void drawCardFace(Canvas canvas, double x, double y, double width, double height
     text: TextSpan(
       text: '${card.value}\n${getSuitSymbol(card.suit)}',
       style: TextStyle(
-        color: getSuitColor(card.suit),
+        color: getSuitColor(card.suit, cardTheme: cardTheme),
         fontSize: 10,
         fontWeight: FontWeight.bold,
       ),
@@ -394,23 +399,32 @@ String getSuitSymbol(String suit) {
   }
 }
 
-Color getSuitColor(String suit) {
+Color getSuitColor(String suit, {CardColorTheme? cardTheme}) {
+  final theme = cardTheme ?? CardColorTheme.standard;
   final s = suit.toLowerCase();
   // Check for Unicode symbols first
-  if (suit == '♥' || suit == '\u2665' || suit == '♦' || suit == '\u2666') {
-    return Colors.red;
+  if (suit == '♥' || suit == '\u2665') {
+    return theme.heartsColor;
   }
-  if (suit == '♣' || suit == '\u2663' || suit == '♠' || suit == '\u2660') {
-    return Colors.black;
+  if (suit == '♦' || suit == '\u2666') {
+    return theme.diamondsColor;
+  }
+  if (suit == '♣' || suit == '\u2663') {
+    return theme.clubsColor;
+  }
+  if (suit == '♠' || suit == '\u2660') {
+    return theme.spadesColor;
   }
   // Then check lowercase strings
   switch (s) {
     case 'hearts':
+      return theme.heartsColor;
     case 'diamonds':
-      return Colors.red;
+      return theme.diamondsColor;
     case 'clubs':
+      return theme.clubsColor;
     case 'spades':
-      return Colors.black;
+      return theme.spadesColor;
     default:
       return Colors.black;
   }

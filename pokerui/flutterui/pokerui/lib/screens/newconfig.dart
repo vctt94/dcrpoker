@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
 import 'package:pokerui/components/shared_layout.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/newconfig.dart';
 import 'package:pokerui/services/sound_service.dart';
 import 'package:golib_plugin/golib_plugin.dart';
@@ -32,12 +33,18 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   late final _debugLvl      = TextEditingController(text: widget.model.debugLevel);
 
   bool _soundsEnabled = true;
+  late String _tableTheme;
+  late String _cardTheme;
+  late bool _hideTableLogo;
   String _cfgPath = '', _dataDir = '';
 
   @override
   void initState() {
     super.initState();
     _soundsEnabled = widget.model.soundsEnabled;
+    _tableTheme = widget.model.tableTheme;
+    _cardTheme = widget.model.cardTheme;
+    _hideTableLogo = widget.model.hideTableLogo;
     _initHeaderInfo();
   }
 
@@ -59,7 +66,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   }
 
   // Create config using the new command
-  Future<void> _createConfigViaCommand() async {
+  Future<void> _createConfigCmd() async {
     try {
       // Create the config using the native plugin
       final config = CreateDefaultConfig(
@@ -67,7 +74,6 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.serverAddr,
         widget.model.grpcCertPath,
         widget.model.debugLevel,
-        widget.model.soundsEnabled,
       );
       
       // Call the native plugin command
@@ -81,6 +87,33 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
       // Surface native error to UI
       debugPrint('Native plugin createDefaultConfig error: $e');
       throw Exception('Create config failed: $e');
+    }
+  }
+
+  // Update config with all settings
+  Future<void> _updateConfigCmd() async {
+    try {
+      final updateArgs = UpdateConfig(
+        widget.model.dataDir,
+        widget.model.serverAddr,
+        widget.model.grpcCertPath,
+        widget.model.address,
+        widget.model.debugLevel,
+        _tableTheme,
+        _cardTheme,
+        _soundsEnabled,
+        _hideTableLogo,
+      );
+      
+      final result = await Golib.updateConfig(updateArgs);
+      
+      if (result['status'] != 'updated') {
+        final err = result['error'] ?? 'unknown error';
+        throw Exception('Failed to update config: $err');
+      }
+    } catch (e) {
+      debugPrint('Native plugin updateConfig error: $e');
+      throw Exception('Update config failed: $e');
     }
   }
 
@@ -111,12 +144,18 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ..grpcCertPath      = _grpcCert.text
         ..address           = _address.text
         ..debugLevel        = _debugLvl.text
-        ..soundsEnabled     = _soundsEnabled;
+        ..soundsEnabled     = _soundsEnabled
+        ..tableTheme        = _tableTheme
+        ..cardTheme         = _cardTheme
+        ..hideTableLogo     = _hideTableLogo;
 
       await _prepareDataDir();
       
       // Use the new command to create config instead of direct file writing
-      await _createConfigViaCommand();
+      await _createConfigCmd();
+      
+      // Update theme and sound settings
+      await _updateConfigCmd();
       
       // Update sound service immediately after saving config
       SoundService().setEnabled(_soundsEnabled);
@@ -127,6 +166,13 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Config saved!')));
         await _initHeaderInfo();           // refresh header box
+        // Close settings so callers can immediately reflect new config (theme/logo) without manual refresh.
+        if (mounted) {
+          final nav = Navigator.of(context);
+          if (nav.canPop()) {
+            nav.pop(true);
+          }
+        }
       }
     } catch (e, st) {
       debugPrint('Error saving config: $e\n$st');
@@ -165,6 +211,74 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                     const Text('Enable Sounds', style: TextStyle(color: Colors.white)),
                     Switch(value: _soundsEnabled,
                            onChanged: (v) => setState(() => _soundsEnabled = v)),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                const Text('Table Appearance', 
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _tableTheme,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Table Theme',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: TableThemeConfig.presets
+                      .map((t) => DropdownMenuItem(
+                            value: t.key,
+                            child: Text(t.displayName, style: const TextStyle(color: Colors.white)),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _tableTheme = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  initialValue: _cardTheme,
+                  dropdownColor: const Color(0xFF1B1E2C),
+                  iconEnabledColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Card Theme',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white54),
+                    ),
+                    focusedBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                  items: cardColorThemePresets
+                      .map((t) => DropdownMenuItem(
+                            value: cardColorThemeKey(t),
+                            child: Text(cardColorThemeDisplayName(t), style: const TextStyle(color: Colors.white)),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => _cardTheme = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Show Table Logo', style: TextStyle(color: Colors.white)),
+                    Switch(
+                      value: !_hideTableLogo,
+                      onChanged: (v) => setState(() => _hideTableLogo = !v),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 20),

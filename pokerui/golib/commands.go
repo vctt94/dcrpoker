@@ -55,6 +55,7 @@ const (
 	CTLeavePokerTable         CmdType = 0x15
 	CTCreateDefaultConfig     CmdType = 0x17
 	CTCreateDefaultServerCert CmdType = 0x18
+	CTUpdateConfig            CmdType = 0x20
 	CTShowCards               CmdType = 0x19
 	CTHideCards               CmdType = 0x1a
 	CTMakeBet                 CmdType = 0x1b
@@ -178,6 +179,12 @@ func call(cmd *cmd) *CmdResult {
 		var certPath string
 		if decode(&certPath) {
 			v, err = handleCreateDefaultServerCert(certPath)
+		}
+
+	case CTUpdateConfig:
+		var args updateConfigArgs
+		if decode(&args) {
+			v, err = handleUpdateConfig(args)
 		}
 
 	case CTCreateLockFile:
