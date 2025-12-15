@@ -220,58 +220,42 @@ void drawPlayers(
     if (player.id != currentPlayerId) {
       final playerX = pos.dx;
       final playerY = pos.dy;
-      final isTopHalf = playerY < clampRect.center.dy;
       // Skip rendering hole cards for folded opponents to avoid implying they are still in-hand.
       if (player.folded) {
         continue;
       }
       final hasAnyCards = player.hand.isNotEmpty;
+      // Draw cards inside the player circle (positioned at bottom of circle)
+      // Calculate card size as proportion of player radius
+      // Two cards + gap should fit within ~70% of circle diameter
+      final cardWidthRatio = .75;
+      final cw = playerRadius * cardWidthRatio * cardSizeMultiplier;
+      final ch = cw * 1.4;
+      final gap = playerRadius * 0.05 * cardSizeMultiplier; // Small gap between cards
+      final startX = playerX - cw - gap / 2;
+      // Position cards centered in the player circle
+      final cardY = playerY + playerRadius * 0.6 - ch; // Centered in circle
+      
       if (gameState.phase == pr.GamePhase.SHOWDOWN) {
         if (hasAnyCards) {
-          // Reveal known opponent hands near their seat with a subtle slide-in.
-          final baseCw = 18.0;
-          final cw = baseCw * cardSizeMultiplier;
-          final ch = cw * 1.4;
-          final gap = 4.0 * cardSizeMultiplier;
-          final startX = playerX - cw - gap / 2;
-          final baseY = isTopHalf
-              ? playerY + playerRadius + 6
-              : playerY - playerRadius - ch - 6;
+          // Reveal known opponent hands with a subtle slide-in animation
           final now = DateTime.now().millisecondsSinceEpoch;
           final elapsed = (now - showdownStartMs - i * 120);
           final t = (elapsed / 450.0).clamp(0.0, 1.0);
-          final y = isTopHalf
-              ? (baseY - (1.0 - t) * 14.0)
-              : (baseY + (1.0 - t) * 14.0);
+          final y = cardY - (1.0 - t) * 8.0; // Slide up slightly
           drawCardFace(canvas, startX, y, cw, ch, player.hand[0]);
           if (player.hand.length > 1) {
             drawCardFace(canvas, startX + cw + gap, y, cw, ch, player.hand[1]);
           }
         } else {
-          // If still hidden at showdown, show subtle backs.
-          final baseCw = 16.0;
-          final cw = baseCw * cardSizeMultiplier;
-          final ch = cw * 1.4;
-          final gap = 4.0 * cardSizeMultiplier;
-          final startX = playerX - cw - gap / 2;
-          final y = isTopHalf
-              ? playerY + playerRadius + 6
-              : playerY - playerRadius - ch - 6;
-          drawCardBack(canvas, startX, y, cw, ch);
-          drawCardBack(canvas, startX + cw + gap, y, cw, ch);
+          // If still hidden at showdown, show subtle backs inside circle
+          drawCardBack(canvas, startX, cardY, cw, ch);
+          drawCardBack(canvas, startX + cw + gap, cardY, cw, ch);
         }
       } else if (!hasAnyCards && (gameState.phase != pr.GamePhase.WAITING && gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
-        // Non-showdown phases: use backs to indicate in-hand cards for opponents.
-        final baseCw = 16.0;
-        final cw = baseCw * cardSizeMultiplier;
-        final ch = cw * 1.4;
-        final gap = 4.0 * cardSizeMultiplier;
-        final startX = playerX - cw - gap / 2;
-        final y = isTopHalf
-            ? playerY + playerRadius + 6
-            : playerY - playerRadius - ch - 6; // place just above/below the seat circle
-        drawCardBack(canvas, startX, y, cw, ch);
-        drawCardBack(canvas, startX + cw + gap, y, cw, ch);
+        // Non-showdown phases: use backs to indicate in-hand cards for opponents
+        drawCardBack(canvas, startX, cardY, cw, ch);
+        drawCardBack(canvas, startX + cw + gap, cardY, cw, ch);
       }
     }
   }
@@ -346,33 +330,6 @@ void drawPlayer(
     canvas.drawPath(arrow, arrowPaint);
   }
   
-  // Player name (show more characters)
-  final displayName = player.name.isNotEmpty
-      ? player.name
-      : 'Player ${index + 1}';
-  final nameStyle = TextStyle(
-    color: isFolded ? Colors.white70 : Colors.white,
-    fontSize: 13 * uiSizeMultiplier,
-    fontWeight: FontWeight.w800,
-    decoration: isFolded ? TextDecoration.lineThrough : TextDecoration.none,
-    decorationColor: isFolded ? Colors.white54 : null,
-    decorationThickness: isFolded ? 2 * uiSizeMultiplier : null,
-  );
-  final textPainter = TextPainter(
-    text: TextSpan(
-      text: displayName,
-      style: nameStyle,
-    ),
-    textDirection: TextDirection.ltr,
-    maxLines: 1,
-    ellipsis: '…',
-  );
-  textPainter.layout(maxWidth: 98.0 * uiSizeMultiplier);
-  textPainter.paint(
-    canvas,
-    Offset(x - textPainter.width / 2, y - textPainter.height / 2),
-  );
-
   // Use blind positions from server instead of calculating client-side
   final badges = <SeatBadge>[];
   
@@ -392,7 +349,6 @@ void drawPlayer(
 
   // Player chips (styled like a badge)
   if (player.balance > 0) {
-    final onTopHalf = y < tableCenter.dy;
     final chipText = TextPainter(
       text: TextSpan(
         text: '${player.balance}',
@@ -407,16 +363,13 @@ void drawPlayer(
     chipText.layout();
     
     // Draw chip badge background
+    // Position chips below the player for all players (chips first, then cards below)
+    // to avoid overlap with timebank (which appears above role badges for top players)
     final chipBadgeWidth = chipText.width + 12 * uiSizeMultiplier;
     final chipBadgeHeight = 16.0 * uiSizeMultiplier;
-    double chipBadgeX, chipBadgeY;
-    if (onTopHalf) {
-      chipBadgeX = x + radius + 10 * uiSizeMultiplier;
-      chipBadgeY = y - (chipBadgeHeight / 2);
-    } else {
-      chipBadgeX = x - chipBadgeWidth / 2;
-      chipBadgeY = y + radius + 8 * uiSizeMultiplier;
-    }
+    final chipBadgeX = x - chipBadgeWidth / 2;
+    // For all players, position chips just below the player circle
+    final chipBadgeY = y + radius + 8 * uiSizeMultiplier;
     final chipBadgeYClamped = math.max(chipBadgeY, 4.0);
     final chipBadgeRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
@@ -433,11 +386,42 @@ void drawPlayer(
     chipText.paint(
       canvas,
       Offset(
-        onTopHalf ? chipBadgeX + (chipBadgeWidth - chipText.width) / 2 : x - chipText.width / 2,
+        x - chipText.width / 2,
         chipBadgeYClamped + 2,
       ),
     );
   }
+  
+  // Player name label (below chips)
+  final displayName = player.name.isNotEmpty
+      ? player.name
+      : 'Player ${index + 1}';
+  final nameStyle = TextStyle(
+    color: isFolded ? Colors.white70 : Colors.white,
+    fontSize: 11 * uiSizeMultiplier,
+    fontWeight: FontWeight.w600,
+    decoration: isFolded ? TextDecoration.lineThrough : TextDecoration.none,
+    decorationColor: isFolded ? Colors.white54 : null,
+    decorationThickness: isFolded ? 2 * uiSizeMultiplier : null,
+  );
+  final namePainter = TextPainter(
+    text: TextSpan(
+      text: displayName,
+      style: nameStyle,
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: 1,
+    ellipsis: '…',
+  );
+  namePainter.layout(maxWidth: radius * 2.5);
+  // Position name below chips (or below player if no chips)
+  final chipBadgeHeight = player.balance > 0 ? 16.0 * uiSizeMultiplier : 0;
+  final chipBadgeY = y + radius + 8 * uiSizeMultiplier;
+  final nameY = chipBadgeY + chipBadgeHeight + 4 * uiSizeMultiplier;
+  namePainter.paint(
+    canvas,
+    Offset(x - namePainter.width / 2, nameY),
+  );
   
   // Draw role badges to the left of the player circle
   drawRoleBadges(canvas, x, y, radius, badges, isHero, uiSizeMultiplier);

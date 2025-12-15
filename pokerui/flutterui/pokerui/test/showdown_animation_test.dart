@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:pokerui/components/poker/showdown.dart';
+import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
@@ -50,6 +52,33 @@ class MockPokerModel extends PokerModel {
   
   @override
   Future<bool> makeBet(int amountChips) async => false;
+}
+
+/// Default config for tests
+final _defaultConfig = Config(
+  serverAddr: '127.0.0.1:50051',
+  grpcCertPath: '',
+  payoutAddress: '',
+  debugLevel: 'info',
+  soundsEnabled: false,
+  dataDir: '/tmp/test',
+  address: '',
+  tableTheme: 'classic',
+  cardTheme: 'standard',
+  cardSize: 'medium',
+  uiSize: 'medium',
+  hideTableLogo: false,
+  logoPosition: 'center',
+);
+
+/// Helper to wrap widget with necessary providers for tests
+Widget _wrapWithProviders(Widget child) {
+  final configNotifier = ConfigNotifier();
+  configNotifier.updateConfig(_defaultConfig);
+  return ChangeNotifierProvider<ConfigNotifier>.value(
+    value: configNotifier,
+    child: child,
+  );
 }
 
 /// Helper to create a mock UiPlayer
@@ -135,12 +164,14 @@ void main() {
       
       // Build the widget using ShowdownView (which contains the private _ShowdownFxOverlay)
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 800,
-              height: 450,
-              child: ShowdownView(model: model),
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
             ),
           ),
         ),
@@ -199,12 +230,14 @@ void main() {
       ];
       
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 800,
-              height: 450,
-              child: ShowdownView(model: model),
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
             ),
           ),
         ),
@@ -272,12 +305,14 @@ void main() {
       ];
       
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 800,
-              height: 450,
-              child: ShowdownView(model: model),
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
             ),
           ),
         ),
@@ -325,12 +360,14 @@ void main() {
       model.lastWinners = const []; // No winners
       
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 800,
-              height: 450,
-              child: ShowdownView(model: model),
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
             ),
           ),
         ),
@@ -378,12 +415,14 @@ void main() {
       ];
       
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 800,
-              height: 450,
-              child: ShowdownView(model: model),
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
             ),
           ),
         ),
