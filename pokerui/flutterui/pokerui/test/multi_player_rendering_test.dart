@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
+import 'package:pokerui/components/poker/minimal_showdown.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
@@ -786,7 +787,6 @@ void main() {
                     model: model,
                     isVisible: true,
                     onClose: () {},
-                    minimal: false, // Show full sidebar in test
                   ),
                 ],
               ),
@@ -967,7 +967,6 @@ void main() {
                     model: model,
                     isVisible: true,
                     onClose: () {},
-                    minimal: false, // Show full sidebar in test
                   ),
                 ],
               ),
@@ -1143,13 +1142,11 @@ void main() {
                 children: [
                   // Poker table in the background
                   pokerGame.buildWidget(model.game!, focusNode),
-                  // Minimal showdown sidebar at top-left (collapsed state)
-                  ShowdownSidebar(
+                  // Minimal showdown sidebar at top-right
+                  MinimalShowdown(
                     model: model,
                     isVisible: true,
                     onClose: () {},
-                    minimal: true,
-                    initialExpanded: false, // Start in minimal/collapsed state
                   ),
                 ],
               ),

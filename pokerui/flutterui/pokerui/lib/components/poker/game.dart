@@ -7,6 +7,7 @@ import 'table.dart';
 import 'table_theme.dart';
 import 'cards.dart';
 import 'disconnected_badges.dart';
+import 'bet_sidebar.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 import 'package:pokerui/config.dart';
@@ -237,16 +238,15 @@ class PokerGame {
                               DisconnectedBadgesOverlay(
                                 players: gameState.players,
                                 heroId: playerId,
-                                hasCurrentBet: gameState.currentBet > 0,
+                                hasCurrentBet: false, // Bet moved to sidebar, no longer affects layout
                               ),
 
-                              // Pot and betting info overlay
+                              // Pot overlay
                               IgnorePointer(
                                 child: LayoutBuilder(
                                   builder: (context, overlayConstraints) {
                                     final layout = resolveTableLayout(overlayConstraints.biggest);
-                                    final hasCurrentBet = gameState.currentBet > 0;
-                                    final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
+                                    final overlay = computeTopOverlayLayout(layout.viewport, false);
                                     return Stack(
                                       fit: StackFit.expand,
                                       children: [
@@ -273,34 +273,19 @@ class PokerGame {
                                             ),
                                           ),
                                         ),
-                                        if (hasCurrentBet)
-                                          Positioned(
-                                            top: overlay.currentBetTop,
-                                            left: 0,
-                                            right: 0,
-                                            child: Center(
-                                              child: Container(
-                                                padding: EdgeInsets.symmetric(horizontal: 12 * theme.uiSizeMultiplier, vertical: 6 * theme.uiSizeMultiplier),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.red.withOpacity(0.8),
-                                                  borderRadius: BorderRadius.circular(15 * theme.uiSizeMultiplier),
-                                                ),
-                                                child: Text(
-                                                  'Current Bet: ${gameState.currentBet}',
-                                                  style: TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 16 * theme.uiSizeMultiplier,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
                                       ],
                                     );
                                   },
                                 ),
                               ),
+
+                              // Betting info sidebar (right side, minimal pattern)
+                              if (gameState.currentBet > 0)
+                                BetSidebar(
+                                  gameState: gameState,
+                                  playerId: playerId,
+                                  theme: theme,
+                                ),
 
                             ],
                           );
@@ -645,8 +630,8 @@ class PokerPainter extends CustomPainter {
     final centerY = layout.center.dy;
     final tableRadiusX = layout.tableRadiusX;
     final tableRadiusY = layout.tableRadiusY;
-    final hasCurrentBet = gameState.currentBet > 0;
-    final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
+    // Bet moved to sidebar, no longer affects layout - always use false
+    final minSeatTop = minSeatTopFor(layout.viewport, false);
 
     // Draw poker table
     drawPokerTable(canvas, centerX, centerY, tableRadiusX, tableRadiusY, theme.tableTheme);

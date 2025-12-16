@@ -4,7 +4,7 @@ import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/components/poker/showdown_sidebar.dart';
+import 'package:pokerui/components/poker/minimal_showdown.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class ShowdownView extends StatefulWidget {
@@ -98,13 +98,12 @@ class _ShowdownViewState extends State<ShowdownView> {
           // Showdown FX overlay: chip flow to winners
           _ShowdownFxOverlay(model: model),
 
-          // Showdown sidebar - minimal at top-left, expands to full sidebar
+          // Minimal showdown widget - positioned on the right
           if (winners.isNotEmpty && _showSidebar)
-            ShowdownSidebar(
+            MinimalShowdown(
               model: model,
               isVisible: _showSidebar,
               onClose: _closeSidebar,
-              minimal: true,
             ),
 
           // Countdown and Skip button at bottom center (only if game end is pending)

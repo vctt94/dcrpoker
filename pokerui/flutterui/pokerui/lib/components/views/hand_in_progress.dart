@@ -134,14 +134,12 @@ class _HandInProgressViewState extends State<HandInProgressView> {
             ),
           ),
 
-        // Showdown sidebar - opens expanded when "Last Hand" is clicked
+        // Showdown sidebar - opens full sidebar when "Last Hand" is clicked
         if (_showSidebar && widget.model.hasLastShowdown)
           ShowdownSidebar(
             model: widget.model,
             isVisible: _showSidebar,
             onClose: _closeSidebar,
-            minimal: true,
-            initialExpanded: true, // Open expanded when "Last Hand" is clicked
           ),
 
         // Action buttons overlay - positioned at bottom right
