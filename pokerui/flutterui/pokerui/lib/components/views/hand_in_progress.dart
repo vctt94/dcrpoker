@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:pokerui/components/dialogs/last_showdown.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/config.dart';
+import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/models/poker.dart';
 
 class HandInProgressView extends StatefulWidget {
@@ -24,12 +23,24 @@ class _HandInProgressViewState extends State<HandInProgressView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
   bool _wasMyTurn = false;
-
+  bool _showSidebar = false;
 
   @override
   void dispose() {
     _betCtrl.dispose();
     super.dispose();
+  }
+
+  void _toggleSidebar() {
+    setState(() {
+      _showSidebar = !_showSidebar;
+    });
+  }
+
+  void _closeSidebar() {
+    setState(() {
+      _showSidebar = false;
+    });
   }
 
   @override
@@ -83,7 +94,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                 child: Material(
                   color: Colors.transparent,
                   child: InkWell(
-                    onTap: () => LastShowdownDialog.show(context, widget.model),
+                    onTap: _toggleSidebar,
                     borderRadius: BorderRadius.circular(8),
                     child: Container(
                       padding: const EdgeInsets.symmetric(
@@ -94,15 +105,25 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                         border: Border.all(
                             color: Colors.white.withOpacity(0.3), width: 1),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.history, color: Colors.white70, size: 16),
-                          SizedBox(width: 6),
+                          Icon(
+                            Icons.history,
+                            color: _showSidebar
+                                ? Colors.amber
+                                : Colors.white70,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 6),
                           Text(
                             'Last Hand',
-                            style:
-                                TextStyle(color: Colors.white70, fontSize: 12),
+                            style: TextStyle(
+                              color: _showSidebar
+                                  ? Colors.amber
+                                  : Colors.white70,
+                              fontSize: 12,
+                            ),
                           ),
                         ],
                       ),
@@ -111,6 +132,14 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                 ),
               ),
             ),
+          ),
+
+        // Showdown sidebar - opens full sidebar when "Last Hand" is clicked
+        if (_showSidebar && widget.model.hasLastShowdown)
+          ShowdownSidebar(
+            model: widget.model,
+            isVisible: _showSidebar,
+            onClose: _closeSidebar,
           ),
 
         // Action buttons overlay - positioned at bottom right
@@ -284,7 +313,6 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                                   const SizedBox(height: 4),
                                   Builder(builder: (context) {
                                     final entered = int.tryParse(_betCtrl.text.trim()) ?? 0;
-                                    final delta = entered > myBet ? (entered - myBet) : 0;
                                     final maxTotal = (widget.model.me?.balance ?? 0) + myBet;
                                     final capped = entered > maxTotal ? maxTotal : entered;
                                     final displayEntered =

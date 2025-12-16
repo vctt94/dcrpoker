@@ -223,6 +223,12 @@ func (w *eventWorker) processEvent(event *GameEvent) {
 		return
 	}
 
+	// Drop late events for tables that were already finalized/removed.
+	if _, ok := w.processor.server.getTable(event.TableID); !ok {
+		w.processor.log.Debugf("Dropping event %s for already-removed table %s", event.Type, event.TableID)
+		return
+	}
+
 	// Process event through all handlers
 	w.processNotifications(event)
 	w.processGameStateUpdates(event)

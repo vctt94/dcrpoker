@@ -53,11 +53,8 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
     return SharedLayout(
       title: "Poker - Home",
       child: gameStarted
-          ? Padding(
-              padding: const EdgeInsets.only(top: 12.0),
-              child: Consumer<PokerModel>(
-                builder: (_, model, __) => _buildPokerContent(model),
-              ),
+          ? Consumer<PokerModel>(
+              builder: (_, model, __) => _buildPokerContent(model),
             )
           : Consumer<PokerModel>(builder: (context, pokerModel, _) {
               return RefreshIndicator(

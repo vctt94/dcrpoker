@@ -4,6 +4,7 @@ import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/components/poker/minimal_showdown.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class ShowdownView extends StatefulWidget {
@@ -16,18 +17,35 @@ class ShowdownView extends StatefulWidget {
 
 class _ShowdownViewState extends State<ShowdownView> {
   Timer? _countdownTimer;
+  Timer? _autoCloseTimer;
   int _secondsRemaining = 5;
+  bool _showSidebar = true;
 
   @override
   void initState() {
     super.initState();
     _startCountdown();
+    // Auto-close sidebar after 5 seconds
+    _autoCloseTimer = Timer(const Duration(seconds: 5), () {
+      if (mounted) {
+        _closeSidebar();
+      }
+    });
   }
 
   @override
   void dispose() {
     _countdownTimer?.cancel();
+    _autoCloseTimer?.cancel();
     super.dispose();
+  }
+
+  void _closeSidebar() {
+    if (mounted) {
+      setState(() {
+        _showSidebar = false;
+      });
+    }
   }
 
   void _startCountdown() {
@@ -53,6 +71,15 @@ class _ShowdownViewState extends State<ShowdownView> {
       return const Center(child: Text('No game data available'));
     }
 
+    // Auto-close sidebar if game phase is no longer SHOWDOWN
+    if (game.phase != pr.GamePhase.SHOWDOWN && _showSidebar) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _closeSidebar();
+        }
+      });
+    }
+
     final focusNode = FocusNode();
     final pokerGame = PokerGame(
       model.playerId,
@@ -60,189 +87,89 @@ class _ShowdownViewState extends State<ShowdownView> {
       theme: PokerThemeConfig.fromContext(context),
     );
     final winners = model.lastWinners;
-    final players = game.players;
 
-    String _pLabel(String pid) {
-      final idx = players.indexWhere((p) => p.id == pid);
-      return idx >= 0 ? 'P${idx + 1}' : 'P?';
-    }
+    return SizedBox.expand(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Poker game visualization (table + canvas elements)
+          pokerGame.buildWidget(game, focusNode),
 
-    String winnerName(String pid) {
-      final pl = players.firstWhere((p) => p.id == pid,
-          orElse: () => const UiPlayer(
-                id: '',
-                name: '',
-                balance: 0,
-                hand: [],
-                currentBet: 0,
-                folded: false,
-                isTurn: false,
-                isAllIn: false,
-                isDealer: false,
-                isSmallBlind: false,
-                isBigBlind: false,
-                isReady: false,
-                handDesc: '',
-                isDisconnected: true,
-              ));
-      return pl.name.isNotEmpty ? pl.name : _pLabel(pid);
-    }
+          // Showdown FX overlay: chip flow to winners
+          _ShowdownFxOverlay(model: model),
 
-    String winnerDesc(pr.HandRank rank) {
-      switch (rank) {
-        case pr.HandRank.HIGH_CARD:
-          return 'High Card';
-        case pr.HandRank.PAIR:
-          return 'Pair';
-        case pr.HandRank.TWO_PAIR:
-          return 'Two Pair';
-        case pr.HandRank.THREE_OF_A_KIND:
-          return 'Three of a Kind';
-        case pr.HandRank.STRAIGHT:
-          return 'Straight';
-        case pr.HandRank.FLUSH:
-          return 'Flush';
-        case pr.HandRank.FULL_HOUSE:
-          return 'Full House';
-        case pr.HandRank.FOUR_OF_A_KIND:
-          return 'Four of a Kind';
-        case pr.HandRank.STRAIGHT_FLUSH:
-          return 'Straight Flush';
-        case pr.HandRank.ROYAL_FLUSH:
-          return 'Royal Flush';
-        default:
-          return rank.name;
-      }
-    }
+          // Minimal showdown widget - positioned on the right
+          if (winners.isNotEmpty && _showSidebar)
+            MinimalShowdown(
+              model: model,
+              isVisible: _showSidebar,
+              theme: PokerThemeConfig.fromContext(context),
+              onClose: _closeSidebar,
+            ),
 
-    return Stack(
-      children: [
-        // Poker game visualization (table + canvas elements)
-        pokerGame.buildWidget(game, focusNode),
-
-        // Showdown FX overlay: chip flow to winners
-        _ShowdownFxOverlay(model: model),
-
-        // Compact winners banner at the top center
-        if (winners.isNotEmpty)
-          Positioned(
-            top: 16,
-            left: 0,
-            right: 0,
-            child: Center(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.78),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.amber, width: 1.5),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const Text(
-                      'Showdown',
-                      style: TextStyle(
-                          color: Colors.amber,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800),
+          // Countdown and Skip button at bottom center (only if game end is pending)
+          if (model.isGameEndPending)
+            Positioned(
+              bottom: 16,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white24),
                     ),
-                    const SizedBox(height: 6),
-                    for (final w in winners)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Text(
-                              winnerName(w.playerId),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Countdown indicator
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.amber, width: 2),
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$_secondsRemaining',
                               style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              winnerDesc(w.handRank),
-                              style: const TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
-                                  fontStyle: FontStyle.italic),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-
-        // Countdown and Skip button at bottom center (only if game end is pending)
-        if (model.isGameEndPending)
-          Positioned(
-            bottom: 16,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.black.withOpacity(0.8),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white24),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Countdown indicator
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.amber, width: 2),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '$_secondsRemaining',
-                            style: const TextStyle(
-                              color: Colors.amber,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
+                                color: Colors.amber,
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Skip button
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          model.skipShowdown();
-                        },
-                        icon: const Icon(Icons.skip_next, size: 18),
-                        label: const Text('Continue'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
+                        const SizedBox(width: 12),
+                        // Skip button
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            _closeSidebar();
+                            model.skipShowdown();
+                          },
+                          icon: const Icon(Icons.skip_next, size: 18),
+                          label: const Text('Continue'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue.shade700,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 8,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

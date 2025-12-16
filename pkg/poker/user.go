@@ -148,11 +148,6 @@ func stateTableSeated(u *User, in <-chan any) UserMachineStateFn {
 				u.PresignComplete = true
 				u.mu.Unlock()
 
-			case evBalanceNotification:
-				// Async notification from Game FSM - balance already changed
-				// Can be used for UI updates, logging, etc.
-				// No action needed here
-
 			case evDisconnect:
 				u.mu.Lock()
 				u.IsDisconnected = true
@@ -164,14 +159,6 @@ func stateTableSeated(u *User, in <-chan any) UserMachineStateFn {
 
 			case evLeave:
 				return stateTableLeft
-
-			default:
-				u.mu.RLock()
-				tm := u.sm
-				u.mu.RUnlock()
-				if tm != nil {
-					tm.Send(ev)
-				}
 			}
 		}
 	}
@@ -265,39 +252,6 @@ func (u *User) SendDisconnect() {
 	}
 
 	tm.Send(evDisconnect{})
-}
-
-// HandlePostBlind posts a blind and returns the amount actually posted
-func (u *User) HandlePostBlind(amount int64) int64 {
-	u.mu.RLock()
-	tm := u.sm
-	u.mu.RUnlock()
-
-	if tm == nil {
-		return 0
-	}
-
-	reply := make(chan int64, 1)
-	tm.Send(evDeductBlind{Amt: amount, Reply: reply})
-	return <-reply
-}
-
-// NotifyBalanceChange sends an async notification to the Player FSM about a balance change.
-// This is called by the Game FSM after directly modifying player.balance.
-// The notification is non-blocking - it's for UI/logging purposes only.
-func (u *User) NotifyBalanceChange(newBalance, delta int64, reason string) {
-	u.mu.RLock()
-	tm := u.sm
-	u.mu.RUnlock()
-
-	if tm != nil {
-		// Non-blocking send using the statemachine's Send method
-		tm.Send(evBalanceNotification{
-			NewBalance: newBalance,
-			Delta:      delta,
-			Reason:     reason,
-		})
-	}
 }
 
 // Ready/unready helpers for table presence FSM.
