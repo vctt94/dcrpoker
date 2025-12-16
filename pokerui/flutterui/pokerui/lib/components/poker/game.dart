@@ -154,47 +154,47 @@ class PokerGame {
                             hasCurrentBet: gameState.currentBet > 0,
                           ),
 
-                          // Simple pot display on the left
+                          // Pot label on the right
                           Positioned(
-                            top: 12,
-                            left: 12,
+                            top: 6,
+                            right: 12,
                             child: SafeArea(
                               child: Material(
                                 color: Colors.transparent,
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 8,
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 12 * theme.uiSizeMultiplier,
+                                    vertical: 8 * theme.uiSizeMultiplier,
                                   ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFF1A1D2E).withOpacity(0.95),
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(12 * theme.uiSizeMultiplier),
                                     border: Border.all(
                                       color: Colors.amber.withOpacity(0.5),
-                                      width: 2,
+                                      width: 2 * theme.uiSizeMultiplier,
                                     ),
                                     boxShadow: [
                                       BoxShadow(
                                         color: Colors.black.withOpacity(0.5),
-                                        blurRadius: 10,
-                                        spreadRadius: 2,
+                                        blurRadius: 10 * theme.uiSizeMultiplier,
+                                        spreadRadius: 2 * theme.uiSizeMultiplier,
                                       ),
                                     ],
                                   ),
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      const Icon(
+                                      Icon(
                                         Icons.casino,
                                         color: Colors.amber,
-                                        size: 18,
+                                        size: 18 * theme.uiSizeMultiplier,
                                       ),
-                                      const SizedBox(width: 6),
+                                      SizedBox(width: 6 * theme.uiSizeMultiplier),
                                       Text(
                                         'Pot: ${gameState.pot}',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           color: Colors.amber,
-                                          fontSize: 14,
+                                          fontSize: 14 * theme.uiSizeMultiplier,
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
@@ -206,7 +206,8 @@ class PokerGame {
                           ),
 
                           // Betting info sidebar (right side, minimal pattern)
-                          if (gameState.currentBet > 0)
+                          // Hide during showdown when minimal showdown is visible
+                          if (gameState.currentBet > 0 && gameState.phase != pr.GamePhase.SHOWDOWN)
                             BetSidebar(
                               gameState: gameState,
                               playerId: playerId,

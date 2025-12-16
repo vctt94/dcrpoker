@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'table_theme.dart';
 
 /// Minimal showdown widget showing only winners and pot in a compact format.
 /// Positioned on the right side of the screen.
@@ -9,12 +10,14 @@ class MinimalShowdown extends StatefulWidget {
     super.key,
     required this.model,
     required this.isVisible,
+    required this.theme,
     this.onClose,
     this.onExpand,
   });
 
   final PokerModel model;
   final bool isVisible;
+  final PokerThemeConfig theme;
   final VoidCallback? onClose;
   final VoidCallback? onExpand;
 
@@ -112,8 +115,9 @@ class _MinimalShowdownState extends State<MinimalShowdown>
     final winners = widget.model.lastWinners;
     final pot = widget.model.showdownPot;
 
+    // Position below Pot label (Pot is at top: 12, with ~50px height, plus 8px gap)
     return Positioned(
-      top: 12, // Positioned at top, bet sidebar will be below
+      top: 50, // Positioned below Pot label, same height as bet sidebar
       right: 12,
       child: SlideTransition(
         position: _slideAnimation,
@@ -121,19 +125,19 @@ class _MinimalShowdownState extends State<MinimalShowdown>
           child: Material(
             color: Colors.transparent,
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 280),
+              constraints: BoxConstraints(maxWidth: 200 * widget.theme.uiSizeMultiplier),
               decoration: BoxDecoration(
                 color: const Color(0xFF1A1D2E).withOpacity(0.95),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(12 * widget.theme.uiSizeMultiplier),
                 border: Border.all(
                   color: Colors.amber.withOpacity(0.5),
-                  width: 2,
+                  width: 2 * widget.theme.uiSizeMultiplier,
                 ),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.5),
-                    blurRadius: 10,
-                    spreadRadius: 2,
+                    blurRadius: 10 * widget.theme.uiSizeMultiplier,
+                    spreadRadius: 2 * widget.theme.uiSizeMultiplier,
                   ),
                 ],
               ),
@@ -143,40 +147,46 @@ class _MinimalShowdownState extends State<MinimalShowdown>
                 children: [
                   // Header
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 12 * widget.theme.uiSizeMultiplier,
+                      vertical: 8 * widget.theme.uiSizeMultiplier,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.3),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(10),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(10 * widget.theme.uiSizeMultiplier),
                       ),
                     ),
                     child: Row(
-                      mainAxisSize: MainAxisSize.min,
+                      mainAxisSize: MainAxisSize.max,
                       children: [
-                        const Icon(Icons.emoji_events, color: Colors.amber, size: 18),
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Showdown',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
+                        Icon(Icons.emoji_events, color: Colors.amber, size: 18 * widget.theme.uiSizeMultiplier),
+                        SizedBox(width: 6 * widget.theme.uiSizeMultiplier),
+                        Flexible(
+                          child: Text(
+                            'Showdown',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14 * widget.theme.uiSizeMultiplier,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const Spacer(),
                         if (widget.onExpand != null)
                           IconButton(
                             onPressed: widget.onExpand,
-                            icon: const Icon(Icons.unfold_more, color: Colors.white70, size: 18),
+                            icon: Icon(Icons.unfold_more, color: Colors.white70, size: 18 * widget.theme.uiSizeMultiplier),
                             tooltip: 'View details',
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
                           ),
                         if (widget.onClose != null) ...[
-                          if (widget.onExpand != null) const SizedBox(width: 4),
+                          if (widget.onExpand != null) SizedBox(width: 4 * widget.theme.uiSizeMultiplier),
                           IconButton(
                             onPressed: widget.onClose,
-                            icon: const Icon(Icons.close, color: Colors.white70, size: 18),
+                            icon: Icon(Icons.close, color: Colors.white70, size: 18 * widget.theme.uiSizeMultiplier),
                             tooltip: 'Close',
                             padding: EdgeInsets.zero,
                             constraints: const BoxConstraints(),
@@ -188,16 +198,19 @@ class _MinimalShowdownState extends State<MinimalShowdown>
                   // Pot
                   if (pot > 0)
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12 * widget.theme.uiSizeMultiplier,
+                        vertical: 6 * widget.theme.uiSizeMultiplier,
+                      ),
                       child: Row(
                         children: [
-                          const Icon(Icons.casino, color: Colors.amber, size: 16),
-                          const SizedBox(width: 6),
+                          Icon(Icons.casino, color: Colors.amber, size: 16 * widget.theme.uiSizeMultiplier),
+                          SizedBox(width: 6 * widget.theme.uiSizeMultiplier),
                           Text(
                             'Pot: $pot',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.amber,
-                              fontSize: 13,
+                              fontSize: 13 * widget.theme.uiSizeMultiplier,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -207,46 +220,51 @@ class _MinimalShowdownState extends State<MinimalShowdown>
                   // Winners
                   if (winners.isNotEmpty)
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                      padding: EdgeInsets.fromLTRB(
+                        12 * widget.theme.uiSizeMultiplier,
+                        0,
+                        12 * widget.theme.uiSizeMultiplier,
+                        8 * widget.theme.uiSizeMultiplier,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             winners.length > 1 ? 'Winners' : 'Winner',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Colors.white70,
-                              fontSize: 11,
+                              fontSize: 11 * widget.theme.uiSizeMultiplier,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          SizedBox(height: 4 * widget.theme.uiSizeMultiplier),
                           ...winners.take(3).map((winner) {
                             return Padding(
-                              padding: const EdgeInsets.only(bottom: 4),
+                              padding: EdgeInsets.only(bottom: 4 * widget.theme.uiSizeMultiplier),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.star, color: Colors.amber, size: 14),
-                                  const SizedBox(width: 4),
+                                  Icon(Icons.star, color: Colors.amber, size: 14 * widget.theme.uiSizeMultiplier),
+                                  SizedBox(width: 4 * widget.theme.uiSizeMultiplier),
                                   Flexible(
                                     child: Text(
                                       _playerLabel(winner.playerId),
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 12,
+                                        fontSize: 12 * widget.theme.uiSizeMultiplier,
                                         fontWeight: FontWeight.w600,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
+                                  SizedBox(width: 6 * widget.theme.uiSizeMultiplier),
                                   Flexible(
                                     child: Text(
                                       '${_handRankName(winner.handRank)} (+${winner.winnings})',
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         color: Colors.greenAccent,
-                                        fontSize: 11,
+                                        fontSize: 11 * widget.theme.uiSizeMultiplier,
                                       ),
                                       overflow: TextOverflow.ellipsis,
                                     ),
@@ -257,12 +275,12 @@ class _MinimalShowdownState extends State<MinimalShowdown>
                           }),
                           if (winners.length > 3)
                             Padding(
-                              padding: const EdgeInsets.only(top: 4),
+                              padding: EdgeInsets.only(top: 4 * widget.theme.uiSizeMultiplier),
                               child: Text(
                                 '+${winners.length - 3} more',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: Colors.white54,
-                                  fontSize: 11,
+                                  fontSize: 11 * widget.theme.uiSizeMultiplier,
                                   fontStyle: FontStyle.italic,
                                 ),
                               ),

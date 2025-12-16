@@ -103,6 +103,7 @@ class _ShowdownViewState extends State<ShowdownView> {
             MinimalShowdown(
               model: model,
               isVisible: _showSidebar,
+              theme: PokerThemeConfig.fromContext(context),
               onClose: _closeSidebar,
             ),
 
