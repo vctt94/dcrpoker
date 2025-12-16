@@ -215,6 +215,7 @@ void drawPlayers(
       currentPlayerId,
       gameState,
       uiSizeMultiplier,
+      clampRect,
     );
 
     if (player.id != currentPlayerId) {
@@ -272,6 +273,7 @@ void drawPlayer(
   String currentPlayerId,
   UiGameState gameState,
   double uiSizeMultiplier,
+  Rect viewportBounds,
 ) {
   final isHero = player.id == currentPlayerId;
   final isFolded = player.folded;
@@ -363,14 +365,24 @@ void drawPlayer(
     chipText.layout();
     
     // Draw chip badge background
-    // Position chips below the player for all players (chips first, then cards below)
-    // to avoid overlap with timebank (which appears above role badges for top players)
     final chipBadgeWidth = chipText.width + 12 * uiSizeMultiplier;
     final chipBadgeHeight = 16.0 * uiSizeMultiplier;
     final chipBadgeX = x - chipBadgeWidth / 2;
-    // For all players, position chips just below the player circle
-    final chipBadgeY = y + radius + 8 * uiSizeMultiplier;
-    final chipBadgeYClamped = math.max(chipBadgeY, 4.0);
+
+    // Layout strategy: All players use the same pattern
+    // - Chips above the player circle
+    // - Name below the player circle
+    final baseSpacing = 4 * uiSizeMultiplier;
+    final extraSpacingForLargeIcons = uiSizeMultiplier > 1.2 ? radius * 0.1 : 0;
+    final spacingFromCircle = baseSpacing + extraSpacingForLargeIcons;
+
+    // Position chips above the circle for all players: [chip badge] ... [player circle] ... [name]
+    final chipBadgeY = y - radius - spacingFromCircle - chipBadgeHeight;
+
+    // Clamp chips to remain fully inside the viewport (both top and bottom)
+    final minChipY = viewportBounds.top + 4.0;
+    final maxChipY = viewportBounds.bottom - chipBadgeHeight - 4.0;
+    final chipBadgeYClamped = chipBadgeY.clamp(minChipY, maxChipY);
     final chipBadgeRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         chipBadgeX,
@@ -414,10 +426,19 @@ void drawPlayer(
     ellipsis: '…',
   );
   namePainter.layout(maxWidth: radius * 2.5);
-  // Position name below chips (or below player if no chips)
-  final chipBadgeHeight = player.balance > 0 ? 16.0 * uiSizeMultiplier : 0;
-  final chipBadgeY = y + radius + 8 * uiSizeMultiplier;
-  final nameY = chipBadgeY + chipBadgeHeight + 4 * uiSizeMultiplier;
+
+  // Name label positioning: All players use the same pattern
+  // - Name directly below the player circle (chips are above the circle)
+  final baseSpacing = 4 * uiSizeMultiplier;
+  final extraSpacingForLargeIcons = uiSizeMultiplier > 1.2 ? radius * 0.1 : 0;
+  final spacingFromCircle = baseSpacing + extraSpacingForLargeIcons;
+  double nameY = y + radius + spacingFromCircle;
+
+  // Clamp name label so it does not go off the bottom of the viewport
+  final minNameY = viewportBounds.top + 2.0;
+  final maxNameY = viewportBounds.bottom - namePainter.height - 2.0;
+  if (nameY < minNameY) nameY = minNameY;
+  if (nameY > maxNameY) nameY = maxNameY;
   namePainter.paint(
     canvas,
     Offset(x - namePainter.width / 2, nameY),
@@ -579,9 +600,7 @@ void drawCurrentTimebank(
   // Position timebank above the badges, centered on the badge area
   if (totalBadgeWidth == 0) return; // No badges, don't show timebank
   
-  // Center timebank on the badge area, with left margin (more for hero)
-  final leftMargin = (isHero ? 15.0 : 0.0) * uiSizeMultiplier;
-  bx = badgeLeftEdgeX + (totalBadgeWidth - badgeW) / 2 - leftMargin;
+  bx = badgeLeftEdgeX;
   // Position above badges with a gap - larger gap for hero to avoid buttons
   final gapAboveBadges = (isHero ? 30.0 : 4.0) * uiSizeMultiplier;
   final badgeCenterY = badgeLeftEdgeY - roleBadgeHeight / 2;
