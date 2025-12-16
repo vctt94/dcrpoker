@@ -8,6 +8,7 @@ import 'table_theme.dart';
 import 'cards.dart';
 import 'disconnected_badges.dart';
 import 'bet_sidebar.dart';
+import 'table_logo.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
@@ -123,6 +124,13 @@ class PokerGame {
                             isComplex: true,
                             willChange: true,
                           ),
+
+                          // DCR logo overlay (if enabled) - after canvas so it's visible
+                          if (theme.showTableLogo)
+                            TableLogoOverlay(
+                              logoPosition: theme.logoPosition,
+                              uiSizeMultiplier: theme.uiSizeMultiplier,
+                            ),
 
                           // Widget-based overlays for cards
                           IgnorePointer(child: _CommunityCardsOverlay(cards: gameState.communityCards)),
@@ -609,7 +617,6 @@ class PokerPainter extends CustomPainter {
   }
 
 }
-
 
 
 class _CommunityCardsOverlay extends StatelessWidget {
