@@ -116,7 +116,8 @@ class _ShowdownViewState extends State<ShowdownView> {
               child: SafeArea(
                 child: Center(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.8),
                       borderRadius: BorderRadius.circular(20),
@@ -230,8 +231,8 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
 
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
+      final theme = PokerThemeConfig.fromContext(context);
       final layout = resolveTableLayout(size);
-      final box = layout.viewport;
       final center = layout.center;
       final hasCurrentBet = game.currentBet > 0;
       final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
@@ -246,9 +247,10 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
           layout.ringRadiusY,
           clampBounds: layout.viewport,
           minSeatTop: minSeatTop,
+          uiSizeMultiplier: theme.uiSizeMultiplier,
         );
-        final overlay = computeTopOverlayLayout(layout.viewport, hasCurrentBet);
-        final potOrigin = overlay.potCenter(box);
+        final potOrigin =
+            potChipCenter(layout, uiSizeMultiplier: theme.uiSizeMultiplier);
 
         for (int i = 0; i < winners.length; i++) {
           final w = winners[i];

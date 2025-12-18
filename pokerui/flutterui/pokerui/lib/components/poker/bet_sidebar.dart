@@ -24,7 +24,8 @@ class _BetSidebarState extends State<BetSidebar> {
 
   int _getPlayerCurrentBet() {
     try {
-      final player = widget.gameState.players.firstWhere((p) => p.id == widget.playerId);
+      final player =
+          widget.gameState.players.firstWhere((p) => p.id == widget.playerId);
       return player.currentBet;
     } catch (e) {
       return 0;
@@ -44,9 +45,9 @@ class _BetSidebarState extends State<BetSidebar> {
     final currentBet = widget.gameState.currentBet;
     final theme = widget.theme;
 
-    // Position below Pot label (Pot is at top: 12, with ~50px height, plus 8px gap)
+    // Pin near the top-right for quick scanning
     return Positioned(
-      top: 50, // Positioned below Pot label
+      top: 12,
       right: 12,
       child: SafeArea(
         child: Material(
@@ -60,7 +61,8 @@ class _BetSidebarState extends State<BetSidebar> {
                   ),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1A1D2E).withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(8 * theme.uiSizeMultiplier),
+                    borderRadius:
+                        BorderRadius.circular(8 * theme.uiSizeMultiplier),
                     border: Border.all(
                       color: Colors.orange.withOpacity(0.5),
                       width: 2 * theme.uiSizeMultiplier,
@@ -111,10 +113,12 @@ class _BetSidebarState extends State<BetSidebar> {
                 )
               : // Expanded view - full information
               Container(
-                  constraints: BoxConstraints(maxWidth: 200 * theme.uiSizeMultiplier),
+                  constraints:
+                      BoxConstraints(maxWidth: 200 * theme.uiSizeMultiplier),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1A1D2E).withOpacity(0.95),
-                    borderRadius: BorderRadius.circular(12 * theme.uiSizeMultiplier),
+                    borderRadius:
+                        BorderRadius.circular(12 * theme.uiSizeMultiplier),
                     border: Border.all(
                       color: Colors.orange.withOpacity(0.5),
                       width: 2 * theme.uiSizeMultiplier,
@@ -247,4 +251,3 @@ class _BetSidebarState extends State<BetSidebar> {
     );
   }
 }
-

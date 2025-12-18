@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'table.dart';
+import 'table_theme.dart';
 
 class DisconnectedBadgesOverlay extends StatelessWidget {
   const DisconnectedBadgesOverlay({
@@ -18,6 +19,7 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     if (players.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
+      final theme = PokerThemeConfig.fromContext(context);
       final layout = resolveTableLayout(c.biggest);
       final seats = seatPositionsFor(
         players,
@@ -27,6 +29,7 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         layout.ringRadiusY,
         clampBounds: layout.viewport,
         minSeatTop: minSeatTopFor(layout.viewport, hasCurrentBet),
+        uiSizeMultiplier: theme.uiSizeMultiplier,
       );
 
       final widgets = <Widget>[];
