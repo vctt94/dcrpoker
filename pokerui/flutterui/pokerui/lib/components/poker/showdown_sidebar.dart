@@ -68,6 +68,7 @@ class _ShowdownSidebarState extends State<ShowdownSidebar>
       return const SizedBox.shrink();
     }
 
+    const sidebarWidth = 400.0;
     return Positioned(
       top: 0,
       left: 0,
@@ -75,7 +76,7 @@ class _ShowdownSidebarState extends State<ShowdownSidebar>
       child: SlideTransition(
         position: _slideAnimation,
         child: Container(
-          width: 400,
+          width: sidebarWidth,
           margin: EdgeInsets.zero,
           padding: EdgeInsets.zero,
           decoration: BoxDecoration(
@@ -140,4 +141,3 @@ class _ShowdownSidebarState extends State<ShowdownSidebar>
     );
   }
 }
-

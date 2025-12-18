@@ -294,11 +294,13 @@ class _AnimatedChip extends StatelessWidget {
     return AnimatedBuilder(
       animation: t,
       builder: (context, child) {
-        final raw = (t.value - delay).clamp(0.0, 1.0);
+        final span = 1.0 - delay;
+        if (span <= 0) return const SizedBox.shrink();
+        final raw = (t.value - delay) / span;
         if (raw <= 0.0 || raw >= 1.0) {
           return const SizedBox.shrink();
         }
-        final eased = Curves.easeOut.transform(raw);
+        final eased = Curves.easeOut.transform(raw.clamp(0.0, 1.0));
         final dx = from.dx + (to.dx - from.dx) * eased;
         final dy = from.dy + (to.dy - from.dy) * eased;
         return Positioned(

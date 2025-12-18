@@ -7,7 +7,6 @@ import 'table.dart';
 import 'table_theme.dart';
 import 'cards.dart';
 import 'disconnected_badges.dart';
-import 'bet_sidebar.dart';
 import 'table_logo.dart';
 import 'pot_display.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
@@ -173,16 +172,6 @@ class PokerGame {
                           if (gameState.pot > 0)
                             PotDisplay(
                               pot: gameState.pot,
-                              theme: theme,
-                            ),
-
-                          // Betting info sidebar (right side, minimal pattern)
-                          // Hide during showdown when minimal showdown is visible
-                          if (gameState.currentBet > 0 &&
-                              gameState.phase != pr.GamePhase.SHOWDOWN)
-                            BetSidebar(
-                              gameState: gameState,
-                              playerId: playerId,
                               theme: theme,
                             ),
                         ],
@@ -594,9 +583,12 @@ class _CommunityCardsOverlay extends StatelessWidget {
     if (cards.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
+      final theme = PokerThemeConfig.fromContext(context);
       final box = pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final cw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
+      final baseCw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
+      final cw =
+          (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
       final ch = cw * 1.4;
       final gap = cw * 0.10;
       final totalW = (cards.length * cw) + ((cards.length - 1) * gap);
@@ -611,7 +603,7 @@ class _CommunityCardsOverlay extends StatelessWidget {
           top: y,
           width: cw,
           height: ch,
-          child: CardFace(card: cards[i]),
+          child: CardFace(card: cards[i], cardTheme: theme.cardTheme),
         ));
       }
       return Stack(children: children);

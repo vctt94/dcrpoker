@@ -277,6 +277,9 @@ void drawPlayers(
       final startX = playerX - cw - gap / 2;
       // Position cards centered in the player circle
       final cardY = playerY + playerRadius * 0.6 - ch; // Centered in circle
+      // Keep cards from climbing into the chip badge space above the seat.
+      final minCardTop = playerY - playerRadius + 6.0 * uiSizeMultiplier;
+      final cardTop = math.max(cardY, minCardTop);
 
       if (gameState.phase == pr.GamePhase.SHOWDOWN) {
         if (hasAnyCards) {
@@ -285,21 +288,23 @@ void drawPlayers(
           final elapsed = (now - showdownStartMs - i * 120);
           final t = (elapsed / 450.0).clamp(0.0, 1.0);
           final y = cardY - (1.0 - t) * 8.0; // Slide up slightly
-          drawCardFace(canvas, startX, y, cw, ch, player.hand[0]);
+          final yClamped = math.max(y, cardTop);
+          drawCardFace(canvas, startX, yClamped, cw, ch, player.hand[0]);
           if (player.hand.length > 1) {
-            drawCardFace(canvas, startX + cw + gap, y, cw, ch, player.hand[1]);
+            drawCardFace(
+                canvas, startX + cw + gap, yClamped, cw, ch, player.hand[1]);
           }
         } else {
           // If still hidden at showdown, show subtle backs inside circle
-          drawCardBack(canvas, startX, cardY, cw, ch);
-          drawCardBack(canvas, startX + cw + gap, cardY, cw, ch);
+          drawCardBack(canvas, startX, cardTop, cw, ch);
+          drawCardBack(canvas, startX + cw + gap, cardTop, cw, ch);
         }
       } else if (!hasAnyCards &&
           (gameState.phase != pr.GamePhase.WAITING &&
               gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
         // Non-showdown phases: use backs to indicate in-hand cards for opponents
-        drawCardBack(canvas, startX, cardY, cw, ch);
-        drawCardBack(canvas, startX + cw + gap, cardY, cw, ch);
+        drawCardBack(canvas, startX, cardTop, cw, ch);
+        drawCardBack(canvas, startX + cw + gap, cardTop, cw, ch);
       }
     }
   }
@@ -415,23 +420,29 @@ void drawPlayer(
         math.max(16.0 * uiSizeMultiplier, radius * 0.45);
     final chipBadgeX = x - chipBadgeWidth / 2;
 
-    // Layout strategy: All players use the same pattern
-    // - Chips above the player circle
-    // - Name below the player circle
-    final spacingFromCircle = _stackSpacing(radius, uiSizeMultiplier);
-
-    // Position chips above the circle for all players: [chip badge] ... [player circle] ... [name]
-    final chipBadgeY = y - radius - spacingFromCircle - chipBadgeHeight;
-
-    // Clamp chips to remain fully inside the viewport (both top and bottom)
-    final minChipY = viewportBounds.top + 6.0 * uiSizeMultiplier;
-    final maxChipY =
-        viewportBounds.bottom - chipBadgeHeight - 6.0 * uiSizeMultiplier;
-    final chipBadgeYClamped = chipBadgeY.clamp(minChipY, maxChipY);
+    // Layout strategy:
+    // - Local player (hero): keep chips centered inside the circle to free space above.
+    // - Others: chips above the circle; names stay below.
+    double chipBadgeY;
+    if (isHero) {
+      final inset = 6.0 * uiSizeMultiplier;
+      final desired = y - chipBadgeHeight / 2;
+      final minY = y - radius + inset;
+      final maxY = y + radius - chipBadgeHeight - inset;
+      chipBadgeY = desired.clamp(minY, maxY);
+    } else {
+      final spacingFromCircle = _stackSpacing(radius, uiSizeMultiplier);
+      chipBadgeY = y - radius - spacingFromCircle - chipBadgeHeight;
+      // Clamp chips to remain fully inside the viewport (both top and bottom)
+      final minChipY = viewportBounds.top + 6.0 * uiSizeMultiplier;
+      final maxChipY =
+          viewportBounds.bottom - chipBadgeHeight - 6.0 * uiSizeMultiplier;
+      chipBadgeY = chipBadgeY.clamp(minChipY, maxChipY);
+    }
     final chipBadgeRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         chipBadgeX,
-        chipBadgeYClamped,
+        chipBadgeY,
         chipBadgeWidth,
         chipBadgeHeight,
       ),
@@ -444,7 +455,7 @@ void drawPlayer(
       canvas,
       Offset(
         x - chipText.width / 2,
-        chipBadgeYClamped + 2,
+        chipBadgeY + 2,
       ),
     );
   }
@@ -622,7 +633,6 @@ void drawCurrentTimebank(
   final badgeH = 18.0 * uiSizeMultiplier;
 
   // Position timebank above role badges (consistent for all players)
-  final isHero = (idx == heroIndex);
   double bx, by;
 
   // Calculate where role badges are positioned (same logic as drawRoleBadges)
@@ -661,12 +671,12 @@ void drawCurrentTimebank(
     }
   }
 
-  // Position timebank above the badges, centered on the badge area
+  // Position timebank above the badges, aligned to the badge start
   if (totalBadgeWidth == 0) return; // No badges, don't show timebank
 
   bx = badgeLeftEdgeX;
-  // Position above badges with a gap - larger gap for hero to avoid buttons
-  final gapAboveBadges = (isHero ? 30.0 : 4.0) * uiSizeMultiplier;
+  // Position just above badges with a small, consistent gap
+  final gapAboveBadges = 4.0 * uiSizeMultiplier;
   final badgeCenterY = badgeLeftEdgeY - roleBadgeHeight / 2;
   by = badgeCenterY - gapAboveBadges - badgeH;
 

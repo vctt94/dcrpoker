@@ -125,7 +125,7 @@ class _MinimalShowdownState extends State<MinimalShowdown>
           child: Material(
             color: Colors.transparent,
             child: Container(
-              constraints: BoxConstraints(maxWidth: 200 * widget.theme.uiSizeMultiplier),
+              constraints: BoxConstraints(maxWidth: 260 * widget.theme.uiSizeMultiplier),
               decoration: BoxDecoration(
                 color: const Color(0xFF1A1D2E).withOpacity(0.95),
                 borderRadius: BorderRadius.circular(12 * widget.theme.uiSizeMultiplier),
@@ -297,4 +297,3 @@ class _MinimalShowdownState extends State<MinimalShowdown>
     );
   }
 }
-

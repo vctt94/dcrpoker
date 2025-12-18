@@ -3,7 +3,9 @@ import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
+import 'package:pokerui/components/poker/bet_sidebar.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class HandInProgressView extends StatefulWidget {
   const HandInProgressView({super.key, required this.model});
@@ -69,16 +71,25 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     _wasMyTurn = canAct;
 
     final focusNode = FocusNode();
+    final theme = PokerThemeConfig.fromContext(context);
     final pokerGame = PokerGame(
       widget.model.playerId,
       widget.model,
-      theme: PokerThemeConfig.fromContext(context),
+      theme: theme,
     );
 
     return Stack(
       children: [
         // Poker game visualization
         pokerGame.buildWidget(game, focusNode),
+
+        // Betting info sidebar pinned to viewport top-right
+        if (game.currentBet > 0 && game.phase != pr.GamePhase.SHOWDOWN)
+          BetSidebar(
+            gameState: game,
+            playerId: widget.model.playerId,
+            theme: theme,
+          ),
 
         // Bet/call FX overlay
         _BetFxOverlay(model: widget.model),
@@ -555,12 +566,14 @@ class _AnimatedChip extends StatelessWidget {
     return AnimatedBuilder(
       animation: t,
       builder: (context, child) {
-        final raw = (t.value - delay).clamp(0.0, 1.0);
+        final span = 1.0 - delay;
+        if (span <= 0) return const SizedBox.shrink();
+        final raw = (t.value - delay) / span;
         // Hide when not in flight or after arrival to avoid chips lingering
         if (raw <= 0.0 || raw >= 1.0) {
           return const SizedBox.shrink();
         }
-        final eased = Curves.easeOut.transform(raw);
+        final eased = Curves.easeOut.transform(raw.clamp(0.0, 1.0));
         final dx = from.dx + (to.dx - from.dx) * eased;
         final dy = from.dy + (to.dy - from.dy) * eased;
         return Positioned(
