@@ -115,9 +115,9 @@ class _MinimalShowdownState extends State<MinimalShowdown>
     final winners = widget.model.lastWinners;
     final pot = widget.model.showdownPot;
 
-    // Position below Pot label (Pot is at top: 12, with ~50px height, plus 8px gap)
+    // Position at the same height as bet sidebar
     return Positioned(
-      top: 50, // Positioned below Pot label, same height as bet sidebar
+      top: 12,
       right: 12,
       child: SlideTransition(
         position: _slideAnimation,
