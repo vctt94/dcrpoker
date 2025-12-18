@@ -371,15 +371,6 @@ void drawPlayer(
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0 * uiSizeMultiplier;
     canvas.drawCircle(Offset(x, y), radius + 3 * uiSizeMultiplier, foldRing);
-    final arrowPaint = Paint()
-      ..color = Colors.redAccent.withOpacity(0.85)
-      ..style = PaintingStyle.fill;
-    final arrow = Path()
-      ..moveTo(x, y + radius + 6 * uiSizeMultiplier)
-      ..lineTo(x - 7 * uiSizeMultiplier, y + radius + 16 * uiSizeMultiplier)
-      ..lineTo(x + 7 * uiSizeMultiplier, y + radius + 16 * uiSizeMultiplier)
-      ..close();
-    canvas.drawPath(arrow, arrowPaint);
   }
 
   // Use blind positions from server instead of calculating client-side
