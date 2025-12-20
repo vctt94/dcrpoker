@@ -388,6 +388,7 @@ message Player {
   bool escrow_ready = 17;    // True when escrow funding is single-UTXO and valid
   int32 table_seat = 18;     // The seat index (0-based) where this player is seated
   bool presign_complete = 19; // True when settlement presigning is complete for this player
+  bool cards_revealed = 20; // True when the player has chosen to reveal cards at showdown
 }
 
 message Card {

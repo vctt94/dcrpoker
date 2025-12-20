@@ -942,6 +942,7 @@ const Player$json = {
     {'1': 'escrow_ready', '3': 17, '4': 1, '5': 8, '10': 'escrowReady'},
     {'1': 'table_seat', '3': 18, '4': 1, '5': 5, '10': 'tableSeat'},
     {'1': 'presign_complete', '3': 19, '4': 1, '5': 8, '10': 'presignComplete'},
+    {'1': 'cards_revealed', '3': 20, '4': 1, '5': 8, '10': 'cardsRevealed'},
   ],
 };
 
@@ -958,7 +959,7 @@ final $typed_data.Uint8List playerDescriptor = $convert.base64Decode(
     'c19kaXNjb25uZWN0ZWQYDyABKAhSDmlzRGlzY29ubmVjdGVkEhsKCWVzY3Jvd19pZBgQIAEoCV'
     'IIZXNjcm93SWQSIQoMZXNjcm93X3JlYWR5GBEgASgIUgtlc2Nyb3dSZWFkeRIdCgp0YWJsZV9z'
     'ZWF0GBIgASgFUgl0YWJsZVNlYXQSKQoQcHJlc2lnbl9jb21wbGV0ZRgTIAEoCFIPcHJlc2lnbk'
-    'NvbXBsZXRl');
+    'NvbXBsZXRlEiUKDmNhcmRzX3JldmVhbGVkGBQgASgIUg1jYXJkc1JldmVhbGVk');
 
 @$core.Deprecated('Use cardDescriptor instead')
 const Card$json = {

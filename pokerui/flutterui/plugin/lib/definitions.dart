@@ -699,7 +699,7 @@ class PlayerDTO {
   @JsonKey(name: 'disconnected')
   final bool disconnected;
   @JsonKey(name: 'handDescription')
-  final String handDescription;
+  final String handDescription; // Empty when not revealed to viewer.
   @JsonKey(name: 'playerState')
   final int playerState;
   @JsonKey(name: 'isSmallBlind')
@@ -712,6 +712,7 @@ class PlayerDTO {
   final bool escrowReady;
   @JsonKey(name: 'tableSeat', defaultValue: 0)
   final int tableSeat;
+  final bool cardsRevealed;
 
   PlayerDTO(
     this.id,
@@ -731,11 +732,40 @@ class PlayerDTO {
     this.isBigBlind,
     this.escrowId,
     this.escrowReady,
-    this.tableSeat,
-  );
+    this.tableSeat, [
+      this.cardsRevealed = false,
+    ]);
 
-  factory PlayerDTO.fromJson(Map<String, dynamic> json) =>
-      _$PlayerDTOFromJson(json);
+  factory PlayerDTO.fromJson(Map<String, dynamic> json) {
+    final base = _$PlayerDTOFromJson(json);
+    final raw = json['cardsRevealed'] ?? json['cards_revealed'];
+    final reveal = raw is bool
+        ? raw
+        : (raw is num
+            ? raw != 0
+            : (raw is String && raw.toLowerCase() == 'true'));
+    return PlayerDTO(
+      base.id,
+      base.name,
+      base.balance,
+      base.hand,
+      base.currentBet,
+      base.folded,
+      base.isTurn,
+      base.isAllIn,
+      base.isDealer,
+      base.isReady,
+      base.disconnected,
+      base.handDescription,
+      base.playerState,
+      base.isSmallBlind,
+      base.isBigBlind,
+      base.escrowId,
+      base.escrowReady,
+      base.tableSeat,
+      reveal,
+    );
+  }
   Map<String, dynamic> toJson() => _$PlayerDTOToJson(this);
 
   pr.Player toProtobuf() {
@@ -758,7 +788,8 @@ class PlayerDTO {
       ..isBigBlind = isBigBlind
       ..escrowId = escrowId
       ..escrowReady = escrowReady
-      ..tableSeat = tableSeat;
+      ..tableSeat = tableSeat
+      ..cardsRevealed = cardsRevealed;
   }
 }
 
