@@ -2824,6 +2824,7 @@ class ShowdownPlayer extends $pb.GeneratedMessage {
     HandRank? handRank,
     $core.Iterable<Card>? bestHand,
     $fixnum.Int64? contribution,
+    $core.String? name,
   }) {
     final result = create();
     if (playerId != null) result.playerId = playerId;
@@ -2832,6 +2833,7 @@ class ShowdownPlayer extends $pb.GeneratedMessage {
     if (handRank != null) result.handRank = handRank;
     if (bestHand != null) result.bestHand.addAll(bestHand);
     if (contribution != null) result.contribution = contribution;
+    if (name != null) result.name = name;
     return result;
   }
 
@@ -2856,6 +2858,7 @@ class ShowdownPlayer extends $pb.GeneratedMessage {
         enumValues: HandRank.values)
     ..pPM<Card>(5, _omitFieldNames ? '' : 'bestHand', subBuilder: Card.create)
     ..aInt64(6, _omitFieldNames ? '' : 'contribution')
+    ..aOS(7, _omitFieldNames ? '' : 'name')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2918,6 +2921,15 @@ class ShowdownPlayer extends $pb.GeneratedMessage {
   $core.bool hasContribution() => $_has(5);
   @$pb.TagNumber(6)
   void clearContribution() => $_clearField(6);
+
+  @$pb.TagNumber(7)
+  $core.String get name => $_getSZ(6);
+  @$pb.TagNumber(7)
+  set name($core.String value) => $_setString(6, value);
+  @$pb.TagNumber(7)
+  $core.bool hasName() => $_has(6);
+  @$pb.TagNumber(7)
+  void clearName() => $_clearField(7);
 }
 
 class Showdown extends $pb.GeneratedMessage {

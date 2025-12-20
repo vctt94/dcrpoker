@@ -356,6 +356,7 @@ message ShowdownPlayer {
   HandRank hand_rank = 4;
   repeated Card best_hand = 5;
   int64 contribution = 6; // Total chips contributed this hand
+  string name = 7; // Player nickname (for showdown display)
 }
 
 message Showdown {

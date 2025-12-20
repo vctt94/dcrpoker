@@ -2526,6 +2526,7 @@ type ShowdownPlayer struct {
 	HandRank      HandRank               `protobuf:"varint,4,opt,name=hand_rank,json=handRank,proto3,enum=poker.HandRank" json:"hand_rank,omitempty"`
 	BestHand      []*Card                `protobuf:"bytes,5,rep,name=best_hand,json=bestHand,proto3" json:"best_hand,omitempty"`
 	Contribution  int64                  `protobuf:"varint,6,opt,name=contribution,proto3" json:"contribution,omitempty"` // Total chips contributed this hand
+	Name          string                 `protobuf:"bytes,7,opt,name=name,proto3" json:"name,omitempty"`                  // Player nickname (for showdown display)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2600,6 +2601,13 @@ func (x *ShowdownPlayer) GetContribution() int64 {
 		return x.Contribution
 	}
 	return 0
+}
+
+func (x *ShowdownPlayer) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
 }
 
 type Showdown struct {
@@ -4200,7 +4208,7 @@ const file_poker_proto_rawDesc = "" +
 	"\vwinner_seat\x18\x11 \x01(\x05R\n" +
 	"winnerSeat\x12\x19\n" +
 	"\bmatch_id\x18\x12 \x01(\tR\amatchId\x12\x1b\n" +
-	"\tis_winner\x18\x13 \x01(\bR\bisWinner\"\x8a\x02\n" +
+	"\tis_winner\x18\x13 \x01(\bR\bisWinner\"\x9e\x02\n" +
 	"\x0eShowdownPlayer\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12*\n" +
 	"\n" +
@@ -4209,7 +4217,8 @@ const file_poker_proto_rawDesc = "" +
 	"finalState\x12,\n" +
 	"\thand_rank\x18\x04 \x01(\x0e2\x0f.poker.HandRankR\bhandRank\x12(\n" +
 	"\tbest_hand\x18\x05 \x03(\v2\v.poker.CardR\bbestHand\x12\"\n" +
-	"\fcontribution\x18\x06 \x01(\x03R\fcontribution\"\xc8\x01\n" +
+	"\fcontribution\x18\x06 \x01(\x03R\fcontribution\x12\x12\n" +
+	"\x04name\x18\a \x01(\tR\x04name\"\xc8\x01\n" +
 	"\bShowdown\x12'\n" +
 	"\awinners\x18\x01 \x03(\v2\r.poker.WinnerR\awinners\x12\x10\n" +
 	"\x03pot\x18\x02 \x01(\x03R\x03pot\x12!\n" +

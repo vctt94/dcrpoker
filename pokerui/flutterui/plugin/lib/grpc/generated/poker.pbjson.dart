@@ -867,6 +867,7 @@ const ShowdownPlayer$json = {
       '10': 'bestHand'
     },
     {'1': 'contribution', '3': 6, '4': 1, '5': 3, '10': 'contribution'},
+    {'1': 'name', '3': 7, '4': 1, '5': 9, '10': 'name'},
   ],
 };
 
@@ -876,7 +877,8 @@ final $typed_data.Uint8List showdownPlayerDescriptor = $convert.base64Decode(
     'FyZHMYAiADKAsyCy5wb2tlci5DYXJkUglob2xlQ2FyZHMSMwoLZmluYWxfc3RhdGUYAyABKA4y'
     'Ei5wb2tlci5QbGF5ZXJTdGF0ZVIKZmluYWxTdGF0ZRIsCgloYW5kX3JhbmsYBCABKA4yDy5wb2'
     'tlci5IYW5kUmFua1IIaGFuZFJhbmsSKAoJYmVzdF9oYW5kGAUgAygLMgsucG9rZXIuQ2FyZFII'
-    'YmVzdEhhbmQSIgoMY29udHJpYnV0aW9uGAYgASgDUgxjb250cmlidXRpb24=');
+    'YmVzdEhhbmQSIgoMY29udHJpYnV0aW9uGAYgASgDUgxjb250cmlidXRpb24SEgoEbmFtZRgHIA'
+    'EoCVIEbmFtZQ==');
 
 @$core.Deprecated('Use showdownDescriptor instead')
 const Showdown$json = {
