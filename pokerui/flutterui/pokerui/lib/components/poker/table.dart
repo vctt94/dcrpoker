@@ -16,6 +16,7 @@ const double kCurrentBetOverlayHeight = 28.0;
 const double kTopOverlayGap = 8.0;
 const double kTopOverlayMargin = 6.0;
 const double kOverlaySeatGap = 6.0;
+const double kPotChipYOffsetFactor = -0.34;
 
 class TableLayout {
   const TableLayout({
@@ -41,30 +42,51 @@ double _playerOffsetForViewport(Rect viewport) {
   return scaled.clamp(_minPlayerOffset, _maxPlayerOffset);
 }
 
+double _stackSpacing(double radius, double uiSizeMultiplier,
+    {double textHeight = 0}) {
+  final sizeGap = radius * 0.2;
+  final uiGap = 6.0 * uiSizeMultiplier;
+  final textGap = textHeight > 0 ? textHeight * 0.45 : 0.0;
+  return math.max(sizeGap, math.max(uiGap, textGap));
+}
+
 double minSeatTopFor(Rect viewport, bool hasCurrentBet) {
-  final overlayHeight = kPotOverlayHeight +
-      (hasCurrentBet ? (kTopOverlayGap + kCurrentBetOverlayHeight) : 0);
-  return viewport.top + kTopOverlayMargin + overlayHeight + kOverlaySeatGap;
+  final basePad = kTopOverlayMargin + kOverlaySeatGap;
+  final adaptivePad = (viewport.height * 0.02).clamp(6.0, 14.0);
+  final betPad = hasCurrentBet ? 4.0 : 0.0;
+  return viewport.top + basePad + adaptivePad + betPad;
 }
 
-class TopOverlayLayout {
-  const TopOverlayLayout({required this.potTop, required this.currentBetTop});
+Offset potChipCenter(TableLayout layout, {double uiSizeMultiplier = 1.0}) {
+  final box = layout.viewport;
+  final center = layout.center;
+  final chipSize = 32.0 * uiSizeMultiplier;
+  final labelGap = 6.0 * uiSizeMultiplier;
+  final margin = 6.0 * uiSizeMultiplier;
 
-  final double potTop;
-  final double currentBetTop;
-
-  Offset potCenter(Rect viewport) =>
-      Offset(viewport.left + viewport.width / 2, potTop + kPotOverlayHeight / 2);
-}
-
-TopOverlayLayout computeTopOverlayLayout(Rect viewport, bool hasCurrentBet) {
-  final potTop = viewport.top + kTopOverlayMargin;
-  final cbTop =
-      potTop + kPotOverlayHeight + (hasCurrentBet ? kTopOverlayGap : 0);
-  return TopOverlayLayout(
-    potTop: potTop,
-    currentBetTop: hasCurrentBet ? cbTop : potTop,
+  final labelStyle = TextStyle(
+    fontSize: 14 * uiSizeMultiplier,
+    fontWeight: FontWeight.bold,
+    letterSpacing: 0.4,
+    color: Colors.white,
   );
+  final padH = 12.0 * uiSizeMultiplier;
+  final padV = 6.0 * uiSizeMultiplier;
+  final tp = TextPainter(
+    text: TextSpan(text: '0', style: labelStyle),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  final labelHeight = tp.height + padV * 2;
+
+  final cw = (box.width * 0.05).clamp(32.0, 56.0);
+  final ch = cw * 1.4;
+  final cardTop = center.dy - ch / 2 - 20.0;
+  final totalHeight = chipSize + labelGap + labelHeight;
+  var columnTop = cardTop - margin - totalHeight;
+  final overflow = (box.top + 6.0) - columnTop;
+  if (overflow > 0) columnTop += overflow;
+
+  return Offset(center.dx, columnTop + chipSize / 2);
 }
 
 Offset _positionForSeat(
@@ -75,22 +97,27 @@ Offset _positionForSeat(
   double ringRadiusX,
   double ringRadiusY,
   Rect? clampBounds,
-  double? minSeatTop,
-) {
+  double? minSeatTop, {
+  double uiSizeMultiplier = 1.0,
+  double playerRadius = kPlayerRadius,
+}) {
   final angle = _angleForPlayerIndex(idx, heroIndex, count);
   var x = center.dx + ringRadiusX * math.cos(angle);
   var y = center.dy + ringRadiusY * math.sin(angle);
 
   if (minSeatTop != null) {
-    final seatTop = y - kPlayerRadius;
+    final seatTop = y - playerRadius;
     if (seatTop < minSeatTop) {
       y += (minSeatTop - seatTop);
     }
   }
 
   if (clampBounds != null) {
-    const hPad = kPlayerRadius + 12.0;
-    const vPad = kPlayerRadius + 12.0;
+    final hPad = playerRadius + 12.0 * uiSizeMultiplier;
+    final verticalBadgeAllowance =
+        math.max(playerRadius * 0.75, 18.0 * uiSizeMultiplier);
+    final vPad =
+        playerRadius + verticalBadgeAllowance + 6.0 * uiSizeMultiplier;
     final left = clampBounds.left + hPad;
     final right = clampBounds.right - hPad;
     final top = clampBounds.top + vPad;
@@ -116,14 +143,17 @@ double _angleForPlayerIndex(int idx, int heroIndex, int count) {
 
 TableLayout resolveTableLayout(Size size) {
   final viewport = pokerViewportRect(size);
-  final center = Offset(viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
+  final center = Offset(
+      viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
   final playerOffset = _playerOffsetForViewport(viewport);
 
   const desiredMinRadiusX = 180.0;
   const desiredMinRadiusY = 130.0;
 
-  final availableX = (viewport.width / 2) - (playerOffset + kPlayerRadius + _edgePadding);
-  final availableY = (viewport.height / 2) - (playerOffset + kPlayerRadius + _edgePadding);
+  final availableX =
+      (viewport.width / 2) - (playerOffset + kPlayerRadius + _edgePadding);
+  final availableY =
+      (viewport.height / 2) - (playerOffset + kPlayerRadius + _edgePadding);
 
   double clampRadius(double target, double available, double minDesired) {
     final maxRadius = available.clamp(0.0, double.infinity);
@@ -132,8 +162,10 @@ TableLayout resolveTableLayout(Size size) {
     return target.clamp(minRadius, maxRadius);
   }
 
-  final tableRadiusX = clampRadius(viewport.width * 0.42, availableX, desiredMinRadiusX);
-  final tableRadiusY = clampRadius(viewport.height * 0.34, availableY, desiredMinRadiusY);
+  final tableRadiusX =
+      clampRadius(viewport.width * 0.42, availableX, desiredMinRadiusX);
+  final tableRadiusY =
+      clampRadius(viewport.height * 0.34, availableY, desiredMinRadiusY);
 
   return TableLayout(
     viewport: viewport,
@@ -144,46 +176,52 @@ TableLayout resolveTableLayout(Size size) {
   );
 }
 
-void drawPokerTable(Canvas canvas, double centerX, double centerY, double tableRadiusX, double tableRadiusY, TableThemeConfig theme) {
+void drawPokerTable(Canvas canvas, double centerX, double centerY,
+    double tableRadiusX, double tableRadiusY, TableThemeConfig theme) {
   // Table surface - draw as ellipse using theme colors
   final tablePaint = Paint()
     ..color = theme.feltColor
     ..style = PaintingStyle.fill;
-  
+
   final tableRect = Rect.fromCenter(
     center: Offset(centerX, centerY),
     width: tableRadiusX * 2,
     height: tableRadiusY * 2,
   );
   canvas.drawOval(tableRect, tablePaint);
-  
+
   // Table border
   final borderPaint = Paint()
     ..color = theme.borderColor
     ..style = PaintingStyle.stroke
     ..strokeWidth = 8;
-  
+
   canvas.drawOval(tableRect, borderPaint);
 }
 
 void drawPlayers(
-  Canvas canvas,
-  List<UiPlayer> players,
-  String currentPlayerId,
-  UiGameState gameState,
-  double centerX,
-  double centerY,
-  double tableRadiusX,
-  double tableRadiusY,
-  int showdownStartMs,
-  Size size,
-  double cardSizeMultiplier,
-  double uiSizeMultiplier,
-  {double? playerOffsetOverride, Rect? clampBounds, double? minSeatTop}
-) {
+    Canvas canvas,
+    List<UiPlayer> players,
+    String currentPlayerId,
+    UiGameState gameState,
+    double centerX,
+    double centerY,
+    double tableRadiusX,
+    double tableRadiusY,
+    int showdownStartMs,
+    Size size,
+    double cardSizeMultiplier,
+    double uiSizeMultiplier,
+    {double? playerOffsetOverride,
+    Rect? clampBounds,
+    double? minSeatTop}) {
   final playerRadius = kPlayerRadius * uiSizeMultiplier;
-  final playerOffset = playerOffsetOverride ??
-      _playerOffsetForViewport(clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height));
+  final baseOffset = playerOffsetOverride ??
+      _playerOffsetForViewport(
+          clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height));
+  // Keep player centers further from the table edge as icons scale up.
+  final playerOffset =
+      baseOffset + math.max(0, (playerRadius - kPlayerRadius) * 0.9);
   final clampRect = clampBounds ?? Rect.fromLTWH(0, 0, size.width, size.height);
   final count = players.length;
   if (count == 0) return;
@@ -202,6 +240,8 @@ void drawPlayers(
       tableRadiusY + playerOffset,
       clampRect,
       minSeatTop,
+      uiSizeMultiplier: uiSizeMultiplier,
+      playerRadius: playerRadius,
     );
 
     drawPlayer(
@@ -232,11 +272,15 @@ void drawPlayers(
       final cardWidthRatio = .75;
       final cw = playerRadius * cardWidthRatio * cardSizeMultiplier;
       final ch = cw * 1.4;
-      final gap = playerRadius * 0.05 * cardSizeMultiplier; // Small gap between cards
+      final gap =
+          playerRadius * 0.05 * cardSizeMultiplier; // Small gap between cards
       final startX = playerX - cw - gap / 2;
       // Position cards centered in the player circle
       final cardY = playerY + playerRadius * 0.6 - ch; // Centered in circle
-      
+      // Keep cards from climbing into the chip badge space above the seat.
+      final minCardTop = playerY - playerRadius + 6.0 * uiSizeMultiplier;
+      final cardTop = math.max(cardY, minCardTop);
+
       if (gameState.phase == pr.GamePhase.SHOWDOWN) {
         if (hasAnyCards) {
           // Reveal known opponent hands with a subtle slide-in animation
@@ -244,19 +288,23 @@ void drawPlayers(
           final elapsed = (now - showdownStartMs - i * 120);
           final t = (elapsed / 450.0).clamp(0.0, 1.0);
           final y = cardY - (1.0 - t) * 8.0; // Slide up slightly
-          drawCardFace(canvas, startX, y, cw, ch, player.hand[0]);
+          final yClamped = math.max(y, cardTop);
+          drawCardFace(canvas, startX, yClamped, cw, ch, player.hand[0]);
           if (player.hand.length > 1) {
-            drawCardFace(canvas, startX + cw + gap, y, cw, ch, player.hand[1]);
+            drawCardFace(
+                canvas, startX + cw + gap, yClamped, cw, ch, player.hand[1]);
           }
         } else {
           // If still hidden at showdown, show subtle backs inside circle
-          drawCardBack(canvas, startX, cardY, cw, ch);
-          drawCardBack(canvas, startX + cw + gap, cardY, cw, ch);
+          drawCardBack(canvas, startX, cardTop, cw, ch);
+          drawCardBack(canvas, startX + cw + gap, cardTop, cw, ch);
         }
-      } else if (!hasAnyCards && (gameState.phase != pr.GamePhase.WAITING && gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
+      } else if (!hasAnyCards &&
+          (gameState.phase != pr.GamePhase.WAITING &&
+              gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
         // Non-showdown phases: use backs to indicate in-hand cards for opponents
-        drawCardBack(canvas, startX, cardY, cw, ch);
-        drawCardBack(canvas, startX + cw + gap, cardY, cw, ch);
+        drawCardBack(canvas, startX, cardTop, cw, ch);
+        drawCardBack(canvas, startX + cw + gap, cardTop, cw, ch);
       }
     }
   }
@@ -282,7 +330,7 @@ void drawPlayer(
   final isCurrent = player.id == gameState.currentPlayerId && !isFolded;
   const heroColor = Color(0xFF2E6DD8);
   final otherColor = Colors.grey.shade700;
-  
+
   // Player circle
   final playerPaint = Paint()
     ..color = player.isDisconnected
@@ -291,7 +339,7 @@ void drawPlayer(
     ..style = PaintingStyle.fill;
 
   canvas.drawCircle(Offset(x, y), radius, playerPaint);
-  
+
   // Soft halo when it's their turn
   if (isCurrent) {
     final haloPaint = Paint()
@@ -300,17 +348,19 @@ void drawPlayer(
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12);
     canvas.drawCircle(Offset(x, y), radius + 4 * uiSizeMultiplier, haloPaint);
   }
-  
+
   // Player border
   final borderPaint = Paint()
     ..color = player.isDisconnected
         ? Colors.orangeAccent
-        : (isFolded ? Colors.white24.withOpacity(0.6) : (isCurrent ? Colors.yellowAccent : Colors.white24))
+        : (isFolded
+            ? Colors.white24.withOpacity(0.6)
+            : (isCurrent ? Colors.yellowAccent : Colors.white24))
     ..style = PaintingStyle.stroke
     ..strokeWidth = (isCurrent ? 2.5 : 1.5) * uiSizeMultiplier;
-  
+
   canvas.drawCircle(Offset(x, y), radius, borderPaint);
-  
+
   // Dim folded players with an overlay
   if (isFolded) {
     final foldOverlay = Paint()..color = Colors.black.withOpacity(0.45);
@@ -321,20 +371,11 @@ void drawPlayer(
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.0 * uiSizeMultiplier;
     canvas.drawCircle(Offset(x, y), radius + 3 * uiSizeMultiplier, foldRing);
-    final arrowPaint = Paint()
-      ..color = Colors.redAccent.withOpacity(0.85)
-      ..style = PaintingStyle.fill;
-    final arrow = Path()
-      ..moveTo(x, y + radius + 6 * uiSizeMultiplier)
-      ..lineTo(x - 7 * uiSizeMultiplier, y + radius + 16 * uiSizeMultiplier)
-      ..lineTo(x + 7 * uiSizeMultiplier, y + radius + 16 * uiSizeMultiplier)
-      ..close();
-    canvas.drawPath(arrow, arrowPaint);
   }
-  
+
   // Use blind positions from server instead of calculating client-side
   final badges = <SeatBadge>[];
-  
+
   if (player.isDealer) {
     badges.add(const SeatBadge('D', Colors.amber));
   }
@@ -363,30 +404,36 @@ void drawPlayer(
       textDirection: TextDirection.ltr,
     );
     chipText.layout();
-    
+
     // Draw chip badge background
     final chipBadgeWidth = chipText.width + 12 * uiSizeMultiplier;
-    final chipBadgeHeight = 16.0 * uiSizeMultiplier;
+    final chipBadgeHeight =
+        math.max(16.0 * uiSizeMultiplier, radius * 0.45);
     final chipBadgeX = x - chipBadgeWidth / 2;
 
-    // Layout strategy: All players use the same pattern
-    // - Chips above the player circle
-    // - Name below the player circle
-    final baseSpacing = 4 * uiSizeMultiplier;
-    final extraSpacingForLargeIcons = uiSizeMultiplier > 1.2 ? radius * 0.1 : 0;
-    final spacingFromCircle = baseSpacing + extraSpacingForLargeIcons;
-
-    // Position chips above the circle for all players: [chip badge] ... [player circle] ... [name]
-    final chipBadgeY = y - radius - spacingFromCircle - chipBadgeHeight;
-
-    // Clamp chips to remain fully inside the viewport (both top and bottom)
-    final minChipY = viewportBounds.top + 4.0;
-    final maxChipY = viewportBounds.bottom - chipBadgeHeight - 4.0;
-    final chipBadgeYClamped = chipBadgeY.clamp(minChipY, maxChipY);
+    // Layout strategy:
+    // - Local player (hero): keep chips centered inside the circle to free space above.
+    // - Others: chips above the circle; names stay below.
+    double chipBadgeY;
+    if (isHero) {
+      final inset = 6.0 * uiSizeMultiplier;
+      final desired = y - chipBadgeHeight / 2;
+      final minY = y - radius + inset;
+      final maxY = y + radius - chipBadgeHeight - inset;
+      chipBadgeY = desired.clamp(minY, maxY);
+    } else {
+      final spacingFromCircle = _stackSpacing(radius, uiSizeMultiplier);
+      chipBadgeY = y - radius - spacingFromCircle - chipBadgeHeight;
+      // Clamp chips to remain fully inside the viewport (both top and bottom)
+      final minChipY = viewportBounds.top + 6.0 * uiSizeMultiplier;
+      final maxChipY =
+          viewportBounds.bottom - chipBadgeHeight - 6.0 * uiSizeMultiplier;
+      chipBadgeY = chipBadgeY.clamp(minChipY, maxChipY);
+    }
     final chipBadgeRect = RRect.fromRectAndRadius(
       Rect.fromLTWH(
         chipBadgeX,
-        chipBadgeYClamped,
+        chipBadgeY,
         chipBadgeWidth,
         chipBadgeHeight,
       ),
@@ -394,20 +441,19 @@ void drawPlayer(
     );
     final chipBgPaint = Paint()..color = Colors.black.withOpacity(0.7);
     canvas.drawRRect(chipBadgeRect, chipBgPaint);
-    
+
     chipText.paint(
       canvas,
       Offset(
         x - chipText.width / 2,
-        chipBadgeYClamped + 2,
+        chipBadgeY + 2,
       ),
     );
   }
-  
+
   // Player name label (below chips)
-  final displayName = player.name.isNotEmpty
-      ? player.name
-      : 'Player ${index + 1}';
+  final displayName =
+      player.name.isNotEmpty ? player.name : 'Player ${index + 1}';
   final nameStyle = TextStyle(
     color: isFolded ? Colors.white70 : Colors.white,
     fontSize: 11 * uiSizeMultiplier,
@@ -425,30 +471,40 @@ void drawPlayer(
     maxLines: 1,
     ellipsis: '…',
   );
-  namePainter.layout(maxWidth: radius * 2.5);
+  namePainter.layout(maxWidth: radius * 2.6);
 
   // Name label positioning: All players use the same pattern
   // - Name directly below the player circle (chips are above the circle)
-  final baseSpacing = 4 * uiSizeMultiplier;
-  final extraSpacingForLargeIcons = uiSizeMultiplier > 1.2 ? radius * 0.1 : 0;
-  final spacingFromCircle = baseSpacing + extraSpacingForLargeIcons;
+  final spacingFromCircle = _stackSpacing(
+    radius,
+    uiSizeMultiplier,
+    textHeight: namePainter.height,
+  );
   double nameY = y + radius + spacingFromCircle;
 
   // Clamp name label so it does not go off the bottom of the viewport
-  final minNameY = viewportBounds.top + 2.0;
-  final maxNameY = viewportBounds.bottom - namePainter.height - 2.0;
+  final minNameY = viewportBounds.top + 2.0 * uiSizeMultiplier;
+  final maxNameY =
+      viewportBounds.bottom - namePainter.height - 4.0 * uiSizeMultiplier;
   if (nameY < minNameY) nameY = minNameY;
   if (nameY > maxNameY) nameY = maxNameY;
   namePainter.paint(
     canvas,
     Offset(x - namePainter.width / 2, nameY),
   );
-  
+
   // Draw role badges to the left of the player circle
   drawRoleBadges(canvas, x, y, radius, badges, isHero, uiSizeMultiplier);
 }
 
-void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius, List<SeatBadge> badges, bool isHero, double uiSizeMultiplier) {
+void drawRoleBadges(
+    Canvas canvas,
+    double centerX,
+    double centerY,
+    double radius,
+    List<SeatBadge> badges,
+    bool isHero,
+    double uiSizeMultiplier) {
   if (badges.isEmpty) return;
 
   final double badgeHeight = 18.0 * uiSizeMultiplier;
@@ -471,7 +527,8 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
   }
 
   // Position badges to the right of the player circle, 30 degrees south (downward)
-  final spacingFromCircle = 8.0 * uiSizeMultiplier; // Gap between player circle and badges
+  final spacingFromCircle =
+      8.0 * uiSizeMultiplier; // Gap between player circle and badges
   // 30 degrees south from right = 0° + 30° = 30° = π/6 radians
   const angleRadians = math.pi / 6; // 30 degrees
   final distanceFromCenter = radius + spacingFromCircle;
@@ -479,24 +536,25 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
   final badgeLeftEdgeX = centerX + distanceFromCenter * math.cos(angleRadians);
   final badgeLeftEdgeY = centerY + distanceFromCenter * math.sin(angleRadians);
   double drawX = badgeLeftEdgeX; // Position badges extending rightward
-  final drawY = badgeLeftEdgeY - badgeHeight / 2; // Vertically centered at the angle
-  
+  final drawY =
+      badgeLeftEdgeY - badgeHeight / 2; // Vertically centered at the angle
+
   for (final layout in layouts) {
     final rect = RRect.fromRectAndRadius(
       Rect.fromLTWH(drawX, drawY, layout.width, badgeHeight),
       const Radius.circular(6),
     );
-    
+
     // Add subtle shadow for depth
     final shadowPaint = Paint()
       ..color = Colors.black.withOpacity(0.3)
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
     canvas.drawRRect(rect, shadowPaint);
-    
+
     // Draw badge background
     final paint = Paint()..color = layout.badge.color.withOpacity(0.95);
     canvas.drawRRect(rect, paint);
-    
+
     layout.textPainter.paint(
       canvas,
       Offset(
@@ -509,17 +567,18 @@ void drawRoleBadges(Canvas canvas, double centerX, double centerY, double radius
 }
 
 void drawCurrentTimebank(
-  Canvas canvas,
-  Size size,
-  UiGameState gameState,
-  String currentPlayerId,
-  double centerX,
-  double centerY,
-  double tableRadiusX,
-  double tableRadiusY,
-  double uiSizeMultiplier,
-  {double playerOffset = _maxPlayerOffset, Rect? clampBounds, double? minSeatTop}
-) {
+    Canvas canvas,
+    Size size,
+    UiGameState gameState,
+    String currentPlayerId,
+    double centerX,
+    double centerY,
+    double tableRadiusX,
+    double tableRadiusY,
+    double uiSizeMultiplier,
+    {double playerOffset = _maxPlayerOffset,
+    Rect? clampBounds,
+    double? minSeatTop}) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
   final nowMs = DateTime.now().millisecondsSinceEpoch;
   final remMs = (gameState.turnDeadlineUnixMs - nowMs).clamp(0, 1 << 30);
@@ -535,39 +594,45 @@ void drawCurrentTimebank(
 
   final bounds = clampBounds ?? pokerViewportRect(size);
   final playerRadius = kPlayerRadius * uiSizeMultiplier;
+  final effectivePlayerOffset =
+      playerOffset + math.max(0, (playerRadius - kPlayerRadius) * 0.9);
   final pos = _positionForSeat(
     idx,
     heroIndex,
     count,
     Offset(centerX, centerY),
-    tableRadiusX + playerOffset,
-    tableRadiusY + playerOffset,
+    tableRadiusX + effectivePlayerOffset,
+    tableRadiusY + effectivePlayerOffset,
     bounds,
     minSeatTop,
+    uiSizeMultiplier: uiSizeMultiplier,
+    playerRadius: playerRadius,
   );
 
   final tbText = TextPainter(
     text: TextSpan(
       text: '⏱ ${remSec.toStringAsFixed(1)}s',
-      style: TextStyle(color: Colors.white, fontSize: 11 * uiSizeMultiplier, fontWeight: FontWeight.w700),
+      style: TextStyle(
+          color: Colors.white,
+          fontSize: 11 * uiSizeMultiplier,
+          fontWeight: FontWeight.w700),
     ),
     textDirection: TextDirection.ltr,
   )..layout();
 
   final badgeW = tbText.width + 12 * uiSizeMultiplier;
   final badgeH = 18.0 * uiSizeMultiplier;
-  
+
   // Position timebank above role badges (consistent for all players)
-  final isHero = (idx == heroIndex);
   double bx, by;
-  
+
   // Calculate where role badges are positioned (same logic as drawRoleBadges)
   final spacingFromCircle = 8.0 * uiSizeMultiplier;
   const angleRadians = math.pi / 6; // 30 degrees
   final distanceFromCenter = playerRadius + spacingFromCircle;
   final badgeLeftEdgeX = pos.dx + distanceFromCenter * math.cos(angleRadians);
   final badgeLeftEdgeY = pos.dy + distanceFromCenter * math.sin(angleRadians);
-  
+
   // Calculate total width of badges for current player
   final currentPlayer = players[idx];
   final badges = <String>[];
@@ -575,7 +640,7 @@ void drawCurrentTimebank(
   if (currentPlayer.isSmallBlind) badges.add('SB');
   if (currentPlayer.isBigBlind) badges.add('BB');
   if (currentPlayer.isAllIn) badges.add('ALL-IN');
-  
+
   double totalBadgeWidth = 0.0;
   final roleBadgeHeight = 18.0 * uiSizeMultiplier;
   final horizontalPadding = 8.0 * uiSizeMultiplier;
@@ -585,7 +650,7 @@ void drawCurrentTimebank(
     fontSize: 11 * uiSizeMultiplier,
     fontWeight: FontWeight.w900,
   );
-  
+
   for (final badgeLabel in badges) {
     final painter = TextPainter(
       text: TextSpan(text: badgeLabel, style: textStyle),
@@ -596,22 +661,24 @@ void drawCurrentTimebank(
       totalBadgeWidth += gap;
     }
   }
-  
-  // Position timebank above the badges, centered on the badge area
+
+  // Position timebank above the badges, aligned to the badge start
   if (totalBadgeWidth == 0) return; // No badges, don't show timebank
-  
+
   bx = badgeLeftEdgeX;
-  // Position above badges with a gap - larger gap for hero to avoid buttons
-  final gapAboveBadges = (isHero ? 30.0 : 4.0) * uiSizeMultiplier;
+  // Position just above badges with a small, consistent gap
+  final gapAboveBadges = 4.0 * uiSizeMultiplier;
   final badgeCenterY = badgeLeftEdgeY - roleBadgeHeight / 2;
   by = badgeCenterY - gapAboveBadges - badgeH;
-  
+
   // Ensure timebank doesn't clip at screen edges
   final edgePadding = 2.0 * uiSizeMultiplier;
   if (bx < bounds.left + edgePadding) bx = bounds.left + edgePadding;
-  if (bx + badgeW > bounds.right - edgePadding) bx = bounds.right - badgeW - edgePadding;
+  if (bx + badgeW > bounds.right - edgePadding)
+    bx = bounds.right - badgeW - edgePadding;
   if (by < bounds.top + edgePadding) by = bounds.top + edgePadding;
-  if (by + badgeH > bounds.bottom - edgePadding) by = bounds.bottom - badgeH - edgePadding;
+  if (by + badgeH > bounds.bottom - edgePadding)
+    by = bounds.bottom - badgeH - edgePadding;
 
   final badgeRect = RRect.fromRectAndRadius(
     Rect.fromLTWH(bx, by, badgeW, badgeH),
@@ -619,7 +686,10 @@ void drawCurrentTimebank(
   );
   final tbBg = Paint()..color = Colors.black.withOpacity(0.9);
   canvas.drawRRect(badgeRect, tbBg);
-  tbText.paint(canvas, Offset(bx + (badgeW - tbText.width) / 2, by + (badgeH - tbText.height) / 2));
+  tbText.paint(
+      canvas,
+      Offset(
+          bx + (badgeW - tbText.width) / 2, by + (badgeH - tbText.height) / 2));
 }
 
 // Helper classes for badge management
@@ -641,7 +711,8 @@ class BadgeLayout {
 // Helpers used by overlays to compute positions within the 16:9 viewport
 Rect pokerViewportRect(Size size) {
   const double aspect = 16 / 9;
-  final double containerAspect = size.width / (size.height == 0 ? 1 : size.height);
+  final double containerAspect =
+      size.width / (size.height == 0 ? 1 : size.height);
   double w, h, left, top;
   if (containerAspect > aspect) {
     h = size.height;
@@ -665,12 +736,17 @@ Map<String, Offset> seatPositionsFor(
   double ringRadiusY, {
   Rect? clampBounds,
   double? minSeatTop,
+  double uiSizeMultiplier = 1.0,
 }) {
   final map = <String, Offset>{};
   if (ps.isEmpty) return map;
   final count = ps.length;
   final heroIndex = ps.indexWhere((p) => p.id == heroId);
-  const playerRadius = kPlayerRadius;
+  final playerRadius = kPlayerRadius * uiSizeMultiplier;
+  final sizeAwareOffset =
+      math.max(0, (playerRadius - kPlayerRadius) * 0.9);
+  final ringX = ringRadiusX + sizeAwareOffset;
+  final ringY = ringRadiusY + sizeAwareOffset;
 
   for (int i = 0; i < count; i++) {
     final pos = _positionForSeat(
@@ -678,10 +754,12 @@ Map<String, Offset> seatPositionsFor(
       heroIndex,
       count,
       center,
-      ringRadiusX,
-      ringRadiusY,
+      ringX,
+      ringY,
       clampBounds,
       minSeatTop,
+      uiSizeMultiplier: uiSizeMultiplier,
+      playerRadius: playerRadius,
     );
     map[ps[i].id] = Offset(pos.dx, pos.dy - playerRadius);
   }

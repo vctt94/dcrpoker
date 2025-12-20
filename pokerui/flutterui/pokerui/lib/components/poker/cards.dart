@@ -204,25 +204,27 @@ class HeroCardFlipOverlay extends StatelessWidget {
     final cardSizeMultiplier = cardSizeMultiplierFromKey(context.cardSize);
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-      final layout = resolveTableLayout(size);
-      final box = layout.viewport;
-      final baseCw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
-      final cw = baseCw * cardSizeMultiplier;
-      final ch = cw * 1.4;
-      final gap = cw * 0.12;
-      final centerX = layout.center.dx;
-      final centerY = layout.center.dy;
-      
-      // Position hero cards tighter to the hero label instead of drifting toward center.
-      final ringRadiusY = layout.ringRadiusY;
-      // Clamp hero seat so cards track the rendered player when the viewport is tight.
-      final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
-      final heroY = (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
-      
-      // Lightly scale spacing so cards stay tethered to the hero as width grows.
-      const minSpacingAbovePlayer = 28.0;
-      const maxSpacingAbovePlayer = 54.0;
-      final spacingAbovePlayer = (ringRadiusY * 0.14).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
+    final layout = resolveTableLayout(size);
+    final box = layout.viewport;
+    final baseCw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
+    final cw = baseCw * cardSizeMultiplier;
+    final ch = cw * 1.4;
+    final gap = cw * 0.12;
+    final centerX = layout.center.dx;
+    final centerY = layout.center.dy;
+    final uiSizeMultiplier = uiSizeMultiplierFromKey(context.uiSize);
+    
+    // Position hero cards tighter to the hero label instead of drifting toward center.
+    final ringRadiusY = layout.ringRadiusY;
+    // Clamp hero seat so cards track the rendered player when the viewport is tight.
+    final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
+    final heroY = (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
+    
+    // Lightly scale spacing so cards stay tethered to the hero as width grows.
+    final minSpacingAbovePlayer = 8.0 * uiSizeMultiplier;
+    final maxSpacingAbovePlayer = 26.0 * uiSizeMultiplier;
+    final spacingAbovePlayer =
+        (ringRadiusY * 0.08).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
       
       // Calculate primary position: above player with damped spacing
       var y = heroY - kPlayerRadius - spacingAbovePlayer - ch;
@@ -232,7 +234,8 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final baseCommunityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
       final communityCardHeight = baseCommunityCardHeight * cardSizeMultiplier;
       final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
-      final minGapFromCommunity = math.max(16.0, layout.tableRadiusY * 0.16);
+    final minGapFromCommunity =
+        math.max(10.0 * uiSizeMultiplier, layout.tableRadiusY * 0.10);
       final minSafeY = communityCardsBottom + minGapFromCommunity;
       final maxAllowedY = heroY - kPlayerRadius - ch - 4.0; // avoid overlapping the seat
       // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.

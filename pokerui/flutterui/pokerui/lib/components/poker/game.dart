@@ -7,8 +7,8 @@ import 'table.dart';
 import 'table_theme.dart';
 import 'cards.dart';
 import 'disconnected_badges.dart';
-import 'bet_sidebar.dart';
 import 'table_logo.dart';
+import 'pot_display.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
@@ -40,20 +40,20 @@ class _TableBackgroundPainter extends CustomPainter {
       width: tableRadiusX * 2,
       height: tableRadiusY * 2,
     );
-    
+
     // Table surface
     final tablePaint = Paint()
       ..color = const Color(0xFF0D4F3C) // Poker table green
       ..style = PaintingStyle.fill;
     canvas.drawOval(tableRect, tablePaint);
-    
+
     // Table border
     final borderPaint = Paint()
       ..color = const Color(0xFF8B4513) // Brown border
       ..style = PaintingStyle.stroke
       ..strokeWidth = 8;
     canvas.drawOval(tableRect, borderPaint);
-    
+
     // Subtle shadow
     final shadowPaint = Paint()
       ..color = Colors.black.withOpacity(0.3)
@@ -80,7 +80,8 @@ class PokerGame {
 
   PokerGame(this.playerId, this.pokerModel, {required this.theme});
 
-  Widget buildWidget(UiGameState gameState, FocusNode focusNode, {VoidCallback? onReadyHotkey}) {
+  Widget buildWidget(UiGameState gameState, FocusNode focusNode,
+      {VoidCallback? onReadyHotkey}) {
     // Start/stop lightweight repaint loop only while an authoritative deadline is active.
     if (gameState.turnDeadlineUnixMs > 0) {
       _loop.start();
@@ -96,7 +97,9 @@ class PokerGame {
             if (event is KeyDownEvent || event is KeyRepeatEvent) {
               String keyLabel = event.logicalKey.keyLabel;
               if (onReadyHotkey != null) {
-                if (event.logicalKey == LogicalKeyboardKey.space || keyLabel == 'r' || keyLabel == 'R') {
+                if (event.logicalKey == LogicalKeyboardKey.space ||
+                    keyLabel == 'r' ||
+                    keyLabel == 'R') {
                   onReadyHotkey();
                   return;
                 }
@@ -120,7 +123,8 @@ class PokerGame {
 
                           // Game canvas (repaints)
                           CustomPaint(
-                            painter: PokerPainter(gameState, playerId, theme, repaint: _loop),
+                            painter: PokerPainter(gameState, playerId, theme,
+                                repaint: _loop),
                             isComplex: true,
                             willChange: true,
                           ),
@@ -133,7 +137,9 @@ class PokerGame {
                             ),
 
                           // Widget-based overlays for cards
-                          IgnorePointer(child: _CommunityCardsOverlay(cards: gameState.communityCards)),
+                          IgnorePointer(
+                              child: _CommunityCardsOverlay(
+                                  cards: gameState.communityCards)),
 
                           // Hero hole cards overlay (visible during all active phases)
                           if (gameState.phase != pr.GamePhase.WAITING)
@@ -147,13 +153,13 @@ class PokerGame {
                                   )
                                 // Otherwise render non-interactive to avoid stealing input
                                 : IgnorePointer(
-                                  child: _HeroCardsOverlay(
-                                    players: gameState.players,
-                                    heroId: playerId,
-                                    cache: pokerModel.myHoleCardsCache,
-                                    model: pokerModel,
-                                  ),
-                                )),
+                                    child: _HeroCardsOverlay(
+                                      players: gameState.players,
+                                      heroId: playerId,
+                                      cache: pokerModel.myHoleCardsCache,
+                                      model: pokerModel,
+                                    ),
+                                  )),
 
                           // Hover hints for disconnected players
                           DisconnectedBadgesOverlay(
@@ -162,66 +168,12 @@ class PokerGame {
                             hasCurrentBet: gameState.currentBet > 0,
                           ),
 
-                          // Pot label on the right
-                          Positioned(
-                            top: 6,
-                            right: 12,
-                            child: SafeArea(
-                              child: Material(
-                                color: Colors.transparent,
-                                child: Container(
-                                  padding: EdgeInsets.symmetric(
-                                    horizontal: 12 * theme.uiSizeMultiplier,
-                                    vertical: 8 * theme.uiSizeMultiplier,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF1A1D2E).withOpacity(0.95),
-                                    borderRadius: BorderRadius.circular(12 * theme.uiSizeMultiplier),
-                                    border: Border.all(
-                                      color: Colors.amber.withOpacity(0.5),
-                                      width: 2 * theme.uiSizeMultiplier,
-                                    ),
-                                    boxShadow: [
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.5),
-                                        blurRadius: 10 * theme.uiSizeMultiplier,
-                                        spreadRadius: 2 * theme.uiSizeMultiplier,
-                                      ),
-                                    ],
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.casino,
-                                        color: Colors.amber,
-                                        size: 18 * theme.uiSizeMultiplier,
-                                      ),
-                                      SizedBox(width: 6 * theme.uiSizeMultiplier),
-                                      Text(
-                                        'Pot: ${gameState.pot}',
-                                        style: TextStyle(
-                                          color: Colors.amber,
-                                          fontSize: 14 * theme.uiSizeMultiplier,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-
-                          // Betting info sidebar (right side, minimal pattern)
-                          // Hide during showdown when minimal showdown is visible
-                          if (gameState.currentBet > 0 && gameState.phase != pr.GamePhase.SHOWDOWN)
-                            BetSidebar(
-                              gameState: gameState,
-                              playerId: playerId,
+                          // Pot display on the felt with a chips anchor for animations
+                          if (gameState.pot > 0)
+                            PotDisplay(
+                              pot: gameState.pot,
                               theme: theme,
                             ),
-
                         ],
                       ),
                     ),
@@ -302,7 +254,8 @@ class PokerGame {
                       decoration: BoxDecoration(
                         color: const Color(0xFF0D4F3C),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF8B4513), width: 2),
+                        border: Border.all(
+                            color: const Color(0xFF8B4513), width: 2),
                       ),
                       child: const Center(
                         child: Icon(
@@ -328,7 +281,8 @@ class PokerGame {
                       decoration: BoxDecoration(
                         color: const Color(0xFF0D4F3C),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: const Color(0xFF8B4513), width: 2),
+                        border: Border.all(
+                            color: const Color(0xFF8B4513), width: 2),
                       ),
                       child: const Center(
                         child: Icon(
@@ -355,7 +309,8 @@ class PokerGame {
                 onPressed: () => onReadyPressed(),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blueAccent,
-                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(30),
                   ),
@@ -519,7 +474,10 @@ class PokerGame {
           final tid = pokerModel.currentTableId;
           final table = tid == null
               ? null
-              : pokerModel.tables.where((t) => t.id == tid).cast<UiTable?>().firstWhere(
+              : pokerModel.tables
+                  .where((t) => t.id == tid)
+                  .cast<UiTable?>()
+                  .firstWhere(
                     (t) => t != null,
                     orElse: () => null,
                   );
@@ -550,8 +508,9 @@ class PokerPainter extends CustomPainter {
   // Used to stagger simple reveal animations at showdown
   final int showdownStartMs;
   final double minSeatTop;
-  
-  PokerPainter(this.gameState, this.currentPlayerId, this.theme, {Listenable? repaint})
+
+  PokerPainter(this.gameState, this.currentPlayerId, this.theme,
+      {Listenable? repaint})
       : showdownStartMs = DateTime.now().millisecondsSinceEpoch,
         minSeatTop = 0,
         super(repaint: repaint);
@@ -567,8 +526,9 @@ class PokerPainter extends CustomPainter {
     final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
 
     // Draw poker table
-    drawPokerTable(canvas, centerX, centerY, tableRadiusX, tableRadiusY, theme.tableTheme);
-    
+    drawPokerTable(
+        canvas, centerX, centerY, tableRadiusX, tableRadiusY, theme.tableTheme);
+
     // Draw players
     drawPlayers(
       canvas,
@@ -607,17 +567,12 @@ class PokerPainter extends CustomPainter {
     );
   }
 
-
   @override
   bool shouldRepaint(covariant PokerPainter old) =>
       old.gameState != gameState || old.currentPlayerId != currentPlayerId;
 
-
-  void _drawHeroHoleCards(Canvas canvas, Size size) {
-  }
-
+  void _drawHeroHoleCards(Canvas canvas, Size size) {}
 }
-
 
 class _CommunityCardsOverlay extends StatelessWidget {
   const _CommunityCardsOverlay({required this.cards});
@@ -628,9 +583,12 @@ class _CommunityCardsOverlay extends StatelessWidget {
     if (cards.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
+      final theme = PokerThemeConfig.fromContext(context);
       final box = pokerViewportRect(size);
       final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final cw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
+      final baseCw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
+      final cw =
+          (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
       final ch = cw * 1.4;
       final gap = cw * 0.10;
       final totalW = (cards.length * cw) + ((cards.length - 1) * gap);
@@ -645,7 +603,7 @@ class _CommunityCardsOverlay extends StatelessWidget {
           top: y,
           width: cw,
           height: ch,
-          child: CardFace(card: cards[i]),
+          child: CardFace(card: cards[i], cardTheme: theme.cardTheme),
         ));
       }
       return Stack(children: children);
@@ -654,15 +612,18 @@ class _CommunityCardsOverlay extends StatelessWidget {
 }
 
 class _OpponentsShowdownHandsOverlay extends StatefulWidget {
-  const _OpponentsShowdownHandsOverlay({required this.players, required this.heroId});
+  const _OpponentsShowdownHandsOverlay(
+      {required this.players, required this.heroId});
   final List<UiPlayer> players;
   final String heroId;
 
   @override
-  State<_OpponentsShowdownHandsOverlay> createState() => _OpponentsShowdownHandsOverlayState();
+  State<_OpponentsShowdownHandsOverlay> createState() =>
+      _OpponentsShowdownHandsOverlayState();
 }
 
-class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsOverlay> {
+class _OpponentsShowdownHandsOverlayState
+    extends State<_OpponentsShowdownHandsOverlay> {
   // Snapshot of shown hands during showdown. We only add new reveals and never
   // remove, so they remain visible even if later snapshots clear hands.
   final Map<String, List<pr.Card>> _shownHands = {};
@@ -696,9 +657,11 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
     if (widget.players.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
+      final theme = PokerThemeConfig.fromContext(context);
       final layout = resolveTableLayout(size);
       final box = layout.viewport;
       final center = layout.center;
+      final playerRadius = kPlayerRadius * theme.uiSizeMultiplier;
       final minSeatTop = minSeatTopFor(layout.viewport, false);
       final seats = seatPositionsFor(
         widget.players,
@@ -708,6 +671,7 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
         layout.ringRadiusY,
         clampBounds: layout.viewport,
         minSeatTop: minSeatTop,
+        uiSizeMultiplier: theme.uiSizeMultiplier,
       );
 
       final cw = (box.width * 0.032).clamp(24.0, 36.0).toDouble();
@@ -729,21 +693,41 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
         final minTop = box.top + 8.0;
         final maxTop = box.bottom - ch - 8.0;
         final baseTop = isTopHalf
-            ? pos.dy + kPlayerRadius + 22.0 // below chips for top-row players
+            ? pos.dy + playerRadius + 22.0 // below chips for top-row players
             : pos.dy - ch - 6.0;
         final top = baseTop.clamp(minTop, maxTop).toDouble();
 
         final snap = _shownHands[p.id];
         if (snap != null && snap.isNotEmpty) {
           children.addAll([
-            Positioned(left: left, top: top, width: cw, height: ch, child: CardFace(card: snap[0])),
+            Positioned(
+                left: left,
+                top: top,
+                width: cw,
+                height: ch,
+                child: CardFace(card: snap[0])),
             if (snap.length > 1)
-              Positioned(left: left + cw + gap, top: top, width: cw, height: ch, child: CardFace(card: snap[1])),
+              Positioned(
+                  left: left + cw + gap,
+                  top: top,
+                  width: cw,
+                  height: ch,
+                  child: CardFace(card: snap[1])),
           ]);
         } else {
           children.addAll([
-            Positioned(left: left, top: top, width: cw, height: ch, child: const CardBack()),
-            Positioned(left: left + cw + gap, top: top, width: cw, height: ch, child: const CardBack()),
+            Positioned(
+                left: left,
+                top: top,
+                width: cw,
+                height: ch,
+                child: const CardBack()),
+            Positioned(
+                left: left + cw + gap,
+                top: top,
+                width: cw,
+                height: ch,
+                child: const CardBack()),
           ]);
         }
       }
@@ -753,7 +737,11 @@ class _OpponentsShowdownHandsOverlayState extends State<_OpponentsShowdownHandsO
 }
 
 class _HeroCardsOverlay extends StatelessWidget {
-  const _HeroCardsOverlay({required this.players, required this.heroId, required this.cache, required this.model});
+  const _HeroCardsOverlay(
+      {required this.players,
+      required this.heroId,
+      required this.cache,
+      required this.model});
   final List<UiPlayer> players;
   final String heroId;
   final List<pr.Card> cache;
@@ -761,14 +749,29 @@ class _HeroCardsOverlay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hero = players.firstWhere((p) => p.id == heroId, orElse: () => const UiPlayer(
-      id: '', name: '', balance: 0, hand: [], currentBet: 0, folded: false, isTurn: false, isAllIn: false, isDealer: false, isSmallBlind: false, isBigBlind: false, isReady: false, isDisconnected: false, handDesc: '',
-    ));
+    final hero = players.firstWhere((p) => p.id == heroId,
+        orElse: () => const UiPlayer(
+              id: '',
+              name: '',
+              balance: 0,
+              hand: [],
+              currentBet: 0,
+              folded: false,
+              isTurn: false,
+              isAllIn: false,
+              isDealer: false,
+              isSmallBlind: false,
+              isBigBlind: false,
+              isReady: false,
+              isDisconnected: false,
+              handDesc: '',
+            ));
     if (hero.id.isEmpty) return const SizedBox.shrink();
     // Prefer live hero.hand; fall back to cached hole cards when snapshots omit them (e.g., during showdown).
     final List<pr.Card> cards = hero.hand.isNotEmpty ? hero.hand : cache;
     final bool faceUp = cards.isNotEmpty;
-    final bool hint = (model.game?.phase == pr.GamePhase.SHOWDOWN) && !model.myCardsShown;
+    final bool hint =
+        (model.game?.phase == pr.GamePhase.SHOWDOWN) && !model.myCardsShown;
     return HeroCardFlipOverlay(
       cards: cards,
       showFace: faceUp,

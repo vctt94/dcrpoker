@@ -115,9 +115,9 @@ class _MinimalShowdownState extends State<MinimalShowdown>
     final winners = widget.model.lastWinners;
     final pot = widget.model.showdownPot;
 
-    // Position below Pot label (Pot is at top: 12, with ~50px height, plus 8px gap)
+    // Position at the same height as bet sidebar
     return Positioned(
-      top: 50, // Positioned below Pot label, same height as bet sidebar
+      top: 12,
       right: 12,
       child: SlideTransition(
         position: _slideAnimation,
@@ -125,7 +125,7 @@ class _MinimalShowdownState extends State<MinimalShowdown>
           child: Material(
             color: Colors.transparent,
             child: Container(
-              constraints: BoxConstraints(maxWidth: 200 * widget.theme.uiSizeMultiplier),
+              constraints: BoxConstraints(maxWidth: 260 * widget.theme.uiSizeMultiplier),
               decoration: BoxDecoration(
                 color: const Color(0xFF1A1D2E).withOpacity(0.95),
                 borderRadius: BorderRadius.circular(12 * widget.theme.uiSizeMultiplier),
@@ -297,4 +297,3 @@ class _MinimalShowdownState extends State<MinimalShowdown>
     );
   }
 }
-
