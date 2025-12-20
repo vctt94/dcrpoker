@@ -348,12 +348,21 @@ class UiGameState {
 
 bool isAutoAdvanceAllIn(UiGameState? g) {
   if (g == null) return false;
-  // When the current player is already all-in the hand is auto-advancing and
-  // no manual action is expected. We rely on the isAllIn flag surfaced in the
-  // per-player snapshot.
+  final actionablePhase = g.phase == pr.GamePhase.PRE_FLOP ||
+      g.phase == pr.GamePhase.FLOP ||
+      g.phase == pr.GamePhase.TURN ||
+      g.phase == pr.GamePhase.RIVER;
+  if (!actionablePhase) return false;
+
+  // When all remaining (non-folded) players are all-in, streets will
+  // auto-advance and no manual decision is expected. Also guard against a
+  // current player that is already marked all-in.
   final current = g.players.firstWhereOrNull((p) => p.id == g.currentPlayerId);
-  if (current == null) return false;
-  return current.isAllIn;
+  final everyoneAllIn = g.players
+      .where((p) => !p.folded)
+      .every((p) => p.isAllIn); // folded players can't act
+
+  return (current?.isAllIn ?? false) || everyoneAllIn;
 }
 
 /// -------- The main ChangeNotifier --------
@@ -1430,9 +1439,16 @@ class PokerModel extends ChangeNotifier {
   UiPlayer _uiPlayerFromShowdown(pr.ShowdownPlayer sp) {
     final folded = sp.finalState == pr.PlayerState.PLAYER_STATE_FOLDED;
     final allIn = sp.finalState == pr.PlayerState.PLAYER_STATE_ALL_IN;
+    var name = sp.name;
+    if (name.isEmpty) {
+      // Fallback to the latest game snapshot so showdown UI still shows labels
+      final fromGame =
+          game?.players.firstWhereOrNull((p) => p.id == sp.playerId);
+      name = fromGame?.name ?? '';
+    }
     return UiPlayer(
       id: sp.playerId,
-      name: '',
+      name: name,
       balance: 0,
       hand: List<pr.Card>.unmodifiable(sp.holeCards),
       currentBet: 0,

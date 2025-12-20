@@ -582,6 +582,7 @@ void drawCurrentTimebank(
     Rect? clampBounds,
     double? minSeatTop}) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
+  if (isAutoAdvanceAllIn(gameState)) return; // hide countdown when auto-advancing
   final nowMs = DateTime.now().millisecondsSinceEpoch;
   final remMs = (gameState.turnDeadlineUnixMs - nowMs).clamp(0, 1 << 30);
   final remSec = remMs / 1000.0;

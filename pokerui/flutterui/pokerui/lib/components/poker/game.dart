@@ -82,8 +82,11 @@ class PokerGame {
 
   Widget buildWidget(UiGameState gameState, FocusNode focusNode,
       {VoidCallback? onReadyHotkey}) {
-    // Start/stop lightweight repaint loop only while an authoritative deadline is active.
-    if (gameState.turnDeadlineUnixMs > 0) {
+    // Start/stop lightweight repaint loop only while an authoritative deadline
+    // is active and the hand isn't auto-advancing through all-in streets.
+    final hasDeadline = gameState.turnDeadlineUnixMs > 0;
+    final autoAdvancing = isAutoAdvanceAllIn(gameState);
+    if (hasDeadline && !autoAdvancing) {
       _loop.start();
     } else {
       _loop.stop();
