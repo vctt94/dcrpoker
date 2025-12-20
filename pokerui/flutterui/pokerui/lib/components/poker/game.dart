@@ -770,8 +770,7 @@ class _HeroCardsOverlay extends StatelessWidget {
     if (hero.id.isEmpty) return const SizedBox.shrink();
     // Prefer live hero.hand; fall back to cached hole cards when snapshots omit them (e.g., during showdown).
     final List<pr.Card> cards = hero.hand.isNotEmpty ? hero.hand : cache;
-    final bool faceUp = cards.isNotEmpty &&
-        (gamePhase != pr.GamePhase.SHOWDOWN || isShowing);
+    final bool faceUp = cards.isNotEmpty;
     return HeroCardFlipOverlay(
       cards: cards,
       showFace: faceUp,

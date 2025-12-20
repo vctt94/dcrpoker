@@ -610,6 +610,9 @@ NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
       message: json['message'] as String?,
       tableId: json['tableId'] as String?,
       playerId: json['playerId'] as String?,
+      cards: (json['cards'] as List<dynamic>?)
+          ?.map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
       amount: (json['amount'] as num?)?.toInt(),
       newBalance: (json['newBalance'] as num?)?.toInt(),
       ready: json['ready'] as bool?,
@@ -637,6 +640,7 @@ Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
       'message': instance.message,
       'tableId': instance.tableId,
       'playerId': instance.playerId,
+      'cards': instance.cards,
       'amount': instance.amount,
       'newBalance': instance.newBalance,
       'ready': instance.ready,

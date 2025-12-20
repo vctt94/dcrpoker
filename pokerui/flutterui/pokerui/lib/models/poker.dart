@@ -678,6 +678,20 @@ class PokerModel extends ChangeNotifier {
               cardsRevealed: true,
             );
           }
+          if (n.cards.isNotEmpty) {
+            _showdownHandsCache[n.playerId] =
+                List<pr.Card>.unmodifiable(n.cards);
+            if (_showdownPlayers.isNotEmpty) {
+              final updated = _showdownPlayers
+                  .map((p) => p.id == n.playerId
+                      ? p
+                          .withHand(List<pr.Card>.unmodifiable(n.cards))
+                          .copyWith(cardsRevealed: true)
+                      : p)
+                  .toList(growable: false);
+              _showdownPlayers = List.unmodifiable(updated);
+            }
+          }
           notifyListeners();
         }
         break;
@@ -959,11 +973,23 @@ class PokerModel extends ChangeNotifier {
     return players
         .map((p) {
           if (p.hand.isNotEmpty) return p;
-          if (!p.cardsRevealed) return p;
+          if (p.id == playerId) {
+            final cached = _myHoleCardsCache.isNotEmpty
+                ? _myHoleCardsCache
+                : _showdownHandsCache[p.id];
+            if (cached != null && cached.isNotEmpty) {
+              return p.withHand(cached);
+            }
+            return p;
+          }
+          if (p.folded && !p.cardsRevealed) return p;
           final cached = _showdownHandsCache[p.id];
           if (cached != null && cached.isNotEmpty) {
-            return p.withHand(cached);
+            if (p.cardsRevealed) {
+              return p.withHand(cached);
+            }
           }
+          if (!p.cardsRevealed) return p;
           return p;
         })
         .toList();
