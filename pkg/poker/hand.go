@@ -8,10 +8,8 @@ import (
 
 // Hole represents a player's hole cards for a single hand
 type Hole struct {
-	cards    [2]Card
-	count    int  // number of cards dealt (0, 1, or 2)
-	revealed bool // true if revealed at showdown
-	mucked   bool // eligible but not revealed (lost at showdown)
+	cards [2]Card
+	count int // number of cards dealt (0, 1, or 2)
 }
 
 // NewHole creates a new empty Hole
@@ -40,21 +38,10 @@ func (h *Hole) GetCards() []Card {
 	return h.cards[:h.count]
 }
 
-// Reveal marks the hole as revealed at showdown
-func (h *Hole) Reveal() {
-	h.revealed = true
-}
-
-// Muck marks the hole as mucked at showdown
-func (h *Hole) Muck() {
-	h.mucked = true
-}
-
 // Clear purges the hole cards (called during cleanup)
 func (h *Hole) Clear() {
 	h.cards = [2]Card{}
 	h.count = 0
-	// Keep revealed/mucked flags for audit
 }
 
 // Hand represents all per-hand state, owned by Game
@@ -97,7 +84,9 @@ func (h *Hand) DealCardToPlayer(playerID string, card Card) error {
 }
 
 // GetPlayerCards returns the cards for a specific player (respecting visibility)
-func (h *Hand) GetPlayerCards(playerID string, requestorID string) []Card {
+// GetPlayerCards returns the cards for a player.
+// Visibility/auth filtering is handled by the server layer.
+func (h *Hand) GetPlayerCards(playerID string) []Card {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -106,35 +95,9 @@ func (h *Hand) GetPlayerCards(playerID string, requestorID string) []Card {
 		return nil
 	}
 
-	// Visibility rules:
-	// 1. Owner can always see their own cards
-	// 2. Revealed cards are visible to everyone
-	// 3. Mucked cards are only visible to owner
-	if playerID == requestorID || hole.revealed {
-		return hole.GetCards()
-	}
-
-	return nil // Not visible
-}
-
-// RevealPlayerCards marks a player's cards as revealed at showdown
-func (h *Hand) RevealPlayerCards(playerID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if hole, ok := h.hole[playerID]; ok {
-		hole.Reveal()
-	}
-}
-
-// MuckPlayerCards marks a player's cards as mucked at showdown
-func (h *Hand) MuckPlayerCards(playerID string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if hole, ok := h.hole[playerID]; ok {
-		hole.Muck()
-	}
+	// Return cards if they exist - server layer handles visibility/auth
+	// Cards are publicly visible if revealed during showdown
+	return hole.GetCards()
 }
 
 // CleanupHoleCards purges all hole card data (called after settlement)

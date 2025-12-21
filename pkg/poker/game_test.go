@@ -22,6 +22,21 @@ func createTestLogger() slog.Logger {
 	return log
 }
 
+func startHandParticipationIfNeeded(t *testing.T, players []*Player) {
+	t.Helper()
+	for _, p := range players {
+		if p == nil {
+			continue
+		}
+		p.mu.RLock()
+		hp := p.handParticipation
+		p.mu.RUnlock()
+		if hp == nil {
+			require.NoError(t, p.HandleStartHand())
+		}
+	}
+}
+
 func TestNewGame(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
@@ -147,7 +162,7 @@ func TestDealCards(t *testing.T) {
 
 	// Check each player has 2 cards
 	for i, player := range game.players {
-		cards := game.currentHand.GetPlayerCards(player.ID(), player.ID())
+		cards := game.currentHand.GetPlayerCards(player.ID())
 		if len(cards) != 2 {
 			t.Errorf("Player %d: Expected 2 cards, got %d", i, len(cards))
 		}
@@ -271,6 +286,7 @@ func TestShowdown(t *testing.T) {
 	game.potManager.addBet(1, 50, game.players) // Player 2 bet 50
 
 	// Run the showdown
+	startHandParticipationIfNeeded(t, game.players)
 	_, err = game.HandleShowdown()
 	if err != nil {
 		t.Fatalf("HandleShowdown() error = %v", err)
@@ -338,6 +354,12 @@ func TestShowdownHandRankPropagates(t *testing.T) {
 	game.potManager.addBet(0, 40, game.players)
 	game.potManager.addBet(1, 40, game.players)
 
+	// Set revealed flag for p2 (the winner) so hand rank will be shown
+	game.players[1].mu.Lock()
+	game.players[1].revealed = true
+	game.players[1].mu.Unlock()
+
+	startHandParticipationIfNeeded(t, game.players)
 	result, err := game.HandleShowdown()
 	require.NoError(t, err)
 
@@ -471,6 +493,7 @@ func TestSplitPotShowdown(t *testing.T) {
 	game.potManager.addBet(1, 50, game.players)
 
 	// Resolve showdown
+	startHandParticipationIfNeeded(t, game.players)
 	game.mu.Lock()
 	res, err := game.handleShowdown()
 	game.mu.Unlock()
@@ -548,22 +571,18 @@ func TestSidePotShowdown(t *testing.T) {
 
 	// Pots are automatically built on each bet, no need to call BuildPotsFromTotals
 
-	// Pre-compute player state
-	foldStatus := make([]bool, len(game.players))
-	handValues := make([]*HandValue, len(game.players))
-	for i, p := range game.players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
 	// Distribute pots - now requires game.mu held (Game FSM thread invariant)
 	game.mu.Lock()
-	game.potManager.distributePots(game.players)
+	payouts, err := game.potManager.distributePots(game.players)
 	game.mu.Unlock()
+	require.NoError(t, err)
+
+	for idx, amt := range payouts {
+		if amt <= 0 || idx < 0 || idx >= len(game.players) || game.players[idx] == nil {
+			continue
+		}
+		require.NoError(t, game.players[idx].AddToBalance(amt))
+	}
 
 	// Expected: p3 gets 90 (main), p1 gets 40 (side)
 	if game.players[2].Balance() != 90 {
@@ -2183,7 +2202,7 @@ func TestShowdownWithFoldedPlayer(t *testing.T) {
 // The table is created with minPlayers=2 so it can continue with 2 active players.
 func TestAutoStartAfterElimination(t *testing.T) {
 	// Create a table with minPlayers=2
-	tbl := newTestTable(t, 2, 6, 10, 20, 1000)
+	tbl := newTestTable(t, 2, 3, 10, 20, 1000)
 	tbl.config.AutoStartDelay = 50 * time.Millisecond
 
 	// Add 3 players

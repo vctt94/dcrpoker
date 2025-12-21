@@ -570,13 +570,54 @@ func (s *Server) ShowCards(ctx context.Context, req *pokerrpc.ShowCardsRequest) 
 		return nil, status.Error(codes.FailedPrecondition, "player not at table")
 	}
 
-	// Broadcast card visibility notification to all players at the table
+	game := table.GetGame()
+	if game == nil {
+		return nil, status.Error(codes.FailedPrecondition, "no active game")
+	}
+
+	cards, err := game.RevealPlayerCards(req.PlayerId)
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	phase := game.GetPhase()
+	// Treat showdown as active once results are available, even if phase flips late.
+	showdownReady := phase == pokerrpc.GamePhase_SHOWDOWN || table.GetLastShowdown() != nil
+	// Broadcast card visibility notification to all players at the table with revealed cards.
+	// At showdown, include cards. During hand, just notify intent.
+	if showdownReady && len(cards) > 0 {
+		// At showdown, cards are actually revealed
+		msg := fmt.Sprintf("%s is showing their cards", req.PlayerId)
+		s.broadcastNotificationToTable(req.TableId, &pokerrpc.Notification{
+			Type:     pokerrpc.NotificationType_CARDS_SHOWN,
+			PlayerId: req.PlayerId,
+			TableId:  req.TableId,
+			Cards:    cards,
+			Message:  msg,
+		})
+		// Publish game state update so all players receive the updated state with revealed cards
+		if tableSnapshot, err := s.collectTableSnapshot(req.TableId); err == nil && tableSnapshot != nil {
+			s.publishTableSnapshotEvent(req.TableId, tableSnapshot)
+		}
+		return &pokerrpc.ShowCardsResponse{
+			Success: true,
+			Message: "Cards shown to other players",
+		}, nil
+	}
+
+	// During hand, just notify intent (no cards shown yet)
+	msg := fmt.Sprintf("%s will show their cards at showdown", req.PlayerId)
 	s.broadcastNotificationToTable(req.TableId, &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_CARDS_SHOWN,
 		PlayerId: req.PlayerId,
 		TableId:  req.TableId,
-		Message:  fmt.Sprintf("%s is showing their cards", req.PlayerId),
+		Cards:    nil, // No cards during hand
+		Message:  msg,
 	})
+	// Publish snapshot so the toggled reveal intent is reflected in the UI.
+	if tableSnapshot, err := s.collectTableSnapshot(req.TableId); err == nil && tableSnapshot != nil {
+		s.publishTableSnapshotEvent(req.TableId, tableSnapshot)
+	}
 
 	return &pokerrpc.ShowCardsResponse{
 		Success: true,
@@ -597,13 +638,46 @@ func (s *Server) HideCards(ctx context.Context, req *pokerrpc.HideCardsRequest) 
 		return nil, status.Error(codes.FailedPrecondition, "player not at table")
 	}
 
+	game := table.GetGame()
+	if game == nil {
+		return nil, status.Error(codes.FailedPrecondition, "no active game")
+	}
+	if err := game.HidePlayerCards(req.PlayerId); err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	phase := game.GetPhase()
+	showdownReady := phase == pokerrpc.GamePhase_SHOWDOWN || table.GetLastShowdown() != nil
 	// Broadcast card visibility notification to all players at the table
+	if showdownReady {
+		// At showdown, cards are actually hidden
+		s.broadcastNotificationToTable(req.TableId, &pokerrpc.Notification{
+			Type:     pokerrpc.NotificationType_CARDS_HIDDEN,
+			PlayerId: req.PlayerId,
+			TableId:  req.TableId,
+			Message:  fmt.Sprintf("%s is hiding their cards", req.PlayerId),
+		})
+		// Publish snapshot so the toggled reveal intent is reflected in the UI.
+		if tableSnapshot, err := s.collectTableSnapshot(req.TableId); err == nil && tableSnapshot != nil {
+			s.publishTableSnapshotEvent(req.TableId, tableSnapshot)
+		}
+		return &pokerrpc.HideCardsResponse{
+			Success: true,
+			Message: "Cards hidden from other players",
+		}, nil
+	}
+
+	// During hand, just notify intent change
 	s.broadcastNotificationToTable(req.TableId, &pokerrpc.Notification{
 		Type:     pokerrpc.NotificationType_CARDS_HIDDEN,
 		PlayerId: req.PlayerId,
 		TableId:  req.TableId,
-		Message:  fmt.Sprintf("%s is hiding their cards", req.PlayerId),
+		Message:  fmt.Sprintf("%s will not show their cards at showdown", req.PlayerId),
 	})
+	// Publish snapshot so the toggled reveal intent is reflected in the UI.
+	if tableSnapshot, err := s.collectTableSnapshot(req.TableId); err == nil && tableSnapshot != nil {
+		s.publishTableSnapshotEvent(req.TableId, tableSnapshot)
+	}
 
 	return &pokerrpc.HideCardsResponse{
 		Success: true,

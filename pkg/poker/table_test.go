@@ -1002,11 +1002,11 @@ func TestHoleCardsAvailableOnGameStart(t *testing.T) {
 	// (this should pass - proving cards are stored, just not retrieved)
 	require.NotNil(t, game.currentHand, "game.currentHand should be initialized")
 
-	hand1 := game.currentHand.GetPlayerCards("p1", "p1") // player requesting own cards
+	hand1 := game.currentHand.GetPlayerCards("p1") // player requesting own cards
 	t.Logf("currentHand.GetPlayerCards for p1: %d cards", len(hand1))
 	assert.Len(t, hand1, 2, "Cards should be stored in game.currentHand for p1")
 
-	hand2 := game.currentHand.GetPlayerCards("p2", "p2")
+	hand2 := game.currentHand.GetPlayerCards("p2")
 	t.Logf("currentHand.GetPlayerCards for p2: %d cards", len(hand2))
 	assert.Len(t, hand2, 2, "Cards should be stored in game.currentHand for p2")
 }
@@ -1115,7 +1115,7 @@ func TestTableClose_WithGame(t *testing.T) {
 		HostID:           "host1",
 		BuyIn:            0,
 		MinPlayers:       2,
-		MaxPlayers:       6,
+		MaxPlayers:       2,
 		SmallBlind:       10,
 		BigBlind:         20,
 		StartingChips:    1000,

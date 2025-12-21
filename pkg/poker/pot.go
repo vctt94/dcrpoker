@@ -211,11 +211,16 @@ func (pm *potManager) rebuildPotsIncremental(players []*Player, foldStatus []boo
 	pm.pots = pots
 }
 
-// distributePots distributes all pots to showdown winners by directly modifying player.balance.
-// Robust to accidental calls on uncontested pots and idempotent:
-// pots are zeroed after payout so re-entry is a no-op.
+// distributePots computes payouts for all non-empty pots and zeroes the pots.
+// It does NOT mutate any player state; callers must apply the returned payouts
+// (e.g., via Player FSM events).
+//
+// Robust to accidental calls on uncontested pots and idempotent: pots are
+// zeroed after computation so re-entry is a no-op.
+//
 // REQUIRES: g.mu held (Game FSM thread)
-func (pm *potManager) distributePots(players []*Player) error {
+func (pm *potManager) distributePots(players []*Player) (map[int]int64, error) {
+	payouts := make(map[int]int64)
 	for pi, pot := range pm.pots {
 		// Idempotent: skip empty/already-settled pots.
 		if pot.amount <= 0 {
@@ -224,13 +229,13 @@ func (pm *potManager) distributePots(players []*Player) error {
 
 		// Collect eligible & not-folded players (read directly since we hold g.mu)
 		if len(pot.eligibility) != len(players) {
-			return fmt.Errorf("[pot %d] eligibility len %d != players len %d",
+			return nil, fmt.Errorf("[pot %d] eligibility len %d != players len %d",
 				pi, len(pot.eligibility), len(players))
 		}
 		var alive []int
 		for idx, elig := range pot.eligibility {
 			if idx < 0 || idx >= len(players) {
-				return fmt.Errorf("[pot %d] eligibility idx %d out of range (players=%d)", pi, idx, len(players))
+				return nil, fmt.Errorf("[pot %d] eligibility idx %d out of range (players=%d)", pi, idx, len(players))
 			}
 			if elig && players[idx] != nil {
 				// Read hasFolded with proper locking (Player FSM may modify it)
@@ -246,12 +251,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 		// Uncontested pot path - modify balance with Player.mu under Game.mu (Table→Game→Player order)
 		if len(alive) == 1 {
 			w := alive[0]
-			if players[w] != nil {
-				// Acquire player lock before mutating fields to avoid data races
-				players[w].mu.Lock()
-				players[w].balance += pot.amount
-				players[w].mu.Unlock()
-			}
+			payouts[w] += pot.amount
 			pm.pots[pi].amount = 0
 			for j := range pm.pots[pi].eligibility {
 				pm.pots[pi].eligibility[j] = false
@@ -259,18 +259,19 @@ func (pm *potManager) distributePots(players []*Player) error {
 			continue
 		}
 		if len(alive) == 0 {
-			return fmt.Errorf("[pot %d] no eligible alive players; pot=%d", pi, pot.amount)
+			return nil, fmt.Errorf("[pot %d] no eligible alive players; pot=%d", pi, pot.amount)
 		}
 
 		// Showdown: find best hand(s) by reading handValue directly from players
 		var winners []int
 		var best *HandValue
 		for _, idx := range alive {
-			// Read handValue directly since we hold g.mu
 			p := players[idx]
+			p.mu.RLock()
 			hv := p.handValue
+			p.mu.RUnlock()
 			if hv == nil {
-				return fmt.Errorf("[pot %d] player %d eligible at showdown but HandValue == nil", pi, idx)
+				return nil, fmt.Errorf("[pot %d] player %d eligible at showdown but HandValue == nil", pi, idx)
 			}
 			if best == nil {
 				best = hv
@@ -286,10 +287,10 @@ func (pm *potManager) distributePots(players []*Player) error {
 			}
 		}
 		if len(winners) == 0 {
-			return fmt.Errorf("[pot %d] showdown produced no winners", pi)
+			return nil, fmt.Errorf("[pot %d] showdown produced no winners", pi)
 		}
 
-		// Split pot; first winner gets remainder - modify balance with Player.mu under Game.mu
+		// Split pot; first winner gets remainder.
 		share := pot.amount / int64(len(winners))
 		rem := pot.amount % int64(len(winners))
 		for i, idx := range winners {
@@ -297,12 +298,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 			if i == 0 && rem > 0 {
 				add += rem
 			}
-			if players[idx] != nil {
-				// Acquire player lock before mutating fields to avoid data races
-				players[idx].mu.Lock()
-				players[idx].balance += add
-				players[idx].mu.Unlock()
-			}
+			payouts[idx] += add
 		}
 
 		// Mark pot as settled.
@@ -311,7 +307,7 @@ func (pm *potManager) distributePots(players []*Player) error {
 			pm.pots[pi].eligibility[j] = false
 		}
 	}
-	return nil
+	return payouts, nil
 }
 
 // ReturnUncalledBet returns any uncalled portion of the top bet to the bettor.
@@ -325,9 +321,16 @@ func (pm *potManager) distributePots(players []*Player) error {
 // Returns (hiPlayer, refunded, error). Caller can decide when to rebuild pots.
 // REQUIRES: g.mu held (Game FSM thread)
 func (pm *potManager) returnUncalledBet(forced []int64) (int, int64, error) {
-	n := len(pm.currentBets)
-	if n == 0 || len(forced) != n {
+	if len(forced) == 0 {
 		return -1, 0, fmt.Errorf("invalid input")
+	}
+	if len(pm.currentBets) == 0 {
+		return -1, 0, nil
+	}
+	for i := range pm.currentBets {
+		if i < 0 || i >= len(forced) {
+			return -1, 0, fmt.Errorf("invalid input: forced len %d out of range for seat %d", len(forced), i)
+		}
 	}
 
 	// Find highest and second-highest current bet.

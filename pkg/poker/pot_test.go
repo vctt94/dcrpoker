@@ -319,20 +319,8 @@ func TestPotDistribution(t *testing.T) {
 	setBalance(players[1], 0)
 	setBalance(players[2], 0)
 
-	// Pre-compute player state
-	foldStatus := make([]bool, len(players))
-	handValues := make([]*HandValue, len(players))
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
 	// Distribute pots
-	err := pm.distributePots(players)
+	payouts, err := pm.distributePots(players)
 	if err != nil {
 		t.Errorf("distributePots failed: %v", err)
 	}
@@ -341,17 +329,15 @@ func TestPotDistribution(t *testing.T) {
 	// Main pot: 90 - Player 2 should win with three of a kind
 	// Side pot: 40 - Player 0 should win with two pair
 
-	// Check player balances
-	if players[0].balance != 40 {
-		t.Errorf("Expected player 0 to have balance 40, got %d", players[0].balance)
+	// Check payouts
+	if payouts[0] != 40 {
+		t.Errorf("Expected player 0 to have payout 40, got %d", payouts[0])
 	}
-
-	if players[1].balance != 0 {
-		t.Errorf("Expected player 1 to have balance 0, got %d", players[1].balance)
+	if payouts[1] != 0 {
+		t.Errorf("Expected player 1 to have payout 0, got %d", payouts[1])
 	}
-
-	if players[2].balance != 90 {
-		t.Errorf("Expected player 2 to have balance 90, got %d", players[2].balance)
+	if payouts[2] != 90 {
+		t.Errorf("Expected player 2 to have payout 90, got %d", payouts[2])
 	}
 }
 
@@ -375,28 +361,17 @@ func TestTiepotDistribution(t *testing.T) {
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
 
-	// Pre-compute player state
-	foldStatus := make([]bool, len(players))
-	handValues := make([]*HandValue, len(players))
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
 	// Distribute pot
-	pm.distributePots(players)
+	payouts, err := pm.distributePots(players)
+	require.NoError(t, err)
 
 	// Players should split the pot
-	if players[0].balance != 50 {
-		t.Errorf("Expected player 0 to have balance 50, got %d", players[0].balance)
+	if payouts[0] != 50 {
+		t.Errorf("Expected player 0 to have payout 50, got %d", payouts[0])
 	}
 
-	if players[1].balance != 50 {
-		t.Errorf("Expected player 1 to have balance 50, got %d", players[1].balance)
+	if payouts[1] != 50 {
+		t.Errorf("Expected player 1 to have payout 50, got %d", payouts[1])
 	}
 }
 
@@ -424,32 +399,21 @@ func TestOddChipDistribution(t *testing.T) {
 	// pot is 150, which divides evenly by 3
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
 
-	// Pre-compute player state
-	foldStatus := make([]bool, len(players))
-	handValues := make([]*HandValue, len(players))
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
 	// Distribute pot
-	pm.distributePots(players)
+	payouts, err := pm.distributePots(players)
+	require.NoError(t, err)
 
 	// 150 / 3 = 50 each, with 0 remainder
-	if players[0].balance != 50 {
-		t.Errorf("Expected player 0 to have balance 50, got %d", players[0].balance)
+	if payouts[0] != 50 {
+		t.Errorf("Expected player 0 to have payout 50, got %d", payouts[0])
 	}
 
-	if players[1].balance != 50 {
-		t.Errorf("Expected player 1 to have balance 50, got %d", players[1].balance)
+	if payouts[1] != 50 {
+		t.Errorf("Expected player 1 to have payout 50, got %d", payouts[1])
 	}
 
-	if players[2].balance != 50 {
-		t.Errorf("Expected player 2 to have balance 50, got %d", players[2].balance)
+	if payouts[2] != 50 {
+		t.Errorf("Expected player 2 to have payout 50, got %d", payouts[2])
 	}
 
 	// Let's try with 151 chips for an odd chip
@@ -474,34 +438,24 @@ func TestOddChipDistribution(t *testing.T) {
 	pot.makeEligible(2)
 	pm.pots = append(pm.pots, pot)
 
-	// pot is 151
-	// Re-compute player state
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
 	// Distribute pot
-	pm.distributePots(players)
+	payouts, err = pm.distributePots(players)
+	require.NoError(t, err)
 
 	// 151 / 3 = 50 each, with 1 remainder going to first winner
 	// Get the distribution and verify totals
-	total := players[0].balance + players[1].balance + players[2].balance
+	total := payouts[0] + payouts[1] + payouts[2]
 	if total != 151 {
 		t.Errorf("Expected total distribution to be 151, got %d", total)
 	}
 
 	// Verify each player got at least 50, and one player got 51
 	oneGotExtra := false
-	for i, player := range players {
-		if player.balance < 50 {
-			t.Errorf("Player %d got less than 50: %d", i, player.balance)
+	for i := range players {
+		if payouts[i] < 50 {
+			t.Errorf("Player %d got less than 50: %d", i, payouts[i])
 		}
-		if player.balance == 51 {
+		if payouts[i] == 51 {
 			oneGotExtra = true
 		}
 	}
@@ -666,25 +620,13 @@ func TestHeadsUppotDistributionAfterCall(t *testing.T) {
 	setHandValue(players[1], &HandValue{Rank: HighCard, RankValue: 1000})
 
 	// pots are automatically built on each bet, no need to call BuildpotsFromTotals
-	// Pre-compute player state
-	foldStatus := make([]bool, len(players))
-	handValues := make([]*HandValue, len(players))
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
-	err := pm.distributePots(players)
+	payouts, err := pm.distributePots(players)
 	if err != nil {
 		t.Errorf("distributePots failed: %v", err)
 	}
 
 	// Check results
-	player0Winnings := players[0].balance
+	player0Winnings := payouts[0]
 	expectedWinnings := int64(40) // Should win 10+20+10 = 40 chips
 
 	t.Logf("Player 0 winnings: %d", player0Winnings)
@@ -852,26 +794,14 @@ func TestBetTrackingRegression(t *testing.T) {
 			}
 
 			// pots are automatically built on each bet, no need to call BuildpotsFromTotals
-			// Pre-compute player state
-			foldStatus := make([]bool, len(players))
-			handValues := make([]*HandValue, len(players))
-			for i, p := range players {
-				if p != nil {
-					p.mu.RLock()
-					foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-					handValues[i] = p.handValue
-					p.mu.RUnlock()
-				}
-			}
-
-			err := pm.distributePots(players)
+			payouts, err := pm.distributePots(players)
 			if err != nil {
 				t.Errorf("distributePots failed: %v", err)
 			}
 
 			// Verify distribution
 			for i, expectedWinning := range scenario.expectedDistribution {
-				actualWinning := players[i].balance
+				actualWinning := payouts[i]
 				if actualWinning != expectedWinning {
 					t.Errorf("Player %d: expected winnings %d, got %d", i, expectedWinning, actualWinning)
 				}
@@ -879,8 +809,8 @@ func TestBetTrackingRegression(t *testing.T) {
 
 			// CRITICAL INVARIANT: Total winnings must equal total pot
 			totalWinnings := int64(0)
-			for _, player := range players {
-				totalWinnings += player.balance
+			for i := range players {
+				totalWinnings += payouts[i]
 			}
 			if totalWinnings != scenario.expectedpot {
 				t.Errorf("CRITICAL: Total winnings (%d) != Total pot (%d) - bet tracking bug detected!",
@@ -1224,6 +1154,10 @@ func TestShowdownWinningsNotification_potZeroedAfterDistribution(t *testing.T) {
 		NewPlayer("player2", "Player 2", 0),
 	}
 
+	for _, p := range players {
+		require.NoError(t, p.StartHandParticipation())
+	}
+
 	// Set hand values
 	setHandValue(players[0], &HandValue{Rank: Pair, RankValue: 100}) // Winner
 	setHandDesc(players[0], "Pair of Tens")
@@ -1247,27 +1181,16 @@ func TestShowdownWinningsNotification_potZeroedAfterDistribution(t *testing.T) {
 	}
 
 	// Distribute (should zero working pots).
-	// Pre-compute player state
-	foldStatus := make([]bool, len(players))
-	handValues := make([]*HandValue, len(players))
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
-	err := pm.distributePots(players)
-	if err != nil {
-		t.Fatalf("distributePots failed: %v", err)
-	}
+	payouts, err := pm.distributePots(players)
+	require.NoError(t, err)
 
 	// After distribution, pots must be zero.
 	if got := pm.getTotalPot(); got != 0 {
 		t.Fatalf("expected total pot 0 after distribution, got %d", got)
 	}
+
+	// Apply payout through Player FSM.
+	require.NoError(t, players[0].AddToBalance(payouts[0]))
 
 	// Winner received full amount.
 	if players[0].balance != 100 {
@@ -1300,37 +1223,20 @@ func mkPlayers(n int) []*Player {
 func settle(t *testing.T, pm *potManager, players []*Player) ([]int64, int64) {
 	t.Helper()
 
-	// Snapshot balances AFTER any refunds, BEFORE distribution.
-	before := make([]int64, len(players))
-	for i, p := range players {
-		before[i] = p.balance
-	}
-
 	// Total pot available to distribute now.
 	total := pm.getTotalPot()
-	if total > 0 {
-		// Pre-compute player state
-		foldStatus := make([]bool, len(players))
-		handValues := make([]*HandValue, len(players))
-		for i, p := range players {
-			if p != nil {
-				p.mu.RLock()
-				foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-				handValues[i] = p.handValue
-				p.mu.RUnlock()
-			}
-		}
-
-		err := pm.distributePots(players)
-		if err != nil {
-			t.Fatalf("settle: distribute: %v", err)
-		}
+	if total <= 0 {
+		return make([]int64, len(players)), total
 	}
 
-	// Return only the settlement deltas (excludes prior refunds).
+	payouts, err := pm.distributePots(players)
+	if err != nil {
+		t.Fatalf("settle: distribute: %v", err)
+	}
+
 	delta := make([]int64, len(players))
-	for i, p := range players {
-		delta[i] = p.balance - before[i]
+	for i := range players {
+		delta[i] = payouts[i]
 	}
 	return delta, total
 }
@@ -1436,8 +1342,7 @@ func TestContested_UncalledRaiseRefund(t *testing.T) {
 
 	// Credit the refunded amount to the player
 	if refundedPlayer >= 0 && refundedAmount > 0 {
-		currentBalance := players[refundedPlayer].Balance()
-		players[refundedPlayer].SetBalance(currentBalance + refundedAmount)
+		require.NoError(t, players[refundedPlayer].AddToBalance(refundedAmount))
 	}
 
 	// Rebuild pots after refund to reflect the updated bet amounts
@@ -1552,21 +1457,16 @@ func TestRefundUncalled_AllInVsNonCaller_HeadsUp(t *testing.T) {
 	setHandValue(players[0], &HandValue{Rank: HighCard, RankValue: 1000})
 	setHandValue(players[1], &HandValue{Rank: Pair, RankValue: 100})
 
-	// Pre-compute player state
-	foldStatus := make([]bool, len(players))
-	handValues := make([]*HandValue, len(players))
-	for i, p := range players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
-	err = pm.distributePots(players)
+	payouts, err := pm.distributePots(players)
 	if err != nil {
 		t.Fatalf("distributePots failed: %v", err)
+	}
+
+	for idx, amt := range payouts {
+		if amt <= 0 || idx < 0 || idx >= len(players) || players[idx] == nil {
+			continue
+		}
+		require.NoError(t, players[idx].AddToBalance(amt))
 	}
 
 	// P0 receives the 980 refund; does not win the 40 pot

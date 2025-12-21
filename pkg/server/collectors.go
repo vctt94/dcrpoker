@@ -53,6 +53,7 @@ func (s *Server) collectPlayerSnapshot(user *poker.UserSnapshot, gameSnapshot *p
 			snapshot.HasBet = ps.CurrentBet
 			snapshot.StartingBalance = ps.StartingBalance
 			snapshot.LastAction = ps.LastAction
+			snapshot.CardsRevealed = ps.CardsRevealed
 
 			if len(ps.Hand) > 0 {
 				snapshot.Hand = make([]poker.Card, len(ps.Hand))
@@ -164,6 +165,11 @@ func (s *Server) buildGameEvent(
 			default:
 				s.log.Warnf("ActionPayload for unsupported event type %s on table %s", eventType, tableID)
 				serverPayload = nil
+			}
+		case poker.AutoShowCardsPayload:
+			serverPayload = AutoShowCardsPayload{
+				PlayerID: p.PlayerID,
+				Cards:    p.Cards,
 			}
 		case poker.GameEndedPayload:
 			// Convert poker.GameEndedPayload to server GameEndedPayload

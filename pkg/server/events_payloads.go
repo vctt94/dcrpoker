@@ -107,6 +107,16 @@ func (PlayerLostPayload) Kind() pokerrpc.NotificationType {
 	return pokerrpc.NotificationType_PLAYER_LOST
 }
 
+// AutoShowCardsPayload announces that a player's hole cards were auto-revealed.
+type AutoShowCardsPayload struct {
+	PlayerID string
+	Cards    []*pokerrpc.Card
+}
+
+func (AutoShowCardsPayload) Kind() pokerrpc.NotificationType {
+	return pokerrpc.NotificationType_CARDS_SHOWN
+}
+
 // PlayerAllInPayload announces that a player has gone all-in and the amount
 // they just committed in the action that caused it.
 type PlayerAllInPayload struct {
