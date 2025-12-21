@@ -871,31 +871,34 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		result.Round = g.round
 
 		// Capture per-player final states BEFORE EndHandParticipation clears them
+		winnerInfoByID := make(map[string]*pokerrpc.Winner, len(result.WinnerInfo))
+		for _, w := range result.WinnerInfo {
+			winnerInfoByID[w.PlayerId] = w
+		}
+
 		result.Players = make([]ShowdownPlayerInfo, 0, len(g.players))
 		for idx, p := range g.players {
 			if p == nil {
 				continue
 			}
+			winfo := winnerInfoByID[p.ID()]
 			info := ShowdownPlayerInfo{
 				ID:           p.ID(),
 				Name:         p.Name(),
 				FinalState:   p.GetCurrentStateString(),
 				Contribution: g.potManager.getTotalBet(idx),
 			}
-			// Include hole cards only if they have been revealed (auto-show/all-in/winner).
-			if g.currentHand != nil && p.revealed {
+			// Reveal winners that reached showdown (have a hand value) or any player who toggled reveal.
+			if g.currentHand != nil && (p.revealed || (winfo != nil && len(winfo.BestHand) > 0)) {
 				cards := g.currentHand.GetPlayerCards(p.ID())
 				for _, c := range cards {
 					info.HoleCards = append(info.HoleCards, toProtoCard(c))
 				}
 			}
 			// Find this player's winning info if they won
-			for _, w := range result.WinnerInfo {
-				if w.PlayerId == p.ID() {
-					info.HandRank = w.HandRank
-					info.BestHand = w.BestHand
-					break
-				}
+			if winfo != nil {
+				info.HandRank = winfo.HandRank
+				info.BestHand = winfo.BestHand
 			}
 			result.Players = append(result.Players, info)
 		}
@@ -1976,13 +1979,10 @@ func (g *Game) handleShowdown() (*ShowdownResult, error) {
 			continue
 		}
 
-		var (
-			handRank pokerrpc.HandRank
-			best     []Card
-		)
+		var handRank pokerrpc.HandRank
+		var best []Card
 
-		// Reveal policy: apply consistently in both branches.
-		if s.handValue != nil && s.revealed {
+		if s.handValue != nil {
 			handRank = s.handValue.HandRank
 			best = s.handValue.BestHand
 		}

@@ -1417,17 +1417,31 @@ class PokerModel extends ChangeNotifier {
     debugPrint(
         '[SHOWDOWN_CACHE_IN] players=${showdown.players.length} board=${showdown.board.length} pot=${showdown.pot}');
 
-    if (showdown.board.isNotEmpty) {
-      _showdownCommunityCards = List.unmodifiable(showdown.board);
+    // Always reset cached showdown data so a fold-finish hand does not reuse
+    // community cards or players from a previous showdown.
+    _showdownCommunityCards = List.unmodifiable(showdown.board);
+    final merged = showdown.players.map(_uiPlayerFromShowdown).toList();
+    _showdownPlayers = List.unmodifiable(_hydrateShowdownHands(merged));
+    _showdownPot = showdown.pot.toInt();
+    // Seed cache and live game view with revealed showdown hands so the table
+    // shows contest winners immediately.
+    for (final sp in showdown.players) {
+      if (sp.holeCards.isNotEmpty) {
+        final hand = List<pr.Card>.unmodifiable(sp.holeCards);
+        _showdownHandsCache[sp.playerId] = hand;
+        if (sp.playerId == playerId) {
+          _myHoleCardsCache = hand;
+        }
+      }
     }
-
-    if (showdown.players.isNotEmpty) {
-      final merged = showdown.players.map(_uiPlayerFromShowdown).toList();
-      _showdownPlayers = List.unmodifiable(_hydrateShowdownHands(merged));
-    }
-
-    if (_showdownPot == 0 && showdown.pot != 0) {
-      _showdownPot = showdown.pot.toInt();
+    if (game != null) {
+      final byID = {for (final sp in showdown.players) sp.playerId: sp};
+      final updated = game!.players.map((p) {
+        final sp = byID[p.id];
+        if (sp == null || sp.holeCards.isEmpty) return p;
+        return p.withHand(sp.holeCards).copyWith(cardsRevealed: true);
+      }).toList();
+      game = game!.copyWith(players: List.unmodifiable(updated));
     }
 
     debugPrint(
