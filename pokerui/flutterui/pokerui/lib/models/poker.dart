@@ -60,6 +60,7 @@ class UiPlayer {
   final bool isReady;
   final bool isDisconnected;
   final String handDesc; // only meaningful at showdown
+  final bool cardsRevealed;
   final String escrowId;
   final bool escrowReady;
   final String escrowState;
@@ -81,6 +82,7 @@ class UiPlayer {
     required this.isReady,
     required this.isDisconnected,
     required this.handDesc,
+    this.cardsRevealed = false,
     this.escrowId = '',
     this.escrowReady = false,
     this.escrowState = '',
@@ -104,6 +106,7 @@ class UiPlayer {
       isReady: p.isReady,
       isDisconnected: p.isDisconnected,
       handDesc: p.handDescription,
+      cardsRevealed: p.cardsRevealed,
       escrowId: p.escrowId,
       escrowReady: p.escrowReady,
       escrowState: '',
@@ -116,7 +119,9 @@ class UiPlayer {
     String? name,
     bool? isReady,
     bool? isDisconnected,
+    bool? isAllIn,
     String? handDesc,
+    bool? cardsRevealed,
     String? escrowId,
     bool? escrowReady,
     String? escrowState,
@@ -131,13 +136,14 @@ class UiPlayer {
       currentBet: currentBet,
       folded: folded,
       isTurn: isTurn,
-      isAllIn: isAllIn,
+      isAllIn: isAllIn ?? this.isAllIn,
       isDealer: isDealer,
       isSmallBlind: isSmallBlind,
       isBigBlind: isBigBlind,
       isReady: isReady ?? this.isReady,
       isDisconnected: isDisconnected ?? this.isDisconnected,
       handDesc: handDesc ?? this.handDesc,
+      cardsRevealed: cardsRevealed ?? this.cardsRevealed,
       escrowId: escrowId ?? this.escrowId,
       escrowReady: escrowReady ?? this.escrowReady,
       escrowState: escrowState ?? this.escrowState,
@@ -162,6 +168,7 @@ class UiPlayer {
       isReady: isReady,
       isDisconnected: isDisconnected,
       handDesc: handDesc,
+      cardsRevealed: cardsRevealed,
       escrowId: escrowId,
       escrowReady: escrowReady,
       escrowState: escrowState,
@@ -339,6 +346,25 @@ class UiGameState {
   }
 }
 
+bool isAutoAdvanceAllIn(UiGameState? g) {
+  if (g == null) return false;
+  final actionablePhase = g.phase == pr.GamePhase.PRE_FLOP ||
+      g.phase == pr.GamePhase.FLOP ||
+      g.phase == pr.GamePhase.TURN ||
+      g.phase == pr.GamePhase.RIVER;
+  if (!actionablePhase) return false;
+
+  // When all remaining (non-folded) players are all-in, streets will
+  // auto-advance and no manual decision is expected. Also guard against a
+  // current player that is already marked all-in.
+  final current = g.players.firstWhereOrNull((p) => p.id == g.currentPlayerId);
+  final everyoneAllIn = g.players
+      .where((p) => !p.folded)
+      .every((p) => p.isAllIn); // folded players can't act
+
+  return (current?.isAllIn ?? false) || everyoneAllIn;
+}
+
 /// -------- The main ChangeNotifier --------
 class PokerModel extends ChangeNotifier {
   // Identity
@@ -402,9 +428,6 @@ class PokerModel extends ChangeNotifier {
   bool _seated = false; // track whether user is seated at any table
   bool _restoring = false; // guard against repeated restore/join loops
   bool _showTableView = true; // controls whether UI should render the active table or lobby
-  // Track per-player show/hide state from notifications
-  final Map<String, bool> playersShowingCards = {};
-  bool get myCardsShown => playersShowingCards[playerId] ?? false;
 
   // Payout address bound to the authenticated session on the server (empty if not signed).
   String _authedPayoutAddress = '';
@@ -559,7 +582,6 @@ class PokerModel extends ChangeNotifier {
         }
         break;
       case pr.NotificationType.NEW_HAND_STARTED:
-        playersShowingCards.clear();
         // Clear cached hero hole cards for the new hand to avoid stale display
         _myHoleCardsCache = const [];
         // Clear any stale bet FX at the start of a new hand
@@ -632,6 +654,19 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.BIG_BLIND_POSTED:
         // Don't call refreshGameState - stream will send GameUpdate
         break;
+      case pr.NotificationType.PLAYER_ALL_IN:
+        if (game != null &&
+            n.playerId.isNotEmpty &&
+            (n.tableId.isEmpty || n.tableId == currentTableId)) {
+          // Mark player as all-in to immediately reflect auto-advance state.
+          final updated = game!.players.map((p) {
+            if (p.id != n.playerId) return p;
+            return p.copyWith(isAllIn: true);
+          }).toList(growable: false);
+          game = game!.copyWith(players: List.unmodifiable(updated));
+          notifyListeners();
+        }
+        break;
 
       case pr.NotificationType.SHOWDOWN_RESULT:
         // Handle showdown notification with winners data
@@ -643,14 +678,44 @@ class PokerModel extends ChangeNotifier {
 
       case pr.NotificationType.CARDS_SHOWN:
         if (n.playerId.isNotEmpty) {
-          playersShowingCards[n.playerId] = true;
+          // If cards are included, hydrate the current game state immediately so UI reflects.
+          if (game != null &&
+              (n.tableId.isEmpty || n.tableId == currentTableId)) {
+            _updatePlayerHandInGame(
+              n.playerId,
+              hand: n.cards.isNotEmpty ? n.cards : null,
+              cardsRevealed: true,
+            );
+          }
+          if (n.cards.isNotEmpty) {
+            _showdownHandsCache[n.playerId] =
+                List<pr.Card>.unmodifiable(n.cards);
+            if (_showdownPlayers.isNotEmpty) {
+              final updated = _showdownPlayers
+                  .map((p) => p.id == n.playerId
+                      ? p
+                          .withHand(List<pr.Card>.unmodifiable(n.cards))
+                          .copyWith(cardsRevealed: true)
+                      : p)
+                  .toList(growable: false);
+              _showdownPlayers = List.unmodifiable(updated);
+            }
+          }
           notifyListeners();
         }
         break;
 
       case pr.NotificationType.CARDS_HIDDEN:
         if (n.playerId.isNotEmpty) {
-          playersShowingCards[n.playerId] = false;
+          if (game != null &&
+              (n.tableId.isEmpty || n.tableId == currentTableId)) {
+            _updatePlayerHandInGame(
+              n.playerId,
+              hand: n.playerId == playerId ? null : const [],
+              handDesc: '',
+              cardsRevealed: false,
+            );
+          }
           notifyListeners();
         }
         break;
@@ -732,6 +797,31 @@ class PokerModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _updatePlayerHandInGame(
+    String playerId, {
+    List<pr.Card>? hand,
+    String? handDesc,
+    bool? cardsRevealed,
+  }) {
+    final g = game;
+    if (g == null) return;
+    final updated = g.players.map((p) {
+      if (p.id != playerId) return p;
+      var next = p;
+      if (hand != null) {
+        next = next.withHand(List<pr.Card>.unmodifiable(hand));
+      }
+      if (handDesc != null) {
+        next = next.copyWith(handDesc: handDesc);
+      }
+      if (cardsRevealed != null) {
+        next = next.copyWith(cardsRevealed: cardsRevealed);
+      }
+      return next;
+    }).toList(growable: false);
+    game = g.copyWith(players: List.unmodifiable(updated));
+  }
+
   /// Queue game end to show after showdown display period.
   /// Called when GAME_ENDED or PLAYER_LOST arrives while in showdown state.
   void _queueGameEnd(String message) {
@@ -787,6 +877,23 @@ class PokerModel extends ChangeNotifier {
     if (_state == PokerState.showdown && _gameEndPending) {
       _completeGameEnd();
     }
+  }
+
+  /// Test helper to set showdown data for testing purposes
+  /// This allows tests to set up showdown state without going through notifications
+  @visibleForTesting
+  void setShowdownDataForTest({
+    required List<UiPlayer> players,
+    required List<pr.Card> communityCards,
+    required int pot,
+    List<UiWinner> winners = const [],
+  }) {
+    lastWinners = winners;
+    _showdownPlayers = List.unmodifiable(players);
+    _showdownCommunityCards = List.unmodifiable(communityCards);
+    _showdownPot = pot;
+    _showdownCaptured = true;
+    notifyListeners();
   }
 
   /// Handle SHOWDOWN_RESULT notification - transition to showdown state with winners.
@@ -875,10 +982,23 @@ class PokerModel extends ChangeNotifier {
     return players
         .map((p) {
           if (p.hand.isNotEmpty) return p;
+          if (p.id == playerId) {
+            final cached = _myHoleCardsCache.isNotEmpty
+                ? _myHoleCardsCache
+                : _showdownHandsCache[p.id];
+            if (cached != null && cached.isNotEmpty) {
+              return p.withHand(cached);
+            }
+            return p;
+          }
+          if (p.folded && !p.cardsRevealed) return p;
           final cached = _showdownHandsCache[p.id];
           if (cached != null && cached.isNotEmpty) {
-            return p.withHand(cached);
+            if (p.cardsRevealed) {
+              return p.withHand(cached);
+            }
           }
+          if (!p.cardsRevealed) return p;
           return p;
         })
         .toList();
@@ -1263,7 +1383,6 @@ class PokerModel extends ChangeNotifier {
       _iAmReady = false;
       _seated = false;
       _showTableView = false;
-      playersShowingCards.clear();
       _lastBoundEscrowId = null;
       _lastBoundEscrowReady = false;
       _resetPresignState();
@@ -1298,17 +1417,31 @@ class PokerModel extends ChangeNotifier {
     debugPrint(
         '[SHOWDOWN_CACHE_IN] players=${showdown.players.length} board=${showdown.board.length} pot=${showdown.pot}');
 
-    if (showdown.board.isNotEmpty) {
-      _showdownCommunityCards = List.unmodifiable(showdown.board);
+    // Always reset cached showdown data so a fold-finish hand does not reuse
+    // community cards or players from a previous showdown.
+    _showdownCommunityCards = List.unmodifiable(showdown.board);
+    final merged = showdown.players.map(_uiPlayerFromShowdown).toList();
+    _showdownPlayers = List.unmodifiable(_hydrateShowdownHands(merged));
+    _showdownPot = showdown.pot.toInt();
+    // Seed cache and live game view with revealed showdown hands so the table
+    // shows contest winners immediately.
+    for (final sp in showdown.players) {
+      if (sp.holeCards.isNotEmpty) {
+        final hand = List<pr.Card>.unmodifiable(sp.holeCards);
+        _showdownHandsCache[sp.playerId] = hand;
+        if (sp.playerId == playerId) {
+          _myHoleCardsCache = hand;
+        }
+      }
     }
-
-    if (showdown.players.isNotEmpty) {
-      final merged = showdown.players.map(_uiPlayerFromShowdown).toList();
-      _showdownPlayers = List.unmodifiable(_hydrateShowdownHands(merged));
-    }
-
-    if (_showdownPot == 0 && showdown.pot != 0) {
-      _showdownPot = showdown.pot.toInt();
+    if (game != null) {
+      final byID = {for (final sp in showdown.players) sp.playerId: sp};
+      final updated = game!.players.map((p) {
+        final sp = byID[p.id];
+        if (sp == null || sp.holeCards.isEmpty) return p;
+        return p.withHand(sp.holeCards).copyWith(cardsRevealed: true);
+      }).toList();
+      game = game!.copyWith(players: List.unmodifiable(updated));
     }
 
     debugPrint(
@@ -1320,9 +1453,16 @@ class PokerModel extends ChangeNotifier {
   UiPlayer _uiPlayerFromShowdown(pr.ShowdownPlayer sp) {
     final folded = sp.finalState == pr.PlayerState.PLAYER_STATE_FOLDED;
     final allIn = sp.finalState == pr.PlayerState.PLAYER_STATE_ALL_IN;
+    var name = sp.name;
+    if (name.isEmpty) {
+      // Fallback to the latest game snapshot so showdown UI still shows labels
+      final fromGame =
+          game?.players.firstWhereOrNull((p) => p.id == sp.playerId);
+      name = fromGame?.name ?? '';
+    }
     return UiPlayer(
       id: sp.playerId,
-      name: '',
+      name: name,
       balance: 0,
       hand: List<pr.Card>.unmodifiable(sp.holeCards),
       currentBet: 0,
@@ -1335,6 +1475,7 @@ class PokerModel extends ChangeNotifier {
       isReady: false,
       isDisconnected: false,
       handDesc: '',
+      cardsRevealed: sp.holeCards.isNotEmpty,
     );
   }
 
@@ -1501,13 +1642,9 @@ class PokerModel extends ChangeNotifier {
   }
 
   Future<void> showCards() async {
-    final tid = currentTableId;
-    if (tid == null) return;
+    if (currentTableId == null) return;
     try {
       await Golib.showCards();
-      playersShowingCards[playerId] =
-          true; // optimistic update; server will confirm via notification
-      notifyListeners();
     } catch (e) {
       errorMessage = 'Show cards failed: $e';
       notifyListeners();
@@ -1515,12 +1652,9 @@ class PokerModel extends ChangeNotifier {
   }
 
   Future<void> hideCards() async {
-    final tid = currentTableId;
-    if (tid == null) return;
+    if (currentTableId == null) return;
     try {
       await Golib.hideCards();
-      playersShowingCards[playerId] = false; // optimistic update
-      notifyListeners();
     } catch (e) {
       errorMessage = 'Hide cards failed: $e';
       notifyListeners();
@@ -1782,62 +1916,22 @@ class PokerModel extends ChangeNotifier {
 
   bool get iAmReady => _iAmReady;
 
-  /// Returns true when every remaining player is all-in and the hand is auto-advancing
-  /// through the streets. In this state no one can take manual actions, so the action
-  /// buttons and hotkeys should be hidden/disabled.
-  bool get autoAdvanceAllIn {
-    final g = game;
-    if (g == null) return false;
-
-    // Only meaningful during betting streets.
-    switch (g.phase) {
-      case pr.GamePhase.PRE_FLOP:
-      case pr.GamePhase.FLOP:
-      case pr.GamePhase.TURN:
-      case pr.GamePhase.RIVER:
-        break;
-      default:
-        return false;
-    }
-
-    var alive = 0;
-    var active = 0;
-    var maxAllInBet = 0;
-
-    for (final p in g.players) {
-      if (p.folded) continue;
-      alive++;
-      if (p.isAllIn) {
-        if (p.currentBet > maxAllInBet) {
-          maxAllInBet = p.currentBet;
-        }
-        continue;
-      }
-      active++;
-    }
-
-    if (alive == 0) return false;
-
-    var effectiveBet = g.currentBet;
-    if (maxAllInBet > 0 && maxAllInBet < effectiveBet) {
-      effectiveBet = maxAllInBet;
-    }
-
-    var unmatched = 0;
-    for (final p in g.players) {
-      if (p.folded || p.isAllIn) continue;
-      if (p.currentBet < effectiveBet) {
-        unmatched++;
-      }
-    }
-
-    final allInCount = alive - active;
-    return active == 0 || (active == 1 && allInCount > 0 && unmatched == 0);
-  }
+  /// Returns true when the current player is already all-in and the hand is
+  /// auto-advancing, meaning no manual decisions remain.
+  bool get autoAdvanceAllIn => isAutoAdvanceAllIn(game);
 
   bool get isMyTurn => game != null && game!.currentPlayerId == playerId;
 
-  bool get canAct => isMyTurn && !autoAdvanceAllIn;
+  bool get canAct {
+    final g = game;
+    if (g == null) return false;
+    final actionablePhase = g.phase == pr.GamePhase.PRE_FLOP ||
+        g.phase == pr.GamePhase.FLOP ||
+        g.phase == pr.GamePhase.TURN ||
+        g.phase == pr.GamePhase.RIVER;
+    if (!actionablePhase) return false;
+    return isMyTurn && !autoAdvanceAllIn;
+  }
 
   bool get canBet {
     final g = game;

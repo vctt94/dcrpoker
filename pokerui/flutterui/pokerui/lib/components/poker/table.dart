@@ -261,11 +261,11 @@ void drawPlayers(
     if (player.id != currentPlayerId) {
       final playerX = pos.dx;
       final playerY = pos.dy;
-      // Skip rendering hole cards for folded opponents to avoid implying they are still in-hand.
-      if (player.folded) {
+      final hasAnyCards = player.hand.isNotEmpty;
+      // Hide folded opponents unless they explicitly revealed their hand.
+      if (player.folded && !hasAnyCards) {
         continue;
       }
-      final hasAnyCards = player.hand.isNotEmpty;
       // Draw cards inside the player circle (positioned at bottom of circle)
       // Calculate card size as proportion of player radius
       // Two cards + gap should fit within ~70% of circle diameter
@@ -281,8 +281,8 @@ void drawPlayers(
       final minCardTop = playerY - playerRadius + 6.0 * uiSizeMultiplier;
       final cardTop = math.max(cardY, minCardTop);
 
-      if (gameState.phase == pr.GamePhase.SHOWDOWN) {
-        if (hasAnyCards) {
+      if (hasAnyCards) {
+        if (gameState.phase == pr.GamePhase.SHOWDOWN) {
           // Reveal known opponent hands with a subtle slide-in animation
           final now = DateTime.now().millisecondsSinceEpoch;
           final elapsed = (now - showdownStartMs - i * 120);
@@ -295,13 +295,15 @@ void drawPlayers(
                 canvas, startX + cw + gap, yClamped, cw, ch, player.hand[1]);
           }
         } else {
-          // If still hidden at showdown, show subtle backs inside circle
-          drawCardBack(canvas, startX, cardTop, cw, ch);
-          drawCardBack(canvas, startX + cw + gap, cardTop, cw, ch);
+          // Auto-revealed during all-in/auto-advance: show faces immediately.
+          drawCardFace(canvas, startX, cardTop, cw, ch, player.hand[0]);
+          if (player.hand.length > 1) {
+            drawCardFace(
+                canvas, startX + cw + gap, cardTop, cw, ch, player.hand[1]);
+          }
         }
-      } else if (!hasAnyCards &&
-          (gameState.phase != pr.GamePhase.WAITING &&
-              gameState.phase != pr.GamePhase.NEW_HAND_DEALING)) {
+      } else if (gameState.phase != pr.GamePhase.WAITING &&
+          gameState.phase != pr.GamePhase.NEW_HAND_DEALING) {
         // Non-showdown phases: use backs to indicate in-hand cards for opponents
         drawCardBack(canvas, startX, cardTop, cw, ch);
         drawCardBack(canvas, startX + cw + gap, cardTop, cw, ch);
@@ -580,6 +582,7 @@ void drawCurrentTimebank(
     Rect? clampBounds,
     double? minSeatTop}) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
+  if (isAutoAdvanceAllIn(gameState)) return; // hide countdown when auto-advancing
   final nowMs = DateTime.now().millisecondsSinceEpoch;
   final remMs = (gameState.turnDeadlineUnixMs - nowMs).clamp(0, 1 << 30);
   final remSec = remMs / 1000.0;

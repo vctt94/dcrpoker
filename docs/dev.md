@@ -43,5 +43,4 @@ go run ./cmd/client \
   - Ensure port 50051 is free before running the e2e tests.
   - Set `POKER_SEED` to make shuffles deterministic during debugging.
 
-`go clean -testcache && go test -tags=lockcheck -v -race ./... -count=10 
--timeout 300s > test_output.log 2>&1`
+`go clean -testcache && go test -tags=lockcheck -v -race ./... -count=10 -timeout 300s > test_output.log 2>&1`

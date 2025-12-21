@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,7 @@ const (
 	GameEventGameOver                                  // Game has ended, only one player has chips remaining
 	GameEventStateUpdated                              // Generic state update (e.g., turn changed)
 	GameEventPlayerLost                                // Player has 0 chips and should be removed from table
+	GameEventAutoShowCards                             // All players all-in -> reveal cards notification
 )
 
 // GameEvent represents an event sent from Game FSM to Table
@@ -49,6 +51,7 @@ type GameEvent struct {
 	PlayerID       string          // Only set for GameEventPlayerLost - ID of the player who lost (0 chips)
 	ActorID        string          // Optional: actor who triggered the update (e.g., timebank auto-action)
 	Action         string          // Optional: "check" or "fold" for auto-actions
+	RevealInfo     []AutoRevealPlayer
 }
 
 // Game holds the context and data for our poker game
@@ -343,6 +346,15 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 				p.mu.Unlock()
 				g.log.Debugf("DEBUG POSITIONS: Set Player[%d] %s dealer=%v sb=%v bb=%v",
 					i, p.id, i == g.dealer, i == sbPos, i == bbPos)
+			}
+		}
+
+		// Reset reveal intent for all players at hand start
+		for _, p := range g.players {
+			if p != nil {
+				p.mu.Lock()
+				p.revealed = false
+				p.mu.Unlock()
 			}
 		}
 
@@ -859,29 +871,34 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		result.Round = g.round
 
 		// Capture per-player final states BEFORE EndHandParticipation clears them
+		winnerInfoByID := make(map[string]*pokerrpc.Winner, len(result.WinnerInfo))
+		for _, w := range result.WinnerInfo {
+			winnerInfoByID[w.PlayerId] = w
+		}
+
 		result.Players = make([]ShowdownPlayerInfo, 0, len(g.players))
-		for _, p := range g.players {
+		for idx, p := range g.players {
 			if p == nil {
 				continue
 			}
+			winfo := winnerInfoByID[p.ID()]
 			info := ShowdownPlayerInfo{
-				ID:         p.ID(),
-				FinalState: p.GetCurrentStateString(),
+				ID:           p.ID(),
+				Name:         p.Name(),
+				FinalState:   p.GetCurrentStateString(),
+				Contribution: g.potManager.getTotalBet(idx),
 			}
-			// Get hole cards from currentHand
-			if g.currentHand != nil {
-				cards := g.currentHand.GetPlayerCards(p.ID(), p.ID())
+			// Reveal winners that reached showdown (have a hand value) or any player who toggled reveal.
+			if g.currentHand != nil && (p.revealed || (winfo != nil && len(winfo.BestHand) > 0)) {
+				cards := g.currentHand.GetPlayerCards(p.ID())
 				for _, c := range cards {
 					info.HoleCards = append(info.HoleCards, toProtoCard(c))
 				}
 			}
 			// Find this player's winning info if they won
-			for _, w := range result.WinnerInfo {
-				if w.PlayerId == p.ID() {
-					info.HandRank = w.HandRank
-					info.BestHand = w.BestHand
-					break
-				}
+			if winfo != nil {
+				info.HandRank = winfo.HandRank
+				info.BestHand = winfo.BestHand
 			}
 			result.Players = append(result.Players, info)
 		}
@@ -1071,9 +1088,13 @@ func (g *Game) refundUncalledBets() error {
 	forced := make([]int64, len(g.players))
 	for i, p := range g.players {
 		if p != nil {
-			if p.isSmallBlind {
+			p.mu.RLock()
+			isSmallBlind := p.isSmallBlind
+			isBigBlind := p.isBigBlind
+			p.mu.RUnlock()
+			if isSmallBlind {
 				forced[i] = g.config.SmallBlind
-			} else if p.isBigBlind {
+			} else if isBigBlind {
 				forced[i] = g.config.BigBlind
 			}
 		}
@@ -1087,9 +1108,14 @@ func (g *Game) refundUncalledBets() error {
 	// Rebuild pots after adjusting bets to reflect the refunded amounts
 	g.potManager.RebuildPotsIncremental(g.players)
 
-	// Credit the refunded amount directly to player balance (Game FSM owns balance)
+	// Credit the refunded amount via the Player FSM.
 	if hiPlayer >= 0 && refunded > 0 {
-		g.players[hiPlayer].balance += refunded
+		if hiPlayer >= len(g.players) || g.players[hiPlayer] == nil {
+			return fmt.Errorf("invalid refund target %d", hiPlayer)
+		}
+		if err := g.players[hiPlayer].AddToBalance(refunded); err != nil {
+			return fmt.Errorf("refund uncalled bet: adjust balance: %w", err)
+		}
 	}
 	return nil
 }
@@ -1277,14 +1303,15 @@ func (g *Game) SetPlayers(users []*User) {
 	// Convert users to players for game management using proper constructor
 	g.players = make([]*Player, len(users))
 	for i, user := range users {
-		// Create player using constructor to ensure state machine is initialized
-		player := NewPlayer(user.ID, user.Name, g.config.StartingChips)
-
 		// Copy table-level state from user (acquire user lock to read fields)
 		user.mu.RLock()
+		userName := user.Name
 		tableSeat := user.TableSeat
 		isReady := user.IsReady
 		user.mu.RUnlock()
+
+		// Create player using constructor to ensure state machine is initialized
+		player := NewPlayer(user.ID, userName, g.config.StartingChips)
 
 		player.mu.Lock()
 		player.tableSeat = tableSeat
@@ -1722,6 +1749,7 @@ func (g *Game) advanceToNextPlayer(now time.Time) {
 // ShowdownPlayerInfo captures each player's state at showdown
 type ShowdownPlayerInfo struct {
 	ID           string            // Player ID
+	Name         string            // Player nickname (for showdown display)
 	HoleCards    []*pokerrpc.Card  // Revealed hole cards
 	FinalState   string            // "PLAYER_STATE_FOLDED", "PLAYER_STATE_ALL_IN", "PLAYER_STATE_IN_GAME"
 	Contribution int64             // Total contributed to pot this hand
@@ -1745,6 +1773,12 @@ type ShowdownResult struct {
 	Players []ShowdownPlayerInfo
 }
 
+// AutoRevealPlayer captures the cards that should be auto-revealed when all players are all-in.
+type AutoRevealPlayer struct {
+	PlayerID string
+	Cards    []*pokerrpc.Card
+}
+
 // toProtoCard converts an internal Card to a pokerrpc.Card
 func toProtoCard(c Card) *pokerrpc.Card {
 	return &pokerrpc.Card{
@@ -1761,272 +1795,209 @@ func (g *Game) HandleShowdown() (*ShowdownResult, error) {
 	return g.handleShowdown()
 }
 
-// handleShowdown is the core logic without locking (for internal use)
-// handleShowdown processes the end of a hand and returns the showdown result.
-// Invariants enforced:
-//  1. postRefundPot := potManager.getTotalPot()  (after refund+rebuild)
-//  2. sum(winner deltas) == postRefundPot (or we warn and self-heal)
-//  3. result.TotalPot == postRefundPot
 func (g *Game) handleShowdown() (*ShowdownResult, error) {
 	mustHeld(&g.mu)
-	g.log.Debugf("handleShowdown: entered")
 
-	// DEBUG: Log community cards at showdown
-	// Log community cards at showdown
-	communityStrs := make([]string, len(g.communityCards))
-	for i, c := range g.communityCards {
-		communityStrs[i] = c.String()
+	type snap struct {
+		id        string
+		balance   int64
+		folded    bool
+		revealed  bool
+		handValue *HandValue
+		// optional: stateStr for logs only
 	}
-	g.log.Debugf("CARDS: Showdown community cards: %v", communityStrs)
 
-	// Collect non-folded players
-	unfolded := make([]*Player, 0, len(g.players))
+	// Use a stable order for deterministic results (and predictable lock acquisition).
+	players := make([]*Player, 0, len(g.players))
 	for _, p := range g.players {
-		if p != nil && p.GetCurrentStateString() != FOLDED_STATE {
+		if p != nil {
+			players = append(players, p)
+		}
+	}
+	sort.Slice(players, func(i, j int) bool { return players[i].id < players[j].id })
+
+	idxByID := make(map[string]int, len(g.players))
+	for i, p := range g.players {
+		if p != nil {
+			idxByID[p.id] = i
+		}
+	}
+
+	// --- Normalize pots (refund + rebuild) BEFORE taking prev balances.
+	if err := g.refundUncalledBets(); err != nil {
+		return nil, err
+	}
+	g.potManager.RebuildPotsIncremental(g.players)
+	postRefundPot := g.potManager.getTotalPot()
+
+	// Snapshot hole cards once (no player locks needed; g.mu is held).
+	// Owners can always see their own cards, so pass true for revealed
+	holeCards := make(map[string][]Card, len(players))
+	if g.currentHand == nil {
+		return nil, fmt.Errorf("invalid showdown: nil currentHand")
+	}
+	for _, p := range players {
+		holeCards[p.id] = g.currentHand.GetPlayerCards(p.id)
+	}
+
+	// --- PASS 1: snapshot player state/balances once
+	snaps := make(map[string]snap, len(players))
+	for _, p := range players {
+		// choose ONE fold source of truth; if you trust p.hasFolded, use it.
+		// If getCurrentState() is canonical, derive folded from that and ignore p.hasFolded.
+		p.mu.RLock()
+		state := p.getCurrentState()
+		snaps[p.id] = snap{
+			id:       p.id,
+			balance:  p.balance,
+			folded:   state.String() == FOLDED_STATE,
+			revealed: p.revealed,
+		}
+		p.mu.RUnlock()
+	}
+
+	// Build list of unfolded from snapshots (no extra locks)
+	unfolded := make([]*Player, 0, len(players))
+	for _, p := range players {
+		if !snaps[p.id].folded {
 			unfolded = append(unfolded, p)
 		}
 	}
-
-	// DEBUG: Log all players' hole cards at showdown
-	// Log all players' hole cards at showdown
-	for _, p := range g.players {
-		if p == nil {
-			continue
-		}
-		hole := g.currentHand.GetPlayerCards(p.id, p.id)
-		holeStrs := make([]string, len(hole))
-		for i, c := range hole {
-			holeStrs[i] = c.String()
-		}
-		g.log.Debugf("CARDS: Showdown player %s hole cards: %v (state: %s)",
-			p.id, holeStrs, p.GetCurrentStateString())
-	}
-
 	if len(unfolded) == 0 {
 		return nil, fmt.Errorf("invalid showdown: no active players")
 	}
 
-	result := &ShowdownResult{
-		Winners:    make([]string, 0, len(g.players)),
-		WinnerInfo: make([]*pokerrpc.Winner, 0, len(g.players)),
-		Board:      make([]*pokerrpc.Card, 0, len(g.communityCards)),
-		TotalPot:   0,
-	}
-
-	// Snapshot community cards for downstream consumers (UI/notifications).
-	for _, c := range g.communityCards {
-		result.Board = append(result.Board, &pokerrpc.Card{
-			Suit:  c.GetSuit(),
-			Value: c.GetValue(),
-		})
-	}
-
-	// --- Normalize pots for both branches (refund uncalled bets, rebuild pots)
-	// This guarantees post-refund pot accounting regardless of whether it's fold-win or multi-way.
-	g.refundUncalledBets()
-	g.potManager.RebuildPotsIncremental(g.players)
-	postRefundPot := g.potManager.getTotalPot()
-
-	// Helper: snapshot balances
-	prev := make(map[string]int64, len(g.players))
-	for _, p := range g.players {
-		if p != nil {
-			p.mu.RLock()
-			prev[p.id] = p.balance
-			p.mu.RUnlock()
-		}
-	}
-
-	// --- Branch A: uncontested (exactly one non-folded player)
-	if len(unfolded) == 1 {
-		// Distribute pots (no actual comparison needed) - directly modifies player.balance under g.mu
-		err := g.potManager.distributePots(g.players)
-		if err != nil {
-			g.log.Errorf("distributePots (uncontested) failed: %v", err)
-			return nil, err
-		}
-
-		// Compute deltas, populate winners
-		totalWinnings := int64(0)
-		for _, p := range g.players {
-			if p == nil {
-				continue
-			}
-			p.mu.RLock()
-			delta := p.balance - prev[p.id]
-			p.mu.RUnlock()
-			if delta > 0 {
-				// Get player's hole cards from Hand
-				hole := g.currentHand.GetPlayerCards(p.id, p.id)
-
-				// Best hand: if board+hole < 5 just report hole cards
-				var (
-					best     []Card
-					handRank pokerrpc.HandRank
-				)
-				if len(hole)+len(g.communityCards) >= 5 {
-					hv, err := EvaluateHand(hole, g.communityCards)
-					if err != nil {
-						return nil, fmt.Errorf("evaluate hand (uncontested) for %s: %w", p.id, err)
-					}
-					p.mu.Lock()
-					p.handValue = &hv
-					p.handDescription = GetHandDescription(hv)
-					p.mu.Unlock()
-					best = hv.BestHand
-					handRank = hv.HandRank
-				} else {
-					best = hole
-				}
-
-				result.Winners = append(result.Winners, p.id)
-				result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{
-					PlayerId: p.id,
-					HandRank: handRank,
-					BestHand: CreateHandFromCards(best),
-					Winnings: delta,
-				})
-				totalWinnings += delta
-			}
-		}
-
-		// Invariants & finalization
-		if totalWinnings != postRefundPot {
-			g.log.Warnf("showdown invariant (uncontested) violated: postRefundPot=%d, distributed=%d",
-				postRefundPot, totalWinnings)
-			// Self-heal to what we actually paid
-			postRefundPot = totalWinnings
-		}
-		result.TotalPot = postRefundPot
-		return result, nil
-	}
-
-	// --- Branch B: multi-way showdown (>=2 non-folded players)
-
-	// Ensure board is fully dealt (fast-forward safely based on current phase)
-	if len(g.communityCards) < 5 {
+	// Ensure board is complete only for multi-way (>=2 unfolded)
+	if len(unfolded) >= 2 && len(g.communityCards) < 5 {
 		dealOne := func() (Card, bool) { return g.deck.Draw() }
 		switch g.phase {
 		case pokerrpc.GamePhase_PRE_FLOP:
 			for i := 0; i < 3; i++ {
-				if c, ok := dealOne(); ok {
-					g.communityCards = append(g.communityCards, c)
-				} else {
+				c, ok := dealOne()
+				if !ok {
 					return nil, fmt.Errorf("deck underflow on flop")
 				}
+				g.communityCards = append(g.communityCards, c)
 			}
 			g.phase = pokerrpc.GamePhase_FLOP
 			fallthrough
 		case pokerrpc.GamePhase_FLOP:
 			if len(g.communityCards) < 4 {
-				if c, ok := dealOne(); ok {
-					g.communityCards = append(g.communityCards, c)
-				} else {
+				c, ok := dealOne()
+				if !ok {
 					return nil, fmt.Errorf("deck underflow on turn")
 				}
+				g.communityCards = append(g.communityCards, c)
 			}
 			g.phase = pokerrpc.GamePhase_TURN
 			fallthrough
 		case pokerrpc.GamePhase_TURN:
 			if len(g.communityCards) < 5 {
-				if c, ok := dealOne(); ok {
-					g.communityCards = append(g.communityCards, c)
-				} else {
+				c, ok := dealOne()
+				if !ok {
 					return nil, fmt.Errorf("deck underflow on river")
 				}
+				g.communityCards = append(g.communityCards, c)
 			}
 			g.phase = pokerrpc.GamePhase_RIVER
 		case pokerrpc.GamePhase_RIVER:
-			// nothing
 		default:
 			return nil, fmt.Errorf("invalid showdown: unexpected phase %s", g.phase)
 		}
 	}
 
-	// Validate players have enough cards for evaluation
-	for _, p := range unfolded {
-		hole := g.currentHand.GetPlayerCards(p.id, p.id)
-		if len(hole)+len(g.communityCards) < 5 {
-			return nil, fmt.Errorf("invalid showdown: player %s has insufficient cards (hole=%d, board=%d)",
-				p.id, len(hole), len(g.communityCards))
+	// Build result now that board is final.
+	result := &ShowdownResult{
+		Winners:    make([]string, 0, len(players)),
+		WinnerInfo: make([]*pokerrpc.Winner, 0, len(players)),
+		Board:      make([]*pokerrpc.Card, 0, len(g.communityCards)),
+	}
+	for _, c := range g.communityCards {
+		result.Board = append(result.Board, &pokerrpc.Card{Suit: c.GetSuit(), Value: c.GetValue()})
+	}
+
+	// --- Evaluate hands without locks (multi-way only)
+	if len(unfolded) >= 2 {
+		for _, p := range unfolded {
+			hole := holeCards[p.id]
+			if len(hole)+len(g.communityCards) < 5 {
+				return nil, fmt.Errorf("invalid showdown: player %s has insufficient cards (hole=%d, board=%d)",
+					p.id, len(hole), len(g.communityCards))
+			}
+			hv, err := EvaluateHand(hole, g.communityCards)
+			if err != nil {
+				return nil, fmt.Errorf("evaluate hand (multi-way) for %s: %w", p.id, err)
+			}
+			s := snaps[p.id]
+			s.handValue = &hv
+			snaps[p.id] = s
+		}
+
+		// --- PASS 2 (multi-way): publish handValue/handDescription via Player FSM
+		for _, p := range unfolded {
+			if hv := snaps[p.id].handValue; hv != nil {
+				if err := p.SetShowdownHand(hv, GetHandDescription(*hv)); err != nil {
+					return nil, fmt.Errorf("set showdown hand for %s: %w", p.id, err)
+				}
+			}
 		}
 	}
 
-	// Evaluate hands for all unfolded players
-	for _, p := range unfolded {
-		hole := g.currentHand.GetPlayerCards(p.id, p.id)
-		hv, err := EvaluateHand(hole, g.communityCards)
-		if err != nil {
-			return nil, fmt.Errorf("evaluate hand (multi-way) for %s: %w", p.id, err)
-		}
-		p.mu.Lock()
-		p.handValue = &hv
-		p.handDescription = GetHandDescription(hv)
-		p.mu.Unlock()
-
-		// Log evaluation results for debugging
-		bestStrs := make([]string, len(hv.BestHand))
-		for i, c := range hv.BestHand {
-			bestStrs[i] = c.String()
-		}
-		g.log.Debugf("CARDS: Player %s evaluated: rank=%v rankValue=%d bestHand=%v description=%s",
-			p.id, hv.Rank, hv.RankValue, bestStrs, hv.HandDescription)
-	}
-
-	// Distribute pots according to eligibility - directly modifies player.balance under g.mu
-	err := g.potManager.distributePots(g.players)
+	// Compute pot payouts and settle pots (no player mutation here).
+	payouts, err := g.potManager.distributePots(g.players)
 	if err != nil {
-		g.log.Errorf("distributePots (multi-way) failed: %v", err)
 		return nil, err
 	}
 
-	g.log.Debugf("CARDS: Pot distribution complete, checking winners...")
-
-	// Build result from positive deltas
-	totalWinnings := int64(0)
-	for _, p := range g.players {
-		if p == nil {
+	// Apply payouts via Player FSM.
+	var totalWinnings int64
+	for idx, amt := range payouts {
+		if amt <= 0 {
 			continue
 		}
-		p.mu.RLock()
-		delta := p.balance - prev[p.id]
-		hv := p.handValue
-		folded := p.hasFolded
-		p.mu.RUnlock()
-		// Folded players don't participate in showdown evaluation, so skip them.
-		if folded {
-			continue
+		if idx < 0 || idx >= len(g.players) || g.players[idx] == nil {
+			return nil, fmt.Errorf("invalid payout target %d", idx)
 		}
-		if delta > 0 {
-			var handRank pokerrpc.HandRank
-			var best []Card
-			var rankValue int
-			var description string
-
-			handRank = hv.HandRank
-			best = hv.BestHand
-			rankValue = hv.RankValue
-			description = hv.HandDescription
-
-			g.log.Debugf("CARDS: Winner %s with delta=%d rankValue=%d handRank=%v description=%s",
-				p.id, delta, rankValue, handRank, description)
-
-			result.Winners = append(result.Winners, p.id)
-			result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{
-				PlayerId: p.id,
-				HandRank: handRank,
-				BestHand: CreateHandFromCards(best),
-				Winnings: delta,
-			})
-			totalWinnings += delta
+		if err := g.players[idx].AddToBalance(amt); err != nil {
+			return nil, fmt.Errorf("apply payout to %s: %w", g.players[idx].id, err)
 		}
+		totalWinnings += amt
 	}
 
-	// Invariants & finalization
+	// Build winners from payouts (no locks)
+	for _, p := range players {
+		s := snaps[p.id]
+		if s.folded {
+			continue
+		}
+		idx, ok := idxByID[p.id]
+		if !ok {
+			continue
+		}
+		winnings := payouts[idx]
+		if winnings <= 0 {
+			continue
+		}
+
+		var handRank pokerrpc.HandRank
+		var best []Card
+
+		if s.handValue != nil {
+			handRank = s.handValue.HandRank
+			best = s.handValue.BestHand
+		}
+
+		result.Winners = append(result.Winners, p.id)
+		result.WinnerInfo = append(result.WinnerInfo, &pokerrpc.Winner{
+			PlayerId: p.id,
+			HandRank: handRank,
+			BestHand: CreateHandFromCards(best),
+			Winnings: winnings,
+		})
+	}
+
 	if totalWinnings != postRefundPot {
-		g.log.Warnf("showdown invariant (multi-way) violated: postRefundPot=%d, distributed=%d",
-			postRefundPot, totalWinnings)
-		// Self-heal to what we actually paid
+		g.log.Warnf("showdown invariant violated: postRefundPot=%d, distributed=%d", postRefundPot, totalWinnings)
 		postRefundPot = totalWinnings
 	}
 	result.TotalPot = postRefundPot
@@ -2191,11 +2162,29 @@ func (g *Game) maybeCompleteBettingRound() {
 	g.log.Debugf("maybeCompleteBettingRound: alive=%d, active=%d, allInCount=%d, unmatched=%d, effectiveBet=%d, tableCurrentBet=%d, maxAllInBet=%d", alive, active, allInCount, unmatched, effectiveBet, g.currentBet, maxAllInBet)
 	if active == 0 || (active == 1 && allInCount > 0 && unmatched == 0) {
 		// Enable auto-advance mode so state handlers know to schedule timers
+		alreadyAutoAdvance := g.autoAdvanceEnabled
 		g.autoAdvanceEnabled = true
 		if active == 0 {
 			g.log.Debugf("maybeCompleteBettingRound: all %d players all-in, enabling auto-advance mode", alive)
 		} else {
 			g.log.Debugf("maybeCompleteBettingRound: %d player(s) active but %d all-in (no one to bet against), enabling auto-advance mode", active, allInCount)
+		}
+
+		// Auto-reveal hole cards once when entering auto-advance so everyone can see them.
+		if !alreadyAutoAdvance && g.currentHand != nil {
+			playerIDs := make([]string, 0, len(g.players))
+			for _, p := range g.players {
+				if p == nil {
+					continue
+				}
+				if p.GetCurrentStateString() == FOLDED_STATE {
+					continue
+				}
+				playerIDs = append(playerIDs, p.id)
+			}
+			if len(playerIDs) > 0 && g.sm != nil {
+				g.sm.Send(evAutoRevealReq{playerIDs: playerIDs})
+			}
 		}
 
 		// Schedule auto-advance with configured delay (gives UI time to show countdown)
@@ -2619,6 +2608,7 @@ type PlayerSnapshot struct {
 	Folded          bool
 	IsAllIn         bool
 	Hand            []Card
+	CardsRevealed   bool
 	CurrentBet      int64
 	IsDealer        bool
 	IsSmallBlind    bool
@@ -2677,6 +2667,7 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 			IsTurn:          player.isTurn,
 			IsDisconnected:  player.isDisconnected,
 			Hand:            nil, // Will be populated from currentHand below
+			CardsRevealed:   player.revealed,
 			HandDescription: player.handDescription,
 			HandValue:       player.handValue,
 			LastAction:      player.lastAction,
@@ -2687,14 +2678,17 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 		// Retrieve hole cards from g.currentHand if it exists
 		// Note: Snapshot includes all cards; visibility filtering happens at server level
 		if g.currentHand != nil {
-			// Get player's cards from the current hand
-			// Use player's own ID as requestor to get their cards
-			cards := g.currentHand.GetPlayerCards(player.id, player.id)
+			// Get revealed state first
+
+			// Get player's cards from the current hand, respecting reveal state
+			// Owner can always see their own cards, but we pass revealed state for consistency
+			cards := g.currentHand.GetPlayerCards(playerCopy.ID)
 			if len(cards) > 0 {
 				// Deep copy the cards to avoid reference issues
 				playerCopy.Hand = make([]Card, len(cards))
 				copy(playerCopy.Hand, cards)
 			}
+
 		}
 
 		playersCopy[i] = playerCopy
@@ -2766,8 +2760,8 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 					// Retrieve revealed winner cards from g.currentHand
 					if g.currentHand != nil {
 						// Winners' cards are always visible at showdown
-						// Use the winner's own ID to get their revealed cards
-						cards := g.currentHand.GetPlayerCards(player.id, player.id)
+						// Owner can always see their own cards
+						cards := g.currentHand.GetPlayerCards(player.id)
 						if len(cards) > 0 {
 							winnerSnapshot.Hand = make([]Card, len(cards))
 							copy(winnerSnapshot.Hand, cards)
@@ -2879,6 +2873,94 @@ func (g *Game) dealRiver() {
 	}
 }
 
+// RevealPlayerCards marks a player's hole cards as revealed and returns them.
+func (g *Game) RevealPlayerCards(playerID string) ([]*pokerrpc.Card, error) {
+	reply := make(chan revealCardsResp, 1)
+	sm := g.sm
+	if sm == nil {
+		return nil, fmt.Errorf("state machine not initialized")
+	}
+	sm.Send(evRevealCardsReq{playerID: playerID, reply: reply})
+	res := <-reply
+	return res.cards, res.err
+}
+
+// HidePlayerCards marks a player's hole cards as hidden (unrevealed).
+func (g *Game) HidePlayerCards(playerID string) error {
+	reply := make(chan error, 1)
+	sm := g.sm
+	if sm == nil {
+		return fmt.Errorf("state machine not initialized")
+	}
+	sm.Send(evHideCardsReq{playerID: playerID, reply: reply})
+	return <-reply
+}
+
+// handleToggleCards updates Player.revealed via FSM and Hand.revealed at showdown.
+// Returns cards if revealing, error if hiding.
+func (g *Game) handleToggleCards(playerID string, reveal bool) revealCardsResp {
+	g.mu.Lock()
+	player := g.getPlayerByID(playerID)
+	var hp *statemachine.Machine[Player]
+	if player != nil {
+		hp = player.handParticipation
+	}
+	autoAdvance := false
+	if !reveal && g.shouldSkipTurnTimer() {
+		autoAdvance = true
+	}
+	g.mu.Unlock()
+
+	var resp revealCardsResp
+	if g.currentHand == nil {
+		resp.err = fmt.Errorf("no active hand")
+		return resp
+	}
+	if player == nil {
+		resp.err = fmt.Errorf("player not found")
+		return resp
+	}
+	if autoAdvance {
+		resp.err = fmt.Errorf("cannot hide cards during auto-advance")
+		return resp
+	}
+
+	// Send event to Player FSM to update Player.revealed
+	var err error
+	if hp != nil {
+		reply := make(chan error, 1)
+		if reveal {
+			hp.Send(evRevealCards{Reply: reply})
+		} else {
+			hp.Send(evHideCards{Reply: reply})
+		}
+		err = <-reply
+	} else {
+		// Allow toggling reveal state after hand participation ends (e.g., during showdown).
+		player.mu.Lock()
+		player.revealed = reveal
+		player.mu.Unlock()
+	}
+
+	if err != nil {
+		resp.err = err
+		return resp
+	}
+
+	// Get the cards (player.revealed is already updated by FSM)
+	g.mu.Lock()
+	cards := g.currentHand.GetPlayerCards(playerID)
+	for _, c := range cards {
+		resp.cards = append(resp.cards, &pokerrpc.Card{
+			Suit:  c.GetSuit(),
+			Value: c.GetValue(),
+		})
+	}
+	g.mu.Unlock()
+
+	return resp
+}
+
 type evAdvance struct{} // advance current betting/phase when conditions met
 
 // evGotoShowdownReq requests an immediate showdown for the specified round.
@@ -2925,6 +3007,25 @@ type evHandleBetReq struct {
 
 // Fired by Player's per-turn timer; request the game to auto-act.
 type evTimebankExpiredReq struct{ id string }
+
+type revealCardsResp struct {
+	cards []*pokerrpc.Card
+	err   error
+}
+
+type evRevealCardsReq struct {
+	playerID string
+	reply    chan revealCardsResp
+}
+
+type evAutoRevealReq struct {
+	playerIDs []string
+}
+
+type evHideCardsReq struct {
+	playerID string
+	reply    chan error
+}
 
 // handleGameEvent centralizes cross-state request handling. It returns (nextState, handled).
 func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
@@ -3004,6 +3105,40 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		// Notify table to push a fresh GameUpdate and optional typed action event
 		g.sendTableEvent(GameEvent{Type: GameEventStateUpdated, ActorID: e.id, Action: act})
 		return nil, true
+	case evRevealCardsReq:
+		resp := g.handleToggleCards(e.playerID, true)
+		if e.reply != nil {
+			e.reply <- resp
+		}
+		return nil, true
+	case evAutoRevealReq:
+		if len(e.playerIDs) == 0 {
+			return nil, true
+		}
+		revealed := make([]AutoRevealPlayer, 0, len(e.playerIDs))
+		for _, playerID := range e.playerIDs {
+			resp := g.handleToggleCards(playerID, true)
+			if resp.err != nil || len(resp.cards) == 0 {
+				continue
+			}
+			revealed = append(revealed, AutoRevealPlayer{
+				PlayerID: playerID,
+				Cards:    resp.cards,
+			})
+		}
+		if len(revealed) > 0 {
+			g.sendTableEvent(GameEvent{
+				Type:       GameEventAutoShowCards,
+				RevealInfo: revealed,
+			})
+		}
+		return nil, true
+	case evHideCardsReq:
+		err := g.handleToggleCards(e.playerID, false).err
+		if e.reply != nil {
+			e.reply <- err
+		}
+		return nil, true
 	case evAdvanceToNextPlayerReq:
 		g.mu.Lock()
 		g.advanceToNextPlayer(e.now)
@@ -3040,7 +3175,7 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		if g.potManager == nil {
 			err = fmt.Errorf("potManager is nil")
 		} else {
-			g.refundUncalledBets()
+			err = g.refundUncalledBets()
 		}
 		if e.reply != nil {
 			e.reply <- err

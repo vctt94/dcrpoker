@@ -57,6 +57,8 @@ func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
 		nh.handleShowdownResult(event)
 	case pokerrpc.NotificationType_PLAYER_ALL_IN:
 		nh.handlePlayerAllIn(event)
+	case pokerrpc.NotificationType_CARDS_SHOWN:
+		nh.handleCardsShown(event)
 	}
 }
 
@@ -325,6 +327,28 @@ func (nh *NotificationHandler) handlePlayerAllIn(event *GameEvent) {
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }
 
+func (nh *NotificationHandler) handleCardsShown(event *GameEvent) {
+	pl, ok := event.Payload.(AutoShowCardsPayload)
+	if !ok {
+		nh.server.log.Warnf("CARDS_SHOWN without AutoShowCardsPayload; skipping (table=%s)", event.TableID)
+		return
+	}
+
+	msg := "Cards revealed"
+	if pl.PlayerID != "" {
+		msg = fmt.Sprintf("%s's cards were revealed", pl.PlayerID)
+	}
+
+	notification := &pokerrpc.Notification{
+		Type:     pokerrpc.NotificationType_CARDS_SHOWN,
+		TableId:  event.TableID,
+		PlayerId: pl.PlayerID,
+		Cards:    pl.Cards,
+		Message:  msg,
+	}
+	nh.server.notifyPlayers(event.PlayerIDs, notification)
+}
+
 // tableFromSnapshot converts the event snapshot (or a fresh snapshot) into a
 // proto Table for lobby updates.
 func (nh *NotificationHandler) tableFromSnapshot(event *GameEvent) *pokerrpc.Table {
@@ -465,6 +489,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 				IsTurn:          us.IsTurn,
 				StateString:     us.GameState,
 				HandDescription: us.HandDescription,
+				CardsRevealed:   us.CardsRevealed,
 			})
 		}
 	}
@@ -495,6 +520,7 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 			IsDisconnected: gps.IsDisconnected,
 			IsTurn:         gps.IsTurn,
 			TableSeat:      int32(gps.TableSeat),
+			CardsRevealed:  gps.CardsRevealed,
 		}
 
 		// Prefer table-level metadata when present.
@@ -510,27 +536,22 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 			player.PresignComplete = userSnap.PresignComplete
 		}
 
-		if gps.ID == requestingPlayerID {
-			// Show own cards during all active game phases
-			if len(gps.Hand) > 0 {
-				player.Hand = make([]*pokerrpc.Card, len(gps.Hand))
-				for i, card := range gps.Hand {
-					player.Hand[i] = &pokerrpc.Card{
-						Suit:  card.GetSuit(),
-						Value: card.GetValue(),
-					}
-				}
-			}
-		} else if tableSnapshot.GameSnapshot.Phase == pokerrpc.GamePhase_SHOWDOWN {
-			// Show other players' cards only during showdown
+		// Determine visibility for hand info
+		// Reveal opponent cards if they've been explicitly revealed (e.g. auto-show on all-in).
+		showCards := gps.ID == requestingPlayerID || gps.CardsRevealed
+		if showCards && len(gps.Hand) > 0 {
 			player.Hand = make([]*pokerrpc.Card, len(gps.Hand))
-			player.HandDescription = gps.HandDescription
 			for i, card := range gps.Hand {
 				player.Hand[i] = &pokerrpc.Card{
 					Suit:  card.GetSuit(),
 					Value: card.GetValue(),
 				}
 			}
+		}
+		if showCards {
+			player.HandDescription = gps.HandDescription
+		} else {
+			player.HandDescription = ""
 		}
 
 		players = append(players, player)

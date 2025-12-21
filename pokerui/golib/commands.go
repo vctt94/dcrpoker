@@ -319,6 +319,7 @@ type notificationDTO struct {
 	Message         string        `json:"message,omitempty"`
 	TableId         string        `json:"tableId,omitempty"`
 	PlayerId        string        `json:"playerId,omitempty"`
+	Cards           []*cardDTO    `json:"cards,omitempty"`
 	Amount          int64         `json:"amount,omitempty"`
 	NewBalance      int64         `json:"newBalance,omitempty"`
 	Ready           bool          `json:"ready"`
@@ -350,6 +351,12 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 	}
 	if n.PlayerId != "" {
 		dto.PlayerId = n.PlayerId
+	}
+	if len(n.Cards) > 0 {
+		dto.Cards = make([]*cardDTO, 0, len(n.Cards))
+		for _, c := range n.Cards {
+			dto.Cards = append(dto.Cards, cardToDTO(c))
+		}
 	}
 	if n.Amount != 0 {
 		dto.Amount = n.Amount

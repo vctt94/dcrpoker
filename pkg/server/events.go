@@ -70,6 +70,7 @@ type PlayerSnapshot struct {
 	HasBet          int64
 	StartingBalance int64
 	LastAction      time.Time
+	CardsRevealed   bool
 }
 
 // TableState represents table-level state

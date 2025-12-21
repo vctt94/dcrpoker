@@ -699,7 +699,7 @@ class PlayerDTO {
   @JsonKey(name: 'disconnected')
   final bool disconnected;
   @JsonKey(name: 'handDescription')
-  final String handDescription;
+  final String handDescription; // Empty when not revealed to viewer.
   @JsonKey(name: 'playerState')
   final int playerState;
   @JsonKey(name: 'isSmallBlind')
@@ -712,6 +712,7 @@ class PlayerDTO {
   final bool escrowReady;
   @JsonKey(name: 'tableSeat', defaultValue: 0)
   final int tableSeat;
+  final bool cardsRevealed;
 
   PlayerDTO(
     this.id,
@@ -731,8 +732,9 @@ class PlayerDTO {
     this.isBigBlind,
     this.escrowId,
     this.escrowReady,
-    this.tableSeat,
-  );
+    this.tableSeat, [
+      this.cardsRevealed = false,
+    ]);
 
   factory PlayerDTO.fromJson(Map<String, dynamic> json) =>
       _$PlayerDTOFromJson(json);
@@ -758,7 +760,8 @@ class PlayerDTO {
       ..isBigBlind = isBigBlind
       ..escrowId = escrowId
       ..escrowReady = escrowReady
-      ..tableSeat = tableSeat;
+      ..tableSeat = tableSeat
+      ..cardsRevealed = cardsRevealed;
   }
 }
 
@@ -973,6 +976,8 @@ class NotificationDTO {
   final String? tableId;
   @JsonKey(name: 'playerId')
   final String? playerId;
+  @JsonKey(name: 'cards')
+  final List<CardDTO>? cards;
   @JsonKey(name: 'amount')
   final int? amount;
   @JsonKey(name: 'newBalance')
@@ -1002,6 +1007,7 @@ class NotificationDTO {
     this.message,
     this.tableId,
     this.playerId,
+    this.cards,
     this.amount,
     this.newBalance,
     this.ready,
@@ -1038,6 +1044,13 @@ class NotificationDTO {
           .map((e) => CardDTO.fromJson(Map<String, dynamic>.from(e as Map)))
           .toList();
     }
+    final cardsRaw = json['cards'];
+    List<CardDTO>? cards;
+    if (cardsRaw is List) {
+      cards = cardsRaw
+          .map((e) => CardDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .toList();
+    }
     final showdownPotRaw = json['showdownPot'] ?? json['showdown_pot'];
     final showdownPot = showdownPotRaw is num
         ? showdownPotRaw.toInt()
@@ -1051,6 +1064,7 @@ class NotificationDTO {
       message: json['message'] as String?,
       tableId: (json['tableId'] ?? json['table_id'])?.toString(),
       playerId: (json['playerId'] ?? json['player_id'])?.toString(),
+      cards: cards,
       amount: (json['amount'] as num?)?.toInt(),
       newBalance: (json['newBalance'] as num?)?.toInt(),
       ready: json['ready'] as bool?,
@@ -1074,6 +1088,9 @@ class NotificationDTO {
     if (message != null) n.message = message!;
     if (tableId != null) n.tableId = tableId!;
     if (playerId != null) n.playerId = playerId!;
+    if (cards != null && cards!.isNotEmpty) {
+      n.cards.addAll(cards!.map((c) => c.toProtobuf()));
+    }
     if (amount != null) n.amount = Int64(amount!);
     if (newBalance != null) n.newBalance = Int64(newBalance!);
     if (ready != null) n.ready = ready!;

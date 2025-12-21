@@ -504,6 +504,7 @@ type playerDTO struct {
 	EscrowReady     bool       `json:"escrowReady"`
 	TableSeat       int32      `json:"tableSeat"`
 	PresignComplete bool       `json:"presignComplete"`
+	CardsRevealed   bool       `json:"cardsRevealed"`
 }
 
 // gameUpdateDTO represents a game update for JSON marshaling
@@ -562,6 +563,7 @@ func playerToDTO(p *pokerrpc.Player) *playerDTO {
 		EscrowReady:     p.EscrowReady,
 		TableSeat:       p.TableSeat,
 		PresignComplete: p.PresignComplete,
+		CardsRevealed:   p.CardsRevealed,
 	}
 }
 

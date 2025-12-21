@@ -274,6 +274,8 @@ class ShowdownContent extends StatelessWidget {
     final isWinner = _isWinner(player.id);
     final winner = _getWinner(player.id);
     final isMe = player.id == model.playerId;
+    final showCards = player.hand.isNotEmpty &&
+        (!player.folded || player.cardsRevealed || isMe);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -343,7 +345,7 @@ class ShowdownContent extends StatelessWidget {
           ),
 
           // Hole cards
-          if (player.hand.isNotEmpty && !player.folded)
+          if (showCards)
             Row(
               children: player.hand.map((card) {
                 return Padding(
@@ -396,4 +398,3 @@ class ShowdownContent extends StatelessWidget {
     );
   }
 }
-

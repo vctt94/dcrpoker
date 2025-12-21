@@ -34,6 +34,12 @@ type ActionPayload struct {
 	PlayerID string
 }
 
+// AutoShowCardsPayload is emitted when the game auto-reveals cards (all-in scenario).
+type AutoShowCardsPayload struct {
+	PlayerID string
+	Cards    []*pokerrpc.Card
+}
+
 // PlayerLostPayload is used to notify that a player lost (0 chips) and was removed
 type PlayerLostPayload struct {
 	PlayerID string
@@ -316,6 +322,13 @@ func (t *Table) handleGameEvent(event GameEvent) {
 			// Removal is handled after notifications are broadcast to ensure snapshots
 			// include the eliminated player for the final showdown/game-end payloads.
 		}
+	case GameEventAutoShowCards:
+		for _, info := range event.RevealInfo {
+			t.PublishEvent(pokerrpc.NotificationType_CARDS_SHOWN, t.config.ID, AutoShowCardsPayload{
+				PlayerID: info.PlayerID,
+				Cards:    info.Cards,
+			})
+		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
 	}
@@ -416,30 +429,40 @@ func (t *Table) handleGameOver(winnerID string) {
 	}
 }
 
-// Thread-safe readiness check for state fns.
-// This checks if all players are ready and escrows are funded (for FSM transitions).
-// Does NOT check presign - that's a separate check for game start.
-func (t *Table) allPlayersReady() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+// Requires: t.mu held.
+func (t *Table) isUserReadyForGame(user *User, requirePresign bool) bool {
+	mustHeld(&t.mu)
+	requireEscrow := t.config.BuyIn > 0
+	user.mu.RLock()
+	isReady := user.IsReady
+	escrowID := user.EscrowID
+	escrowReady := user.EscrowReady
+	presignComplete := user.PresignComplete
+	user.mu.RUnlock()
+
+	if !isReady {
+		return false
+	}
+	if requireEscrow && escrowID == "" {
+		return false
+	}
+	if escrowID != "" && !escrowReady {
+		return false
+	}
+	if requirePresign && requireEscrow && !presignComplete {
+		return false
+	}
+	return true
+}
+
+// Requires: t.mu held.
+func (t *Table) allSeatedPlayersReadyLocked(requirePresign bool) bool {
+	mustHeld(&t.mu)
 	if len(t.users) < t.config.MinPlayers {
 		return false
 	}
-	requireEscrow := t.config.BuyIn > 0
 	for _, u := range t.users {
-		u.mu.RLock()
-		isReady := u.IsReady
-		escrowID := u.EscrowID
-		escrowReady := u.EscrowReady
-		u.mu.RUnlock()
-
-		if !isReady {
-			return false
-		}
-		if requireEscrow && escrowID == "" {
-			return false
-		}
-		if escrowID != "" && !escrowReady {
+		if !t.isUserReadyForGame(u, requirePresign) {
 			return false
 		}
 	}
@@ -455,7 +478,7 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 			if e.reply != nil {
 				e.reply <- err
 			}
-			if err == nil && t.allPlayersReady() {
+			if err == nil && t.CheckAllPlayersReady() {
 				return tableStatePlayersReady
 			}
 		case evSetUserEscrow:
@@ -464,7 +487,7 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 				e.reply <- err
 			}
 			// Escrow change may affect readiness; check transitions
-			if err == nil && t.allPlayersReady() {
+			if err == nil && t.CheckAllPlayersReady() {
 				return tableStatePlayersReady
 			}
 		case evResetUserPresign:
@@ -477,17 +500,17 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 				e.reply <- err
 			}
 			// Presign completion may affect readiness; check transitions
-			if err == nil && t.allPlayersReady() {
+			if err == nil && t.CheckAllPlayersReady() {
 				return tableStatePlayersReady
 			}
 		case evUsersChanged:
-			if t.allPlayersReady() {
+			if t.CheckAllPlayersReady() {
 				return tableStatePlayersReady
 			}
 			// stay waiting
 		case evStartGameReq:
 			// If StartGame was called AND everyone is ready, go ACTIVE immediately.
-			if t.allPlayersReady() {
+			if t.CheckAllPlayersReady() {
 				return tableStateGameActive
 			}
 			// otherwise remain waiting (server shouldn't call StartGame yet)
@@ -508,7 +531,7 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 			if e.reply != nil {
 				e.reply <- err
 			}
-			if err == nil && !t.allPlayersReady() {
+			if err == nil && !t.CheckAllPlayersReady() {
 				return tableStateWaitingForPlayers
 			}
 		case evSetUserEscrow:
@@ -517,7 +540,7 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 				e.reply <- err
 			}
 			// Escrow change may affect readiness
-			if err == nil && !t.allPlayersReady() {
+			if err == nil && !t.CheckAllPlayersReady() {
 				return tableStateWaitingForPlayers
 			}
 		case evResetUserPresign:
@@ -530,7 +553,7 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 				e.reply <- err
 			}
 		case evUsersChanged:
-			if !t.allPlayersReady() {
+			if !t.CheckAllPlayersReady() {
 				return tableStateWaitingForPlayers
 			}
 			// remain ready
@@ -611,69 +634,21 @@ func (t *Table) GetTableStateString() string {
 	}
 }
 
-// CheckAllPlayersReady checks if all players are ready (and escrows funded for escrow tables).
-// Does NOT include presign check - use CheckAllPlayersReadyForGameStart for that.
+// CheckAllPlayersReady checks if there are enough players at the table and all players are ready
+// (and escrows funded for escrow tables). Does NOT include presign check - use
+// CheckAllPlayersReadyForGameStart for that.
 func (t *Table) CheckAllPlayersReady() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	// Requires: t.mu held
-	if len(t.users) < t.config.MinPlayers {
-		return false
-	}
-	requireEscrow := t.config.BuyIn > 0
-	for _, u := range t.users {
-		u.mu.RLock()
-		isReady := u.IsReady
-		escrowID := u.EscrowID
-		escrowReady := u.EscrowReady
-		u.mu.RUnlock()
-
-		if !isReady {
-			return false
-		}
-		if requireEscrow && escrowID == "" {
-			return false
-		}
-		if escrowID != "" && !escrowReady {
-			return false
-		}
-	}
-	return true
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.allSeatedPlayersReadyLocked(false)
 }
 
-// CheckAllPlayersReadyForGameStart checks if all players are ready to start the game.
-// For escrow-backed tables, this also requires presigning to be complete.
+// CheckAllPlayersReadyForGameStart checks if there are enough players at the table and all players are
+// ready to start the game. For escrow-backed tables, this also requires presigning to be complete.
 func (t *Table) CheckAllPlayersReadyForGameStart() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	// Requires: t.mu held
-	if len(t.users) < t.config.MinPlayers {
-		return false
-	}
-	requireEscrow := t.config.BuyIn > 0
-	for _, u := range t.users {
-		u.mu.RLock()
-		isReady := u.IsReady
-		escrowID := u.EscrowID
-		escrowReady := u.EscrowReady
-		presignComplete := u.PresignComplete
-		u.mu.RUnlock()
-
-		if !isReady {
-			return false
-		}
-		if requireEscrow && escrowID == "" {
-			return false
-		}
-		if escrowID != "" && !escrowReady {
-			return false
-		}
-		// For escrow-backed tables, presigning must be complete
-		if requireEscrow && !presignComplete {
-			return false
-		}
-	}
-	return true
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.allSeatedPlayersReadyLocked(true)
 }
 
 // StartGame starts a new game at the table using the state machine
@@ -685,45 +660,28 @@ func (t *Table) StartGame() error {
 		return fmt.Errorf("cannot start game: table has ended")
 	}
 
-	// 1) Ensure readiness under the table lock.
-	// Requires: t.mu held
-	if t.GetTableStateString() != "PLAYERS_READY" {
-		if len(t.users) < t.config.MinPlayers {
-			return fmt.Errorf("cannot start game: not enough ready players")
-		}
-		requireEscrow := t.config.BuyIn > 0
-		for _, u := range t.users {
-			u.mu.RLock()
-			isReady := u.IsReady
-			escrowID := u.EscrowID
-			escrowReady := u.EscrowReady
-			u.mu.RUnlock()
+	if !t.allSeatedPlayersReadyLocked(false) {
+		return fmt.Errorf("cannot start game: not enough ready players")
+	}
 
-			if !isReady {
-				return fmt.Errorf("cannot start game: not enough ready players")
-			}
-			if requireEscrow && escrowID == "" {
-				return fmt.Errorf("cannot start game: not enough ready players")
-			}
-			if escrowID != "" && !escrowReady {
-				return fmt.Errorf("cannot start game: not enough ready players")
-			}
+	// 1) Build the active player list in seat order (pure table concern).
+	active := make([]*User, 0, len(t.users))
+	for _, u := range t.users {
+		if t.isUserReadyForGame(u, false) {
+			active = append(active, u)
 		}
 	}
-	if len(t.users) < t.config.MinPlayers {
-		return fmt.Errorf("not enough players to start game")
+	if len(active) < t.config.MaxPlayers {
+		return fmt.Errorf("cannot start game: not enough ready players")
 	}
+
 	// Clean up any stale game explicitly to prevent goroutine leaks
 	if t.game != nil {
 		t.game.Close()
 		t.game = nil
 	}
 
-	// 2) Build the active player list in seat order (pure table concern).
-	active := make([]*User, 0, len(t.users))
-	for _, u := range t.users {
-		active = append(active, u)
-	}
+	// 2) Finalize active player list in seat order.
 	sort.Slice(active, func(i, j int) bool { return active[i].TableSeat < active[j].TableSeat })
 
 	// 3) Create Game (no mutations outside its API).
@@ -854,6 +812,7 @@ func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
 
 		players = append(players, &pokerrpc.ShowdownPlayer{
 			PlayerId:     p.ID,
+			Name:         p.Name,
 			HoleCards:    p.HoleCards,
 			FinalState:   finalState,
 			HandRank:     p.HandRank,
@@ -1723,8 +1682,8 @@ func (t *Table) RestoreGame(tableID string) (*Game, error) {
 	t.mu.Unlock()
 
 	// Send event to state machine to transition to GAME_ACTIVE (non-blocking)
-	// The state machine will check allPlayersReady() when processing this event,
-	// and since we just set all players to ready, it will transition to GAME_ACTIVE
+	// The state machine will check CheckAllPlayersReady() when processing this event,
+	// and since we just set all players to ready, it will transition to GAME_ACTIVE.
 	if !t.sm.TrySend(evStartGameReq{}) {
 		t.log.Warnf("RestoreGame: failed to send evStartGameReq (inbox full)")
 	}

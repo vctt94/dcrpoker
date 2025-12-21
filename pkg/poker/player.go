@@ -55,6 +55,7 @@ type Player struct {
 	hasFolded  bool  // Set when player folds
 	isAllIn    bool  // Set when player goes all-in
 	currentBet int64 // Current bet in this round, reset at hand start
+	revealed   bool  // Intent to reveal during hand; actual reveal at showdown
 
 	// Per-hand role flags (reset each hand)
 	isDealer     bool
@@ -273,12 +274,6 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 					}
 					return stateInGame
 				}
-			// invalid or ignored, stay at table
-
-			case evBalanceNotification:
-				// Async notification from Game FSM - balance already changed
-				// Can be used for UI updates, logging, etc.
-				// No action needed here
 
 			case evDisconnect:
 				p.mu.Lock()
@@ -298,7 +293,6 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 }
 
 func stateInGame(p *Player, in <-chan any) PlayerStateFn {
-
 	for ev := range in {
 		// Derived ALL-IN: evaluated each loop iteration (under read lock)
 		p.mu.RLock()
@@ -378,10 +372,21 @@ func stateInGame(p *Player, in <-chan any) PlayerStateFn {
 			}
 			return stateFolded
 
-		case evBalanceNotification:
-			// Async notification from Game FSM - balance already changed
-			// Can be used for UI updates, logging, etc.
-			// No action needed here
+		case evRevealCards:
+			p.mu.Lock()
+			p.revealed = true
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evHideCards:
+			p.mu.Lock()
+			p.revealed = false
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
 
 		case evEndHand:
 			p.mu.Lock()
@@ -484,10 +489,24 @@ func stateAllIn(p *Player, in <-chan any) PlayerStateFn {
 				e.Reply <- nil
 			}
 
-		case evBalanceNotification:
-			// Async notification from Game FSM - balance already changed
-			// Can be used for UI updates, logging, etc.
-			// No action needed here
+		case evRevealCards:
+			// Set intent to reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = true
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evHideCards:
+			// Set intent to not reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = false
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
 		case evFoldReq:
 			// Cannot fold while all-in; acknowledge with error if requested.
 			if e.Reply != nil {
@@ -527,10 +546,6 @@ func stateFolded(p *Player, in <-chan any) PlayerStateFn {
 				e.Reply <- nil
 			}
 
-		case evBalanceNotification:
-			// Async notification from Game FSM - balance already changed
-			// Can be used for UI updates, logging, etc.
-			// No action needed here
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
@@ -660,6 +675,49 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 			}
 			return stateHandFolded
 
+		case evRevealCards:
+			// Set intent to reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = true
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evHideCards:
+			// Set intent to not reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = false
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evAddToBalance:
+			p.mu.Lock()
+			newBalance := p.balance + e.Delta
+			if e.Delta < 0 && newBalance < 0 {
+				p.mu.Unlock()
+				if e.Reply != nil {
+					e.Reply <- fmt.Errorf("insufficient balance for adjustment")
+				}
+				continue
+			}
+			p.balance = newBalance
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evSetShowdownHand:
+			p.mu.Lock()
+			p.handValue = e.HandValue
+			p.handDescription = e.HandDescription
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
 		case evEndHand:
 			p.mu.Lock()
 			p.currentBet = 0
@@ -734,6 +792,49 @@ func stateHandAllIn(p *Player, in <-chan any) HandParticipationStateFn {
 			if e.Reply != nil {
 				e.Reply <- fmt.Errorf("cannot fold while all-in")
 			}
+		case evRevealCards:
+			// Set intent to reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = true
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evHideCards:
+			// Set intent to not reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = false
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evAddToBalance:
+			p.mu.Lock()
+			newBalance := p.balance + e.Delta
+			if e.Delta < 0 && newBalance < 0 {
+				p.mu.Unlock()
+				if e.Reply != nil {
+					e.Reply <- fmt.Errorf("insufficient balance for adjustment")
+				}
+				continue
+			}
+			p.balance = newBalance
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evSetShowdownHand:
+			p.mu.Lock()
+			p.handValue = e.HandValue
+			p.handDescription = e.HandDescription
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
 		case evCallDelta:
 			// Cannot call while all-in; acknowledge with error if requested.
 			if e.Reply != nil {
@@ -772,6 +873,49 @@ func stateHandFolded(p *Player, in <-chan any) HandParticipationStateFn {
 			if e.Reply != nil {
 				e.Reply <- nil
 			}
+		case evRevealCards:
+			// Set intent to reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = true
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evHideCards:
+			// Set intent to not reveal (works during hand and at showdown)
+			p.mu.Lock()
+			p.revealed = false
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evAddToBalance:
+			p.mu.Lock()
+			newBalance := p.balance + e.Delta
+			if e.Delta < 0 && newBalance < 0 {
+				p.mu.Unlock()
+				if e.Reply != nil {
+					e.Reply <- fmt.Errorf("insufficient balance for adjustment")
+				}
+				continue
+			}
+			p.balance = newBalance
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
+		case evSetShowdownHand:
+			p.mu.Lock()
+			p.handValue = e.HandValue
+			p.handDescription = e.HandDescription
+			p.mu.Unlock()
+			if e.Reply != nil {
+				e.Reply <- nil
+			}
+
 		case evCallDelta:
 			// Cannot call while folded; acknowledge with error if requested.
 			if e.Reply != nil {
@@ -797,6 +941,7 @@ func (p *Player) resetForNewHand(startingChips int64) {
 	p.hasFolded = false
 	p.isAllIn = false
 	p.currentBet = 0
+	p.revealed = false
 	p.handDescription = ""
 	// Stop and clear the hand participation state machine if active
 	if p.handParticipation != nil {
@@ -1019,6 +1164,38 @@ func (p *Player) DeductBlind(amount int64) (int64, error) {
 	return deducted, nil
 }
 
+// AddToBalance routes a balance delta through the hand participation FSM.
+// This is used for credits/refunds at settlement time so the Player FSM remains
+// the exclusive owner of balance mutation.
+func (p *Player) AddToBalance(delta int64) error {
+	p.mu.RLock()
+	hp := p.handParticipation
+	p.mu.RUnlock()
+	if hp == nil {
+		return fmt.Errorf("hand participation not started")
+	}
+	if delta == 0 {
+		return nil
+	}
+
+	reply := make(chan error, 1)
+	hp.Send(evAddToBalance{Delta: delta, Reply: reply})
+	return <-reply
+}
+
+func (p *Player) SetShowdownHand(hv *HandValue, desc string) error {
+	p.mu.RLock()
+	hp := p.handParticipation
+	p.mu.RUnlock()
+	if hp == nil {
+		return fmt.Errorf("hand participation not started")
+	}
+
+	reply := make(chan error, 1)
+	hp.Send(evSetShowdownHand{HandValue: hv, HandDescription: desc, Reply: reply})
+	return <-reply
+}
+
 func (p *Player) StartTurn() {
 	// Send to hand participation FSM if active, otherwise to table presence FSM
 	p.mu.RLock()
@@ -1159,19 +1336,25 @@ type evBet struct {
 
 type evCall struct{}
 
-// evBalanceNotification is an async notification sent to Player FSM when
-// the Game FSM directly modifies player.balance (e.g., during pot distribution).
-// This is for UI/logging purposes only - the balance change has already occurred.
-type evBalanceNotification struct {
-	NewBalance int64
-	Delta      int64
-	Reason     string // "pot_win", "refund", etc.
-}
-
 // evFoldReq requests a fold with an acknowledgment once the player's state
 // has transitioned to FOLDED. This allows callers to avoid racing against
 // reads that depend on the folded state.
 type evFoldReq struct{ Reply chan<- error }
+
+type evRevealCards struct{ Reply chan<- error }
+
+type evHideCards struct{ Reply chan<- error }
+
+type evAddToBalance struct {
+	Delta int64
+	Reply chan<- error
+}
+
+type evSetShowdownHand struct {
+	HandValue       *HandValue
+	HandDescription string
+	Reply           chan<- error
+}
 
 type evEndHand struct{}
 

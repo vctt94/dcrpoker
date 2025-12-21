@@ -82,8 +82,11 @@ class PokerGame {
 
   Widget buildWidget(UiGameState gameState, FocusNode focusNode,
       {VoidCallback? onReadyHotkey}) {
-    // Start/stop lightweight repaint loop only while an authoritative deadline is active.
-    if (gameState.turnDeadlineUnixMs > 0) {
+    // Start/stop lightweight repaint loop only while an authoritative deadline
+    // is active and the hand isn't auto-advancing through all-in streets.
+    final hasDeadline = gameState.turnDeadlineUnixMs > 0;
+    final autoAdvancing = isAutoAdvanceAllIn(gameState);
+    if (hasDeadline && !autoAdvancing) {
       _loop.start();
     } else {
       _loop.stop();
@@ -141,25 +144,22 @@ class PokerGame {
                               child: _CommunityCardsOverlay(
                                   cards: gameState.communityCards)),
 
-                          // Hero hole cards overlay (visible during all active phases)
+                          // Hero hole cards overlay with a visibility toggle
                           if (gameState.phase != pr.GamePhase.WAITING)
-                            (gameState.phase == pr.GamePhase.SHOWDOWN
-                                // Allow interaction at showdown so user can tap to show/hide
-                                ? _HeroCardsOverlay(
-                                    players: gameState.players,
-                                    heroId: playerId,
-                                    cache: pokerModel.myHoleCardsCache,
-                                    model: pokerModel,
-                                  )
-                                // Otherwise render non-interactive to avoid stealing input
-                                : IgnorePointer(
-                                    child: _HeroCardsOverlay(
-                                      players: gameState.players,
-                                      heroId: playerId,
-                                      cache: pokerModel.myHoleCardsCache,
-                                      model: pokerModel,
-                                    ),
-                                  )),
+                            _HeroCardsOverlay(
+                              players: gameState.players,
+                              heroId: playerId,
+                              cache: pokerModel.myHoleCardsCache,
+                              gamePhase: gameState.phase,
+                              isShowing: pokerModel.me?.cardsRevealed ?? false,
+                              onToggle: () {
+                                if (pokerModel.me?.cardsRevealed ?? false) {
+                                  pokerModel.hideCards();
+                                } else {
+                                  pokerModel.showCards();
+                                }
+                              },
+                            ),
 
                           // Hover hints for disconnected players
                           DisconnectedBadgesOverlay(
@@ -741,11 +741,15 @@ class _HeroCardsOverlay extends StatelessWidget {
       {required this.players,
       required this.heroId,
       required this.cache,
-      required this.model});
+      required this.gamePhase,
+      required this.isShowing,
+      required this.onToggle});
   final List<UiPlayer> players;
   final String heroId;
   final List<pr.Card> cache;
-  final PokerModel model;
+  final pr.GamePhase gamePhase;
+  final bool isShowing;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -770,19 +774,11 @@ class _HeroCardsOverlay extends StatelessWidget {
     // Prefer live hero.hand; fall back to cached hole cards when snapshots omit them (e.g., during showdown).
     final List<pr.Card> cards = hero.hand.isNotEmpty ? hero.hand : cache;
     final bool faceUp = cards.isNotEmpty;
-    final bool hint =
-        (model.game?.phase == pr.GamePhase.SHOWDOWN) && !model.myCardsShown;
     return HeroCardFlipOverlay(
       cards: cards,
       showFace: faceUp,
-      showHint: hint,
-      onToggle: () {
-        if (model.myCardsShown) {
-          model.hideCards();
-        } else {
-          model.showCards();
-        }
-      },
+      onToggle: cards.isNotEmpty ? onToggle : null,
+      toggleShown: isShowing,
     );
   }
 }

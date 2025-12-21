@@ -481,7 +481,7 @@ func TestPokerService(t *testing.T) {
 			SmallBlind:    10,
 			BigBlind:      20,
 			MinPlayers:    2,
-			MaxPlayers:    6,
+			MaxPlayers:    2,
 			BuyIn:         0,
 			StartingChips: 1000,
 			AutoAdvanceMs: 1000,
@@ -574,7 +574,7 @@ func TestPokerGameFlow(t *testing.T) {
 		SmallBlind:    5,
 		BigBlind:      10,
 		MinPlayers:    3,
-		MaxPlayers:    6,
+		MaxPlayers:    3,
 		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
@@ -1134,7 +1134,7 @@ func TestJoinTable(t *testing.T) {
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    2,
-		MaxPlayers:    6,
+		MaxPlayers:    3,
 		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
@@ -1207,7 +1207,7 @@ func TestJoinTableAfterGameStartFails(t *testing.T) {
 		SmallBlind:    10,
 		BigBlind:      20,
 		MinPlayers:    2,
-		MaxPlayers:    6,
+		MaxPlayers:    2,
 		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
@@ -1232,8 +1232,14 @@ func TestJoinTableAfterGameStartFails(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Wait for the game to start
+	// Wait for the game to start, reasserting readiness in case a prior attempt raced.
 	require.Eventually(t, func() bool {
+		for _, pid := range []string{player1ID, player2ID} {
+			_, _ = server.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
+				PlayerId: pid,
+				TableId:  tableID,
+			})
+		}
 		gameState, err := server.GetGameState(ctx, &pokerrpc.GetGameStateRequest{
 			TableId: tableID,
 		})
@@ -1283,7 +1289,7 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 		SmallBlind:    5,
 		BigBlind:      10,
 		MinPlayers:    3,
-		MaxPlayers:    6,
+		MaxPlayers:    3,
 		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,

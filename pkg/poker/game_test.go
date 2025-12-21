@@ -22,6 +22,58 @@ func createTestLogger() slog.Logger {
 	return log
 }
 
+func startHandParticipationIfNeeded(t *testing.T, players []*Player) {
+	t.Helper()
+	for _, p := range players {
+		if p == nil {
+			continue
+		}
+		p.mu.RLock()
+		hp := p.handParticipation
+		p.mu.RUnlock()
+		if hp == nil {
+			require.NoError(t, p.HandleStartHand())
+		}
+	}
+}
+
+func buildShowdownPlayers(t *testing.T, g *Game, result *ShowdownResult) []ShowdownPlayerInfo {
+	t.Helper()
+
+	winnerInfoByID := make(map[string]*pokerrpc.Winner, len(result.WinnerInfo))
+	for _, w := range result.WinnerInfo {
+		winnerInfoByID[w.PlayerId] = w
+	}
+
+	players := make([]ShowdownPlayerInfo, 0, len(g.players))
+	for idx, p := range g.players {
+		if p == nil {
+			continue
+		}
+		winfo := winnerInfoByID[p.ID()]
+		hasShowdownHand := winfo != nil && len(winfo.BestHand) > 0
+		info := ShowdownPlayerInfo{
+			ID:           p.ID(),
+			Name:         p.Name(),
+			FinalState:   p.GetCurrentStateString(),
+			Contribution: g.potManager.getTotalBet(idx),
+		}
+		if g.currentHand != nil && (p.revealed || hasShowdownHand) {
+			cards := g.currentHand.GetPlayerCards(p.ID())
+			for _, c := range cards {
+				info.HoleCards = append(info.HoleCards, toProtoCard(c))
+			}
+		}
+		if winfo != nil {
+			info.HandRank = winfo.HandRank
+			info.BestHand = winfo.BestHand
+		}
+		players = append(players, info)
+	}
+
+	return players
+}
+
 func TestNewGame(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
@@ -147,7 +199,7 @@ func TestDealCards(t *testing.T) {
 
 	// Check each player has 2 cards
 	for i, player := range game.players {
-		cards := game.currentHand.GetPlayerCards(player.ID(), player.ID())
+		cards := game.currentHand.GetPlayerCards(player.ID())
 		if len(cards) != 2 {
 			t.Errorf("Player %d: Expected 2 cards, got %d", i, len(cards))
 		}
@@ -271,6 +323,7 @@ func TestShowdown(t *testing.T) {
 	game.potManager.addBet(1, 50, game.players) // Player 2 bet 50
 
 	// Run the showdown
+	startHandParticipationIfNeeded(t, game.players)
 	_, err = game.HandleShowdown()
 	if err != nil {
 		t.Fatalf("HandleShowdown() error = %v", err)
@@ -338,6 +391,7 @@ func TestShowdownHandRankPropagates(t *testing.T) {
 	game.potManager.addBet(0, 40, game.players)
 	game.potManager.addBet(1, 40, game.players)
 
+	startHandParticipationIfNeeded(t, game.players)
 	result, err := game.HandleShowdown()
 	require.NoError(t, err)
 
@@ -345,6 +399,118 @@ func TestShowdownHandRankPropagates(t *testing.T) {
 	w := result.WinnerInfo[0]
 	assert.Equal(t, "p2", w.PlayerId, "expected p2 to win with two pair")
 	assert.Equal(t, pokerrpc.HandRank_TWO_PAIR, w.HandRank, "winner HandRank should reflect evaluated hand")
+	assert.Len(t, w.BestHand, 5, "winner BestHand should be revealed")
+}
+
+func TestSplitPotForcesWinnerReveal(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		Seed:             42,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
+	}
+	game.SetPlayers(users)
+
+	game.currentHand = NewHand([]string{"p1", "p2"})
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Clubs, value: Three}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Diamonds, value: Five}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Hearts, value: Four}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Spades, value: Six}))
+
+	// Board: 7-8-9-10-J gives a straight on the board, forcing a split.
+	game.communityCards = []Card{
+		{suit: Hearts, value: Seven},
+		{suit: Clubs, value: Eight},
+		{suit: Spades, value: Nine},
+		{suit: Diamonds, value: Ten},
+		{suit: Hearts, value: Jack},
+	}
+	game.phase = pokerrpc.GamePhase_RIVER
+
+	game.potManager = NewPotManager(2)
+	game.potManager.addBet(0, 40, game.players)
+	game.potManager.addBet(1, 40, game.players)
+
+	startHandParticipationIfNeeded(t, game.players)
+	result, err := game.HandleShowdown()
+	require.NoError(t, err)
+
+	require.Len(t, result.WinnerInfo, 2, "expected split pot with two winners")
+	for _, w := range result.WinnerInfo {
+		assert.Equal(t, pokerrpc.HandRank_STRAIGHT, w.HandRank, "split winners should expose hand rank")
+		assert.Len(t, w.BestHand, 5, "split winners should reveal best hand cards")
+	}
+
+	showdownPlayers := buildShowdownPlayers(t, game, result)
+	for _, pInfo := range showdownPlayers {
+		if pInfo.ID == "p1" || pInfo.ID == "p2" {
+			assert.Len(t, pInfo.HoleCards, 2, "split winners should reveal hole cards")
+		}
+	}
+}
+
+func TestFoldWinDoesNotReveal(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		Seed:             99,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
+	}
+	game.SetPlayers(users)
+
+	game.currentHand = NewHand([]string{"p1", "p2"})
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Clubs, value: Ace}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Spades, value: King}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Hearts, value: Two}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Diamonds, value: Three}))
+
+	game.communityCards = []Card{
+		{suit: Clubs, value: Four},
+		{suit: Diamonds, value: Five},
+		{suit: Hearts, value: Six},
+	}
+	game.phase = pokerrpc.GamePhase_FLOP
+
+	game.potManager = NewPotManager(2)
+	game.potManager.addBet(0, 40, game.players)
+	game.potManager.addBet(1, 40, game.players)
+
+	startHandParticipationIfNeeded(t, game.players)
+
+	// Player 2 folds.
+	reply := make(chan error, 1)
+	game.players[1].handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+
+	result, err := game.HandleShowdown()
+	require.NoError(t, err)
+
+	require.Len(t, result.WinnerInfo, 1, "expected a single winner by fold")
+	assert.Equal(t, "p1", result.WinnerInfo[0].PlayerId)
+
+	// Winner did not reach showdown; hole cards must stay hidden unless revealed manually.
+	showdownPlayers := buildShowdownPlayers(t, game, result)
+	for _, pi := range showdownPlayers {
+		if pi.ID == "p1" {
+			assert.Len(t, pi.HoleCards, 0, "winner by fold should not auto-reveal hole cards")
+		}
+	}
 }
 
 func TestTieBreakerShowdown(t *testing.T) {
@@ -471,6 +637,7 @@ func TestSplitPotShowdown(t *testing.T) {
 	game.potManager.addBet(1, 50, game.players)
 
 	// Resolve showdown
+	startHandParticipationIfNeeded(t, game.players)
 	game.mu.Lock()
 	res, err := game.handleShowdown()
 	game.mu.Unlock()
@@ -548,22 +715,18 @@ func TestSidePotShowdown(t *testing.T) {
 
 	// Pots are automatically built on each bet, no need to call BuildPotsFromTotals
 
-	// Pre-compute player state
-	foldStatus := make([]bool, len(game.players))
-	handValues := make([]*HandValue, len(game.players))
-	for i, p := range game.players {
-		if p != nil {
-			p.mu.RLock()
-			foldStatus[i] = (p.GetCurrentStateString() == FOLDED_STATE)
-			handValues[i] = p.handValue
-			p.mu.RUnlock()
-		}
-	}
-
 	// Distribute pots - now requires game.mu held (Game FSM thread invariant)
 	game.mu.Lock()
-	game.potManager.distributePots(game.players)
+	payouts, err := game.potManager.distributePots(game.players)
 	game.mu.Unlock()
+	require.NoError(t, err)
+
+	for idx, amt := range payouts {
+		if amt <= 0 || idx < 0 || idx >= len(game.players) || game.players[idx] == nil {
+			continue
+		}
+		require.NoError(t, game.players[idx].AddToBalance(amt))
+	}
 
 	// Expected: p3 gets 90 (main), p1 gets 40 (side)
 	if game.players[2].Balance() != 90 {
@@ -2183,7 +2346,7 @@ func TestShowdownWithFoldedPlayer(t *testing.T) {
 // The table is created with minPlayers=2 so it can continue with 2 active players.
 func TestAutoStartAfterElimination(t *testing.T) {
 	// Create a table with minPlayers=2
-	tbl := newTestTable(t, 2, 6, 10, 20, 1000)
+	tbl := newTestTable(t, 2, 3, 10, 20, 1000)
 	tbl.config.AutoStartDelay = 50 * time.Millisecond
 
 	// Add 3 players

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/table.dart';
@@ -190,13 +191,18 @@ class FlipCard extends StatelessWidget {
 }
 
 class HeroCardFlipOverlay extends StatelessWidget {
-  const HeroCardFlipOverlay({super.key, required this.cards, required this.showFace, this.onToggle, this.showHint, this.cardTheme});
+  const HeroCardFlipOverlay({
+    super.key,
+    required this.cards,
+    required this.showFace,
+    this.onToggle,
+    this.toggleShown,
+    this.cardTheme,
+  });
   final List<pr.Card> cards;
   final bool showFace;
   final VoidCallback? onToggle;
-  // When provided, overrides the default hint behavior. If null, falls back
-  // to showing the hint when !showFace.
-  final bool? showHint;
+  final bool? toggleShown;
   final CardColorTheme? cardTheme;
 
   @override
@@ -204,38 +210,40 @@ class HeroCardFlipOverlay extends StatelessWidget {
     final cardSizeMultiplier = cardSizeMultiplierFromKey(context.cardSize);
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
-    final layout = resolveTableLayout(size);
-    final box = layout.viewport;
-    final baseCw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
-    final cw = baseCw * cardSizeMultiplier;
-    final ch = cw * 1.4;
-    final gap = cw * 0.12;
-    final centerX = layout.center.dx;
-    final centerY = layout.center.dy;
-    final uiSizeMultiplier = uiSizeMultiplierFromKey(context.uiSize);
-    
-    // Position hero cards tighter to the hero label instead of drifting toward center.
-    final ringRadiusY = layout.ringRadiusY;
-    // Clamp hero seat so cards track the rendered player when the viewport is tight.
-    final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
-    final heroY = (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
-    
-    // Lightly scale spacing so cards stay tethered to the hero as width grows.
-    final minSpacingAbovePlayer = 8.0 * uiSizeMultiplier;
-    final maxSpacingAbovePlayer = 26.0 * uiSizeMultiplier;
-    final spacingAbovePlayer =
-        (ringRadiusY * 0.08).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
-      
+      final layout = resolveTableLayout(size);
+      final box = layout.viewport;
+      final baseCw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
+      final cw = baseCw * cardSizeMultiplier;
+      final ch = cw * 1.4;
+      final gap = cw * 0.12;
+      final centerX = layout.center.dx;
+      final centerY = layout.center.dy;
+      final uiSizeMultiplier = uiSizeMultiplierFromKey(context.uiSize);
+
+      // Position hero cards tighter to the hero label instead of drifting toward center.
+      final ringRadiusY = layout.ringRadiusY;
+      // Clamp hero seat so cards track the rendered player when the viewport is tight.
+      final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
+      final heroY =
+          (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
+
+      // Lightly scale spacing so cards stay tethered to the hero as width grows.
+      final minSpacingAbovePlayer = 8.0 * uiSizeMultiplier;
+      final maxSpacingAbovePlayer = 26.0 * uiSizeMultiplier;
+      final spacingAbovePlayer =
+          (ringRadiusY * 0.08).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
+
       // Calculate primary position: above player with damped spacing
       var y = heroY - kPlayerRadius - spacingAbovePlayer - ch;
-      
+
       // Soft constraint: ensure reasonable gap from community cards if they would be too close
       // Scale the minimum gap proportionally with table radius to maintain relative spacing
-      final baseCommunityCardHeight = (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
+      final baseCommunityCardHeight =
+          (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
       final communityCardHeight = baseCommunityCardHeight * cardSizeMultiplier;
       final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
-    final minGapFromCommunity =
-        math.max(10.0 * uiSizeMultiplier, layout.tableRadiusY * 0.10);
+      final minGapFromCommunity =
+          math.max(10.0 * uiSizeMultiplier, layout.tableRadiusY * 0.10);
       final minSafeY = communityCardsBottom + minGapFromCommunity;
       final maxAllowedY = heroY - kPlayerRadius - ch - 4.0; // avoid overlapping the seat
       // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.
@@ -246,74 +254,82 @@ class HeroCardFlipOverlay extends StatelessWidget {
       }
       final x1 = centerX - cw - gap / 2;
       final x2 = centerX + gap / 2;
+      final showing = toggleShown ?? showFace;
+      final actionLabel = showing ? 'HIDE' : 'SHOW';
+      final headerHeight = (cw * 0.45).clamp(16.0, 24.0);
+      final headerGap = (4.0 * uiSizeMultiplier).clamp(2.0, 6.0);
+      final headerWidth = (cw * 2) + gap;
+      final rawHeaderTop = y + ch + headerGap;
+      final headerTop = rawHeaderTop > box.bottom - headerHeight - 2.0
+          ? box.bottom - headerHeight - 2.0
+          : rawHeaderTop;
+      final iconSize = (headerHeight * 0.6).clamp(10.0, 18.0);
+      final accent = showing ? Colors.amber : Colors.white70;
+      final borderColor = showing ? Colors.amber.withOpacity(0.6) : Colors.white30;
 
       final children = <Widget>[
         Positioned(left: x1, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.isNotEmpty ? cards[0] : null, cardTheme: cardTheme)),
         Positioned(left: x2, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.length > 1 ? cards[1] : null, cardTheme: cardTheme)),
       ];
 
-      final shouldShowHint = (showHint ?? !showFace) && onToggle != null;
-      if (shouldShowHint) {
-        // Subtle outline and hint badge to indicate hidden state
-        final totalW = (cw * 2) + gap;
-        final outlineLeft = centerX - totalW / 2 - 6;
-        final outlineTop = y - 6;
-        final outlineH = ch + 12;
-        final outlineW = totalW + 12;
-        children.add(Positioned(
-          left: outlineLeft,
-          top: outlineTop,
-          width: outlineW,
-          height: outlineH,
-          child: Container(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white24, width: 2),
-              color: Colors.black.withOpacity(0.15),
-            ),
-          ),
-        ));
-
-        children.add(Positioned(
-          left: centerX - 54,
-          top: outlineTop - 26,
-          child: Opacity(
-            opacity: 0.9,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: const [
-                  Icon(Icons.visibility_off, size: 14, color: Colors.white70),
-                  SizedBox(width: 6),
-                  Text('Tap to show cards', style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600)),
-                ],
-              ),
-            ),
-          ),
-        ));
-      }
-
       return Stack(children: [
-        // Tap target covering the two cards area (active only if onToggle is provided)
+        ...children,
         if (onToggle != null)
           Positioned(
             left: x1,
-            top: y,
-            width: (cw * 2) + gap,
-            height: ch,
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onTap: onToggle,
-              child: const SizedBox.expand(),
+            top: headerTop,
+            width: headerWidth,
+            height: headerHeight,
+            child: Tooltip(
+              message: actionLabel,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(headerHeight / 2),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                  child: Material(
+                    color: Colors.white.withOpacity(0.12),
+                    child: InkWell(
+                      onTap: onToggle,
+                      borderRadius: BorderRadius.circular(headerHeight / 2),
+                      child: Container(
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          borderRadius:
+                              BorderRadius.circular(headerHeight / 2),
+                          border: Border.all(color: borderColor),
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: headerHeight * 0.55,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              showing
+                                  ? Icons.visibility
+                                  : Icons.visibility_off,
+                              size: iconSize,
+                              color: accent,
+                            ),
+                            SizedBox(width: headerHeight * 0.25),
+                            Text(
+                              actionLabel,
+                              style: TextStyle(
+                                color: accent,
+                                fontSize: (headerHeight * 0.45).clamp(10.0, 14.0),
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
           ),
-        ...children,
       ]);
     });
   }

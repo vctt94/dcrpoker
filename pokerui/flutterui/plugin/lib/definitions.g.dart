@@ -493,6 +493,7 @@ PlayerDTO _$PlayerDTOFromJson(Map<String, dynamic> json) => PlayerDTO(
   json['escrowId'] as String? ?? '',
   json['escrowReady'] as bool? ?? false,
   (json['tableSeat'] as num?)?.toInt() ?? 0,
+  json['cardsRevealed'] as bool? ?? false,
 );
 
 Map<String, dynamic> _$PlayerDTOToJson(PlayerDTO instance) => <String, dynamic>{
@@ -514,6 +515,7 @@ Map<String, dynamic> _$PlayerDTOToJson(PlayerDTO instance) => <String, dynamic>{
   'escrowId': instance.escrowId,
   'escrowReady': instance.escrowReady,
   'tableSeat': instance.tableSeat,
+  'cardsRevealed': instance.cardsRevealed,
 };
 
 GameUpdateDTO _$GameUpdateDTOFromJson(Map<String, dynamic> json) =>
@@ -608,6 +610,9 @@ NotificationDTO _$NotificationDTOFromJson(Map<String, dynamic> json) =>
       message: json['message'] as String?,
       tableId: json['tableId'] as String?,
       playerId: json['playerId'] as String?,
+      cards: (json['cards'] as List<dynamic>?)
+          ?.map((e) => CardDTO.fromJson(e as Map<String, dynamic>))
+          .toList(),
       amount: (json['amount'] as num?)?.toInt(),
       newBalance: (json['newBalance'] as num?)?.toInt(),
       ready: json['ready'] as bool?,
@@ -635,6 +640,7 @@ Map<String, dynamic> _$NotificationDTOToJson(NotificationDTO instance) =>
       'message': instance.message,
       'tableId': instance.tableId,
       'playerId': instance.playerId,
+      'cards': instance.cards,
       'amount': instance.amount,
       'newBalance': instance.newBalance,
       'ready': instance.ready,
