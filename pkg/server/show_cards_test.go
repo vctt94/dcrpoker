@@ -49,3 +49,65 @@ func TestShowCardsRejectedDuringBetting(t *testing.T) {
 	assert.Empty(t, p1View.Hand, "p1's hand should stay hidden during betting even after ShowCards")
 	assert.Empty(t, p1View.HandDescription, "hand description should stay hidden during betting")
 }
+
+// Auto-revealed cards during all-in auto-advance should be visible to everyone
+// before showdown begins (countdown period). Today they stay hidden.
+func TestAutoRevealHiddenBeforeShowdown(t *testing.T) {
+	s := newBareServer()
+	table := buildActiveHeadsUpTable(t, "auto-reveal-hidden")
+	s.tables.Store(table.GetConfig().ID, table)
+
+	require.Eventually(t, func() bool {
+		return table.GetGamePhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP before forcing all-in")
+
+	g := table.GetGame()
+	require.NotNil(t, g, "game should exist after start")
+
+	players := g.GetPlayers()
+	require.Len(t, players, 2, "heads-up table should have two players")
+
+	// Force both players all-in immediately to enable auto-advance + auto-reveal.
+	firstActor := g.GetCurrentPlayerObject()
+	require.NotNil(t, firstActor, "current player should be set preflop")
+	require.Equal(t, players[0].ID(), firstActor.ID(), "SB/dealer should act first in heads-up")
+
+	allInBet := players[0].CurrentBet() + players[0].Balance()
+	require.NoError(t, g.HandlePlayerBet(players[0].ID(), allInBet))
+	require.NoError(t, g.HandlePlayerCall(players[1].ID()))
+
+	// Wait until the game marks both hands as revealed but before showdown happens.
+	require.Eventually(t, func() bool {
+		snap := g.GetStateSnapshot()
+		if snap.Phase == pokerrpc.GamePhase_SHOWDOWN {
+			return false
+		}
+		revealed := 0
+		for _, ps := range snap.Players {
+			if ps.ID != "" && ps.CardsRevealed {
+				revealed++
+			}
+		}
+		return revealed >= 2
+	}, time.Second, 10*time.Millisecond, "auto-reveal should flip both players before showdown")
+
+	snap, err := s.collectTableSnapshot(table.GetConfig().ID)
+	require.NoError(t, err)
+
+	gsh := NewGameStateHandler(s)
+	updates := gsh.buildGameStatesFromSnapshot(snap)
+	upd := updates["p1"]
+	require.NotNil(t, upd, "p1 should receive a game update")
+
+	var p2View *pokerrpc.Player
+	for _, pl := range upd.Players {
+		if pl != nil && pl.Id == "p2" {
+			p2View = pl
+			break
+		}
+	}
+	require.NotNil(t, p2View, "update should include p2")
+
+	assert.NotEqual(t, pokerrpc.GamePhase_SHOWDOWN, upd.Phase, "snapshot should be taken before showdown")
+	assert.NotEmpty(t, p2View.Hand, "p1 should see p2's hole cards after auto-reveal during auto-advance")
+}
