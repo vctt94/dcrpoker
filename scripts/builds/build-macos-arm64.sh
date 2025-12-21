@@ -13,7 +13,7 @@ set -euo pipefail
 
 APP="dcrpoker"
 VER="${1:-v0.0.1}"
-PLAT="macos-amd64"
+PLAT="macos-arm64"
 
 # Repo root (2 level up from scripts/)
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"

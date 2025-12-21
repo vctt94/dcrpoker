@@ -1,4 +1,7 @@
 PODS:
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+    - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - golib_plugin (0.0.1):
     - FlutterMacOS
@@ -11,6 +14,7 @@ PODS:
     - FlutterMacOS
 
 DEPENDENCIES:
+  - audioplayers_darwin (from `Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/darwin`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - golib_plugin (from `Flutter/ephemeral/.symlinks/plugins/golib_plugin/macos`)
   - path_provider_foundation (from `Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin`)
@@ -18,6 +22,8 @@ DEPENDENCIES:
   - window_manager (from `Flutter/ephemeral/.symlinks/plugins/window_manager/macos`)
 
 EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/darwin
   FlutterMacOS:
     :path: Flutter/ephemeral
   golib_plugin:
@@ -30,6 +36,7 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/window_manager/macos
 
 SPEC CHECKSUMS:
+  audioplayers_darwin: 4f9ca89d92d3d21cec7ec580e78ca888e5fb68bd
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   golib_plugin: fced3d3dddc060e992c17d77982a0ae2cbd3f592
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564

@@ -9,3 +9,4 @@ grpc/generated
 .gomodcache
 .cache
 releases/
+.DS_Store
