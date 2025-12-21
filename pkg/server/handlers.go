@@ -537,8 +537,9 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		}
 
 		// Determine visibility for hand info
-		// Reveal opponent cards if they've been explicitly revealed (e.g. auto-show on all-in).
-		showCards := gps.ID == requestingPlayerID || gps.CardsRevealed
+		// Reveal opponent cards only at showdown (or when replaying the last showdown).
+		showdownReady := tableSnapshot.GameSnapshot.Phase == pokerrpc.GamePhase_SHOWDOWN || tableSnapshot.LastShowdown != nil
+		showCards := gps.ID == requestingPlayerID || (gps.CardsRevealed && showdownReady)
 		if showCards && len(gps.Hand) > 0 {
 			player.Hand = make([]*pokerrpc.Card, len(gps.Hand))
 			for i, card := range gps.Hand {
