@@ -1146,6 +1146,7 @@ void main() {
                   MinimalShowdown(
                     model: model,
                     isVisible: true,
+                    theme: _defaultTheme,
                     onClose: () {},
                   ),
                 ],
