@@ -6,5 +6,6 @@ AGENTS.md
 grpc/generated
 .gobuildcache
 .gocache
+.gomodcache
 .cache
 releases/
