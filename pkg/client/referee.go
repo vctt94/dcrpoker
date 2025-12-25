@@ -1,12 +1,18 @@
 package client
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
+	"strconv"
+	"strings"
 
+	"github.com/decred/dcrd/chaincfg/chainhash"
 	"github.com/decred/dcrd/crypto/blake256"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/decred/dcrd/txscript/v4"
+	"github.com/decred/dcrd/wire"
 	"github.com/decred/slog"
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	"google.golang.org/grpc/metadata"
@@ -134,7 +140,7 @@ func (c *RefereeClient) StartPresign(ctx context.Context, matchID, tableID strin
 			if _, ok := branches[need.Branch]; !ok {
 				branches[need.Branch] = false
 			}
-			pres, err := buildPresigs(xPrivHex, need)
+			pres, err := BuildVerifyOk(xPrivHex, need)
 			if err != nil {
 				return err
 			}
@@ -215,6 +221,11 @@ func buildPresigs(xPrivHex string, need *pokerrpc.NeedPreSigs) ([]*pokerrpc.PreS
 }
 
 // computePreSig derives adaptor pre-signature for (x, m, T).
+// Math (minus variant, DCRv0):
+//
+//	e  = BLAKE256(r_x || m) mod n
+//	s' = k - e·x
+//	R' = k·G + T   (we enforce even-Y on R')
 func computePreSig(xb []byte, mHex, TCompHex string) (rCompHex string, sPrimeHex string, err error) {
 	mb, err := hex.DecodeString(mHex)
 	if err != nil || len(mb) != 32 {
@@ -291,6 +302,7 @@ func hashSchnorr(rx []byte, m []byte) [32]byte {
 }
 
 // VerifyPreSig can be used by tests to validate stored presigs.
+// Check: s'G + eX + T ?= R'
 func VerifyPreSig(ctx *pokerrpc.NeedPreSigs, compPubkey []byte, ps *pokerrpc.PreSignature) error {
 	if ctx == nil || ps == nil {
 		return fmt.Errorf("nil args")
@@ -362,4 +374,93 @@ func VerifyPreSig(ctx *pokerrpc.NeedPreSigs, compPubkey []byte, ps *pokerrpc.Pre
 		return fmt.Errorf("presig verification failed")
 	}
 	return nil
+}
+
+// validateNeedPreSigs ensures the server-provided draft and inputs are consistent
+// with each other before we derive and return pre-signatures.
+func validateNeedPreSigs(need *pokerrpc.NeedPreSigs) error {
+	if need == nil {
+		return fmt.Errorf("nil need presigs")
+	}
+	if len(need.Inputs) == 0 {
+		return fmt.Errorf("no inputs in presign request")
+	}
+	rawTx, err := hex.DecodeString(need.DraftTxHex)
+	if err != nil {
+		return fmt.Errorf("decode draft tx: %w", err)
+	}
+	var tx wire.MsgTx
+	if err := tx.Deserialize(bytes.NewReader(rawTx)); err != nil {
+		return fmt.Errorf("deserialize draft tx: %w", err)
+	}
+	if tx.Version < 3 {
+		return fmt.Errorf("draft tx version %d too low for schnorr", tx.Version)
+	}
+	if len(tx.TxOut) == 0 {
+		return fmt.Errorf("draft tx has no outputs")
+	}
+
+	for _, in := range need.Inputs {
+		if in.InputIndex >= uint32(len(tx.TxIn)) {
+			return fmt.Errorf("input %s index %d out of range", in.InputId, in.InputIndex)
+		}
+		txIn := tx.TxIn[in.InputIndex]
+
+		parts := strings.Split(in.InputId, ":")
+		if len(parts) != 2 {
+			return fmt.Errorf("input id %s malformed", in.InputId)
+		}
+		vout, err := strconv.ParseUint(parts[1], 10, 32)
+		if err != nil {
+			return fmt.Errorf("parse vout for %s: %w", in.InputId, err)
+		}
+		var h chainhash.Hash
+		if err := chainhash.Decode(&h, parts[0]); err != nil {
+			return fmt.Errorf("parse txid for %s: %w", in.InputId, err)
+		}
+		if txIn.PreviousOutPoint.Index != uint32(vout) || txIn.PreviousOutPoint.Hash != h {
+			return fmt.Errorf("draft input mismatch for %s", in.InputId)
+		}
+
+		redeem, err := hex.DecodeString(in.RedeemScriptHex)
+		if err != nil {
+			return fmt.Errorf("decode redeem for %s: %w", in.InputId, err)
+		}
+		sighash, err := txscript.CalcSignatureHash(redeem, txscript.SigHashAll, &tx, int(in.InputIndex), nil)
+		if err != nil {
+			return fmt.Errorf("calc sighash for %s: %w", in.InputId, err)
+		}
+		if !strings.EqualFold(hex.EncodeToString(sighash), in.SighashHex) {
+			return fmt.Errorf("sighash mismatch for %s", in.InputId)
+		}
+
+		adaptB, err := hex.DecodeString(in.AdaptorPointHex)
+		if err != nil {
+			return fmt.Errorf("decode adaptor for %s: %w", in.InputId, err)
+		}
+		if len(adaptB) != 33 || (adaptB[0] != 0x02 && adaptB[0] != 0x03) {
+			return fmt.Errorf("invalid adaptor encoding for %s", in.InputId)
+		}
+		if _, err := secp256k1.ParsePubKey(adaptB); err != nil {
+			return fmt.Errorf("parse adaptor point for %s: %w", in.InputId, err)
+		}
+	}
+	return nil
+}
+
+// BuildVerifyOk validates the server-provided NeedPreSigs and derives adaptor
+// pre-signatures for each input using the given private scalar (hex).
+//
+// Math (minus variant, DCRv0):
+//
+//	e  = BLAKE256(r_x || m) mod n
+//	s' = k - e·x
+//	R' = k·G + T   (even-Y enforced in computePreSig)
+//
+// Server check (equivalent form): s'G + eX + T ?= R'   // i.e. s'G ?= R' - eX - T
+func BuildVerifyOk(xPrivHex string, need *pokerrpc.NeedPreSigs) ([]*pokerrpc.PreSignature, error) {
+	if err := validateNeedPreSigs(need); err != nil {
+		return nil, fmt.Errorf("server presign validation failed: %w", err)
+	}
+	return buildPresigs(xPrivHex, need)
 }
