@@ -4,6 +4,8 @@ import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/bet_sidebar.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
@@ -15,8 +17,6 @@ class HandInProgressView extends StatefulWidget {
   State<HandInProgressView> createState() => _HandInProgressViewState();
 
   static int calculateTotalBet(int amt, int currentBet, int myBet, int bb) {
-    // Treat the entered amount as the target total bet, regardless of prior
-    // contribution (blinds or previous bet).
     return amt;
   }
 }
@@ -52,11 +52,8 @@ class _HandInProgressViewState extends State<HandInProgressView> {
       return const Center(child: Text('No game data available'));
     }
 
-    // Close the raise input when it's no longer our turn so we come back to the
-    // compact button row on the next action.
     final canAct = widget.model.canAct;
     if (canAct && !_wasMyTurn) {
-      // New turn: clear any stale raise input so defaults reseed correctly.
       _betCtrl.clear();
     }
     if (_showBetInput && _wasMyTurn && !canAct) {
@@ -72,399 +69,48 @@ class _HandInProgressViewState extends State<HandInProgressView> {
 
     final focusNode = FocusNode();
     final theme = PokerThemeConfig.fromContext(context);
+    final bp = PokerBreakpointQuery.of(context);
+    final aspect = tableAspectRatio(bp);
     final pokerGame = PokerGame(
       widget.model.playerId,
       widget.model,
       theme: theme,
     );
 
-    return Stack(
+    return Column(
       children: [
-        // Poker game visualization
-        pokerGame.buildWidget(game, focusNode),
-
-        // Betting info sidebar pinned to viewport top-right
-        if (game.currentBet > 0 && game.phase != pr.GamePhase.SHOWDOWN)
-          BetSidebar(
-            gameState: game,
-            playerId: widget.model.playerId,
-            theme: theme,
-          ),
-
-        // Bet/call FX overlay
-        _BetFxOverlay(model: widget.model),
-
-        // "Last Hand" button at bottom left
-        if (widget.model.hasLastShowdown)
-          Positioned(
-            bottom: 12,
-            left: 12,
-            child: SafeArea(
-              child: Tooltip(
-                message: 'View last showdown',
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _toggleSidebar,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: Colors.white.withOpacity(0.3), width: 1),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.history,
-                            color: _showSidebar ? Colors.amber : Colors.white70,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Last Hand',
-                            style: TextStyle(
-                              color:
-                                  _showSidebar ? Colors.amber : Colors.white70,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
+        // Table canvas — fills available vertical space
+        Expanded(
+          child: Stack(
+            children: [
+              pokerGame.buildWidget(game, focusNode, aspectRatio: aspect),
+              if (game.currentBet > 0 && game.phase != pr.GamePhase.SHOWDOWN)
+                BetSidebar(
+                  gameState: game,
+                  playerId: widget.model.playerId,
+                  theme: theme,
                 ),
-              ),
-            ),
-          ),
-
-        // Showdown sidebar - opens full sidebar when "Last Hand" is clicked
-        if (_showSidebar && widget.model.hasLastShowdown)
-          ShowdownSidebar(
-            model: widget.model,
-            isVisible: _showSidebar,
-            onClose: _closeSidebar,
-          ),
-
-        // Action buttons overlay - positioned at bottom right
-        Positioned(
-          bottom: 0,
-          right: 0,
-          child: SafeArea(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Colors.transparent,
-                    Colors.black.withOpacity(0.8),
-                  ],
+              _BetFxOverlay(model: widget.model),
+              if (_showSidebar && widget.model.hasLastShowdown)
+                ShowdownSidebar(
+                  model: widget.model,
+                  isVisible: _showSidebar,
+                  onClose: _closeSidebar,
                 ),
-              ),
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                reverse: true,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.model.canAct) ...[
-                      // Fold is always available on your turn
-                      ElevatedButton(
-                        onPressed: () => widget.model.fold(),
-                        style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red),
-                        child: const Text('Fold (F)'),
-                      ),
-                      const SizedBox(width: 8),
-                      // Show Check or Call only when appropriate
-                      Builder(builder: (context) {
-                        final g = widget.model.game;
-                        final me = widget.model.me;
-                        final currentBet = g?.currentBet ?? 0;
-                        final myBet = me?.currentBet ?? 0;
-                        final canCheck = myBet >= currentBet;
-                        final toCall =
-                            (currentBet - myBet) > 0 ? (currentBet - myBet) : 0;
-                        return Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (canCheck) ...[
-                              ElevatedButton(
-                                onPressed: () => widget.model.check(),
-                                child: const Text('Check (K)'),
-                              ),
-                              const SizedBox(width: 8),
-                            ] else ...[
-                              ElevatedButton(
-                                onPressed: () => widget.model.callBet(),
-                                child: Text(
-                                    'Call${toCall > 0 ? ' ($toCall)' : ''} (C)'),
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            // Bet/Raise button toggles bet input visibility
-                            Builder(builder: (context) {
-                              final tid = widget.model.currentTableId;
-                              final table = tid == null
-                                  ? null
-                                  : (() {
-                                      final matches = widget.model.tables
-                                          .where((t) => t.id == tid)
-                                          .toList();
-                                      return matches.isNotEmpty
-                                          ? matches.first
-                                          : null;
-                                    })();
-                              // Prefer big blind from the live game snapshot, fall back to lobby table list
-                              final bb = (widget.model.game?.bigBlind ?? 0) > 0
-                                  ? widget.model.game!.bigBlind
-                                  : (table?.bigBlind ?? 0);
-                              final isRaise =
-                                  currentBet > 0 && myBet < currentBet;
-
-                              void seedDefault() {
-                                // Pre-fill with 3x BB or 3x current bet, whichever is higher
-                                // Use 3x current bet if currentBet is greater than or equal to 3x BB
-                                final threeBB = bb * 3;
-                                final targetTotal =
-                                    (bb > 0 && currentBet >= threeBB)
-                                        ? (currentBet * 3)
-                                        : threeBB;
-                                _betCtrl.text = targetTotal.toString();
-                              }
-
-                              Future<void> submitBet() async {
-                                final raw = _betCtrl.text.trim();
-                                final amt = int.tryParse(raw) ?? 0;
-                                if (amt <= 0) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                        content:
-                                            Text('Enter a valid bet amount')),
-                                  );
-                                  return;
-                                }
-
-                                final totalBet =
-                                    HandInProgressView.calculateTotalBet(
-                                        amt, currentBet, myBet, bb);
-
-                                // Pre-check: when facing a bet, total must be at least currentBet
-                                if (currentBet > 0 && totalBet < currentBet) {
-                                  final minRaise = currentBet - myBet;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                        content: Text(
-                                            'Must add at least $minRaise to call ($currentBet total)')),
-                                  );
-                                  return;
-                                }
-
-                                final ok = await widget.model.makeBet(totalBet);
-                                if (!ok &&
-                                    widget.model.errorMessage.isNotEmpty) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(
-                                          content:
-                                              Text(widget.model.errorMessage)),
-                                    );
-                                  }
-                                  return;
-                                }
-                                setState(() {
-                                  _showBetInput = false;
-                                });
-                              }
-
-                              void setTo3xBB() {
-                                // Set to 3x BB or 3x current bet, whichever is higher
-                                // Use 3x current bet if currentBet is greater than or equal to 3x BB
-                                final threeBB = bb * 3;
-                                final targetTotal =
-                                    (bb > 0 && currentBet >= threeBB)
-                                        ? (currentBet * 3)
-                                        : threeBB;
-                                _betCtrl.text = targetTotal.toString();
-                              }
-
-                              final myBalance = widget.model.me?.balance ?? 0;
-                              final wouldBeAllIn = myBalance > 0 &&
-                                  myBalance <= (currentBet - myBet);
-                              if (!_showBetInput) {
-                                return ElevatedButton(
-                                  onPressed: () {
-                                    setState(() {
-                                      _showBetInput = true;
-                                    });
-                                    if (_betCtrl.text.isEmpty) seedDefault();
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.green),
-                                  child: Text(isRaise
-                                      ? (wouldBeAllIn ? 'All-in' : 'Raise')
-                                      : 'Bet'),
-                                );
-                              }
-
-                              // Bet input row (visible after pressing Bet/Raise)
-                              return Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      SizedBox(
-                                        width: 110,
-                                        child: TextField(
-                                          controller: _betCtrl,
-                                          keyboardType: TextInputType.number,
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                          decoration: InputDecoration(
-                                            labelText: isRaise
-                                                ? 'Total raise'
-                                                : 'Total bet',
-                                            labelStyle: const TextStyle(
-                                                color: Colors.white70,
-                                                fontSize: 12),
-                                            isDense: true,
-                                            contentPadding:
-                                                const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 8),
-                                            hintText: isRaise
-                                                ? 'e.g. ${currentBet > 0 ? currentBet : bb}'
-                                                : 'e.g. ${bb > 0 ? bb * 3 : 50}',
-                                            hintStyle: const TextStyle(
-                                                color: Colors.white54),
-                                            filled: true,
-                                            fillColor: Colors.black54,
-                                            border: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                              borderSide: const BorderSide(
-                                                  color: Colors.white24),
-                                            ),
-                                          ),
-                                          onSubmitted: (_) => submitBet(),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Builder(builder: (context) {
-                                        final entered = int.tryParse(
-                                                _betCtrl.text.trim()) ??
-                                            0;
-                                        final maxTotal =
-                                            (widget.model.me?.balance ?? 0) +
-                                                myBet;
-                                        final capped = entered > maxTotal
-                                            ? maxTotal
-                                            : entered;
-                                        final displayEntered = capped > 0
-                                            ? capped
-                                            : (isRaise ? currentBet : bb * 3);
-                                        final displayDelta =
-                                            displayEntered > myBet
-                                                ? (displayEntered - myBet)
-                                                : 0;
-                                        if (displayDelta == displayEntered) {
-                                          return const SizedBox.shrink();
-                                        }
-                                        final isAllIn =
-                                            displayEntered == maxTotal &&
-                                                maxTotal > 0;
-                                        final label = isAllIn
-                                            ? 'All-in $displayEntered'
-                                            : 'Adds $displayDelta, total $displayEntered';
-                                        return Text(
-                                          label,
-                                          style: const TextStyle(
-                                              color: Colors.white70,
-                                              fontSize: 11),
-                                        );
-                                      }),
-                                    ],
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Builder(
-                                    builder: (context) {
-                                      final threeBB = bb * 3;
-                                      // Show "3x Bet" if currentBet is greater than or equal to 3x BB
-                                      final buttonText =
-                                          (bb > 0 && currentBet >= threeBB)
-                                              ? '3x Bet'
-                                              : '3x BB';
-                                      return ElevatedButton(
-                                        onPressed: bb > 0 ? setTo3xBB : null,
-                                        child: Text(buttonText),
-                                      );
-                                    },
-                                  ),
-                                  const SizedBox(width: 6),
-                                  ElevatedButton(
-                                    onPressed: submitBet,
-                                    style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green),
-                                    child: Text(() {
-                                      final meBal =
-                                          widget.model.me?.balance ?? 0;
-                                      final entered =
-                                          int.tryParse(_betCtrl.text.trim()) ??
-                                              0;
-                                      final target =
-                                          entered > 0 ? entered : currentBet;
-                                      final myTotal = meBal + myBet;
-                                      final isAllIn =
-                                          target >= myTotal && myTotal > 0;
-                                      if (isAllIn) return 'All-in';
-                                      return isRaise ? 'Raise' : 'Bet';
-                                    }()),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  TextButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _showBetInput = false;
-                                      });
-                                    },
-                                    child: const Text('Cancel'),
-                                  )
-                                ],
-                              );
-                            }),
-                          ],
-                        );
-                      }),
-                    ] else ...[
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.7),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          widget.model.autoAdvanceAllIn
-                              ? 'Auto-advancing (all-in)'
-                              : 'Waiting...',
-                          style: const TextStyle(
-                              color: Colors.white, fontSize: 14),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
+            ],
           ),
+        ),
+
+        // Action dock — in layout flow, never overlaps the table
+        BottomActionDock(
+          model: widget.model,
+          showBetInput: _showBetInput,
+          betCtrl: _betCtrl,
+          onToggleBetInput: () => setState(() => _showBetInput = true),
+          onCloseBetInput: () => setState(() => _showBetInput = false),
+          hasLastShowdown: widget.model.hasLastShowdown,
+          showSidebar: _showSidebar,
+          onToggleSidebar: _toggleSidebar,
         ),
       ],
     );
@@ -532,8 +178,8 @@ class _BetFxOverlayState extends State<_BetFxOverlay>
         uiSizeMultiplier: theme.uiSizeMultiplier,
       );
       final from = seatPositions[fx.playerId] ?? layout.center;
-      final to = potChipCenter(layout,
-          uiSizeMultiplier: theme.uiSizeMultiplier); // chip anchor on table
+      final to =
+          potChipCenter(layout, uiSizeMultiplier: theme.uiSizeMultiplier);
 
       final anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
       final t = Tween(begin: 0.0, end: 1.0).animate(anim);
@@ -569,7 +215,6 @@ class _AnimatedChip extends StatelessWidget {
         final span = 1.0 - delay;
         if (span <= 0) return const SizedBox.shrink();
         final raw = (t.value - delay) / span;
-        // Hide when not in flight or after arrival to avoid chips lingering
         if (raw <= 0.0 || raw >= 1.0) {
           return const SizedBox.shrink();
         }

@@ -4,16 +4,59 @@ import 'package:pokerui/components/poker/table_theme.dart';
 
 /// Compact pot display anchored on the felt. Also serves as the anchor point
 /// for chip animations by aligning to `potChipCenter`.
-class PotDisplay extends StatelessWidget {
+/// Plays a brief scale-up pulse whenever the pot value increases.
+class PotDisplay extends StatefulWidget {
   const PotDisplay({super.key, required this.pot, required this.theme});
 
   final int pot;
   final PokerThemeConfig theme;
 
   @override
-  Widget build(BuildContext context) {
-    if (pot <= 0) return const SizedBox.shrink();
+  State<PotDisplay> createState() => _PotDisplayState();
+}
 
+class _PotDisplayState extends State<PotDisplay>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseCtrl;
+  late final Animation<double> _scale;
+  int _prevPot = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _prevPot = widget.pot;
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.12), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.12, end: 1.0), weight: 60),
+    ]).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeOut));
+  }
+
+  @override
+  void didUpdateWidget(covariant PotDisplay old) {
+    super.didUpdateWidget(old);
+    if (widget.pot > _prevPot && widget.pot > 0) {
+      _pulseCtrl
+        ..reset()
+        ..forward();
+    }
+    _prevPot = widget.pot;
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.pot <= 0) return const SizedBox.shrink();
+
+    final theme = widget.theme;
     return Positioned.fill(
       child: IgnorePointer(
         child: LayoutBuilder(
@@ -30,7 +73,8 @@ class PotDisplay extends StatelessWidget {
               fontWeight: FontWeight.w700,
               letterSpacing: 0.2,
             );
-            final label = TextSpan(text: 'Pot: $pot', style: textStyle);
+            final label =
+                TextSpan(text: 'Pot: ${widget.pot}', style: textStyle);
             final painter = TextPainter(
               text: label,
               textDirection: TextDirection.ltr,
@@ -54,38 +98,45 @@ class PotDisplay extends StatelessWidget {
                   top: top,
                   width: width,
                   height: height,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF0C1222).withOpacity(0.9),
-                      borderRadius:
-                          BorderRadius.circular(14 * theme.uiSizeMultiplier),
-                      border: Border.all(
-                        color: decredBlue.withOpacity(0.8),
-                        width: 1.5 * theme.uiSizeMultiplier,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.35),
-                          blurRadius: 8 * theme.uiSizeMultiplier,
-                          spreadRadius: 1 * theme.uiSizeMultiplier,
-                        ),
-                      ],
+                  child: AnimatedBuilder(
+                    animation: _scale,
+                    builder: (context, child) => Transform.scale(
+                      scale: _scale.value,
+                      child: child,
                     ),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                          horizontal: hPad, vertical: vPad),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _ChipIcon(size: iconSize),
-                          SizedBox(width: gap),
-                          Text(
-                            'Pot: $pot',
-                            style: textStyle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0C1222).withOpacity(0.9),
+                        borderRadius:
+                            BorderRadius.circular(14 * theme.uiSizeMultiplier),
+                        border: Border.all(
+                          color: decredBlue.withOpacity(0.8),
+                          width: 1.5 * theme.uiSizeMultiplier,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.35),
+                            blurRadius: 8 * theme.uiSizeMultiplier,
+                            spreadRadius: 1 * theme.uiSizeMultiplier,
                           ),
                         ],
+                      ),
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: hPad, vertical: vPad),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _ChipIcon(size: iconSize),
+                            SizedBox(width: gap),
+                            Text(
+                              'Pot: ${widget.pot}',
+                              style: textStyle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),

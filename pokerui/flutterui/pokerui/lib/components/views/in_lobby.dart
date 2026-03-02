@@ -85,29 +85,26 @@ class InLobbyView extends StatelessWidget {
       return;
     }
     final escrows = await model.listCachedEscrows();
-    final escrowOptions = escrows
-        .where((e) {
-          // Filter out invalid escrows
-          final fundingState = (e['funding_state'] ?? '').toString().toUpperCase();
-          return fundingState != 'ESCROW_STATE_INVALID';
-        })
-        .map((e) {
-          final txid = (e['funding_txid'] ?? '').toString();
-          final vout = _asInt(e['funding_vout']);
-          final amountRaw = e['funded_amount'];
-          final amount = amountRaw is num
-              ? amountRaw.toDouble()
-              : double.tryParse(amountRaw.toString()) ?? 0;
-          final outpoint = '$txid:$vout';
-          final confirmed = _escrowHasRequiredConfirmations(e);
-          return {
-            'outpoint': outpoint,
-            'label':
-                '${_short(txid)}:$vout • ${(amount / 1e8).toStringAsFixed(4)} DCR',
-            'confirmed': confirmed,
-          };
-        })
-        .toList();
+    final escrowOptions = escrows.where((e) {
+      // Filter out invalid escrows
+      final fundingState = (e['funding_state'] ?? '').toString().toUpperCase();
+      return fundingState != 'ESCROW_STATE_INVALID';
+    }).map((e) {
+      final txid = (e['funding_txid'] ?? '').toString();
+      final vout = _asInt(e['funding_vout']);
+      final amountRaw = e['funded_amount'];
+      final amount = amountRaw is num
+          ? amountRaw.toDouble()
+          : double.tryParse(amountRaw.toString()) ?? 0;
+      final outpoint = '$txid:$vout';
+      final confirmed = _escrowHasRequiredConfirmations(e);
+      return {
+        'outpoint': outpoint,
+        'label':
+            '${_short(txid)}:$vout • ${(amount / 1e8).toStringAsFixed(4)} DCR',
+        'confirmed': confirmed,
+      };
+    }).toList();
     if (escrows.isEmpty) {
       if (!ctx.mounted) return;
       await showDialog(
@@ -262,12 +259,15 @@ class InLobbyView extends StatelessWidget {
                     children: [
                       const Icon(Icons.table_restaurant, color: Colors.blue),
                       const SizedBox(width: 8),
-                      Text('Table ${_short(table.id)}',
-                          style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white)),
-                      const Spacer(),
+                      Expanded(
+                        child: Text('Table ${_short(table.id)}',
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white)),
+                      ),
+                      const SizedBox(width: 8),
                       ElevatedButton(
                         onPressed:
                             model.iAmReady ? model.setUnready : model.setReady,
@@ -283,13 +283,16 @@ class InLobbyView extends StatelessWidget {
                   const SizedBox(height: 12),
                   const Divider(color: Colors.white24),
                   const SizedBox(height: 8),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       const Text('Players',
                           style: TextStyle(
                               color: Colors.white70,
                               fontWeight: FontWeight.bold)),
-                      const Spacer(),
                       Chip(
                         label: Text(model.iAmReady ? 'Ready' : 'Not Ready'),
                         backgroundColor: model.iAmReady
@@ -335,11 +338,11 @@ class InLobbyView extends StatelessWidget {
                               color: Colors.transparent,
                               child: InkWell(
                                 onTap: () async {
-                                  await Clipboard.setData(ClipboardData(
-                                      text: model.errorMessage));
+                                  await Clipboard.setData(
+                                      ClipboardData(text: model.errorMessage));
                                   if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context)
-                                      .showSnackBar(const SnackBar(
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
                                           content: Text(
                                               'Error copied to clipboard')));
                                 },

@@ -6,6 +6,28 @@ import 'cards.dart';
 import 'table_theme.dart';
 
 // Canvas-based table and player drawing utilities for CustomPainter usage
+
+/// Deterministic hue derived from a player ID string, used so each seat gets a
+/// visually distinct, stable color regardless of join order.
+Color _seatColorFromId(String id) {
+  var hash = 0;
+  for (int i = 0; i < id.length; i++) {
+    hash = id.codeUnitAt(i) + ((hash << 5) - hash);
+  }
+  final hue = (hash % 360).abs().toDouble();
+  return HSLColor.fromAHSL(1.0, hue, 0.55, 0.38).toColor();
+}
+
+/// Extract 1–2 character initials from a player display name.
+String _playerInitials(String name) {
+  if (name.isEmpty) return '?';
+  final parts = name.trim().split(RegExp(r'\s+'));
+  if (parts.length >= 2) {
+    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+  }
+  return name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
+}
+
 const double kPlayerRadius = 30.0;
 const double _minPlayerOffset = 32.0;
 const double _maxPlayerOffset = 50.0;
@@ -116,8 +138,7 @@ Offset _positionForSeat(
     final hPad = playerRadius + 12.0 * uiSizeMultiplier;
     final verticalBadgeAllowance =
         math.max(playerRadius * 0.75, 18.0 * uiSizeMultiplier);
-    final vPad =
-        playerRadius + verticalBadgeAllowance + 6.0 * uiSizeMultiplier;
+    final vPad = playerRadius + verticalBadgeAllowance + 6.0 * uiSizeMultiplier;
     final left = clampBounds.left + hPad;
     final right = clampBounds.right - hPad;
     final top = clampBounds.top + vPad;
@@ -141,8 +162,8 @@ double _angleForPlayerIndex(int idx, int heroIndex, int count) {
   return angle;
 }
 
-TableLayout resolveTableLayout(Size size) {
-  final viewport = pokerViewportRect(size);
+TableLayout resolveTableLayout(Size size, {double aspectRatio = 16 / 9}) {
+  final viewport = pokerViewportRect(size, aspectRatio: aspectRatio);
   final center = Offset(
       viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
   final playerOffset = _playerOffsetForViewport(viewport);
@@ -178,24 +199,31 @@ TableLayout resolveTableLayout(Size size) {
 
 void drawPokerTable(Canvas canvas, double centerX, double centerY,
     double tableRadiusX, double tableRadiusY, TableThemeConfig theme) {
-  // Table surface - draw as ellipse using theme colors
-  final tablePaint = Paint()
-    ..color = theme.feltColor
-    ..style = PaintingStyle.fill;
-
   final tableRect = Rect.fromCenter(
     center: Offset(centerX, centerY),
     width: tableRadiusX * 2,
     height: tableRadiusY * 2,
   );
+
+  // Radial gradient for felt depth (lighter center → darker edges)
+  final feltBase = theme.feltColor;
+  final lighter = Color.lerp(feltBase, Colors.white, 0.08) ?? feltBase;
+  final darker = Color.lerp(feltBase, Colors.black, 0.15) ?? feltBase;
+  final feltGradient = RadialGradient(
+    center: Alignment.center,
+    radius: 0.9,
+    colors: [lighter, feltBase, darker],
+    stops: const [0.0, 0.6, 1.0],
+  );
+  final tablePaint = Paint()
+    ..shader = feltGradient.createShader(tableRect)
+    ..style = PaintingStyle.fill;
   canvas.drawOval(tableRect, tablePaint);
 
-  // Table border
   final borderPaint = Paint()
     ..color = theme.borderColor
     ..style = PaintingStyle.stroke
     ..strokeWidth = 8;
-
   canvas.drawOval(tableRect, borderPaint);
 }
 
@@ -331,16 +359,39 @@ void drawPlayer(
   // the game state to avoid transient races in per-player isTurn flags.
   final isCurrent = player.id == gameState.currentPlayerId && !isFolded;
   const heroColor = Color(0xFF2E6DD8);
-  final otherColor = Colors.grey.shade700;
+  final seatColor = _seatColorFromId(player.id);
 
-  // Player circle
+  // Player circle — hero keeps a branded blue; others get a stable hue
   final playerPaint = Paint()
     ..color = player.isDisconnected
         ? Colors.red.shade700
-        : (isFolded ? Colors.grey.shade800 : (isHero ? heroColor : otherColor))
+        : (isFolded ? Colors.grey.shade800 : (isHero ? heroColor : seatColor))
     ..style = PaintingStyle.fill;
 
   canvas.drawCircle(Offset(x, y), radius, playerPaint);
+
+  // Draw player initials inside the circle
+  if (!isFolded) {
+    final displayName =
+        player.name.isNotEmpty ? player.name : 'Player ${index + 1}';
+    final initials = _playerInitials(displayName);
+    final initialsPainter = TextPainter(
+      text: TextSpan(
+        text: initials,
+        style: TextStyle(
+          color: Colors.white.withOpacity(0.85),
+          fontSize: radius * 0.56,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    initialsPainter.paint(
+      canvas,
+      Offset(x - initialsPainter.width / 2, y - initialsPainter.height / 2),
+    );
+  }
 
   // Soft halo when it's their turn
   if (isCurrent) {
@@ -409,8 +460,7 @@ void drawPlayer(
 
     // Draw chip badge background
     final chipBadgeWidth = chipText.width + 12 * uiSizeMultiplier;
-    final chipBadgeHeight =
-        math.max(16.0 * uiSizeMultiplier, radius * 0.45);
+    final chipBadgeHeight = math.max(16.0 * uiSizeMultiplier, radius * 0.45);
     final chipBadgeX = x - chipBadgeWidth / 2;
 
     // Layout strategy:
@@ -582,7 +632,8 @@ void drawCurrentTimebank(
     Rect? clampBounds,
     double? minSeatTop}) {
   if (gameState.turnDeadlineUnixMs <= 0) return;
-  if (isAutoAdvanceAllIn(gameState)) return; // hide countdown when auto-advancing
+  if (isAutoAdvanceAllIn(gameState))
+    return; // hide countdown when auto-advancing
   final nowMs = DateTime.now().millisecondsSinceEpoch;
   final remMs = (gameState.turnDeadlineUnixMs - nowMs).clamp(0, 1 << 30);
   final remSec = remMs / 1000.0;
@@ -711,20 +762,23 @@ class BadgeLayout {
   final double width;
 }
 
-// Helpers used by overlays to compute positions within the 16:9 viewport
-Rect pokerViewportRect(Size size) {
-  const double aspect = 16 / 9;
+/// Compute the letterboxed viewport rect for the poker table.
+///
+/// When [aspectRatio] matches the container, the rect fills the full size.
+/// Otherwise the rect is centered with letterboxing on the shorter axis.
+/// The default 16/9 preserves existing behavior.
+Rect pokerViewportRect(Size size, {double aspectRatio = 16 / 9}) {
   final double containerAspect =
       size.width / (size.height == 0 ? 1 : size.height);
   double w, h, left, top;
-  if (containerAspect > aspect) {
+  if (containerAspect > aspectRatio) {
     h = size.height;
-    w = h * aspect;
+    w = h * aspectRatio;
     left = (size.width - w) / 2;
     top = 0;
   } else {
     w = size.width;
-    h = w / aspect;
+    h = w / aspectRatio;
     left = 0;
     top = (size.height - h) / 2;
   }
@@ -746,8 +800,7 @@ Map<String, Offset> seatPositionsFor(
   final count = ps.length;
   final heroIndex = ps.indexWhere((p) => p.id == heroId);
   final playerRadius = kPlayerRadius * uiSizeMultiplier;
-  final sizeAwareOffset =
-      math.max(0, (playerRadius - kPlayerRadius) * 0.9);
+  final sizeAwareOffset = math.max(0, (playerRadius - kPlayerRadius) * 0.9);
   final ringX = ringRadiusX + sizeAwareOffset;
   final ringY = ringRadiusY + sizeAwareOffset;
 

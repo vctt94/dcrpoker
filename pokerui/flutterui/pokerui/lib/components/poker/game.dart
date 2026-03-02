@@ -6,6 +6,7 @@ import 'package:pokerui/models/poker.dart';
 import 'table.dart';
 import 'table_theme.dart';
 import 'cards.dart';
+import 'community_placeholders.dart';
 import 'disconnected_badges.dart';
 import 'table_logo.dart';
 import 'pot_display.dart';
@@ -13,12 +14,14 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/helper.dart';
 
 class PokerTableBackground extends StatelessWidget {
-  const PokerTableBackground({super.key});
+  const PokerTableBackground({super.key, this.aspectRatio = 16 / 9});
+  final double aspectRatio;
+
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: CustomPaint(
-        painter: _TableBackgroundPainter(),
+        painter: _TableBackgroundPainter(aspectRatio: aspectRatio),
         size: Size.infinite,
       ),
     );
@@ -26,30 +29,42 @@ class PokerTableBackground extends StatelessWidget {
 }
 
 class _TableBackgroundPainter extends CustomPainter {
+  _TableBackgroundPainter({this.aspectRatio = 16 / 9});
+  final double aspectRatio;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final layout = resolveTableLayout(size);
+    final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
     final centerX = layout.center.dx;
     final centerY = layout.center.dy;
     final tableRadiusX = layout.tableRadiusX;
     final tableRadiusY = layout.tableRadiusY;
 
-    // Draw table surface as ellipse
     final tableRect = Rect.fromCenter(
       center: Offset(centerX, centerY),
       width: tableRadiusX * 2,
       height: tableRadiusY * 2,
     );
 
-    // Table surface
+    // Radial gradient for felt depth (lighter center, darker edges)
+    final feltGradient = RadialGradient(
+      center: Alignment.center,
+      radius: 0.9,
+      colors: [
+        const Color(0xFF11654B),
+        const Color(0xFF0D4F3C),
+        const Color(0xFF093D2E),
+      ],
+      stops: const [0.0, 0.6, 1.0],
+    );
     final tablePaint = Paint()
-      ..color = const Color(0xFF0D4F3C) // Poker table green
+      ..shader = feltGradient.createShader(tableRect)
       ..style = PaintingStyle.fill;
     canvas.drawOval(tableRect, tablePaint);
 
     // Table border
     final borderPaint = Paint()
-      ..color = const Color(0xFF8B4513) // Brown border
+      ..color = const Color(0xFF8B4513)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 8;
     canvas.drawOval(tableRect, borderPaint);
@@ -69,7 +84,8 @@ class _TableBackgroundPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _TableBackgroundPainter old) =>
+      old.aspectRatio != aspectRatio;
 }
 
 class PokerGame {
@@ -81,7 +97,7 @@ class PokerGame {
   PokerGame(this.playerId, this.pokerModel, {required this.theme});
 
   Widget buildWidget(UiGameState gameState, FocusNode focusNode,
-      {VoidCallback? onReadyHotkey}) {
+      {VoidCallback? onReadyHotkey, double aspectRatio = 16 / 9}) {
     // Start/stop lightweight repaint loop only while an authoritative deadline
     // is active and the hand isn't auto-advancing through all-in streets.
     final hasDeadline = gameState.turnDeadlineUnixMs > 0;
@@ -116,35 +132,26 @@ class PokerGame {
                 child: SizedBox(
                   width: constraints.maxWidth,
                   child: AspectRatio(
-                    aspectRatio: 16 / 9, // Poker table aspect ratio
+                    aspectRatio: aspectRatio,
                     child: RepaintBoundary(
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          // Poker table background
-                          const PokerTableBackground(),
-
-                          // Game canvas (repaints)
+                          PokerTableBackground(aspectRatio: aspectRatio),
                           CustomPaint(
                             painter: PokerPainter(gameState, playerId, theme,
-                                repaint: _loop),
+                                repaint: _loop, aspectRatio: aspectRatio),
                             isComplex: true,
                             willChange: true,
                           ),
-
-                          // DCR logo overlay (if enabled) - after canvas so it's visible
                           if (theme.showTableLogo)
                             TableLogoOverlay(
                               logoPosition: theme.logoPosition,
                               uiSizeMultiplier: theme.uiSizeMultiplier,
                             ),
-
-                          // Widget-based overlays for cards
-                          IgnorePointer(
-                              child: _CommunityCardsOverlay(
-                                  cards: gameState.communityCards)),
-
-                          // Hero hole cards overlay with a visibility toggle
+                          CommunityCardSlots(
+                              cards: gameState.communityCards,
+                              aspectRatio: aspectRatio),
                           if (gameState.phase != pr.GamePhase.WAITING)
                             _HeroCardsOverlay(
                               players: gameState.players,
@@ -160,15 +167,11 @@ class PokerGame {
                                 }
                               },
                             ),
-
-                          // Hover hints for disconnected players
                           DisconnectedBadgesOverlay(
                             players: gameState.players,
                             heroId: playerId,
                             hasCurrentBet: gameState.currentBet > 0,
                           ),
-
-                          // Pot display on the felt with a chips anchor for animations
                           if (gameState.pot > 0)
                             PotDisplay(
                               pot: gameState.pot,
@@ -508,16 +511,17 @@ class PokerPainter extends CustomPainter {
   // Used to stagger simple reveal animations at showdown
   final int showdownStartMs;
   final double minSeatTop;
+  final double aspectRatio;
 
   PokerPainter(this.gameState, this.currentPlayerId, this.theme,
-      {Listenable? repaint})
+      {Listenable? repaint, this.aspectRatio = 16 / 9})
       : showdownStartMs = DateTime.now().millisecondsSinceEpoch,
         minSeatTop = 0,
         super(repaint: repaint);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final layout = resolveTableLayout(size);
+    final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
     final centerX = layout.center.dx;
     final centerY = layout.center.dy;
     final tableRadiusX = layout.tableRadiusX;
@@ -572,43 +576,6 @@ class PokerPainter extends CustomPainter {
       old.gameState != gameState || old.currentPlayerId != currentPlayerId;
 
   void _drawHeroHoleCards(Canvas canvas, Size size) {}
-}
-
-class _CommunityCardsOverlay extends StatelessWidget {
-  const _CommunityCardsOverlay({required this.cards});
-  final List<pr.Card> cards;
-
-  @override
-  Widget build(BuildContext context) {
-    if (cards.isEmpty) return const SizedBox.shrink();
-    return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final theme = PokerThemeConfig.fromContext(context);
-      final box = pokerViewportRect(size);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final baseCw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
-      final cw =
-          (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
-      final ch = cw * 1.4;
-      final gap = cw * 0.10;
-      final totalW = (cards.length * cw) + ((cards.length - 1) * gap);
-      final startX = center.dx - totalW / 2;
-      final y = center.dy - ch / 2 - 20.0;
-
-      final children = <Widget>[];
-      for (int i = 0; i < cards.length; i++) {
-        final x = startX + i * (cw + gap);
-        children.add(Positioned(
-          left: x,
-          top: y,
-          width: cw,
-          height: ch,
-          child: CardFace(card: cards[i], cardTheme: theme.cardTheme),
-        ));
-      }
-      return Stack(children: children);
-    });
-  }
 }
 
 class _OpponentsShowdownHandsOverlay extends StatefulWidget {

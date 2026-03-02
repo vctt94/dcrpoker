@@ -28,15 +28,19 @@ String cardId(pr.Card? c) {
 Color suitColor(String suit, {CardColorTheme? cardTheme}) {
   final theme = cardTheme ?? CardColorTheme.standard;
   final s = suit.toLowerCase();
-  if (s == 'hearts' || suit == '♥' || suit == '\u2665') return theme.heartsColor;
-  if (s == 'diamonds' || suit == '♦' || suit == '\u2666') return theme.diamondsColor;
+  if (s == 'hearts' || suit == '♥' || suit == '\u2665')
+    return theme.heartsColor;
+  if (s == 'diamonds' || suit == '♦' || suit == '\u2666')
+    return theme.diamondsColor;
   if (s == 'clubs' || suit == '♣' || suit == '\u2663') return theme.clubsColor;
-  if (s == 'spades' || suit == '♠' || suit == '\u2660') return theme.spadesColor;
+  if (s == 'spades' || suit == '♠' || suit == '\u2660')
+    return theme.spadesColor;
   return Colors.black;
 }
 
 class CardFace extends StatelessWidget {
-  const CardFace({super.key, required pr.Card? card, this.cardTheme}) : _card = card;
+  const CardFace({super.key, required pr.Card? card, this.cardTheme})
+      : _card = card;
   final pr.Card? _card;
   final CardColorTheme? cardTheme;
 
@@ -66,7 +70,10 @@ class CardFace extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: borderColor, width: 2),
               boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.30), blurRadius: 6, spreadRadius: 1),
+                BoxShadow(
+                    color: Colors.black.withOpacity(0.30),
+                    blurRadius: 6,
+                    spreadRadius: 1),
               ],
             ),
             child: Padding(
@@ -82,8 +89,16 @@ class CardFace extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(value, style: TextStyle(color: textColor, fontSize: rankFs, fontWeight: FontWeight.w900)),
-                          Text(suitSymbol, style: TextStyle(color: textColor, fontSize: suitFs, fontWeight: FontWeight.w700)),
+                          Text(value,
+                              style: TextStyle(
+                                  color: textColor,
+                                  fontSize: rankFs,
+                                  fontWeight: FontWeight.w900)),
+                          Text(suitSymbol,
+                              style: TextStyle(
+                                  color: textColor,
+                                  fontSize: suitFs,
+                                  fontWeight: FontWeight.w700)),
                         ],
                       ),
                     ),
@@ -99,8 +114,16 @@ class CardFace extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(value, style: TextStyle(color: textColor, fontSize: rankFs, fontWeight: FontWeight.w900)),
-                            Text(suitSymbol, style: TextStyle(color: textColor, fontSize: suitFs, fontWeight: FontWeight.w700)),
+                            Text(value,
+                                style: TextStyle(
+                                    color: textColor,
+                                    fontSize: rankFs,
+                                    fontWeight: FontWeight.w900)),
+                            Text(suitSymbol,
+                                style: TextStyle(
+                                    color: textColor,
+                                    fontSize: suitFs,
+                                    fontWeight: FontWeight.w700)),
                           ],
                         ),
                       ),
@@ -111,7 +134,10 @@ class CardFace extends StatelessWidget {
                       fit: BoxFit.scaleDown,
                       child: Text(
                         suitSymbol,
-                        style: TextStyle(color: textColor, fontSize: centerFs, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            color: textColor,
+                            fontSize: centerFs,
+                            fontWeight: FontWeight.w600),
                       ),
                     ),
                   ),
@@ -139,13 +165,20 @@ class CardBack extends StatelessWidget {
         ),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: Colors.black, width: 2),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.30),
+              blurRadius: 6,
+              spreadRadius: 1),
+        ],
       ),
     );
   }
 }
 
 class FlipCard extends StatelessWidget {
-  const FlipCard({super.key, required this.faceUp, required this.card, this.cardTheme});
+  const FlipCard(
+      {super.key, required this.faceUp, required this.card, this.cardTheme});
   final bool faceUp;
   final pr.Card? card;
   final CardColorTheme? cardTheme;
@@ -169,7 +202,8 @@ class FlipCard extends StatelessWidget {
             final isUnder = (child!.key != (faceUp ? frontKey : backKey));
             var tilt = (anim.value - 0.5).abs() - 0.5;
             tilt *= 0.02;
-            final angle = isUnder ? math.min(rotate.value, math.pi / 2) : rotate.value;
+            final angle =
+                isUnder ? math.min(rotate.value, math.pi / 2) : rotate.value;
             return Transform(
               alignment: Alignment.center,
               transform: Matrix4.identity()
@@ -224,14 +258,14 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final ringRadiusY = layout.ringRadiusY;
       // Clamp hero seat so cards track the rendered player when the viewport is tight.
       final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
-      final heroY =
-          (centerY + ringRadiusY).clamp(box.top + seatPadding, box.bottom - seatPadding);
+      final heroY = (centerY + ringRadiusY)
+          .clamp(box.top + seatPadding, box.bottom - seatPadding);
 
       // Lightly scale spacing so cards stay tethered to the hero as width grows.
       final minSpacingAbovePlayer = 8.0 * uiSizeMultiplier;
       final maxSpacingAbovePlayer = 26.0 * uiSizeMultiplier;
-      final spacingAbovePlayer =
-          (ringRadiusY * 0.08).clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
+      final spacingAbovePlayer = (ringRadiusY * 0.08)
+          .clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
 
       // Calculate primary position: above player with damped spacing
       var y = heroY - kPlayerRadius - spacingAbovePlayer - ch;
@@ -245,7 +279,8 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final minGapFromCommunity =
           math.max(10.0 * uiSizeMultiplier, layout.tableRadiusY * 0.10);
       final minSafeY = communityCardsBottom + minGapFromCommunity;
-      final maxAllowedY = heroY - kPlayerRadius - ch - 4.0; // avoid overlapping the seat
+      final maxAllowedY =
+          heroY - kPlayerRadius - ch - 4.0; // avoid overlapping the seat
       // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.
       if (minSafeY > maxAllowedY) {
         y = maxAllowedY;
@@ -265,11 +300,58 @@ class HeroCardFlipOverlay extends StatelessWidget {
           : rawHeaderTop;
       final iconSize = (headerHeight * 0.6).clamp(10.0, 18.0);
       final accent = showing ? Colors.amber : Colors.white70;
-      final borderColor = showing ? Colors.amber.withOpacity(0.6) : Colors.white30;
+      final borderColor =
+          showing ? Colors.amber.withOpacity(0.6) : Colors.white30;
+
+      // Tray background dimensions — wraps cards + toggle in a visual container
+      final trayPadH = cw * 0.18;
+      final trayPadTop = cw * 0.14;
+      final trayPadBottom = cw * 0.10;
+      final trayLeft = x1 - trayPadH;
+      final trayTop = y - trayPadTop;
+      final trayWidth = headerWidth + trayPadH * 2;
+      final trayBottom =
+          (onToggle != null ? headerTop + headerHeight : y + ch) +
+              trayPadBottom;
+      final trayHeight = trayBottom - trayTop;
 
       final children = <Widget>[
-        Positioned(left: x1, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.isNotEmpty ? cards[0] : null, cardTheme: cardTheme)),
-        Positioned(left: x2, top: y, width: cw, height: ch, child: FlipCard(faceUp: showFace, card: cards.length > 1 ? cards[1] : null, cardTheme: cardTheme)),
+        Positioned(
+          left: trayLeft,
+          top: trayTop,
+          width: trayWidth,
+          height: trayHeight,
+          child: IgnorePointer(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.28),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.white.withOpacity(0.06),
+                  width: 1,
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+            left: x1,
+            top: y,
+            width: cw,
+            height: ch,
+            child: FlipCard(
+                faceUp: showFace,
+                card: cards.isNotEmpty ? cards[0] : null,
+                cardTheme: cardTheme)),
+        Positioned(
+            left: x2,
+            top: y,
+            width: cw,
+            height: ch,
+            child: FlipCard(
+                faceUp: showFace,
+                card: cards.length > 1 ? cards[1] : null,
+                cardTheme: cardTheme)),
       ];
 
       return Stack(children: [
@@ -294,8 +376,7 @@ class HeroCardFlipOverlay extends StatelessWidget {
                       child: Container(
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          borderRadius:
-                              BorderRadius.circular(headerHeight / 2),
+                          borderRadius: BorderRadius.circular(headerHeight / 2),
                           border: Border.all(color: borderColor),
                         ),
                         padding: EdgeInsets.symmetric(
@@ -305,9 +386,7 @@ class HeroCardFlipOverlay extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              showing
-                                  ? Icons.visibility
-                                  : Icons.visibility_off,
+                              showing ? Icons.visibility : Icons.visibility_off,
                               size: iconSize,
                               color: accent,
                             ),
@@ -316,7 +395,8 @@ class HeroCardFlipOverlay extends StatelessWidget {
                               actionLabel,
                               style: TextStyle(
                                 color: accent,
-                                fontSize: (headerHeight * 0.45).clamp(10.0, 14.0),
+                                fontSize:
+                                    (headerHeight * 0.45).clamp(10.0, 14.0),
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.6,
                               ),
@@ -336,26 +416,28 @@ class HeroCardFlipOverlay extends StatelessWidget {
 }
 
 // Canvas-based card drawing utilities for CustomPainter usage
-void drawCardFace(Canvas canvas, double x, double y, double width, double height, pr.Card card, {CardColorTheme? cardTheme}) {
+void drawCardFace(Canvas canvas, double x, double y, double width,
+    double height, pr.Card card,
+    {CardColorTheme? cardTheme}) {
   // Card background
   final cardPaint = Paint()
     ..color = Colors.white
     ..style = PaintingStyle.fill;
-  
+
   final cardRect = RRect.fromRectAndRadius(
     Rect.fromLTWH(x, y, width, height),
     const Radius.circular(4),
   );
   canvas.drawRRect(cardRect, cardPaint);
-  
+
   // Card border
   final borderPaint = Paint()
     ..color = Colors.black
     ..style = PaintingStyle.stroke
     ..strokeWidth = 1;
-  
+
   canvas.drawRRect(cardRect, borderPaint);
-  
+
   // Card content
   final textPainter = TextPainter(
     text: TextSpan(
@@ -371,11 +453,13 @@ void drawCardFace(Canvas canvas, double x, double y, double width, double height
   textPainter.layout();
   textPainter.paint(
     canvas,
-    Offset(x + (width - textPainter.width) / 2, y + (height - textPainter.height) / 2),
+    Offset(x + (width - textPainter.width) / 2,
+        y + (height - textPainter.height) / 2),
   );
 }
 
-void drawCardBack(Canvas canvas, double x, double y, double width, double height) {
+void drawCardBack(
+    Canvas canvas, double x, double y, double width, double height) {
   // Card back background
   final backPaint = Paint()
     ..shader = const LinearGradient(
@@ -401,24 +485,31 @@ void drawCardBack(Canvas canvas, double x, double y, double width, double height
   final pipPainter = TextPainter(
     text: const TextSpan(
       text: '♠',
-      style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+      style: TextStyle(
+          color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
     ),
     textDirection: TextDirection.ltr,
   );
   pipPainter.layout();
   pipPainter.paint(
     canvas,
-    Offset(x + (width - pipPainter.width) / 2, y + (height - pipPainter.height) / 2),
+    Offset(x + (width - pipPainter.width) / 2,
+        y + (height - pipPainter.height) / 2),
   );
 }
 
 String getSuitSymbol(String suit) {
   switch (suit.toLowerCase()) {
-    case 'hearts': return '♥';
-    case 'diamonds': return '♦';
-    case 'clubs': return '♣';
-    case 'spades': return '♠';
-    default: return suit;
+    case 'hearts':
+      return '♥';
+    case 'diamonds':
+      return '♦';
+    case 'clubs':
+      return '♣';
+    case 'spades':
+      return '♠';
+    default:
+      return suit;
   }
 }
 
