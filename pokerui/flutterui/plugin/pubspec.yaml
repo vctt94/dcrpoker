@@ -45,7 +45,7 @@ flutter:
   plugin:
     platforms:
       android:
-        package: org.bisonrelay.golib_plugin
+        package: com.dcrpoker.golib_plugin
         pluginClass: GolibPlugin
       ios:
         pluginClass: GolibPlugin

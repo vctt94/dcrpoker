@@ -124,7 +124,7 @@ func (cmd *cmd) decode(to interface{}) error {
 
 type CmdResult struct {
 	ID      int32
-	Type    CmdType
+	Type    int32
 	Err     error
 	Payload []byte
 }
@@ -291,7 +291,7 @@ func call(cmd *cmd) *CmdResult {
 		resPayload, err = json.Marshal(v)
 	}
 
-	return &CmdResult{ID: cmd.ID, Type: cmd.Type, Err: err, Payload: resPayload}
+	return &CmdResult{ID: cmd.ID, Type: int32(cmd.Type), Err: err, Payload: resPayload}
 }
 
 func AsyncCall(typ CmdType, id, clientHandle int32, payload []byte) {
@@ -432,7 +432,7 @@ func notify(typ CmdType, payload interface{}, err error) {
 			}
 		}
 	}
-	r := &CmdResult{Type: typ, Err: err, Payload: resPayload}
+	r := &CmdResult{Type: int32(typ), Err: err, Payload: resPayload}
 	// non-blocking to avoid deadlocks under bursty shutdowns
 	select {
 	case cmdResultChan <- r:
@@ -446,7 +446,7 @@ func NextCmdResult() *CmdResult {
 	case r := <-cmdResultChan:
 		return r
 	case <-time.After(time.Second): // Timeout.
-		return &CmdResult{Type: NTNOP, Payload: []byte{}}
+		return &CmdResult{Type: int32(NTNOP), Payload: []byte{}}
 	}
 }
 
@@ -466,7 +466,7 @@ type uiNtfn struct {
 
 // emitBackgroundNtfns emits background notifications to the callback object.
 func emitBackgroundNtfns(r *CmdResult, cb CmdResultLoopCB) {
-	switch r.Type {
+	switch CmdType(r.Type) {
 	case NTUINotification:
 		var n uiNtfn
 		if err := json.Unmarshal(r.Payload, &n); err != nil {
@@ -542,7 +542,7 @@ func CmdResultLoop(cb CmdResultLoopCB, onlyBgNtfns bool) int32 {
 
 			// Process the special commands that toggle calling
 			// native code with background ntfn events.
-			switch r.Type {
+			switch CmdType(r.Type) {
 			case CTEnableBackgroundNtfs:
 				deliverBackgroundNtfns = true
 				continue
@@ -561,7 +561,7 @@ func CmdResultLoop(cb CmdResultLoopCB, onlyBgNtfns bool) int32 {
 				if len(r.Payload) > 0 {
 					payload = string(r.Payload)
 				}
-				cb.F(r.ID, int32(r.Type), payload, errMsg)
+				cb.F(r.ID, r.Type, payload, errMsg)
 			}
 
 			// Emit a background ntfn if the flutter engine is

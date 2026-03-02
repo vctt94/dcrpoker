@@ -1,4 +1,4 @@
-package org.bisonrelay.golib_plugin
+package com.dcrpoker.golib_plugin
 
 import androidx.annotation.NonNull
 
@@ -105,8 +105,8 @@ class GolibPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, ServiceAware
 
   fun showNotification(notificationManager: NotificationManager, nick: String, msg: String, ts: Long) {
     // Intent to open app when clicking the notification.
-    val targetComp = ComponentName("org.bisonrelay.bruig", ".MainActivity")
-    var actionIntent = Intent(/* "org.bisonrelay.bruig.NTFN" */"android.intent.action.MAIN")
+    val targetComp = ComponentName("com.dcrpoker", ".MainActivity")
+    var actionIntent = Intent(/* "com.dcrpoker.NTFN" */"android.intent.action.MAIN")
       .setComponent(targetComp)
       .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED or Intent.FLAG_FROM_BACKGROUND)
     val pendingIntent = PendingIntent.getActivity(context, 0, actionIntent, PendingIntent.FLAG_IMMUTABLE)
@@ -383,8 +383,8 @@ class GolibPlugin: FlutterPlugin, MethodCallHandler, ActivityAware, ServiceAware
 
     private fun showNtfn() {
       Golib.logInfo(0x12131400, "NativePlugin: FgSvc.showNtfn")
-      val targetComp = ComponentName("org.bisonrelay.bruig", ".MainActivity")
-      //var actionIntent = Intent("org.bisonrelay.bruig.NTFN")
+      val targetComp = ComponentName("com.dcrpoker", ".MainActivity")
+      //var actionIntent = Intent("com.dcrpoker.NTFN")
       var actionIntent = Intent("android.intent.action.MAIN")
         .addCategory("android.intent.category.LAUNCHER")
         .setComponent(targetComp)
