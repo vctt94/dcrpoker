@@ -62,6 +62,28 @@ class _TableBackgroundPainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawOval(tableRect, tablePaint);
 
+    // Soft center spotlight — subtly lightens the dealer area where
+    // community cards and pot sit, without drawing a hard rectangle.
+    final commCenterY = communityCardsCenterY(layout);
+    final spotlightRect = Rect.fromCenter(
+      center: Offset(centerX, commCenterY + tableRadiusY * 0.08),
+      width: tableRadiusX * 1.1,
+      height: tableRadiusY * 0.7,
+    );
+    final spotlightGradient = RadialGradient(
+      center: Alignment.center,
+      radius: 0.75,
+      colors: [
+        Colors.white.withOpacity(0.045),
+        Colors.white.withOpacity(0.0),
+      ],
+      stops: const [0.0, 1.0],
+    );
+    final spotlightPaint = Paint()
+      ..shader = spotlightGradient.createShader(spotlightRect)
+      ..style = PaintingStyle.fill;
+    canvas.drawOval(spotlightRect, spotlightPaint);
+
     // Table border
     final borderPaint = Paint()
       ..color = const Color(0xFF8B4513)
@@ -130,59 +152,55 @@ class PokerGame {
           },
           child: LayoutBuilder(
             builder: (context, constraints) {
-              return Center(
-                child: SizedBox(
-                  width: constraints.maxWidth,
-                  child: AspectRatio(
-                    aspectRatio: aspectRatio,
-                    child: RepaintBoundary(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          PokerTableBackground(aspectRatio: aspectRatio),
-                          CustomPaint(
-                            painter: PokerPainter(gameState, playerId, theme,
-                                repaint: _loop, aspectRatio: aspectRatio),
-                            isComplex: true,
-                            willChange: true,
-                          ),
-                          if (theme.showTableLogo)
-                            TableLogoOverlay(
-                              logoPosition: theme.logoPosition,
-                              uiSizeMultiplier: theme.uiSizeMultiplier,
-                            ),
-                          CommunityCardSlots(
-                              cards: gameState.communityCards,
-                              aspectRatio: aspectRatio),
-                          if (showHeroCardsOverlay &&
-                              gameState.phase != pr.GamePhase.WAITING)
-                            _HeroCardsOverlay(
-                              players: gameState.players,
-                              heroId: playerId,
-                              cache: pokerModel.myHoleCardsCache,
-                              gamePhase: gameState.phase,
-                              isShowing: pokerModel.me?.cardsRevealed ?? false,
-                              onToggle: () {
-                                if (pokerModel.me?.cardsRevealed ?? false) {
-                                  pokerModel.hideCards();
-                                } else {
-                                  pokerModel.showCards();
-                                }
-                              },
-                            ),
-                          DisconnectedBadgesOverlay(
-                            players: gameState.players,
-                            heroId: playerId,
-                            hasCurrentBet: gameState.currentBet > 0,
-                          ),
-                          if (gameState.pot > 0)
-                            PotDisplay(
-                              pot: gameState.pot,
-                              theme: theme,
-                            ),
-                        ],
+              return SizedBox(
+                width: constraints.maxWidth,
+                height: constraints.maxHeight,
+                child: RepaintBoundary(
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      PokerTableBackground(aspectRatio: aspectRatio),
+                      CustomPaint(
+                        painter: PokerPainter(gameState, playerId, theme,
+                            repaint: _loop, aspectRatio: aspectRatio),
+                        isComplex: true,
+                        willChange: true,
                       ),
-                    ),
+                      if (theme.showTableLogo)
+                        TableLogoOverlay(
+                          logoPosition: theme.logoPosition,
+                          uiSizeMultiplier: theme.uiSizeMultiplier,
+                        ),
+                      CommunityCardSlots(
+                          cards: gameState.communityCards,
+                          aspectRatio: aspectRatio),
+                      if (showHeroCardsOverlay &&
+                          gameState.phase != pr.GamePhase.WAITING)
+                        _HeroCardsOverlay(
+                          players: gameState.players,
+                          heroId: playerId,
+                          cache: pokerModel.myHoleCardsCache,
+                          gamePhase: gameState.phase,
+                          isShowing: pokerModel.me?.cardsRevealed ?? false,
+                          onToggle: () {
+                            if (pokerModel.me?.cardsRevealed ?? false) {
+                              pokerModel.hideCards();
+                            } else {
+                              pokerModel.showCards();
+                            }
+                          },
+                        ),
+                      DisconnectedBadgesOverlay(
+                        players: gameState.players,
+                        heroId: playerId,
+                        hasCurrentBet: gameState.currentBet > 0,
+                      ),
+                      if (gameState.pot > 0)
+                        PotDisplay(
+                          pot: gameState.pot,
+                          theme: theme,
+                        ),
+                    ],
                   ),
                 ),
               );
@@ -551,7 +569,7 @@ class PokerPainter extends CustomPainter {
       theme.cardSizeMultiplier,
       theme.uiSizeMultiplier,
       playerOffsetOverride: layout.playerOffset,
-      clampBounds: layout.viewport,
+      clampBounds: layout.canvasBounds,
       minSeatTop: minSeatTop,
     );
 
@@ -569,7 +587,7 @@ class PokerPainter extends CustomPainter {
       tableRadiusY,
       theme.uiSizeMultiplier,
       playerOffset: layout.playerOffset,
-      clampBounds: layout.viewport,
+      clampBounds: layout.canvasBounds,
       minSeatTop: minSeatTop,
     );
   }
@@ -639,7 +657,7 @@ class _OpponentsShowdownHandsOverlayState
         center,
         layout.ringRadiusX,
         layout.ringRadiusY,
-        clampBounds: layout.viewport,
+        clampBounds: layout.canvasBounds,
         minSeatTop: minSeatTop,
         uiSizeMultiplier: theme.uiSizeMultiplier,
       );

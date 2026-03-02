@@ -120,12 +120,12 @@ bool showSideRail(PokerBreakpoint bp) => bp == PokerBreakpoint.wide;
 double mobileTableHeightFraction(PokerBreakpoint bp) {
   switch (bp) {
     case PokerBreakpoint.compact:
-      return 0.56;
+      return 0.78;
     case PokerBreakpoint.regular:
-      return 0.6;
+      return 0.80;
     case PokerBreakpoint.expanded:
     case PokerBreakpoint.wide:
-      return 0.65;
+      return 0.82;
   }
 }
 
@@ -133,12 +133,12 @@ double mobileTableHeightFraction(PokerBreakpoint bp) {
 double mobileHeroPanelMinHeight(PokerBreakpoint bp) {
   switch (bp) {
     case PokerBreakpoint.compact:
-      return 210;
+      return 120;
     case PokerBreakpoint.regular:
-      return 196;
+      return 115;
     case PokerBreakpoint.expanded:
     case PokerBreakpoint.wide:
-      return 180;
+      return 110;
   }
 }
 

@@ -38,18 +38,30 @@ const double kCurrentBetOverlayHeight = 28.0;
 const double kTopOverlayGap = 8.0;
 const double kTopOverlayMargin = 6.0;
 const double kOverlaySeatGap = 6.0;
-const double kPotChipYOffsetFactor = -0.34;
+/// Fraction of ring-radius-Y the hero seat is pushed beyond the standard ring
+/// position, creating room for the hero card tray above the seat.
+const double kHeroSeatExtraFraction = 0.12;
+/// Fraction of tableRadiusY that community cards are shifted above the
+/// geometric table center.  This opens up the lower half of the felt for
+/// hero cards while keeping the upper half clear for opponent seats.
+const double kCommunityCardsUpwardFraction = 0.20;
 
 class TableLayout {
   const TableLayout({
     required this.viewport,
+    required this.canvasBounds,
     required this.center,
     required this.tableRadiusX,
     required this.tableRadiusY,
     required this.playerOffset,
   });
 
+  /// 16:9 letterboxed rect — drives ellipse shape, community cards, pot.
   final Rect viewport;
+
+  /// Full canvas rect — drives seat clamping and overlay positioning.
+  final Rect canvasBounds;
+
   final Offset center;
   final double tableRadiusX;
   final double tableRadiusY;
@@ -57,6 +69,15 @@ class TableLayout {
 
   double get ringRadiusX => tableRadiusX + playerOffset;
   double get ringRadiusY => tableRadiusY + playerOffset;
+}
+
+/// Y coordinate for the center of the community-card row on the felt.
+///
+/// All consumers (community card overlay, pot display, hero card overlay)
+/// derive their vertical positions from this single value so they stay in
+/// sync regardless of viewport size.
+double communityCardsCenterY(TableLayout layout) {
+  return layout.center.dy - layout.tableRadiusY * kCommunityCardsUpwardFraction;
 }
 
 double _playerOffsetForViewport(Rect viewport) {
@@ -81,34 +102,31 @@ double minSeatTopFor(Rect viewport, bool hasCurrentBet) {
 
 Offset potChipCenter(TableLayout layout, {double uiSizeMultiplier = 1.0}) {
   final box = layout.viewport;
-  final center = layout.center;
-  final chipSize = 32.0 * uiSizeMultiplier;
-  final labelGap = 6.0 * uiSizeMultiplier;
-  final margin = 6.0 * uiSizeMultiplier;
 
+  final padV = 6.0 * uiSizeMultiplier;
+  final labelGap = 10.0 * uiSizeMultiplier;
   final labelStyle = TextStyle(
     fontSize: 14 * uiSizeMultiplier,
     fontWeight: FontWeight.bold,
     letterSpacing: 0.4,
     color: Colors.white,
   );
-  final padH = 12.0 * uiSizeMultiplier;
-  final padV = 6.0 * uiSizeMultiplier;
   final tp = TextPainter(
     text: TextSpan(text: '0', style: labelStyle),
     textDirection: TextDirection.ltr,
   )..layout();
   final labelHeight = tp.height + padV * 2;
 
+  final commCenterY = communityCardsCenterY(layout);
   final cw = (box.width * 0.05).clamp(32.0, 56.0);
   final ch = cw * 1.4;
-  final cardTop = center.dy - ch / 2 - 20.0;
-  final totalHeight = chipSize + labelGap + labelHeight;
-  var columnTop = cardTop - margin - totalHeight;
-  final overflow = (box.top + 6.0) - columnTop;
-  if (overflow > 0) columnTop += overflow;
+  final communityBottom = commCenterY + ch / 2;
+  var potCenter = communityBottom + labelGap + labelHeight / 2;
 
-  return Offset(center.dx, columnTop + chipSize / 2);
+  final maxCenter = box.bottom - labelHeight / 2 - 6.0;
+  if (potCenter > maxCenter) potCenter = maxCenter;
+
+  return Offset(layout.center.dx, potCenter);
 }
 
 Offset _positionForSeat(
@@ -126,6 +144,10 @@ Offset _positionForSeat(
   final angle = _angleForPlayerIndex(idx, heroIndex, count);
   var x = center.dx + ringRadiusX * math.cos(angle);
   var y = center.dy + ringRadiusY * math.sin(angle);
+
+  if (idx == heroIndex && heroIndex >= 0) {
+    y += ringRadiusY * kHeroSeatExtraFraction;
+  }
 
   if (minSeatTop != null) {
     final seatTop = y - playerRadius;
@@ -163,6 +185,7 @@ double _angleForPlayerIndex(int idx, int heroIndex, int count) {
 }
 
 TableLayout resolveTableLayout(Size size, {double aspectRatio = 16 / 9}) {
+  final canvasBounds = Rect.fromLTWH(0, 0, size.width, size.height);
   final viewport = pokerViewportRect(size, aspectRatio: aspectRatio);
   final center = Offset(
       viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
@@ -190,6 +213,7 @@ TableLayout resolveTableLayout(Size size, {double aspectRatio = 16 / 9}) {
 
   return TableLayout(
     viewport: viewport,
+    canvasBounds: canvasBounds,
     center: center,
     tableRadiusX: tableRadiusX,
     tableRadiusY: tableRadiusY,

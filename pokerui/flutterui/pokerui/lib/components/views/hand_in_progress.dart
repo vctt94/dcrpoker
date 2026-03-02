@@ -205,7 +205,7 @@ class _BetFxOverlayState extends State<_BetFxOverlay>
         layout.center,
         layout.ringRadiusX,
         layout.ringRadiusY,
-        clampBounds: layout.viewport,
+        clampBounds: layout.canvasBounds,
         minSeatTop: minSeatTop,
         uiSizeMultiplier: theme.uiSizeMultiplier,
       );

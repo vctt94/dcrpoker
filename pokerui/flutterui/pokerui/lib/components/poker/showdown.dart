@@ -277,7 +277,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
           center,
           layout.ringRadiusX,
           layout.ringRadiusY,
-          clampBounds: layout.viewport,
+          clampBounds: layout.canvasBounds,
           minSeatTop: minSeatTop,
           uiSizeMultiplier: theme.uiSizeMultiplier,
         );

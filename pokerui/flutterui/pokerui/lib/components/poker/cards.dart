@@ -254,45 +254,46 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final centerY = layout.center.dy;
       final uiSizeMultiplier = uiSizeMultiplierFromKey(context.uiSize);
 
-      // Position hero cards tighter to the hero label instead of drifting toward center.
-      final ringRadiusY = layout.ringRadiusY;
-      // Clamp hero seat so cards track the rendered player when the viewport is tight.
+      // --- Anchor hero cards just above the hero seat ---
+      // Compute toggle/header metrics first so we know the full tray height.
+      final headerHeight = (cw * 0.45).clamp(16.0, 24.0);
+      final headerGap = (4.0 * uiSizeMultiplier).clamp(2.0, 6.0);
+      final trayContentH =
+          ch + (onToggle != null ? headerGap + headerHeight : 0);
+
+      // Hero seat position (must match _positionForSeat's hero push).
+      // Clamp to canvasBounds so the hero seat can extend below the 16:9 zone.
+      final canvas = layout.canvasBounds;
+      final heroPush = layout.ringRadiusY * kHeroSeatExtraFraction;
       final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
-      final heroY = (centerY + ringRadiusY)
-          .clamp(box.top + seatPadding, box.bottom - seatPadding);
+      final heroSeatCenterY = (centerY + layout.ringRadiusY + heroPush)
+          .clamp(canvas.top + seatPadding, canvas.bottom - seatPadding);
+      final heroSeatTop = heroSeatCenterY - kPlayerRadius * uiSizeMultiplier;
 
-      // Lightly scale spacing so cards stay tethered to the hero as width grows.
-      final minSpacingAbovePlayer = 8.0 * uiSizeMultiplier;
-      final maxSpacingAbovePlayer = 26.0 * uiSizeMultiplier;
-      final spacingAbovePlayer = (ringRadiusY * 0.08)
-          .clamp(minSpacingAbovePlayer, maxSpacingAbovePlayer);
+      // Card tray sits directly above the hero seat with a small gap.
+      final cardGapAboveHero = 10.0 * uiSizeMultiplier;
+      var y = heroSeatTop - trayContentH - cardGapAboveHero;
 
-      // Calculate primary position: above player with damped spacing
-      var y = heroY - kPlayerRadius - spacingAbovePlayer - ch;
+      // Dealer zone bottom — cards must never overlap the pot badge.
+      final potCenter =
+          potChipCenter(layout, uiSizeMultiplier: uiSizeMultiplier);
+      final potBadgeHalfH = 18.0 * uiSizeMultiplier;
+      final dealerZoneBottom = potCenter.dy + potBadgeHalfH;
 
-      // Soft constraint: ensure reasonable gap from community cards if they would be too close
-      // Scale the minimum gap proportionally with table radius to maintain relative spacing
-      final baseCommunityCardHeight =
-          (box.width * 0.05 * 1.4).clamp(32.0 * 1.4, 56.0 * 1.4);
-      final communityCardHeight = baseCommunityCardHeight * cardSizeMultiplier;
-      final communityCardsBottom = centerY + communityCardHeight / 2 - 20.0;
-      final minGapFromCommunity =
-          math.max(10.0 * uiSizeMultiplier, layout.tableRadiusY * 0.10);
-      final minSafeY = communityCardsBottom + minGapFromCommunity;
-      final maxAllowedY =
-          heroY - kPlayerRadius - ch - 4.0; // avoid overlapping the seat
-      // Keep cards between the community row and the hero seat; if constraints conflict, favor the seat.
-      if (minSafeY > maxAllowedY) {
-        y = maxAllowedY;
+      final minPad = 16.0 * uiSizeMultiplier;
+      final minY = dealerZoneBottom + minPad;
+      final maxY = heroSeatTop - ch - minPad;
+      if (minY <= maxY) {
+        y = y.clamp(minY, maxY);
       } else {
-        y = y.clamp(minSafeY, maxAllowedY);
+        final available = heroSeatTop - dealerZoneBottom;
+        y = dealerZoneBottom + (available - ch) / 2;
       }
+
       final x1 = centerX - cw - gap / 2;
       final x2 = centerX + gap / 2;
       final showing = toggleShown ?? showFace;
       final actionLabel = showing ? 'HIDE' : 'SHOW';
-      final headerHeight = (cw * 0.45).clamp(16.0, 24.0);
-      final headerGap = (4.0 * uiSizeMultiplier).clamp(2.0, 6.0);
       final headerWidth = (cw * 2) + gap;
       final rawHeaderTop = y + ch + headerGap;
       final headerTop = rawHeaderTop > box.bottom - headerHeight - 2.0
@@ -303,7 +304,7 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final borderColor =
           showing ? Colors.amber.withOpacity(0.6) : Colors.white30;
 
-      // Tray background dimensions — wraps cards + toggle in a visual container
+      // Tray background wraps cards + toggle.
       final trayPadH = cw * 0.18;
       final trayPadTop = cw * 0.14;
       final trayPadBottom = cw * 0.10;

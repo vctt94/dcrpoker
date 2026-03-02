@@ -23,16 +23,16 @@ class CommunityCardSlots extends StatelessWidget {
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
       final theme = PokerThemeConfig.fromContext(context);
-      final box = pokerViewportRect(size, aspectRatio: aspectRatio);
-      final center = Offset(box.left + box.width / 2, box.top + box.height / 2);
-      final baseCw = (box.width * 0.05).clamp(32.0, 56.0).toDouble();
+      final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
+      final baseCw = (layout.viewport.width * 0.05).clamp(32.0, 56.0).toDouble();
       final cw =
           (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
       final ch = cw * 1.4;
       final gap = cw * 0.10;
       final totalW = (_totalSlots * cw) + ((_totalSlots - 1) * gap);
-      final startX = center.dx - totalW / 2;
-      final y = center.dy - ch / 2 - 20.0;
+      final commCenterY = communityCardsCenterY(layout);
+      final startX = layout.center.dx - totalW / 2;
+      final y = commCenterY - ch / 2;
 
       final children = <Widget>[];
       for (int i = 0; i < _totalSlots; i++) {

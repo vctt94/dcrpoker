@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/cards.dart';
@@ -180,54 +178,73 @@ class MobileHeroActionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final canAct = model.canAct;
+    final me = model.me;
+    final isShowing = me?.cardsRevealed ?? false;
+    final cards =
+        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.myHoleCardsCache;
+    final hasCards = cards.isNotEmpty;
 
     return Container(
       constraints: BoxConstraints(minHeight: mobileHeroPanelMinHeight(bp)),
       padding: EdgeInsets.only(
-        left: 12,
-        right: 12,
-        top: 10,
-        bottom: safeBottomPadding(context, minPadding: 10),
+        left: 8,
+        right: 8,
+        top: 6,
+        bottom: safeBottomPadding(context, minPadding: 6),
       ),
       decoration: const BoxDecoration(
         color: Color(0xFF121212),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _HeroCardsStrip(model: model),
-          if (showActions) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                if (hasLastShowdown && onToggleSidebar != null)
-                  _LastHandButton(
-                    active: showSidebar,
-                    onTap: onToggleSidebar!,
-                  ),
-                if (hasLastShowdown && onToggleSidebar != null)
-                  const SizedBox(width: 8),
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: canAct
-                        ? _ActionButtons(
-                            model: model,
-                            showBetInput: showBetInput,
-                            betCtrl: betCtrl!,
-                            onToggleBetInput: onToggleBetInput!,
-                            onCloseBetInput: onCloseBetInput!,
-                            bb: _resolveBigBlind(),
-                          )
-                        : _WaitingIndicator(model: model),
-                  ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _CompactHeroCards(cards: cards),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: !hasCards
+                    ? null
+                    : () {
+                        if (isShowing) {
+                          model.hideCards();
+                        } else {
+                          model.showCards();
+                        }
+                      },
+                child: Icon(
+                  isShowing ? Icons.visibility : Icons.visibility_off,
+                  size: 18,
+                  color: isShowing ? Colors.amber : Colors.white38,
                 ),
-              ],
+              ),
+              const Spacer(),
+              if (hasLastShowdown && onToggleSidebar != null)
+                _LastHandButton(
+                  active: showSidebar,
+                  onTap: onToggleSidebar!,
+                ),
+            ],
+          ),
+          if (showActions) ...[
+            const SizedBox(height: 6),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: canAct
+                  ? _ActionButtons(
+                      model: model,
+                      showBetInput: showBetInput,
+                      betCtrl: betCtrl!,
+                      onToggleBetInput: onToggleBetInput!,
+                      onCloseBetInput: onCloseBetInput!,
+                      bb: _resolveBigBlind(),
+                    )
+                  : _WaitingIndicator(model: model),
             ),
           ],
           if (footer != null) ...[
-            const SizedBox(height: 10),
+            const SizedBox(height: 6),
             footer!,
           ],
         ],
@@ -236,83 +253,29 @@ class MobileHeroActionPanel extends StatelessWidget {
   }
 }
 
-class _HeroCardsStrip extends StatelessWidget {
-  const _HeroCardsStrip({required this.model});
-  final PokerModel model;
-
-  @override
-  Widget build(BuildContext context) {
-    final me = model.me;
-    final cards =
-        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.myHoleCardsCache;
-    final hasCards = cards.isNotEmpty;
-    final isShowing = me?.cardsRevealed ?? false;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.35),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withOpacity(0.1)),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.style, size: 16, color: Colors.white70),
-          const SizedBox(width: 8),
-          Expanded(child: _HeroHoleCardsRow(cards: cards)),
-          const SizedBox(width: 8),
-          TextButton.icon(
-            onPressed: !hasCards
-                ? null
-                : () {
-                    if (isShowing) {
-                      model.hideCards();
-                    } else {
-                      model.showCards();
-                    }
-                  },
-            style: TextButton.styleFrom(
-              foregroundColor: isShowing ? Colors.amber : Colors.white70,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              minimumSize: const Size(0, 0),
-            ),
-            icon: Icon(
-              isShowing ? Icons.visibility : Icons.visibility_off,
-              size: 16,
-            ),
-            label: Text(isShowing ? 'HIDE' : 'SHOW'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _HeroHoleCardsRow extends StatelessWidget {
-  const _HeroHoleCardsRow({required this.cards});
+class _CompactHeroCards extends StatelessWidget {
+  const _CompactHeroCards({required this.cards});
   final List<pr.Card> cards;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final maxW = constraints.maxWidth;
-      final cw = (maxW * 0.16).clamp(42.0, 56.0).toDouble();
-      final ch = cw * 1.4;
-      final gap = math.max(6.0, cw * 0.14);
+    const cw = 42.0;
+    const ch = cw * 1.4;
+    const gap = 6.0;
 
-      Widget buildCard(int index) {
-        if (cards.length > index) return CardFace(card: cards[index]);
-        return const CardBack();
-      }
+    Widget buildCard(int index) {
+      if (cards.length > index) return CardFace(card: cards[index]);
+      return const CardBack();
+    }
 
-      return Row(
-        children: [
-          SizedBox(width: cw, height: ch, child: buildCard(0)),
-          SizedBox(width: gap),
-          SizedBox(width: cw, height: ch, child: buildCard(1)),
-        ],
-      );
-    });
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(width: cw, height: ch, child: buildCard(0)),
+        const SizedBox(width: gap),
+        SizedBox(width: cw, height: ch, child: buildCard(1)),
+      ],
+    );
   }
 }
 
