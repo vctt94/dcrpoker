@@ -5,6 +5,7 @@ import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/poker/minimal_showdown.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
 import 'package:pokerui/components/poker/responsive.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
@@ -84,6 +85,7 @@ class _ShowdownViewState extends State<ShowdownView> {
     final focusNode = FocusNode();
     final theme = PokerThemeConfig.fromContext(context);
     final bp = PokerBreakpointQuery.of(context);
+    final isPhone = bp.isNarrow;
     final aspect = tableAspectRatio(bp);
     final pokerGame = PokerGame(
       model.playerId,
@@ -92,24 +94,101 @@ class _ShowdownViewState extends State<ShowdownView> {
     );
     final winners = model.lastWinners;
 
+    final tableStack = Stack(
+      fit: StackFit.expand,
+      children: [
+        pokerGame.buildWidget(
+          game,
+          focusNode,
+          aspectRatio: aspect,
+          showHeroCardsOverlay: !isPhone,
+        ),
+        _ShowdownFxOverlay(model: model),
+        if (winners.isNotEmpty && _showSidebar)
+          MinimalShowdown(
+            model: model,
+            isVisible: _showSidebar,
+            theme: theme,
+            onClose: _closeSidebar,
+          ),
+      ],
+    );
+
+    final showdownFooter = model.isGameEndPending
+        ? Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.amber, width: 2),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$_secondsRemaining',
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    _closeSidebar();
+                    model.skipShowdown();
+                  },
+                  icon: const Icon(Icons.skip_next, size: 18),
+                  label: const Text('Continue'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : const SizedBox.shrink();
+
+    if (isPhone) {
+      return LayoutBuilder(builder: (context, constraints) {
+        final maxTableHeight =
+            constraints.maxHeight - mobileHeroPanelMinHeight(bp);
+        final tableMax = maxTableHeight < 220.0 ? 220.0 : maxTableHeight;
+        final tableHeight =
+            (constraints.maxHeight * mobileTableHeightFraction(bp))
+                .clamp(220.0, tableMax)
+                .toDouble();
+        return Column(
+          children: [
+            SizedBox(height: tableHeight, child: tableStack),
+            Expanded(
+              child: MobileHeroActionPanel(
+                model: model,
+                showActions: false,
+                footer: showdownFooter,
+              ),
+            ),
+          ],
+        );
+      });
+    }
+
     return Column(
       children: [
-        Expanded(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              pokerGame.buildWidget(game, focusNode, aspectRatio: aspect),
-              _ShowdownFxOverlay(model: model),
-              if (winners.isNotEmpty && _showSidebar)
-                MinimalShowdown(
-                  model: model,
-                  isVisible: _showSidebar,
-                  theme: theme,
-                  onClose: _closeSidebar,
-                ),
-            ],
-          ),
-        ),
+        Expanded(child: tableStack),
         // Always reserve bottom space to prevent the table from jumping
         // when transitioning from HandInProgressView (which has BottomActionDock).
         Container(
@@ -121,53 +200,7 @@ class _ShowdownViewState extends State<ShowdownView> {
             bottom: safeBottomPadding(context, minPadding: 10),
           ),
           color: const Color(0xFF121212),
-          child: model.isGameEndPending
-              ? Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.amber, width: 2),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '$_secondsRemaining',
-                            style: const TextStyle(
-                              color: Colors.amber,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          _closeSidebar();
-                          model.skipShowdown();
-                        },
-                        icon: const Icon(Icons.skip_next, size: 18),
-                        label: const Text('Continue'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blue.shade700,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : const SizedBox.shrink(),
+          child: showdownFooter,
         ),
       ],
     );

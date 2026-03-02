@@ -70,6 +70,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     final focusNode = FocusNode();
     final theme = PokerThemeConfig.fromContext(context);
     final bp = PokerBreakpointQuery.of(context);
+    final isPhone = bp.isNarrow;
     final aspect = tableAspectRatio(bp);
     final pokerGame = PokerGame(
       widget.model.playerId,
@@ -77,31 +78,62 @@ class _HandInProgressViewState extends State<HandInProgressView> {
       theme: theme,
     );
 
+    final tableStack = Stack(
+      children: [
+        pokerGame.buildWidget(
+          game,
+          focusNode,
+          aspectRatio: aspect,
+          showHeroCardsOverlay: !isPhone,
+        ),
+        if (game.currentBet > 0 && game.phase != pr.GamePhase.SHOWDOWN)
+          BetSidebar(
+            gameState: game,
+            playerId: widget.model.playerId,
+            theme: theme,
+          ),
+        _BetFxOverlay(model: widget.model),
+        if (_showSidebar && widget.model.hasLastShowdown)
+          ShowdownSidebar(
+            model: widget.model,
+            isVisible: _showSidebar,
+            onClose: _closeSidebar,
+          ),
+      ],
+    );
+
+    if (isPhone) {
+      return LayoutBuilder(builder: (context, constraints) {
+        final maxTableHeight =
+            constraints.maxHeight - mobileHeroPanelMinHeight(bp);
+        final tableMax = maxTableHeight < 220.0 ? 220.0 : maxTableHeight;
+        final tableHeight =
+            (constraints.maxHeight * mobileTableHeightFraction(bp))
+                .clamp(220.0, tableMax)
+                .toDouble();
+        return Column(
+          children: [
+            SizedBox(height: tableHeight, child: tableStack),
+            Expanded(
+              child: MobileHeroActionPanel(
+                model: widget.model,
+                showBetInput: _showBetInput,
+                betCtrl: _betCtrl,
+                onToggleBetInput: () => setState(() => _showBetInput = true),
+                onCloseBetInput: () => setState(() => _showBetInput = false),
+                hasLastShowdown: widget.model.hasLastShowdown,
+                showSidebar: _showSidebar,
+                onToggleSidebar: _toggleSidebar,
+              ),
+            ),
+          ],
+        );
+      });
+    }
+
     return Column(
       children: [
-        // Table canvas — fills available vertical space
-        Expanded(
-          child: Stack(
-            children: [
-              pokerGame.buildWidget(game, focusNode, aspectRatio: aspect),
-              if (game.currentBet > 0 && game.phase != pr.GamePhase.SHOWDOWN)
-                BetSidebar(
-                  gameState: game,
-                  playerId: widget.model.playerId,
-                  theme: theme,
-                ),
-              _BetFxOverlay(model: widget.model),
-              if (_showSidebar && widget.model.hasLastShowdown)
-                ShowdownSidebar(
-                  model: widget.model,
-                  isVisible: _showSidebar,
-                  onClose: _closeSidebar,
-                ),
-            ],
-          ),
-        ),
-
-        // Action dock — in layout flow, never overlaps the table
+        Expanded(child: tableStack),
         BottomActionDock(
           model: widget.model,
           showBetInput: _showBetInput,

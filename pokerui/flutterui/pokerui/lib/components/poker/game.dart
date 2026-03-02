@@ -97,7 +97,9 @@ class PokerGame {
   PokerGame(this.playerId, this.pokerModel, {required this.theme});
 
   Widget buildWidget(UiGameState gameState, FocusNode focusNode,
-      {VoidCallback? onReadyHotkey, double aspectRatio = 16 / 9}) {
+      {VoidCallback? onReadyHotkey,
+      double aspectRatio = 16 / 9,
+      bool showHeroCardsOverlay = true}) {
     // Start/stop lightweight repaint loop only while an authoritative deadline
     // is active and the hand isn't auto-advancing through all-in streets.
     final hasDeadline = gameState.turnDeadlineUnixMs > 0;
@@ -152,7 +154,8 @@ class PokerGame {
                           CommunityCardSlots(
                               cards: gameState.communityCards,
                               aspectRatio: aspectRatio),
-                          if (gameState.phase != pr.GamePhase.WAITING)
+                          if (showHeroCardsOverlay &&
+                              gameState.phase != pr.GamePhase.WAITING)
                             _HeroCardsOverlay(
                               players: gameState.players,
                               heroId: playerId,

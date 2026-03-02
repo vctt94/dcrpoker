@@ -48,9 +48,9 @@ extension PokerBreakpointQuery on PokerBreakpoint {
 double tableAspectRatio(PokerBreakpoint bp) {
   switch (bp) {
     case PokerBreakpoint.compact:
-      return 4 / 3;
+      return 1.0;
     case PokerBreakpoint.regular:
-      return 3 / 2;
+      return 1.15;
     case PokerBreakpoint.expanded:
     case PokerBreakpoint.wide:
       return 16 / 9;
@@ -115,6 +115,32 @@ double fontScale(PokerBreakpoint bp) {
 
 /// Whether a side rail should be rendered at this breakpoint.
 bool showSideRail(PokerBreakpoint bp) => bp == PokerBreakpoint.wide;
+
+/// Vertical share used by the table canvas in the phone layout.
+double mobileTableHeightFraction(PokerBreakpoint bp) {
+  switch (bp) {
+    case PokerBreakpoint.compact:
+      return 0.56;
+    case PokerBreakpoint.regular:
+      return 0.6;
+    case PokerBreakpoint.expanded:
+    case PokerBreakpoint.wide:
+      return 0.65;
+  }
+}
+
+/// Minimum reserved height for the mobile hero/action panel.
+double mobileHeroPanelMinHeight(PokerBreakpoint bp) {
+  switch (bp) {
+    case PokerBreakpoint.compact:
+      return 210;
+    case PokerBreakpoint.regular:
+      return 196;
+    case PokerBreakpoint.expanded:
+    case PokerBreakpoint.wide:
+      return 180;
+  }
+}
 
 /// Bottom safe-area padding, falling back to a sensible minimum.
 double safeBottomPadding(BuildContext context, {double minPadding = 8}) {
