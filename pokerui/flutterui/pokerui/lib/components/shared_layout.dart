@@ -6,12 +6,14 @@ class SharedLayout extends StatelessWidget {
   final String title;
   final Widget child;
   final Future<void> Function()? onLogout;
+  final bool hideFooter;
 
   const SharedLayout({
     super.key,
     required this.title,
     required this.child,
     this.onLogout,
+    this.hideFooter = false,
   });
 
   @override
@@ -26,7 +28,8 @@ class SharedLayout extends StatelessWidget {
     Future<void> Function()? logoutCb = onLogout;
     if (logoutCb == null) {
       try {
-        logoutCb = Provider.of<Future<void> Function()?>(context, listen: false);
+        logoutCb =
+            Provider.of<Future<void> Function()?>(context, listen: false);
       } catch (_) {
         logoutCb = null;
       }
@@ -122,7 +125,8 @@ class SharedLayout extends StatelessWidget {
                       },
                     ),
                     ListTile(
-                      leading: const Icon(Icons.description, color: Colors.white),
+                      leading:
+                          const Icon(Icons.description, color: Colors.white),
                       title: const Text('Logs',
                           style: TextStyle(color: Colors.white)),
                       onTap: () {
@@ -155,54 +159,78 @@ class SharedLayout extends StatelessWidget {
       body: Column(
         children: [
           Expanded(child: child),
-          // Footer Section - only shown when PokerModel is available
-          if (pokerModel != null)
+          if (pokerModel != null && !hideFooter)
             Container(
               padding: const EdgeInsets.all(16),
               decoration: const BoxDecoration(
                 color: Color(0xFF1B1E2C),
                 borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Flexible(
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          pokerModel.state != PokerState.idle
-                              ? Icons.check_circle
-                              : Icons.cloud_off,
-                          color:
-                              pokerModel.state != PokerState.idle ? Colors.green : Colors.red,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            pokerModel.state != PokerState.idle ? "Connected" : "Disconnected",
-                            style: TextStyle(
-                              color:
-                                  pokerModel.state != PokerState.idle ? Colors.green : Colors.red,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: Text(
-                      "Player ID: ${pokerModel.playerId}",
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w500,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final model = pokerModel!;
+                  final isNarrow = constraints.maxWidth < 480;
+                  final status = Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        model.state != PokerState.idle
+                            ? Icons.check_circle
+                            : Icons.cloud_off,
+                        color: model.state != PokerState.idle
+                            ? Colors.green
+                            : Colors.red,
                       ),
-                      overflow: TextOverflow.ellipsis,
+                      const SizedBox(width: 8),
+                      Text(
+                        model.state != PokerState.idle
+                            ? "Connected"
+                            : "Disconnected",
+                        style: TextStyle(
+                          color: model.state != PokerState.idle
+                              ? Colors.green
+                              : Colors.red,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  );
+
+                  final playerId = Text(
+                    "Player ID: ${model.playerId}",
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w500,
                     ),
-                  ),
-                ],
+                    overflow: TextOverflow.ellipsis,
+                  );
+
+                  if (isNarrow) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        status,
+                        const SizedBox(height: 6),
+                        playerId,
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(child: status),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: playerId,
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ),
         ],

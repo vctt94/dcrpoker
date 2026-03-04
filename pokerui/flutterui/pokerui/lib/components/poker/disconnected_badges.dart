@@ -27,7 +27,7 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         layout.center,
         layout.ringRadiusX,
         layout.ringRadiusY,
-        clampBounds: layout.viewport,
+        clampBounds: layout.canvasBounds,
         minSeatTop: minSeatTopFor(layout.viewport, hasCurrentBet),
         uiSizeMultiplier: theme.uiSizeMultiplier,
       );

@@ -5,6 +5,8 @@ import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/poker/minimal_showdown.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/responsive.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class ShowdownView extends StatefulWidget {
@@ -81,96 +83,126 @@ class _ShowdownViewState extends State<ShowdownView> {
     }
 
     final focusNode = FocusNode();
+    final theme = PokerThemeConfig.fromContext(context);
+    final bp = PokerBreakpointQuery.of(context);
+    final isPhone = bp.isNarrow;
+    final aspect = tableAspectRatio(bp);
     final pokerGame = PokerGame(
       model.playerId,
       model,
-      theme: PokerThemeConfig.fromContext(context),
+      theme: theme,
     );
     final winners = model.lastWinners;
 
-    return SizedBox.expand(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Poker game visualization (table + canvas elements)
-          pokerGame.buildWidget(game, focusNode),
+    final tableStack = Stack(
+      fit: StackFit.expand,
+      children: [
+        pokerGame.buildWidget(
+          game,
+          focusNode,
+          aspectRatio: aspect,
+          showHeroCardsOverlay: !isPhone,
+        ),
+        _ShowdownFxOverlay(model: model),
+        if (winners.isNotEmpty && _showSidebar)
+          MinimalShowdown(
+            model: model,
+            isVisible: _showSidebar,
+            theme: theme,
+            onClose: _closeSidebar,
+          ),
+      ],
+    );
 
-          // Showdown FX overlay: chip flow to winners
-          _ShowdownFxOverlay(model: model),
-
-          // Minimal showdown widget - positioned on the right
-          if (winners.isNotEmpty && _showSidebar)
-            MinimalShowdown(
-              model: model,
-              isVisible: _showSidebar,
-              theme: PokerThemeConfig.fromContext(context),
-              onClose: _closeSidebar,
-            ),
-
-          // Countdown and Skip button at bottom center (only if game end is pending)
-          if (model.isGameEndPending)
-            Positioned(
-              bottom: 16,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.8),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Countdown indicator
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.amber, width: 2),
-                          ),
-                          child: Center(
-                            child: Text(
-                              '$_secondsRemaining',
-                              style: const TextStyle(
-                                color: Colors.amber,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        // Skip button
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            _closeSidebar();
-                            model.skipShowdown();
-                          },
-                          icon: const Icon(Icons.skip_next, size: 18),
-                          label: const Text('Continue'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue.shade700,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 8,
-                            ),
-                          ),
-                        ),
-                      ],
+    final showdownFooter = model.isGameEndPending
+        ? Center(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.amber, width: 2),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '$_secondsRemaining',
+                      style: const TextStyle(
+                        color: Colors.amber,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    _closeSidebar();
+                    model.skipShowdown();
+                  },
+                  icon: const Icon(Icons.skip_next, size: 18),
+                  label: const Text('Continue'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : const SizedBox.shrink();
+
+    if (isPhone) {
+      return LayoutBuilder(builder: (context, constraints) {
+        final maxTableHeight =
+            constraints.maxHeight - mobileHeroPanelMinHeight(bp);
+        final tableMax = maxTableHeight < 220.0 ? 220.0 : maxTableHeight;
+        final tableHeight =
+            (constraints.maxHeight * mobileTableHeightFraction(bp))
+                .clamp(220.0, tableMax)
+                .toDouble();
+        return Column(
+          children: [
+            SizedBox(height: tableHeight, child: tableStack),
+            Expanded(
+              child: MobileHeroActionPanel(
+                model: model,
+                showActions: false,
+                footer: showdownFooter,
               ),
             ),
-        ],
-      ),
+          ],
+        );
+      });
+    }
+
+    return Column(
+      children: [
+        Expanded(child: tableStack),
+        // Always reserve bottom space to prevent the table from jumping
+        // when transitioning from HandInProgressView (which has BottomActionDock).
+        Container(
+          constraints: BoxConstraints(minHeight: actionDockMinHeight(bp)),
+          padding: EdgeInsets.only(
+            left: 16,
+            right: 16,
+            top: 10,
+            bottom: safeBottomPadding(context, minPadding: 10),
+          ),
+          color: const Color(0xFF121212),
+          child: showdownFooter,
+        ),
+      ],
     );
   }
 }
@@ -245,7 +277,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
           center,
           layout.ringRadiusX,
           layout.ringRadiusY,
-          clampBounds: layout.viewport,
+          clampBounds: layout.canvasBounds,
           minSeatTop: minSeatTop,
           uiSizeMultiplier: theme.uiSizeMultiplier,
         );

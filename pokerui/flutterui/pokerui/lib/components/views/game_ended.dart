@@ -51,9 +51,8 @@ class GameEndedView extends StatelessWidget {
             padding: const EdgeInsets.all(32),
             margin: const EdgeInsets.symmetric(horizontal: 24),
             constraints: BoxConstraints(
-              maxHeight: constraints.maxHeight - 64, // Account for margins
-              maxWidth:
-                  constraints.maxWidth - 48, // Account for horizontal margins
+              maxHeight: constraints.maxHeight - 64,
+              maxWidth: (constraints.maxWidth - 48).clamp(0, 520),
             ),
             decoration: BoxDecoration(
               color: const Color(0xFF1B1E2C).withAlpha(240),
@@ -82,7 +81,7 @@ class GameEndedView extends StatelessWidget {
                         : isDraw
                             ? Icons.handshake
                             : Icons.sports_tennis,
-                    size: 80,
+                    size: constraints.maxWidth < 360 ? 56 : 80,
                     color: isWin
                         ? Colors.green
                         : isDraw
@@ -94,7 +93,7 @@ class GameEndedView extends StatelessWidget {
                   Text(
                     "Game End!",
                     style: TextStyle(
-                      fontSize: 32,
+                      fontSize: constraints.maxWidth < 360 ? 24 : 32,
                       fontWeight: FontWeight.bold,
                       color: isWin
                           ? Colors.green
@@ -107,8 +106,8 @@ class GameEndedView extends StatelessWidget {
                   // Result message
                   Text(
                     message.isNotEmpty ? message : 'Game ended',
-                    style: const TextStyle(
-                      fontSize: 20,
+                    style: TextStyle(
+                      fontSize: constraints.maxWidth < 360 ? 16 : 20,
                       color: Colors.white,
                       fontWeight: FontWeight.w500,
                     ),
@@ -182,17 +181,16 @@ class GameEndedView extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 6),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                            Wrap(
+                              alignment: WrapAlignment.center,
+                              spacing: 6,
+                              runSpacing: 6,
                               children: model.showdownCommunityCards
-                                  .map((c) => Padding(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 3),
-                                        child: SizedBox(
-                                          width: 40,
-                                          height: 56,
-                                          child: CardFace(card: c, cardTheme: cardTheme),
-                                        ),
+                                  .map((c) => SizedBox(
+                                        width: 40,
+                                        height: 56,
+                                        child: CardFace(
+                                            card: c, cardTheme: cardTheme),
                                       ))
                                   .toList(),
                             ),
@@ -217,14 +215,13 @@ class GameEndedView extends StatelessWidget {
                     const SizedBox(height: 24),
                   ],
                   // Action buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  Wrap(
+                    alignment: WrapAlignment.spaceEvenly,
+                    spacing: 12,
+                    runSpacing: 12,
                     children: [
                       ElevatedButton.icon(
-                        onPressed: () {
-                          // Leave table and return to main menu
-                          model.leaveTable();
-                        },
+                        onPressed: () => model.leaveTable(),
                         icon: const Icon(Icons.home),
                         label: const Text("Main Menu"),
                         style: ElevatedButton.styleFrom(
@@ -235,10 +232,7 @@ class GameEndedView extends StatelessWidget {
                         ),
                       ),
                       ElevatedButton.icon(
-                        onPressed: () {
-                          // Leave table (can rejoin for quick rematch)
-                          model.leaveTable();
-                        },
+                        onPressed: () => model.leaveTable(),
                         icon: const Icon(Icons.refresh),
                         label: const Text("Play Again"),
                         style: ElevatedButton.styleFrom(
