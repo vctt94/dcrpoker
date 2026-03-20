@@ -156,6 +156,10 @@ func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
 
 func TestHandleGameEndedUsesWinnerDisplayNameForLosers(t *testing.T) {
 	s := newBareServer()
+	s.stopChan = make(chan struct{})
+	s.eventProcessor = NewEventProcessor(s, 16, 1)
+	s.eventProcessor.Start()
+	defer s.Stop()
 
 	winnerStream := &mockNotificationStream{}
 	loserStream := &mockNotificationStream{}
