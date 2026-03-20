@@ -242,6 +242,7 @@ message CreateTableRequest {
   int32 time_bank_seconds = 8; // Player timeout in seconds (default: 30)
   int32 auto_start_ms = 9; // Auto-start delay between hands in ms (0 = disabled)
   int32 auto_advance_ms = 10; // Auto-advance delay between streets when all-in in ms (must be > 0)
+  string name = 11;
 }
 
 message CreateTableResponse {
@@ -277,7 +278,7 @@ message GetTablesResponse {
 
 message Table {
   string id = 1;
-  string host_id = 2;
+  string name = 2;
   repeated Player players = 3;
   int64 small_blind = 4;     // Poker chips amount for small blind
   int64 big_blind = 5;       // Poker chips amount for big blind

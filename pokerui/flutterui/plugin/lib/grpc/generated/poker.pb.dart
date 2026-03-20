@@ -1324,6 +1324,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     $core.int? timeBankSeconds,
     $core.int? autoStartMs,
     $core.int? autoAdvanceMs,
+    $core.String? name,
   }) {
     final result = create();
     if (playerId != null) result.playerId = playerId;
@@ -1336,6 +1337,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     if (timeBankSeconds != null) result.timeBankSeconds = timeBankSeconds;
     if (autoStartMs != null) result.autoStartMs = autoStartMs;
     if (autoAdvanceMs != null) result.autoAdvanceMs = autoAdvanceMs;
+    if (name != null) result.name = name;
     return result;
   }
 
@@ -1362,6 +1364,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     ..aI(8, _omitFieldNames ? '' : 'timeBankSeconds')
     ..aI(9, _omitFieldNames ? '' : 'autoStartMs')
     ..aI(10, _omitFieldNames ? '' : 'autoAdvanceMs')
+    ..aOS(11, _omitFieldNames ? '' : 'name')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1472,6 +1475,15 @@ class CreateTableRequest extends $pb.GeneratedMessage {
   $core.bool hasAutoAdvanceMs() => $_has(9);
   @$pb.TagNumber(10)
   void clearAutoAdvanceMs() => $_clearField(10);
+
+  @$pb.TagNumber(11)
+  $core.String get name => $_getSZ(10);
+  @$pb.TagNumber(11)
+  set name($core.String value) => $_setString(10, value);
+  @$pb.TagNumber(11)
+  $core.bool hasName() => $_has(10);
+  @$pb.TagNumber(11)
+  void clearName() => $_clearField(11);
 }
 
 class CreateTableResponse extends $pb.GeneratedMessage {
@@ -1893,7 +1905,7 @@ class GetTablesResponse extends $pb.GeneratedMessage {
 class Table extends $pb.GeneratedMessage {
   factory Table({
     $core.String? id,
-    $core.String? hostId,
+    $core.String? name,
     $core.Iterable<Player>? players,
     $fixnum.Int64? smallBlind,
     $fixnum.Int64? bigBlind,
@@ -1907,7 +1919,7 @@ class Table extends $pb.GeneratedMessage {
   }) {
     final result = create();
     if (id != null) result.id = id;
-    if (hostId != null) result.hostId = hostId;
+    if (name != null) result.name = name;
     if (players != null) result.players.addAll(players);
     if (smallBlind != null) result.smallBlind = smallBlind;
     if (bigBlind != null) result.bigBlind = bigBlind;
@@ -1935,7 +1947,7 @@ class Table extends $pb.GeneratedMessage {
       package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
       createEmptyInstance: create)
     ..aOS(1, _omitFieldNames ? '' : 'id')
-    ..aOS(2, _omitFieldNames ? '' : 'hostId')
+    ..aOS(2, _omitFieldNames ? '' : 'name')
     ..pPM<Player>(3, _omitFieldNames ? '' : 'players',
         subBuilder: Player.create)
     ..aInt64(4, _omitFieldNames ? '' : 'smallBlind')
@@ -1978,13 +1990,13 @@ class Table extends $pb.GeneratedMessage {
   void clearId() => $_clearField(1);
 
   @$pb.TagNumber(2)
-  $core.String get hostId => $_getSZ(1);
+  $core.String get name => $_getSZ(1);
   @$pb.TagNumber(2)
-  set hostId($core.String value) => $_setString(1, value);
+  set name($core.String value) => $_setString(1, value);
   @$pb.TagNumber(2)
-  $core.bool hasHostId() => $_has(1);
+  $core.bool hasName() => $_has(1);
   @$pb.TagNumber(2)
-  void clearHostId() => $_clearField(2);
+  void clearName() => $_clearField(2);
 
   @$pb.TagNumber(3)
   $pb.PbList<Player> get players => $_getList(2);
