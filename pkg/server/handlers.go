@@ -195,16 +195,13 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 
 	// Attempt to finalize and broadcast Schnorr settlement if matchID and winner are valid.
 	if pl.WinnerID != "" && pl.MatchID != "" && pl.WinnerSeat >= 0 {
+		if nh.server.matchHasEscrows(pl.MatchID) {
+			nh.server.markPendingSettlement(pl.MatchID)
+		}
 		go nh.server.trySettlementBroadcast(event.TableID, pl.MatchID, pl.WinnerSeat, pl.WinnerID, event.PlayerIDs)
 	}
 
-	// After the match is finished, remove the table so subsequent RPCs
-	// treat it as gone. Use a short grace period so clients/tests can
-	// query final state (e.g., GetLastWinners) before the table closes.
-	go func(tableID string) {
-		nh.server.scheduleTableRemoval(tableID)
-	}(event.TableID)
-
+	nh.server.schedulePostGameTableCleanup(event.TableID)
 }
 
 func (nh *NotificationHandler) handlePlayerReady(event *GameEvent) {
@@ -643,10 +640,9 @@ func tableSnapshotToProtoTable(snapshot *TableSnapshot) *pokerrpc.Table {
 	if snapshot == nil {
 		return nil
 	}
-
 	table := &pokerrpc.Table{
 		Id:              snapshot.ID,
-		HostId:          snapshot.Config.HostID,
+		Name:            snapshot.Config.Name,
 		SmallBlind:      snapshot.Config.SmallBlind,
 		BigBlind:        snapshot.Config.BigBlind,
 		MaxPlayers:      int32(snapshot.Config.MaxPlayers),

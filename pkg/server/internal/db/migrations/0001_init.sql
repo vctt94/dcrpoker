@@ -30,7 +30,8 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_id ON auth_sessions(user_id);
 -- Poker tables (configuration; not per-hand/transient state)
 CREATE TABLE IF NOT EXISTS tables (
     id              TEXT PRIMARY KEY,
-    host_id         TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    table_source    TEXT NOT NULL DEFAULT 'user',
     buy_in          INTEGER NOT NULL,
     min_players     INTEGER NOT NULL,
     max_players     INTEGER NOT NULL,
@@ -40,11 +41,11 @@ CREATE TABLE IF NOT EXISTS tables (
     timebank_ms     INTEGER NOT NULL DEFAULT 0,
     autostart_ms    INTEGER NOT NULL DEFAULT 0,
     auto_advance_ms INTEGER NOT NULL DEFAULT 1000,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (host_id) REFERENCES auth_users(user_id)
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_tables_created_at ON tables(created_at);
+CREATE INDEX IF NOT EXISTS idx_tables_source ON tables(table_source);
 
 -- Membership at a table (active row has left_at NULL)
 CREATE TABLE IF NOT EXISTS table_participants (

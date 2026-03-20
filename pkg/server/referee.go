@@ -220,24 +220,26 @@ type schnorrRefereeState struct {
 	adaptorSecret string
 	feeAtoms      uint64
 
-	mu              sync.RWMutex
-	escrows         map[string]*refereeEscrowSession                   // escrowID -> session
-	matchEscrows    map[string]map[uint32]string                       // matchKey -> seat -> escrowID
-	presigns        map[string]map[int32]map[string]*refereePreSignCtx // matchKey -> branch -> inputID -> ctx
-	branchGamma     map[string]map[int32]string                        // matchKey -> branch -> gammaHex
-	presignComplete map[string]map[uint32]bool                         // matchKey -> seat -> completed
+	mu                 sync.RWMutex
+	escrows            map[string]*refereeEscrowSession                   // escrowID -> session
+	matchEscrows       map[string]map[uint32]string                       // matchKey -> seat -> escrowID
+	presigns           map[string]map[int32]map[string]*refereePreSignCtx // matchKey -> branch -> inputID -> ctx
+	branchGamma        map[string]map[int32]string                        // matchKey -> branch -> gammaHex
+	presignComplete    map[string]map[uint32]bool                         // matchKey -> seat -> completed
+	pendingSettlements map[string]bool                                    // matchKey -> settlement still pending
 }
 
 func newSchnorrRefereeState(cfg ServerConfig) *schnorrRefereeState {
 	return &schnorrRefereeState{
-		network:         cfg.Network,
-		adaptorSecret:   cfg.AdaptorSecret,
-		feeAtoms:        DefaultSettlementFeeAtoms,
-		escrows:         make(map[string]*refereeEscrowSession),
-		matchEscrows:    make(map[string]map[uint32]string),
-		presigns:        make(map[string]map[int32]map[string]*refereePreSignCtx),
-		branchGamma:     make(map[string]map[int32]string),
-		presignComplete: make(map[string]map[uint32]bool),
+		network:            cfg.Network,
+		adaptorSecret:      cfg.AdaptorSecret,
+		feeAtoms:           DefaultSettlementFeeAtoms,
+		escrows:            make(map[string]*refereeEscrowSession),
+		matchEscrows:       make(map[string]map[uint32]string),
+		presigns:           make(map[string]map[int32]map[string]*refereePreSignCtx),
+		branchGamma:        make(map[string]map[int32]string),
+		presignComplete:    make(map[string]map[uint32]bool),
+		pendingSettlements: make(map[string]bool),
 	}
 }
 
@@ -1483,6 +1485,7 @@ func (s *Server) cleanupMatchState(matchID string) {
 	delete(s.referee.presigns, matchID)
 	delete(s.referee.branchGamma, matchID)
 	delete(s.referee.presignComplete, matchID)
+	delete(s.referee.pendingSettlements, matchID)
 	s.referee.mu.Unlock()
 
 	for _, escrowID := range escrowIDs {
@@ -1659,19 +1662,89 @@ func (s *Server) rebuildMatchEscrowsFromTable(matchID string, table *poker.Table
 		return
 	}
 	snap := table.GetStateSnapshot()
-	s.referee.mu.Lock()
-	if s.referee.matchEscrows[matchID] == nil {
-		s.referee.matchEscrows[matchID] = make(map[uint32]string)
-	}
-	for k := range s.referee.matchEscrows[matchID] {
-		delete(s.referee.matchEscrows[matchID], k)
-	}
+	next := make(map[uint32]string)
 	for _, u := range snap.Users {
 		if u.TableSeat >= 0 && u.EscrowID != "" {
-			s.referee.matchEscrows[matchID][uint32(u.TableSeat)] = u.EscrowID
+			next[uint32(u.TableSeat)] = u.EscrowID
 		}
 	}
+	s.referee.mu.Lock()
+	if len(next) == 0 {
+		delete(s.referee.matchEscrows, matchID)
+		s.referee.mu.Unlock()
+		return
+	}
+	s.referee.matchEscrows[matchID] = next
 	s.referee.mu.Unlock()
+}
+
+func (s *Server) matchHasEscrows(matchID string) bool {
+	if s.referee == nil || matchID == "" {
+		return false
+	}
+
+	s.referee.mu.RLock()
+	defer s.referee.mu.RUnlock()
+	return len(s.referee.matchEscrows[matchID]) > 0
+}
+
+func (s *Server) markPendingSettlement(matchID string) {
+	if s.referee == nil || matchID == "" {
+		return
+	}
+
+	s.referee.mu.Lock()
+	s.referee.pendingSettlements[matchID] = true
+	s.referee.mu.Unlock()
+}
+
+func (s *Server) hasPendingSettlement(matchID string) bool {
+	if s.referee == nil || matchID == "" {
+		return false
+	}
+
+	s.referee.mu.RLock()
+	defer s.referee.mu.RUnlock()
+	return s.referee.pendingSettlements[matchID]
+}
+
+func (s *Server) clearMatchPreparationState(matchID string) {
+	if s.referee == nil || matchID == "" {
+		return
+	}
+
+	s.referee.mu.Lock()
+	delete(s.referee.presigns, matchID)
+	delete(s.referee.branchGamma, matchID)
+	delete(s.referee.presignComplete, matchID)
+	delete(s.referee.pendingSettlements, matchID)
+	if len(s.referee.matchEscrows[matchID]) == 0 {
+		delete(s.referee.matchEscrows, matchID)
+	}
+	s.referee.mu.Unlock()
+}
+
+func (s *Server) tableHasRefereeState(tableID string) bool {
+	if s.referee == nil || tableID == "" {
+		return false
+	}
+
+	s.referee.mu.RLock()
+	defer s.referee.mu.RUnlock()
+
+	if len(s.referee.matchEscrows[tableID]) > 0 {
+		return true
+	}
+	if len(s.referee.presigns[tableID]) > 0 {
+		return true
+	}
+	if len(s.referee.branchGamma[tableID]) > 0 {
+		return true
+	}
+	if len(s.referee.presignComplete[tableID]) > 0 {
+		return true
+	}
+	return s.referee.pendingSettlements[tableID]
 }
 
 // readyMatchEscrows returns all escrows for a match, ensuring 2-6 entries and
