@@ -59,9 +59,10 @@ type TableStateFn = statemachine.StateFn[Table]
 // TableConfig holds configuration for a new poker table
 type TableConfig struct {
 	ID               string
+	Name             string
 	Log              slog.Logger
 	GameLog          slog.Logger
-	HostID           string
+	Source           string
 	BuyIn            int64 // DCR amount required to join table (in atoms)
 	MinPlayers       int
 	MaxPlayers       int
@@ -162,6 +163,10 @@ type Table struct {
 
 // NewTable creates a new poker table
 func NewTable(cfg TableConfig) *Table {
+	if cfg.Name == "" {
+		cfg.Name = cfg.ID
+	}
+
 	t := &Table{
 		log:           cfg.Log,
 		config:        cfg,
@@ -1424,23 +1429,6 @@ func (t *Table) GetUser(userID string) *User {
 	return t.users[userID]
 }
 
-// SetHost transfers host ownership to a new user
-func (t *Table) SetHost(newHostID string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Verify the new host is actually at the table
-	if _, exists := t.users[newHostID]; !exists {
-		return fmt.Errorf("new host %s is not at the table", newHostID)
-	}
-
-	// Update the host ID in the config
-	t.config.HostID = newHostID
-	t.lastAction = time.Now()
-
-	return nil
-}
-
 func (t *Table) sendTableEvent(ev any) (err error) {
 	if t.closedFlag.Load() {
 		return fmt.Errorf("table closed")
@@ -1584,6 +1572,11 @@ func (t *Table) SetPlayerPresignComplete(userID string) error {
 	}
 
 	return <-reply
+}
+
+// ResetPlayerPresign clears presign completion for a player via the table FSM.
+func (t *Table) ResetPlayerPresign(userID string) error {
+	return t.sendTableEvent(evResetUserPresign{userID: userID})
 }
 
 // TableStateSnapshot represents a point-in-time snapshot of table state for safe concurrent access
