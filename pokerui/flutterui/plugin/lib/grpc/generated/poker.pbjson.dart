@@ -492,6 +492,7 @@ const CreateTableRequest$json = {
     {'1': 'time_bank_seconds', '3': 8, '4': 1, '5': 5, '10': 'timeBankSeconds'},
     {'1': 'auto_start_ms', '3': 9, '4': 1, '5': 5, '10': 'autoStartMs'},
     {'1': 'auto_advance_ms', '3': 10, '4': 1, '5': 5, '10': 'autoAdvanceMs'},
+    {'1': 'name', '3': 11, '4': 1, '5': 9, '10': 'name'},
   ],
 };
 
@@ -503,7 +504,7 @@ final $typed_data.Uint8List createTableRequestDescriptor = $convert.base64Decode
     'ptaW5QbGF5ZXJzEhUKBmJ1eV9pbhgGIAEoA1IFYnV5SW4SJQoOc3RhcnRpbmdfY2hpcHMYByAB'
     'KANSDXN0YXJ0aW5nQ2hpcHMSKgoRdGltZV9iYW5rX3NlY29uZHMYCCABKAVSD3RpbWVCYW5rU2'
     'Vjb25kcxIiCg1hdXRvX3N0YXJ0X21zGAkgASgFUgthdXRvU3RhcnRNcxImCg9hdXRvX2FkdmFu'
-    'Y2VfbXMYCiABKAVSDWF1dG9BZHZhbmNlTXM=');
+    'Y2VfbXMYCiABKAVSDWF1dG9BZHZhbmNlTXMSEgoEbmFtZRgLIAEoCVIEbmFtZQ==');
 
 @$core.Deprecated('Use createTableResponseDescriptor instead')
 const CreateTableResponse$json = {
@@ -609,7 +610,7 @@ const Table$json = {
   '1': 'Table',
   '2': [
     {'1': 'id', '3': 1, '4': 1, '5': 9, '10': 'id'},
-    {'1': 'host_id', '3': 2, '4': 1, '5': 9, '10': 'hostId'},
+    {'1': 'name', '3': 2, '4': 1, '5': 9, '10': 'name'},
     {
       '1': 'players',
       '3': 3,
@@ -645,14 +646,14 @@ const Table$json = {
 
 /// Descriptor for `Table`. Decode as a `google.protobuf.DescriptorProto`.
 final $typed_data.Uint8List tableDescriptor = $convert.base64Decode(
-    'CgVUYWJsZRIOCgJpZBgBIAEoCVICaWQSFwoHaG9zdF9pZBgCIAEoCVIGaG9zdElkEicKB3BsYX'
-    'llcnMYAyADKAsyDS5wb2tlci5QbGF5ZXJSB3BsYXllcnMSHwoLc21hbGxfYmxpbmQYBCABKANS'
-    'CnNtYWxsQmxpbmQSGwoJYmlnX2JsaW5kGAUgASgDUghiaWdCbGluZBIfCgttYXhfcGxheWVycx'
-    'gGIAEoBVIKbWF4UGxheWVycxIfCgttaW5fcGxheWVycxgHIAEoBVIKbWluUGxheWVycxInCg9j'
-    'dXJyZW50X3BsYXllcnMYCCABKAVSDmN1cnJlbnRQbGF5ZXJzEhUKBmJ1eV9pbhgJIAEoA1IFYn'
-    'V5SW4SJgoFcGhhc2UYCiABKA4yEC5wb2tlci5HYW1lUGhhc2VSBXBoYXNlEioKEWFsbF9wbGF5'
-    'ZXJzX3JlYWR5GAsgASgIUg9hbGxQbGF5ZXJzUmVhZHkSIQoMZ2FtZV9zdGFydGVkGAwgASgIUg'
-    'tnYW1lU3RhcnRlZA==');
+    'CgVUYWJsZRIOCgJpZBgBIAEoCVICaWQSEgoEbmFtZRgCIAEoCVIEbmFtZRInCgdwbGF5ZXJzGA'
+    'MgAygLMg0ucG9rZXIuUGxheWVyUgdwbGF5ZXJzEh8KC3NtYWxsX2JsaW5kGAQgASgDUgpzbWFs'
+    'bEJsaW5kEhsKCWJpZ19ibGluZBgFIAEoA1IIYmlnQmxpbmQSHwoLbWF4X3BsYXllcnMYBiABKA'
+    'VSCm1heFBsYXllcnMSHwoLbWluX3BsYXllcnMYByABKAVSCm1pblBsYXllcnMSJwoPY3VycmVu'
+    'dF9wbGF5ZXJzGAggASgFUg5jdXJyZW50UGxheWVycxIVCgZidXlfaW4YCSABKANSBWJ1eUluEi'
+    'YKBXBoYXNlGAogASgOMhAucG9rZXIuR2FtZVBoYXNlUgVwaGFzZRIqChFhbGxfcGxheWVyc19y'
+    'ZWFkeRgLIAEoCFIPYWxsUGxheWVyc1JlYWR5EiEKDGdhbWVfc3RhcnRlZBgMIAEoCFILZ2FtZV'
+    'N0YXJ0ZWQ=');
 
 @$core.Deprecated('Use getBalanceRequestDescriptor instead')
 const GetBalanceRequest$json = {

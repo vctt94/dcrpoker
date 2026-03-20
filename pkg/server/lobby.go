@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,91 +34,29 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	s.log.Debugf("Creating table with buy-in %d", req.BuyIn)
 
 	// Config
-	timeBank := time.Duration(req.TimeBankSeconds) * time.Second
-	if timeBank == 0 {
-		timeBank = 30 * time.Second
-	}
-	startingChips := req.StartingChips
-	if startingChips == 0 {
-		startingChips = 1000
-	}
-
 	tblLog := s.logBackend.Logger("TABLE")
 	gameLog := s.logBackend.Logger("GAME")
 
-	// Set defaults for auto-start and auto-advance
-	autoStartDelay := time.Duration(req.AutoStartMs) * time.Millisecond
-	if autoStartDelay == 0 {
-		autoStartDelay = 2 * time.Second // Default 2 seconds for auto-start
-	}
-	autoAdvanceDelay := time.Duration(req.AutoAdvanceMs) * time.Millisecond
-	if autoAdvanceDelay == 0 {
-		autoAdvanceDelay = 2 * time.Second // Default 2 second for auto-advance
-	}
-
 	cfg := poker.TableConfig{
 		ID:               newTableID(),
+		Name:             strings.TrimSpace(req.GetName()),
 		Log:              tblLog,
 		GameLog:          gameLog,
-		HostID:           req.PlayerId,
+		Source:           managedTableSourceUser,
 		BuyIn:            req.BuyIn,
 		MinPlayers:       int(req.MinPlayers),
 		MaxPlayers:       int(req.MaxPlayers),
 		SmallBlind:       req.SmallBlind,
 		BigBlind:         req.BigBlind,
-		StartingChips:    startingChips,
-		TimeBank:         timeBank,
-		AutoStartDelay:   autoStartDelay,
-		AutoAdvanceDelay: autoAdvanceDelay,
+		StartingChips:    req.StartingChips,
+		TimeBank:         time.Duration(req.TimeBankSeconds) * time.Second,
+		AutoStartDelay:   time.Duration(req.AutoStartMs) * time.Millisecond,
+		AutoAdvanceDelay: time.Duration(req.AutoAdvanceMs) * time.Millisecond,
 	}
-
-	// Create table
-	table := poker.NewTable(cfg)
-
-	// persist table config before publishing events or accepting joins
-	if err := s.db.UpsertTable(ctx, &cfg); err != nil {
-		s.log.Errorf("UpsertTable failed: %v", err)
-		return nil, status.Error(codes.Internal, "failed to persist table")
+	if _, err := s.createTable(ctx, cfg, req.PlayerId); err != nil {
+		s.log.Errorf("CreateTable failed: %v", err)
+		return nil, status.Error(codes.Internal, err.Error())
 	}
-
-	// Create a channel for table events and start a goroutine to process them
-	tableEventChan := make(chan poker.TableEvent, 100) // Buffered channel
-	table.SetEventChannel(tableEventChan)
-
-	// Start a goroutine to process table events
-	go s.processTableEvents(tableEventChan)
-
-	// Seat creator
-	if _, err := table.AddNewUser(req.PlayerId, &poker.AddUserOptions{
-		DisplayName: s.displayNameFor(req.PlayerId),
-	}); err != nil {
-		return nil, err
-	}
-	// Persist the creator's seat so restarts can restore both participants
-	if err := s.db.SeatPlayer(ctx, cfg.ID, req.PlayerId, 0); err != nil {
-		s.log.Errorf("SeatPlayer (host) failed (table=%s player=%s seat=%d): %v", cfg.ID, req.PlayerId, 0, err)
-	}
-
-	// Register table using concurrent registry
-	s.tables.Store(cfg.ID, table)
-
-	// Publish initial PLAYER_JOINED event for the host
-	if err := s.publishPlayerJoined(cfg.ID, req.PlayerId); err != nil {
-		s.log.Errorf("Failed to publish host PLAYER_JOINED event: %v", err)
-	}
-
-	// Publish TABLE_CREATED event so all connected clients can promptly refresh
-	// their lobby/waiting rooms view.
-	evt, err := s.buildGameEvent(
-		pokerrpc.NotificationType_TABLE_CREATED,
-		cfg.ID,
-		nil,
-	)
-	if err != nil {
-		s.log.Errorf("Failed to build TABLE_CREATED event: %v", err)
-		return &pokerrpc.CreateTableResponse{TableId: cfg.ID}, nil
-	}
-	s.eventProcessor.PublishEvent(evt)
 
 	return &pokerrpc.CreateTableResponse{TableId: cfg.ID}, nil
 }
@@ -210,6 +149,68 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 	}, nil
 }
 
+func (s *Server) createTable(ctx context.Context, cfg poker.TableConfig, initialPlayerID string) (*poker.Table, error) {
+	normalizeTableConfig(&cfg)
+	if strings.TrimSpace(cfg.ID) == "" {
+		cfg.ID = newTableID()
+	}
+	if strings.TrimSpace(cfg.Name) == "" {
+		cfg.Name = fmt.Sprintf("Table %s", cfg.ID[:8])
+	}
+
+	table := poker.NewTable(cfg)
+	tableEventChan := make(chan poker.TableEvent, 100)
+	table.SetEventChannel(tableEventChan)
+	go s.processTableEvents(tableEventChan)
+
+	if err := s.db.UpsertTable(ctx, &cfg); err != nil {
+		table.Close()
+		return nil, fmt.Errorf("persist table %s: %w", cfg.ID, err)
+	}
+
+	s.tables.Store(cfg.ID, table)
+
+	if initialPlayerID != "" {
+		if _, err := table.AddNewUser(initialPlayerID, &poker.AddUserOptions{
+			DisplayName: s.displayNameFor(initialPlayerID),
+		}); err != nil {
+			s.cleanupCreatedTable(ctx, cfg.ID, table)
+			return nil, err
+		}
+		if err := s.db.SeatPlayer(ctx, cfg.ID, initialPlayerID, 0); err != nil {
+			s.cleanupCreatedTable(ctx, cfg.ID, table)
+			return nil, fmt.Errorf("seat initial player: %w", err)
+		}
+		if err := s.publishPlayerJoined(cfg.ID, initialPlayerID); err != nil {
+			s.cleanupCreatedTable(ctx, cfg.ID, table)
+			return nil, fmt.Errorf("publish initial player join: %w", err)
+		}
+	}
+
+	evt, err := s.buildGameEvent(
+		pokerrpc.NotificationType_TABLE_CREATED,
+		cfg.ID,
+		nil,
+	)
+	if err != nil {
+		s.cleanupCreatedTable(ctx, cfg.ID, table)
+		return nil, fmt.Errorf("build table created event: %w", err)
+	}
+	s.eventProcessor.PublishEvent(evt)
+
+	return table, nil
+}
+
+func (s *Server) cleanupCreatedTable(ctx context.Context, tableID string, table *poker.Table) {
+	s.removeTableFromRegistry(tableID)
+	if table != nil {
+		table.Close()
+	}
+	if s.db != nil {
+		_ = s.db.DeleteTable(ctx, tableID)
+	}
+}
+
 // publishPlayerJoined builds and publishes a PLAYER_JOINED event for the given
 // table and player, using the standard event pipeline so that snapshots and
 // lobby/game state remain consistent everywhere.
@@ -271,6 +272,33 @@ func (s *Server) clearEscrowBindingForSeat(tableID string, seat uint32) {
 	}
 }
 
+func (s *Server) resetTablePreparationState(tableID string, table *poker.Table) {
+	if table == nil {
+		return
+	}
+
+	for _, u := range table.GetUsers() {
+		if err := table.ResetPlayerPresign(u.ID); err != nil {
+			s.log.Warnf("failed to reset presign for player %s at table %s: %v", u.ID, tableID, err)
+		}
+	}
+	s.clearMatchPreparationState(tableID)
+}
+
+func (s *Server) reserveSeatOnLeave(tableID string, user *poker.User, reason string) (*pokerrpc.LeaveTableResponse, error) {
+	user.SendDisconnect()
+
+	if snap, err := s.collectTableSnapshot(tableID); err == nil {
+		s.publishTableSnapshotEvent(tableID, snap)
+	}
+	s.saveTableStateAsync(tableID, reason)
+
+	return &pokerrpc.LeaveTableResponse{
+		Success: true,
+		Message: "You have been disconnected but your seat is reserved while the match remains active.",
+	}, nil
+}
+
 func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest) (*pokerrpc.LeaveTableResponse, error) {
 	table, ok := s.getTable(req.TableId)
 	if !ok {
@@ -283,22 +311,12 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 		return &pokerrpc.LeaveTableResponse{Success: false, Message: "Player not at table"}, nil
 	}
 
-	config := table.GetConfig()
-	isHost := req.PlayerId == config.HostID
-
-	// If a game is in progress, keep the seat (disconnect)
 	if table.IsGameStarted() {
-		user.SendDisconnect()
+		return s.reserveSeatOnLeave(req.TableId, user, "player disconnected during active game")
+	}
 
-		if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
-			s.publishTableSnapshotEvent(req.TableId, snap)
-		}
-		s.saveTableStateAsync(req.TableId, "player disconnected")
-
-		return &pokerrpc.LeaveTableResponse{
-			Success: true,
-			Message: fmt.Sprintf("You have been disconnected but your seat is reserved because you have chips remaining."),
-		}, nil
+	if s.hasPendingSettlement(req.TableId) {
+		return s.reserveSeatOnLeave(req.TableId, user, "player disconnected during pending settlement")
 	}
 
 	// No active game: fully leave table and clear any escrow bindings for this seat.
@@ -330,47 +348,12 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	}
 	s.eventProcessor.PublishEvent(evt)
 
-	// If the host leaves, transfer host if possible, else close the table
-	if isHost {
-		remaining := table.GetUsers()
+	s.resetTablePreparationState(req.TableId, table)
 
-		// Transfer to first non-host user if available
-		if len(remaining) > 0 {
-			var newHostID string
-			for _, u := range remaining {
-				if u.ID != req.PlayerId {
-					newHostID = u.ID
-					break
-				}
-			}
-			if newHostID != "" {
-				if err := s.transferTableHost(req.TableId, newHostID); err != nil {
-					return &pokerrpc.LeaveTableResponse{Success: false, Message: err.Error()}, nil
-				}
-				s.saveTableStateAsync(req.TableId, "host transferred")
-				if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
-					s.publishTableSnapshotEvent(req.TableId, snap)
-				}
-				return &pokerrpc.LeaveTableResponse{
-					Success: true,
-					Message: fmt.Sprintf("Successfully left table. Host transferred to %s", newHostID),
-				}, nil
-			}
-		}
-
-		// No other players: publish removal through the event pipeline.
-		ack := s.publishTableRemovedEvent(req.TableId)
-
-		// Wait briefly for cleanup so callers/tests see a consistent state.
-		select {
-		case <-ack:
-		case <-time.After(2 * time.Second):
-			s.log.Warnf("timeout waiting for table %s removal", req.TableId)
-		}
-
+	if s.maybeRemoveTable(req.TableId) {
 		return &pokerrpc.LeaveTableResponse{
 			Success: true,
-			Message: "Host left - table closed (no other players)",
+			Message: "Successfully left table. Table closed.",
 		}, nil
 	}
 
@@ -386,46 +369,53 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	}, nil
 }
 
-// transferTableHost transfers host ownership to a new user
-func (s *Server) transferTableHost(tableID, newHostID string) error {
-	table, ok := s.getTable(tableID)
-	if !ok {
-		return fmt.Errorf("table not found")
-	}
-
-	// Use the table's SetHost method to transfer ownership
-	err := table.SetHost(newHostID)
-	if err != nil {
-		return fmt.Errorf("failed to transfer host: %v", err)
-	}
-
-	s.log.Infof("Host transferred to %s for table %s", newHostID, tableID)
-
-	return nil
-}
-
 func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) (*pokerrpc.GetTablesResponse, error) {
 	// Snapshot current tables from concurrent registry
 	tableRefs := s.getAllTables()
 
-	// Build response using regular table methods (no server lock held)
+	// Build response using collected snapshots so initial lobby fetches carry
+	// the same roster data as notification-driven table updates.
 	tables := make([]*pokerrpc.Table, 0, len(tableRefs))
 	for _, table := range tableRefs {
 		config := table.GetConfig()
+		snap, err := s.collectTableSnapshot(config.ID)
+		if err == nil {
+			tables = append(tables, tableSnapshotToProtoTable(snap))
+			continue
+		}
+
+		s.log.Warnf("GetTables: failed to collect snapshot for %s: %v", config.ID, err)
+
 		users := table.GetUsers()
-		game := table.GetGame()
 
 		protoTable := &pokerrpc.Table{
 			Id:              config.ID,
-			HostId:          config.HostID,
+			Name:            config.Name,
 			SmallBlind:      config.SmallBlind,
 			BigBlind:        config.BigBlind,
 			MaxPlayers:      int32(table.GetMaxPlayers()),
 			MinPlayers:      int32(table.GetMinPlayers()),
 			CurrentPlayers:  int32(len(users)),
 			BuyIn:           config.BuyIn,
-			GameStarted:     game != nil,
+			GameStarted:     table.IsGameStarted(),
 			AllPlayersReady: table.AreAllPlayersReady(),
+			Phase:           pokerrpc.GamePhase_WAITING,
+		}
+		for _, user := range users {
+			if user == nil {
+				continue
+			}
+			userSnap := user.GetSnapshot()
+			protoTable.Players = append(protoTable.Players, &pokerrpc.Player{
+				Id:              userSnap.ID,
+				Name:            userSnap.Name,
+				IsReady:         userSnap.IsReady,
+				IsDisconnected:  userSnap.IsDisconnected,
+				EscrowId:        userSnap.EscrowID,
+				EscrowReady:     userSnap.EscrowReady,
+				PresignComplete: userSnap.PresignComplete,
+				TableSeat:       int32(userSnap.TableSeat),
+			})
 		}
 		tables = append(tables, protoTable)
 	}
@@ -718,6 +708,39 @@ func (s *Server) removeTableFromRegistry(tableID string) {
 	s.gameStreams.Delete(tableID)
 }
 
+func (s *Server) canRemoveTable(tableID string) bool {
+	table, ok := s.getTable(tableID)
+	if !ok || table == nil {
+		return false
+	}
+	if table.IsGameStarted() {
+		return false
+	}
+	if len(table.GetUsers()) != 0 {
+		return false
+	}
+	if s.hasPendingSettlement(tableID) {
+		return false
+	}
+	return !s.tableHasRefereeState(tableID)
+}
+
+func (s *Server) maybeRemoveTable(tableID string) bool {
+	if !s.canRemoveTable(tableID) {
+		return false
+	}
+
+	ack := s.publishTableRemovedEvent(tableID)
+	select {
+	case <-ack:
+	case <-time.After(2 * time.Second):
+		s.log.Warnf("timeout waiting for table %s removal", tableID)
+	}
+
+	_, ok := s.getTable(tableID)
+	return !ok
+}
+
 // getTableRemovalAck returns a completion channel for a given table removal.
 // The channel is created once per tableID and closed when finalization ends.
 func (s *Server) getTableRemovalAck(tableID string) chan struct{} {
@@ -748,7 +771,14 @@ func (s *Server) scheduleTableRemoval(tableID string) <-chan struct{} {
 		defer timer.Stop()
 		select {
 		case <-timer.C:
+			select {
+			case <-s.stopChan:
+				return
+			default:
+			}
 			s.publishTableRemovedEvent(tableID)
+		case <-s.stopChan:
+			return
 		case <-s.getTableRemovalAck(tableID):
 			// Already removed elsewhere; skip.
 		}
@@ -756,10 +786,36 @@ func (s *Server) scheduleTableRemoval(tableID string) <-chan struct{} {
 	return s.getTableRemovalAck(tableID)
 }
 
+func (s *Server) schedulePostGameTableCleanup(tableID string) {
+	table, ok := s.getTable(tableID)
+	if !ok || table == nil {
+		return
+	}
+
+	source := table.GetConfig().Source
+	switch source {
+	case managedTableSourceDefault:
+		s.log.Debugf("Scheduling managed table %s for removal after game end; default table manager will replace it", tableID)
+		s.scheduleTableRemoval(tableID)
+	case managedTableSourceUser, "":
+		s.log.Debugf("Scheduling user table %s for removal after game end", tableID)
+		s.scheduleTableRemoval(tableID)
+	default:
+		s.log.Warnf("Scheduling table %s with unknown source %q for removal after game end", tableID, source)
+		s.scheduleTableRemoval(tableID)
+	}
+}
+
 // publishTableRemovedEvent enqueues a TABLE_REMOVED event so the event pipeline
 // can notify clients and persist the final snapshot before cleanup.
 func (s *Server) publishTableRemovedEvent(tableID string) <-chan struct{} {
 	ack := s.getTableRemovalAck(tableID)
+	select {
+	case <-s.stopChan:
+		s.signalTableRemovalDone(tableID)
+		return ack
+	default:
+	}
 
 	evt, err := s.buildGameEvent(
 		pokerrpc.NotificationType_TABLE_REMOVED,
@@ -786,7 +842,9 @@ func (s *Server) finalizeTableRemoval(tableID string) {
 	saveMutex.Lock()
 	defer saveMutex.Unlock()
 
+	var removedCfg poker.TableConfig
 	if tbl, ok := s.getTable(tableID); ok && tbl != nil {
+		removedCfg = tbl.GetConfig()
 		// Close is idempotent; safe if table already shut down.
 		tbl.Close()
 	}
@@ -797,6 +855,9 @@ func (s *Server) finalizeTableRemoval(tableID string) {
 	// Delete from database
 	if err := s.db.DeleteTable(context.Background(), tableID); err != nil {
 		s.log.Errorf("Failed to delete table %s in DB after TABLE_REMOVED: %v", tableID, err)
+	}
+	if s.defaultTableMgr != nil && removedCfg.Source == managedTableSourceDefault {
+		s.defaultTableMgr.notifyManagedTableRemoved(removedCfg.ID, defaultTableConfigProfileKey(removedCfg))
 	}
 
 	// Notify waiters (tests/handlers) that removal is complete.

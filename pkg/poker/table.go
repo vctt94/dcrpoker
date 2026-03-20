@@ -21,6 +21,20 @@ type evStartGameReq struct{}
 // force game ended → WAITING_FOR_PLAYERS (endGame / game nil)
 type evGameEnded struct{}
 
+type prepareNextHandResult struct {
+	removed []string
+	err     error
+}
+
+type evRecordPendingElimination struct {
+	playerID string
+	reply    chan<- error
+}
+
+type evPrepareNextHand struct {
+	reply chan<- prepareNextHandResult
+}
+
 // TableEvent represents a table event with type and payload
 type TableEvent struct {
 	Type    pokerrpc.NotificationType
@@ -40,7 +54,8 @@ type AutoShowCardsPayload struct {
 	Cards    []*pokerrpc.Card
 }
 
-// PlayerLostPayload is used to notify that a player lost (0 chips) and was removed
+// PlayerLostPayload is used to notify that a player lost all chips.
+// Table/game roster mutation is deferred until next-hand preparation.
 type PlayerLostPayload struct {
 	PlayerID string
 }
@@ -59,9 +74,10 @@ type TableStateFn = statemachine.StateFn[Table]
 // TableConfig holds configuration for a new poker table
 type TableConfig struct {
 	ID               string
+	Name             string
 	Log              slog.Logger
 	GameLog          slog.Logger
-	HostID           string
+	Source           string
 	BuyIn            int64 // DCR amount required to join table (in atoms)
 	MinPlayers       int
 	MaxPlayers       int
@@ -143,6 +159,10 @@ type Table struct {
 	// Persist the last showdown result for retrieval after phase advances
 	lastShowdown *ShowdownResult
 
+	// Eliminations discovered during showdown and applied only at the
+	// next-hand preparation boundary.
+	pendingEliminations map[string]struct{}
+
 	// Idempotency guard: track which hand (by game round) has been resolved
 	resolvedRound int
 
@@ -162,17 +182,22 @@ type Table struct {
 
 // NewTable creates a new poker table
 func NewTable(cfg TableConfig) *Table {
+	if cfg.Name == "" {
+		cfg.Name = cfg.ID
+	}
+
 	t := &Table{
-		log:           cfg.Log,
-		config:        cfg,
-		users:         make(map[string]*User),
-		createdAt:     time.Now(),
-		lastAction:    time.Now(),
-		eventManager:  &TableEventManager{log: cfg.Log},
-		timeoutChan:   make(chan struct{}, 1),
-		timeoutStop:   make(chan struct{}),
-		gameEventChan: make(chan GameEvent, 10), // Buffered to avoid blocking Game FSM
-		gameEventStop: make(chan struct{}),
+		log:                 cfg.Log,
+		config:              cfg,
+		users:               make(map[string]*User),
+		pendingEliminations: make(map[string]struct{}),
+		createdAt:           time.Now(),
+		lastAction:          time.Now(),
+		eventManager:        &TableEventManager{log: cfg.Log},
+		timeoutChan:         make(chan struct{}, 1),
+		timeoutStop:         make(chan struct{}),
+		gameEventChan:       make(chan GameEvent, 10), // Buffered to avoid blocking Game FSM
+		gameEventStop:       make(chan struct{}),
 	}
 
 	// Initialize state machine with first state function
@@ -316,11 +341,12 @@ func (t *Table) handleGameEvent(event GameEvent) {
 	case GameEventPlayerLost:
 		if event.PlayerID != "" {
 			t.log.Infof("Table received GameEventPlayerLost - player %s has 0 chips", event.PlayerID)
-			// Publish PLAYER_LOST notification before removing the player
-			// This allows the UI to show a message before the stream disconnects
+			// PLAYER_LOST is informational during SHOWDOWN. Keep the final
+			// showdown snapshot stable until next-hand preparation begins.
 			t.PublishEvent(pokerrpc.NotificationType_PLAYER_LOST, t.config.ID, PlayerLostPayload{PlayerID: event.PlayerID})
-			// Removal is handled after notifications are broadcast to ensure snapshots
-			// include the eliminated player for the final showdown/game-end payloads.
+			if err := t.recordPendingElimination(event.PlayerID); err != nil {
+				t.log.Errorf("Failed to record pending elimination for %s: %v", event.PlayerID, err)
+			}
 		}
 	case GameEventAutoShowCards:
 		for _, info := range event.RevealInfo {
@@ -345,6 +371,14 @@ func (t *Table) handleAutoStart() error {
 		return fmt.Errorf("no game active")
 	}
 
+	removed, err := t.prepareNextHand()
+	if err != nil {
+		return err
+	}
+	if len(removed) > 0 {
+		t.log.Debugf("Auto-start prepared next hand and pruned eliminated players: %v", removed)
+	}
+
 	// Count players with chips remaining
 	activeCount := 0
 	players := game.GetPlayers()
@@ -367,6 +401,92 @@ func (t *Table) handleAutoStart() error {
 	// Conditions met - start new hand
 	t.log.Debugf("Auto-start conditions met: starting new hand")
 	return t.startNewHand()
+}
+
+func (t *Table) recordPendingElimination(playerID string) error {
+	reply := make(chan error, 1)
+	if err := t.sendTableEvent(evRecordPendingElimination{playerID: playerID, reply: reply}); err != nil {
+		return err
+	}
+	return <-reply
+}
+
+func (t *Table) prepareNextHand() ([]string, error) {
+	reply := make(chan prepareNextHandResult, 1)
+	if err := t.sendTableEvent(evPrepareNextHand{reply: reply}); err != nil {
+		return nil, err
+	}
+	res := <-reply
+	return res.removed, res.err
+}
+
+func (t *Table) applyRecordPendingElimination(playerID string) error {
+	if playerID == "" {
+		return fmt.Errorf("player id is required")
+	}
+
+	t.mu.Lock()
+	t.pendingEliminations[playerID] = struct{}{}
+	t.lastAction = time.Now()
+	t.mu.Unlock()
+	return nil
+}
+
+func (t *Table) pendingEliminationIDs() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if len(t.pendingEliminations) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(t.pendingEliminations))
+	for playerID := range t.pendingEliminations {
+		ids = append(ids, playerID)
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func (t *Table) applyPrepareNextHand() ([]string, error) {
+	eliminated := t.pendingEliminationIDs()
+	if len(eliminated) == 0 {
+		return nil, nil
+	}
+
+	t.mu.RLock()
+	game := t.game
+	t.mu.RUnlock()
+	if game == nil {
+		return nil, fmt.Errorf("no game active")
+	}
+
+	if _, err := game.PrunePlayersForNextHand(eliminated); err != nil {
+		return nil, err
+	}
+
+	usersToLeave := make([]*User, 0, len(eliminated))
+	t.mu.Lock()
+	for _, playerID := range eliminated {
+		if user, ok := t.users[playerID]; ok {
+			user.SetTableSeat(-1)
+			delete(t.users, playerID)
+			usersToLeave = append(usersToLeave, user)
+		}
+		delete(t.pendingEliminations, playerID)
+	}
+	t.lastAction = time.Now()
+	t.mu.Unlock()
+
+	for _, user := range usersToLeave {
+		user.mu.RLock()
+		sm := user.sm
+		user.mu.RUnlock()
+		if sm != nil {
+			sm.Send(evLeave{})
+		}
+	}
+
+	return eliminated, nil
 }
 
 // handleGameOver is called when the game has ended (only one player has chips)
@@ -508,6 +628,22 @@ func tableStateWaitingForPlayers(t *Table, in <-chan any) TableStateFn {
 				return tableStatePlayersReady
 			}
 			// stay waiting
+		case evRecordPendingElimination:
+			err := t.applyRecordPendingElimination(e.playerID)
+			if e.reply != nil {
+				e.reply <- err
+			}
+			if err == nil && t.CheckAllPlayersReady() {
+				return tableStatePlayersReady
+			}
+		case evPrepareNextHand:
+			removed, err := t.applyPrepareNextHand()
+			if e.reply != nil {
+				e.reply <- prepareNextHandResult{removed: removed, err: err}
+			}
+			if err == nil && t.CheckAllPlayersReady() {
+				return tableStatePlayersReady
+			}
 		case evStartGameReq:
 			// If StartGame was called AND everyone is ready, go ACTIVE immediately.
 			if t.CheckAllPlayersReady() {
@@ -557,6 +693,19 @@ func tableStatePlayersReady(t *Table, in <-chan any) TableStateFn {
 				return tableStateWaitingForPlayers
 			}
 			// remain ready
+		case evRecordPendingElimination:
+			err := t.applyRecordPendingElimination(e.playerID)
+			if e.reply != nil {
+				e.reply <- err
+			}
+		case evPrepareNextHand:
+			removed, err := t.applyPrepareNextHand()
+			if e.reply != nil {
+				e.reply <- prepareNextHandResult{removed: removed, err: err}
+			}
+			if err == nil && !t.CheckAllPlayersReady() {
+				return tableStateWaitingForPlayers
+			}
 		case evStartGameReq:
 			// Start the game from the ready state
 			return tableStateGameActive
@@ -591,6 +740,16 @@ func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 			if e.reply != nil {
 				e.reply <- err
 			}
+		case evRecordPendingElimination:
+			err := t.applyRecordPendingElimination(e.playerID)
+			if e.reply != nil {
+				e.reply <- err
+			}
+		case evPrepareNextHand:
+			removed, err := t.applyPrepareNextHand()
+			if e.reply != nil {
+				e.reply <- prepareNextHandResult{removed: removed, err: err}
+			}
 		case evGameEnded:
 			return tableStateEnded
 		default:
@@ -601,8 +760,21 @@ func tableStateGameActive(t *Table, in <-chan any) TableStateFn {
 
 // GAME_ENDED - terminal state until table cleanup.
 func tableStateEnded(t *Table, in <-chan any) TableStateFn {
-	for range in {
-		// ignore all events
+	for ev := range in {
+		switch e := ev.(type) {
+		case evRecordPendingElimination:
+			err := t.applyRecordPendingElimination(e.playerID)
+			if e.reply != nil {
+				e.reply <- err
+			}
+		case evPrepareNextHand:
+			removed, err := t.applyPrepareNextHand()
+			if e.reply != nil {
+				e.reply <- prepareNextHandResult{removed: removed, err: err}
+			}
+		default:
+			// ignore all other events
+		}
 	}
 	return nil
 }
@@ -1424,23 +1596,6 @@ func (t *Table) GetUser(userID string) *User {
 	return t.users[userID]
 }
 
-// SetHost transfers host ownership to a new user
-func (t *Table) SetHost(newHostID string) error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	// Verify the new host is actually at the table
-	if _, exists := t.users[newHostID]; !exists {
-		return fmt.Errorf("new host %s is not at the table", newHostID)
-	}
-
-	// Update the host ID in the config
-	t.config.HostID = newHostID
-	t.lastAction = time.Now()
-
-	return nil
-}
-
 func (t *Table) sendTableEvent(ev any) (err error) {
 	if t.closedFlag.Load() {
 		return fmt.Errorf("table closed")
@@ -1584,6 +1739,11 @@ func (t *Table) SetPlayerPresignComplete(userID string) error {
 	}
 
 	return <-reply
+}
+
+// ResetPlayerPresign clears presign completion for a player via the table FSM.
+func (t *Table) ResetPlayerPresign(userID string) error {
+	return t.sendTableEvent(evResetUserPresign{userID: userID})
 }
 
 // TableStateSnapshot represents a point-in-time snapshot of table state for safe concurrent access

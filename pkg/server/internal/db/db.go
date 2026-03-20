@@ -184,7 +184,6 @@ func applyMigrations(db *sql.DB) error {
 		if applied[m.version] {
 			continue
 		}
-
 		// Read SQL file
 		b, err := migrationFS.ReadFile(m.path)
 		if err != nil {
@@ -320,7 +319,8 @@ type Transaction struct {
 
 type Table struct {
 	ID            string
-	HostID        string
+	Name          string
+	Source        string
 	BuyIn         int64
 	MinPlayers    int
 	MaxPlayers    int
@@ -434,14 +434,23 @@ func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 	timeBankMS := t.TimeBank.Milliseconds()
 	autoStartMS := t.AutoStartDelay.Milliseconds()
 	autoAdvanceMS := t.AutoAdvanceDelay.Milliseconds()
+	source := strings.TrimSpace(t.Source)
+	if source == "" {
+		source = "user"
+	}
+	name := strings.TrimSpace(t.Name)
+	if name == "" {
+		name = t.ID
+	}
 
-	_, err := db.ExecContext(ctx, `
+	query := `
 		INSERT INTO tables (
-			id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
+			id, name, table_source, buy_in, min_players, max_players, small_blind, big_blind,
 			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
 		ON CONFLICT(id) DO UPDATE SET
-			host_id         = excluded.host_id,
+			name            = excluded.name,
+			table_source    = excluded.table_source,
 			buy_in          = excluded.buy_in,
 			min_players     = excluded.min_players,
 			max_players     = excluded.max_players,
@@ -451,19 +460,25 @@ func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 			timebank_ms     = excluded.timebank_ms,
 			autostart_ms    = excluded.autostart_ms,
 			auto_advance_ms = excluded.auto_advance_ms
-	`, t.ID, t.HostID, t.BuyIn, t.MinPlayers, t.MaxPlayers, t.SmallBlind, t.BigBlind,
-		t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, time.Now())
+	`
+	args := []any{
+		t.ID, name, source, t.BuyIn, t.MinPlayers, t.MaxPlayers, t.SmallBlind, t.BigBlind,
+		t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, time.Now(),
+	}
+
+	_, err := db.ExecContext(ctx, query, args...)
 	return err
 }
 
 func (db *DB) GetTable(ctx context.Context, id string) (*Table, error) {
 	row := db.QueryRowContext(ctx, `
-		SELECT id, host_id, buy_in, min_players, max_players, small_blind, big_blind,
+		SELECT id, name, COALESCE(table_source, 'user'),
+			buy_in, min_players, max_players, small_blind, big_blind,
 			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
 		FROM tables WHERE id = ?
 	`, id)
 	var t Table
-	if err := row.Scan(&t.ID, &t.HostID, &t.BuyIn, &t.MinPlayers, &t.MaxPlayers, &t.SmallBlind, &t.BigBlind,
+	if err := row.Scan(&t.ID, &t.Name, &t.Source, &t.BuyIn, &t.MinPlayers, &t.MaxPlayers, &t.SmallBlind, &t.BigBlind,
 		&t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.AutoAdvanceMS, &t.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("table not found: %s", id)

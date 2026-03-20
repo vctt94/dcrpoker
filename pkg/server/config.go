@@ -13,6 +13,9 @@ type ServerConf struct {
 	// Absolute directory where the config/logs live.
 	Datadir string
 
+	// Optional path to the JSON file that defines server-managed default tables.
+	DefaultTablesPath string
+
 	// Extracted Server gRPC settings (also persisted in BR.ExtraConfig).
 	GRPCHost     string
 	GRPCPort     string
@@ -65,6 +68,8 @@ func parseClientConfigFile(configPath string, appName string) (*ServerConf, erro
 		switch key {
 		case "datadir":
 			cfg.Datadir = value
+		case "defaulttablespath":
+			cfg.DefaultTablesPath = value
 		case "grpchost":
 			cfg.GRPCHost = value
 		case "grpcport":
@@ -142,6 +147,9 @@ func parseClientConfigFile(configPath string, appName string) (*ServerConf, erro
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("missing required fields in client config: %s", strings.Join(missing, ", "))
 	}
+	if strings.TrimSpace(cfg.DefaultTablesPath) == "" {
+		cfg.DefaultTablesPath = filepath.Join(cfg.Datadir, defaultTablesFilename)
+	}
 
 	return cfg, nil
 }
@@ -174,27 +182,31 @@ func loadServerConf(configPath string, fileName string) (*ServerConf, error) {
 
 	// Create default config
 	cfg := &ServerConf{
-		Datadir:        configPath,
-		GRPCHost:       "localhost",
-		GRPCPort:       "50050",
-		GRPCCertPath:   filepath.Join(configPath, "server.cert"),
-		GRPCKeyPath:    filepath.Join(configPath, "server.key"),
-		HTTPCertPath:   filepath.Join(configPath, "http.cert"),
-		HTTPKeyPath:    filepath.Join(configPath, "http.key"),
-		HTTPCACertPath: filepath.Join(configPath, "http-ca.cert"),
-		DcrdHost:       "localhost",
-		DcrdCert:       filepath.Join(configPath, "dcrd.cert"),
-		DcrdUser:       "rpcuser",
-		DcrdPass:       "rpcpass",
-		Network:        "testnet",
-		LogFile:        filepath.Join(configPath, "logs", appName+".log"),
-		Debug:          "info",
-		MaxLogFiles:    10,
-		MaxBufferLines: 1000,
+		Datadir:           configPath,
+		DefaultTablesPath: filepath.Join(configPath, defaultTablesFilename),
+		GRPCHost:          "localhost",
+		GRPCPort:          "50050",
+		GRPCCertPath:      filepath.Join(configPath, "server.cert"),
+		GRPCKeyPath:       filepath.Join(configPath, "server.key"),
+		HTTPCertPath:      filepath.Join(configPath, "http.cert"),
+		HTTPKeyPath:       filepath.Join(configPath, "http.key"),
+		HTTPCACertPath:    filepath.Join(configPath, "http-ca.cert"),
+		DcrdHost:          "localhost",
+		DcrdCert:          filepath.Join(configPath, "dcrd.cert"),
+		DcrdUser:          "rpcuser",
+		DcrdPass:          "rpcpass",
+		Network:           "testnet",
+		LogFile:           filepath.Join(configPath, "logs", appName+".log"),
+		Debug:             "info",
+		MaxLogFiles:       10,
+		MaxBufferLines:    1000,
 	}
 
 	// Write default config
 	if err := writeClientConfigFile(cfg, fullPath); err != nil {
+		return nil, err
+	}
+	if err := ensureDefaultTablesConfigFile(cfg.DefaultTablesPath); err != nil {
 		return nil, err
 	}
 
@@ -205,6 +217,7 @@ func loadServerConf(configPath string, fileName string) (*ServerConf, error) {
 func WriteClientConfigFile(cfg *ServerConf, configPath string) error {
 	configData := fmt.Sprintf(
 		`datadir=%s
+defaulttablespath=%s
 grpchost=%s
 grpcport=%s
 grpccertpath=%s
@@ -223,6 +236,7 @@ maxlogfiles=%d
 maxbufferlines=%d
 `,
 		cfg.Datadir,
+		cfg.DefaultTablesPath,
 		cfg.GRPCHost,
 		cfg.GRPCPort,
 		cfg.GRPCCertPath,

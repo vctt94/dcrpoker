@@ -413,7 +413,6 @@ func (nmgr *NotificationManager) notifyTableCreated(table *pokerrpc.Table, ts ti
 		visit(func(h OnTableCreatedNtfn) { h(table, ts) })
 
 	var id zkidentity.ShortID
-	id.FromString(table.HostId)
 	nmgr.addUINtfn(id, UINtfnTableCreated, fmt.Sprintf("Table %s created", table.Id), ts)
 }
 

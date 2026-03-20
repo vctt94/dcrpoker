@@ -1899,7 +1899,6 @@ func TestTimebank_AutoFold_Preflop(t *testing.T) {
 		ID:               "tbl-timebank-fold",
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
-		HostID:           "host",
 		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       2,
@@ -1983,7 +1982,6 @@ func TestTimebank_AutoCheck_Flop(t *testing.T) {
 		ID:               "tbl-timebank-check",
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
-		HostID:           "host",
 		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       2,
@@ -2065,7 +2063,6 @@ func TestTimebank_DualAutoCheckAdvancesStreet(t *testing.T) {
 		ID:               "tbl-timebank-dual-check",
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
-		HostID:           "host",
 		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       2,
@@ -2146,7 +2143,6 @@ func TestAllIn_ActivePlayer_AutoAdvancesWithOneActive(t *testing.T) {
 		ID:               "test-allin-timebank",
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
-		HostID:           "host",
 		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       2,
@@ -2393,6 +2389,17 @@ func TestAutoStartAfterElimination(t *testing.T) {
 
 	// Set player3 balance to 0 (eliminated)
 	game.players[player3Idx].SetBalance(0)
+	game.mu.Lock()
+	game.phase = pokerrpc.GamePhase_SHOWDOWN
+	game.mu.Unlock()
+
+	// PLAYER_LOST is informational only during showdown. Record the pending
+	// elimination through the same table event pipeline the Game FSM uses.
+	tbl.handleGameEvent(GameEvent{Type: GameEventPlayerLost, PlayerID: "player3"})
+	require.Eventually(t, func() bool {
+		pending := tbl.pendingEliminationIDs()
+		return len(pending) == 1 && pending[0] == "player3"
+	}, time.Second, 10*time.Millisecond, "player3 should be staged for next-hand pruning")
 
 	// Verify: 2 players have chips > 0, 1 player has 0 chips
 	readyCount := 0
@@ -2404,11 +2411,16 @@ func TestAutoStartAfterElimination(t *testing.T) {
 
 	require.Equal(t, 2, readyCount, "Should have 2 players with chips remaining")
 	require.Equal(t, 2, tbl.config.MinPlayers, "Table should have minPlayers=2")
+	require.Len(t, game.GetPlayers(), 3, "showdown grace should keep eliminated player visible until restart")
+	require.Len(t, tbl.GetUsers(), 3, "table roster should keep eliminated player seated until restart")
 
-	// Manually trigger auto-start check (simulating what happens after showdown)
+	// Manually trigger auto-start check (simulating the next-hand prep boundary
+	// after showdown UI delay expires).
 	// With minPlayers=2 and 2 active players, auto-start should succeed
 	err = tbl.handleAutoStart()
 	require.NoError(t, err, "Auto-start should succeed with 2 players when minPlayers=2")
+	require.Len(t, game.GetPlayers(), 2, "auto-start should prune eliminated player before the next hand")
+	require.Len(t, tbl.GetUsers(), 2, "table roster should prune eliminated player before the next hand")
 	t.Log("✓ Auto-start succeeded with 2 players")
 }
 

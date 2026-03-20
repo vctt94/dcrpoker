@@ -39,7 +39,7 @@ const (
 	GameEventAutoStartTriggered                        // Auto-start timer fired, Table should check conditions and start if ready
 	GameEventGameOver                                  // Game has ended, only one player has chips remaining
 	GameEventStateUpdated                              // Generic state update (e.g., turn changed)
-	GameEventPlayerLost                                // Player has 0 chips and should be removed from table
+	GameEventPlayerLost                                // Informational: player has 0 chips after showdown
 	GameEventAutoShowCards                             // All players all-in -> reveal cards notification
 )
 
@@ -925,7 +925,6 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 			if balance <= 0 {
 				g.log.Debugf("stateShowdown: player %s has 0 chips, sending GameEventPlayerLost", id)
 				g.sendTableEvent(GameEvent{Type: GameEventPlayerLost, PlayerID: id})
-				g.pruneEliminatedPlayer(id)
 			}
 		}
 	}
@@ -998,16 +997,6 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		}
 	}
 	return nil
-}
-
-func (g *Game) pruneEliminatedPlayer(playerID string) {
-	mustHeld(&g.mu)
-	for i, p := range g.players {
-		if p != nil && p.id == playerID {
-			g.players = append(g.players[:i], g.players[i+1:]...)
-			break
-		}
-	}
 }
 
 func stateEnd(*Game, <-chan any) GameStateFn { return nil }
@@ -3018,6 +3007,16 @@ type evRevealCardsReq struct {
 	reply    chan revealCardsResp
 }
 
+type prunePlayersResp struct {
+	removed []string
+	err     error
+}
+
+type evPrunePlayersReq struct {
+	playerIDs []string
+	reply     chan<- prunePlayersResp
+}
+
 type evAutoRevealReq struct {
 	playerIDs []string
 }
@@ -3059,6 +3058,14 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 		g.mu.Lock()
 		g.maybeCompleteBettingRound()
 		g.mu.Unlock()
+		return nil, true
+	case evPrunePlayersReq:
+		g.mu.Lock()
+		removed, err := g.prunePlayers(e.playerIDs)
+		g.mu.Unlock()
+		if e.reply != nil {
+			e.reply <- prunePlayersResp{removed: removed, err: err}
+		}
 		return nil, true
 	case evTimebankExpiredReq:
 		// Decide auto action without holding g.mu while calling external APIs
@@ -3246,4 +3253,68 @@ func handleGameEvent(g *Game, ev any) (GameStateFn, bool) {
 	default:
 		return nil, false
 	}
+}
+
+// PrunePlayersForNextHand requests the Game FSM to remove eliminated
+// participants at the next-hand preparation boundary.
+func (g *Game) PrunePlayersForNextHand(playerIDs []string) ([]string, error) {
+	if len(playerIDs) == 0 {
+		return nil, nil
+	}
+
+	g.mu.RLock()
+	sm := g.sm
+	g.mu.RUnlock()
+	if sm == nil {
+		return nil, fmt.Errorf("game state machine not running")
+	}
+
+	ids := append([]string(nil), playerIDs...)
+	reply := make(chan prunePlayersResp, 1)
+	if !sm.TrySend(evPrunePlayersReq{playerIDs: ids, reply: reply}) {
+		return nil, fmt.Errorf("game state machine not accepting prune request")
+	}
+	res := <-reply
+	return res.removed, res.err
+}
+
+func (g *Game) prunePlayers(playerIDs []string) ([]string, error) {
+	mustHeld(&g.mu)
+
+	if g.phase != pokerrpc.GamePhase_SHOWDOWN && g.phase != pokerrpc.GamePhase_NEW_HAND_DEALING {
+		return nil, fmt.Errorf("cannot prune players during phase: %s", g.phase)
+	}
+	if len(playerIDs) == 0 || len(g.players) == 0 {
+		return nil, nil
+	}
+
+	toRemove := make(map[string]struct{}, len(playerIDs))
+	for _, playerID := range playerIDs {
+		if playerID == "" {
+			continue
+		}
+		toRemove[playerID] = struct{}{}
+	}
+	if len(toRemove) == 0 {
+		return nil, nil
+	}
+
+	removed := make([]string, 0, len(toRemove))
+	kept := make([]*Player, 0, len(g.players))
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		if _, ok := toRemove[p.ID()]; ok {
+			removed = append(removed, p.ID())
+			continue
+		}
+		kept = append(kept, p)
+	}
+	if len(removed) == 0 {
+		return nil, nil
+	}
+
+	g.players = kept
+	return removed, nil
 }

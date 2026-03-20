@@ -121,6 +121,7 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:        pc.ID.String(),
+		Name:            config.Name,
 		SmallBlind:      config.SmallBlind,
 		BigBlind:        config.BigBlind,
 		MaxPlayers:      int32(config.MaxPlayers),

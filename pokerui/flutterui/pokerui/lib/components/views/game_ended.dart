@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/dialogs/last_showdown.dart';
 import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
@@ -33,13 +32,47 @@ class GameEndedView extends StatelessWidget {
     return pid.length > 8 ? '${pid.substring(0, 8)}...' : pid;
   }
 
+  String _winnerChipLabel(UiWinner w) {
+    if (w.playerId == model.playerId) {
+      return 'You';
+    }
+    return _winnerLabel(w);
+  }
+
+  String _winnerSummary() {
+    final winners = model.lastWinners;
+    if (winners.isEmpty) {
+      return model.gameEndingMessage.isNotEmpty
+          ? model.gameEndingMessage
+          : 'Game ended';
+    }
+
+    final iWon = winners.any((w) => w.playerId == model.playerId);
+    if (!iWon) {
+      return model.gameEndingMessage.isNotEmpty
+          ? model.gameEndingMessage
+          : 'You lost.';
+    }
+
+    final names = winners.map(_winnerLabel).toList(growable: false);
+    if (names.length == 1) {
+      return 'Congratulations! You are the winner.';
+    }
+    if (iWon) {
+      return 'Congratulations! You are one of the winners.';
+    }
+    return 'Winners: ${names.join(', ')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
-    final message = model.gameEndingMessage;
-    final isWin = message.toLowerCase().contains('won') ||
-        message.toLowerCase().contains('congratulations');
-    final isDraw = message.toLowerCase().contains('draw');
+    final message = _winnerSummary();
+    final hasWinners = model.lastWinners.isNotEmpty;
+    final iWon = model.lastWinners.any((w) => w.playerId == model.playerId);
+    final isDraw = model.lastWinners.length > 1;
+    final isWin = hasWinners && iWon;
+    final showWinnerSummary = hasWinners && (iWon || isDraw);
     final hasShowdown = model.hasLastShowdown ||
         model.lastWinners.isNotEmpty ||
         model.showdownPlayers.isNotEmpty;
@@ -127,49 +160,39 @@ class GameEndedView extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text(
-                                'Last showdown',
+                              Text(
+                                showWinnerSummary
+                                    ? (model.lastWinners.length > 1
+                                        ? 'Winners'
+                                        : 'Winner')
+                                    : 'Last hand',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              Text(
-                                'Pot: ${model.showdownPot}',
-                                style: const TextStyle(
-                                  color: Colors.amber,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: (model.lastWinners.isNotEmpty
-                                    ? model.lastWinners
-                                    : model.showdownPlayers
-                                        .map((p) => UiWinner(
-                                            playerId: p.id,
-                                            handRank: pr.HandRank.HIGH_CARD,
-                                            bestHand: const [],
-                                            winnings: 0))
-                                        .toList())
-                                .map((w) => Chip(
-                                      backgroundColor:
-                                          Colors.green.withOpacity(0.15),
-                                      label: Text(
-                                        '${_winnerLabel(w)}${w.winnings > 0 ? " +${w.winnings}" : ""}',
-                                        style: const TextStyle(
-                                            color: Colors.white),
-                                      ),
-                                    ))
-                                .toList(),
-                          ),
+                          if (showWinnerSummary) ...[
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: model.lastWinners
+                                  .map((w) => Chip(
+                                        backgroundColor:
+                                            Colors.green.withOpacity(0.15),
+                                        label: Text(
+                                          _winnerChipLabel(w),
+                                          style: const TextStyle(
+                                              color: Colors.white),
+                                        ),
+                                      ))
+                                  .toList(),
+                            ),
+                          ],
                           if (model.showdownCommunityCards.isNotEmpty) ...[
                             const SizedBox(height: 12),
                             const Text(

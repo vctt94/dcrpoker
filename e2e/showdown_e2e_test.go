@@ -43,7 +43,7 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
-		// Seed auth users required by tables.host_id foreign key.
+		// Seed auth users used by authenticated table creation/join flows.
 		seedCtx := context.Background()
 		for _, pid := range []string{"player1", "player2"} {
 			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))

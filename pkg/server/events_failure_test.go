@@ -87,7 +87,6 @@ func TestSaveTableState_SnapshotFailure(t *testing.T) {
 		ID:               "tid",
 		Log:              slog.Disabled,
 		GameLog:          slog.Disabled,
-		HostID:           "h",
 		MinPlayers:       2,
 		MaxPlayers:       2,
 		SmallBlind:       5,

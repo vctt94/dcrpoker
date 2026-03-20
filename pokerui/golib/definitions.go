@@ -407,16 +407,16 @@ type waitingRoom struct {
 // pokerTable represents a poker table DTO for Flutter
 // All fields are explicitly set to avoid JSON type ambiguity
 type pokerTable struct {
-	ID              string `json:"id"`
-	HostID          string `json:"host_id"`
-	SmallBlind      int64  `json:"small_blind"`
-	BigBlind        int64  `json:"big_blind"`
-	MaxPlayers      int32  `json:"max_players"`
-	MinPlayers      int32  `json:"min_players"`
-	CurrentPlayers  int32  `json:"current_players"`
-	BuyIn           int64  `json:"buy_in"`
-	GameStarted     bool   `json:"game_started"`
-	AllPlayersReady bool   `json:"all_players_ready"`
+	ID              string       `json:"id"`
+	SmallBlind      int64        `json:"small_blind"`
+	BigBlind        int64        `json:"big_blind"`
+	MaxPlayers      int32        `json:"max_players"`
+	MinPlayers      int32        `json:"min_players"`
+	CurrentPlayers  int32        `json:"current_players"`
+	BuyIn           int64        `json:"buy_in"`
+	GameStarted     bool         `json:"game_started"`
+	AllPlayersReady bool         `json:"all_players_ready"`
+	Players         []*playerDTO `json:"players,omitempty"`
 }
 
 // tableFromProto converts a protobuf Table to a clean DTO with all fields explicitly set
@@ -424,9 +424,12 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 	if t == nil {
 		return nil
 	}
+	players := make([]*playerDTO, 0, len(t.Players))
+	for _, p := range t.Players {
+		players = append(players, playerToDTO(p))
+	}
 	return &pokerTable{
 		ID:              t.Id,
-		HostID:          t.HostId,
 		SmallBlind:      t.SmallBlind,
 		BigBlind:        t.BigBlind,
 		MaxPlayers:      t.MaxPlayers,
@@ -435,13 +438,13 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 		BuyIn:           t.BuyIn,
 		GameStarted:     t.GameStarted,
 		AllPlayersReady: t.AllPlayersReady,
+		Players:         players,
 	}
 }
 
 // notificationTableDTO represents a table in a notification, including players
 type ntfnTableDTO struct {
 	ID              string       `json:"id"`
-	HostID          string       `json:"host_id"`
 	SmallBlind      int64        `json:"small_blind"`
 	BigBlind        int64        `json:"big_blind"`
 	MaxPlayers      int32        `json:"max_players"`
@@ -464,7 +467,6 @@ func tableFromProtoForNtfn(t *pokerrpc.Table) *ntfnTableDTO {
 	}
 	return &ntfnTableDTO{
 		ID:              t.Id,
-		HostID:          t.HostId,
 		SmallBlind:      t.SmallBlind,
 		BigBlind:        t.BigBlind,
 		MaxPlayers:      t.MaxPlayers,

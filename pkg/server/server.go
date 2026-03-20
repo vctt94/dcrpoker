@@ -38,10 +38,12 @@ type NotificationStream struct {
 type ServerConfig struct {
 	Datadir string
 	// Additional specific fields
-	GRPCHost     string
-	GRPCPort     string
-	GRPCCertPath string
-	GRPCKeyPath  string
+	GRPCHost          string
+	GRPCPort          string
+	GRPCCertPath      string
+	GRPCKeyPath       string
+	DefaultTablesPath string
+	DefaultTables     []DefaultTableProfile
 
 	// HTTP server TLS settings
 	HTTPCertPath   string
@@ -122,6 +124,11 @@ type Server struct {
 	// WaitGroup to ensure all active stream handlers complete before Shutdown
 	streamHandlersWg sync.WaitGroup
 
+	// Shutdown signalling for background goroutines such as delayed table
+	// cleanup, which must stop scheduling work once server teardown begins.
+	stopChan chan struct{}
+	stopOnce sync.Once
+
 	// Event-driven architecture components
 	eventProcessor *EventProcessor
 
@@ -136,6 +143,9 @@ type Server struct {
 
 	// Schnorr referee state (escrows, presigns, settlements)
 	referee *schnorrRefereeState
+
+	defaultTables   []DefaultTableProfile
+	defaultTableMgr *defaultTableManager
 }
 
 // NewServer creates a new poker server
@@ -152,6 +162,8 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		db:            db,
 		chainParams:   selectChainParams(cfg.Network),
 		adaptorSecret: cfg.AdaptorSecret,
+		defaultTables: append([]DefaultTableProfile(nil), cfg.DefaultTables...),
+		stopChan:      make(chan struct{}),
 	}
 
 	// Initialize auth state
@@ -212,6 +224,12 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if err := pokerServer.loadAllTables(); err != nil {
 		pokerServer.log.Errorf("Failed to load persisted tables: %v", err)
 	}
+	if err := pokerServer.initializeDefaultTables(); err != nil {
+		pokerServer.eventProcessor.Stop()
+		_ = grpcLis.Close()
+		_ = db.Close()
+		return nil, fmt.Errorf("failed to initialize default tables: %v", err)
+	}
 
 	// Start gRPC server after all services are registered and initialization is complete.
 	go func() {
@@ -248,21 +266,35 @@ func LoadServerConfig(datadir, filename string) (*ServerConfig, error) {
 
 	// Create the combined config
 	serverCfg := &ServerConfig{
-		Datadir:        cfg.Datadir,
-		GRPCHost:       cfg.GRPCHost,
-		GRPCPort:       cfg.GRPCPort,
-		GRPCCertPath:   cfg.GRPCCertPath,
-		GRPCKeyPath:    cfg.GRPCKeyPath,
-		HTTPCertPath:   cfg.HTTPCertPath,
-		HTTPKeyPath:    cfg.HTTPKeyPath,
-		HTTPCACertPath: cfg.HTTPCACertPath,
-		DcrdHost:       cfg.DcrdHost,
-		DcrdCert:       cfg.DcrdCert,
-		DcrdUser:       cfg.DcrdUser,
-		DcrdPass:       cfg.DcrdPass,
-		AdaptorSecret:  cfg.AdaptorSecret,
-		Network:        cfg.Network,
-		LogBackend:     logBackend,
+		Datadir:           cfg.Datadir,
+		GRPCHost:          cfg.GRPCHost,
+		GRPCPort:          cfg.GRPCPort,
+		GRPCCertPath:      cfg.GRPCCertPath,
+		GRPCKeyPath:       cfg.GRPCKeyPath,
+		DefaultTablesPath: cfg.DefaultTablesPath,
+		HTTPCertPath:      cfg.HTTPCertPath,
+		HTTPKeyPath:       cfg.HTTPKeyPath,
+		HTTPCACertPath:    cfg.HTTPCACertPath,
+		DcrdHost:          cfg.DcrdHost,
+		DcrdCert:          cfg.DcrdCert,
+		DcrdUser:          cfg.DcrdUser,
+		DcrdPass:          cfg.DcrdPass,
+		AdaptorSecret:     cfg.AdaptorSecret,
+		Network:           cfg.Network,
+		LogBackend:        logBackend,
+	}
+	if serverCfg.DefaultTablesPath != "" && !filepath.IsAbs(serverCfg.DefaultTablesPath) {
+		serverCfg.DefaultTablesPath = filepath.Join(serverCfg.Datadir, serverCfg.DefaultTablesPath)
+	}
+	if serverCfg.DefaultTablesPath != "" {
+		if err := ensureDefaultTablesConfigFile(serverCfg.DefaultTablesPath); err != nil {
+			return nil, err
+		}
+		profiles, err := loadDefaultTableProfiles(serverCfg.DefaultTablesPath)
+		if err != nil {
+			return nil, err
+		}
+		serverCfg.DefaultTables = profiles
 	}
 
 	// Validate adaptor secret: must be present and 32 bytes of hex (64 chars)
@@ -419,6 +451,7 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 		db:            db,
 		chainParams:   selectChainParams("testnet"),
 		adaptorSecret: "",
+		stopChan:      make(chan struct{}),
 	}
 
 	// Initialize auth state
@@ -440,6 +473,14 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 
 // Stop gracefully stops the server
 func (s *Server) Stop() {
+	if s != nil {
+		s.stopOnce.Do(func() {
+			if s.stopChan != nil {
+				close(s.stopChan)
+			}
+		})
+	}
+
 	// Stop gRPC server first to cancel all stream contexts and prevent new RPC calls.
 	// This ensures that no new game actions can be triggered via RPC after shutdown starts.
 	if s.grpcServer != nil {
@@ -452,6 +493,9 @@ func (s *Server) Stop() {
 
 	// Stop the event processor so workers stop reading from the queue and
 	// publishing new events while tables/games are being closed.
+	if s.defaultTableMgr != nil {
+		s.defaultTableMgr.stop()
+	}
 	if s.eventProcessor != nil {
 		s.eventProcessor.Stop()
 	}

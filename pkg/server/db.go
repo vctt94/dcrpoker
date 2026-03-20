@@ -91,9 +91,10 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 
 	cfg := poker.TableConfig{
 		ID:               tcfg.ID,
+		Name:             tcfg.Name,
 		Log:              tblLog,
 		GameLog:          gameLog,
-		HostID:           tcfg.HostID,
+		Source:           tcfg.Source,
 		BuyIn:            tcfg.BuyIn,
 		MinPlayers:       tcfg.MinPlayers,
 		MaxPlayers:       tcfg.MaxPlayers,

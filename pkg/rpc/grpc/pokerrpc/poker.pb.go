@@ -1381,6 +1381,7 @@ type CreateTableRequest struct {
 	TimeBankSeconds int32                  `protobuf:"varint,8,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"` // Player timeout in seconds (default: 30)
 	AutoStartMs     int32                  `protobuf:"varint,9,opt,name=auto_start_ms,json=autoStartMs,proto3" json:"auto_start_ms,omitempty"`             // Auto-start delay between hands in ms (0 = disabled)
 	AutoAdvanceMs   int32                  `protobuf:"varint,10,opt,name=auto_advance_ms,json=autoAdvanceMs,proto3" json:"auto_advance_ms,omitempty"`      // Auto-advance delay between streets when all-in in ms (must be > 0)
+	Name            string                 `protobuf:"bytes,11,opt,name=name,proto3" json:"name,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -1483,6 +1484,13 @@ func (x *CreateTableRequest) GetAutoAdvanceMs() int32 {
 		return x.AutoAdvanceMs
 	}
 	return 0
+}
+
+func (x *CreateTableRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
 }
 
 type CreateTableResponse struct {
@@ -1828,7 +1836,7 @@ func (x *GetTablesResponse) GetTables() []*Table {
 type Table struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	HostId          string                 `protobuf:"bytes,2,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
+	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Players         []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
 	SmallBlind      int64                  `protobuf:"varint,4,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"` // Poker chips amount for small blind
 	BigBlind        int64                  `protobuf:"varint,5,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`       // Poker chips amount for big blind
@@ -1880,9 +1888,9 @@ func (x *Table) GetId() string {
 	return ""
 }
 
-func (x *Table) GetHostId() string {
+func (x *Table) GetName() string {
 	if x != nil {
-		return x.HostId
+		return x.Name
 	}
 	return ""
 }
@@ -4110,7 +4118,7 @@ const file_poker_proto_rawDesc = "" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12,\n" +
 	"\thand_rank\x18\x02 \x01(\x0e2\x0f.poker.HandRankR\bhandRank\x12(\n" +
 	"\tbest_hand\x18\x03 \x03(\v2\v.poker.CardR\bbestHand\x12\x1a\n" +
-	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\xe7\x02\n" +
+	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\xfb\x02\n" +
 	"\x12CreateTableRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1f\n" +
 	"\vsmall_blind\x18\x02 \x01(\x03R\n" +
@@ -4125,7 +4133,8 @@ const file_poker_proto_rawDesc = "" +
 	"\x11time_bank_seconds\x18\b \x01(\x05R\x0ftimeBankSeconds\x12\"\n" +
 	"\rauto_start_ms\x18\t \x01(\x05R\vautoStartMs\x12&\n" +
 	"\x0fauto_advance_ms\x18\n" +
-	" \x01(\x05R\rautoAdvanceMs\"J\n" +
+	" \x01(\x05R\rautoAdvanceMs\x12\x12\n" +
+	"\x04name\x18\v \x01(\tR\x04name\"J\n" +
 	"\x13CreateTableResponse\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
@@ -4143,10 +4152,10 @@ const file_poker_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x12\n" +
 	"\x10GetTablesRequest\"9\n" +
 	"\x11GetTablesResponse\x12$\n" +
-	"\x06tables\x18\x01 \x03(\v2\f.poker.TableR\x06tables\"\x90\x03\n" +
+	"\x06tables\x18\x01 \x03(\v2\f.poker.TableR\x06tables\"\x8b\x03\n" +
 	"\x05Table\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
-	"\ahost_id\x18\x02 \x01(\tR\x06hostId\x12'\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
 	"\aplayers\x18\x03 \x03(\v2\r.poker.PlayerR\aplayers\x12\x1f\n" +
 	"\vsmall_blind\x18\x04 \x01(\x03R\n" +
 	"smallBlind\x12\x1b\n" +

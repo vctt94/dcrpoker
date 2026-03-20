@@ -62,7 +62,6 @@ func TestNotificationHandlerAddsTableOnPlayerJoined(t *testing.T) {
 		ID: "tid",
 		Config: poker.TableConfig{
 			ID:         "tid",
-			HostID:     "host",
 			SmallBlind: 10,
 			BigBlind:   20,
 			MinPlayers: 2,
@@ -118,7 +117,6 @@ func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
 
 	cfg := poker.TableConfig{
 		ID:         "tid",
-		HostID:     "host",
 		Log:        slog.Disabled,
 		GameLog:    slog.Disabled,
 		MinPlayers: 2,
@@ -151,12 +149,69 @@ func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
 	if ntfn.Table == nil {
 		t.Fatalf("notification missing table payload")
 	}
-	if ntfn.Table.HostId != "host" {
-		t.Fatalf("expected HostId host, got %s", ntfn.Table.HostId)
-	}
 	if ntfn.Table.CurrentPlayers != 1 {
 		t.Fatalf("expected CurrentPlayers=1, got %d", ntfn.Table.CurrentPlayers)
 	}
+}
+
+func TestHandleGameEndedUsesWinnerDisplayNameForLosers(t *testing.T) {
+	s := newBareServer()
+	s.stopChan = make(chan struct{})
+	s.eventProcessor = NewEventProcessor(s, 16, 1)
+	s.eventProcessor.Start()
+	defer s.Stop()
+
+	winnerStream := &mockNotificationStream{}
+	loserStream := &mockNotificationStream{}
+	s.notificationStreams.Store("winner-id", &NotificationStream{
+		playerID: "winner-id",
+		stream:   winnerStream,
+		done:     make(chan struct{}),
+	})
+	s.notificationStreams.Store("loser-id", &NotificationStream{
+		playerID: "loser-id",
+		stream:   loserStream,
+		done:     make(chan struct{}),
+	})
+
+	cfg := poker.TableConfig{
+		ID:         "tid",
+		Log:        slog.Disabled,
+		GameLog:    slog.Disabled,
+		MinPlayers: 2,
+		MaxPlayers: 2,
+		SmallBlind: 10,
+		BigBlind:   20,
+	}
+	table := poker.NewTable(cfg)
+	_, err := table.AddNewUser("winner-id", &poker.AddUserOptions{DisplayName: "Alice", Seat: 0})
+	require.NoError(t, err)
+	_, err = table.AddNewUser("loser-id", &poker.AddUserOptions{DisplayName: "Bob", Seat: 1})
+	require.NoError(t, err)
+	s.tables.Store(cfg.ID, table)
+
+	nh := NewNotificationHandler(s)
+	nh.handleGameEnded(&GameEvent{
+		Type:      pokerrpc.NotificationType_GAME_ENDED,
+		TableID:   cfg.ID,
+		PlayerIDs: []string{"winner-id", "loser-id"},
+		Payload: GameEndedPayload{
+			WinnerID: "winner-id",
+			TotalPot: 1980,
+		},
+	})
+
+	loserStream.mu.RLock()
+	require.Len(t, loserStream.sent, 1)
+	loserNtfn := loserStream.sent[0]
+	loserStream.mu.RUnlock()
+	require.Equal(t, "Game over. Alice won with 1980 chips.", loserNtfn.Message)
+
+	winnerStream.mu.RLock()
+	require.Len(t, winnerStream.sent, 1)
+	winnerNtfn := winnerStream.sent[0]
+	winnerStream.mu.RUnlock()
+	require.Equal(t, "Congratulations! You won the game with 1980 chips!", winnerNtfn.Message)
 }
 
 func TestLeaveTablePublishesPlayerLeft(t *testing.T) {
