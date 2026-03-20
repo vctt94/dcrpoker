@@ -43,7 +43,7 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
-		// Seed auth users required by the tables.host_id foreign key.
+		// Seed auth users used by authenticated table creation/join flows.
 		seedCtx := context.Background()
 		for _, pid := range []string{"p1", "p2"} {
 			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))
@@ -596,7 +596,7 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 		db, err := server.NewDatabase(dbPath)
 		require.NoError(t, err)
 
-		// Seed auth users so CreateTable/JoinTable satisfy FK constraints on tables.host_id.
+		// Seed auth users so CreateTable/JoinTable requests are authenticated.
 		seedCtx := context.Background()
 		for _, pid := range []string{"p1", "p2"} {
 			require.NoError(t, db.UpsertAuthUser(seedCtx, pid, pid))

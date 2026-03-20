@@ -69,7 +69,6 @@ func buildActiveHeadsUpTable(t *testing.T, id string) *poker.Table {
 	cfg := poker.TableConfig{
 		ID:               id,
 		Log:              slog.Disabled,
-		HostID:           "p1",
 		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       2,

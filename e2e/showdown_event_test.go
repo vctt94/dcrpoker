@@ -25,7 +25,6 @@ func main() {
 		ID:             "test_table",
 		Log:            logger,
 		GameLog:        logger,
-		HostID:         "test_host",
 		BuyIn:          0, // BuyIn: 0 to avoid escrow requirement in tests
 		MinPlayers:     2,
 		MaxPlayers:     3,

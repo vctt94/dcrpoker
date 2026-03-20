@@ -62,7 +62,6 @@ func TestNotificationHandlerAddsTableOnPlayerJoined(t *testing.T) {
 		ID: "tid",
 		Config: poker.TableConfig{
 			ID:         "tid",
-			HostID:     "host",
 			SmallBlind: 10,
 			BigBlind:   20,
 			MinPlayers: 2,
@@ -118,7 +117,6 @@ func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
 
 	cfg := poker.TableConfig{
 		ID:         "tid",
-		HostID:     "host",
 		Log:        slog.Disabled,
 		GameLog:    slog.Disabled,
 		MinPlayers: 2,
@@ -150,9 +148,6 @@ func TestNotificationHandlerAddsTableOnTableCreated(t *testing.T) {
 	}
 	if ntfn.Table == nil {
 		t.Fatalf("notification missing table payload")
-	}
-	if ntfn.Table.HostId != "host" {
-		t.Fatalf("expected HostId host, got %s", ntfn.Table.HostId)
 	}
 	if ntfn.Table.CurrentPlayers != 1 {
 		t.Fatalf("expected CurrentPlayers=1, got %d", ntfn.Table.CurrentPlayers)

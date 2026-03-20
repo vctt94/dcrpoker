@@ -13,10 +13,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Regression: when a game ends, the table should be removed from the server
-// registry and subsequent RPCs should treat it as gone. Currently the table
-// keeps emitting GAME_STATE updates after GAME_OVER/TABLE_REMOVED.
-func TestTableRemovedAfterGameOver(t *testing.T) {
+// Regression: user-created tables should be removed after game over.
+func TestUserTableRemovedAfterGameOver(t *testing.T) {
 	t.Parallel()
 
 	env := testenv.New(t)
@@ -170,21 +168,8 @@ func TestTableRemovedAfterGameOver(t *testing.T) {
 	}
 	require.NotEmpty(t, winnerID, "expected a single winner after all-in hands")
 
-	// Wait a bit for GAME_ENDED event to be processed, which triggers table removal scheduling.
-	// The removal has a 1 second grace period, then needs event processing time.
-	time.Sleep(500 * time.Millisecond)
-
-	// The table should disappear once the match is finished.
-	// scheduleTableRemoval has a 1s grace period, plus we need time for:
-	// - Event to be published and queued
-	// - Event processor to process TABLE_REMOVED
-	// - finalizeTableRemoval to complete
 	require.Eventually(t, func() bool {
-		_, ok := env.PokerSrv.GetTable(tableID)
-		return !ok
-	}, 5*time.Second, 100*time.Millisecond, "table should be removed after game over")
-
-	_, err = env.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.Error(t, err, "game state should not be available after table removal")
-	assert.Equal(t, codes.NotFound, status.Code(err), "expected NotFound once table is removed")
+		_, err := env.PokerClient.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		return err != nil && status.Code(err) == codes.NotFound
+	}, 5*time.Second, 100*time.Millisecond, "user-created table should be removed after game over")
 }

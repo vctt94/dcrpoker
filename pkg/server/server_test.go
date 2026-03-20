@@ -108,7 +108,8 @@ func (m *InMemoryDB) UpsertTable(_ context.Context, t *poker.TableConfig) error 
 	// set CreatedAt if zero-ish
 	m.tables[cp.ID] = &db.Table{
 		ID:            cp.ID,
-		HostID:        cp.HostID,
+		Name:          cp.Name,
+		Source:        cp.Source,
 		BuyIn:         cp.BuyIn,
 		MinPlayers:    cp.MinPlayers,
 		MaxPlayers:    cp.MaxPlayers,
@@ -119,6 +120,9 @@ func (m *InMemoryDB) UpsertTable(_ context.Context, t *poker.TableConfig) error 
 		AutoStartMS:   cp.AutoStartDelay.Milliseconds(),
 		AutoAdvanceMS: cp.AutoAdvanceDelay.Milliseconds(),
 		CreatedAt:     time.Now(),
+	}
+	if m.tables[cp.ID].Name == "" {
+		m.tables[cp.ID].Name = cp.ID
 	}
 	return nil
 }
@@ -689,13 +693,13 @@ func TestHostLeavesTableTransfersHost(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, leaveResp.Success)
-	assert.Contains(t, leaveResp.Message, "Host transferred")
+	assert.Equal(t, "Successfully left table", leaveResp.Message)
 
-	// Verify table still exists and player is now host
+	// Verify table still exists and the remaining player is still seated.
 	tablesResp, err := server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
 	require.NoError(t, err)
 	assert.Len(t, tablesResp.Tables, 1)
-	assert.Equal(t, player, tablesResp.Tables[0].HostId)
+	assert.Equal(t, int32(1), tablesResp.Tables[0].CurrentPlayers)
 }
 
 // Heads-up: post-flop the big blind (non-dealer) must act first.
@@ -1010,7 +1014,7 @@ func TestLastPlayerLeavesTableClosure(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, leaveResp.Success)
-	assert.Contains(t, leaveResp.Message, "table closed")
+	assert.Equal(t, "Successfully left table. Table closed.", leaveResp.Message)
 
 	// Verify table is removed
 	tablesResp, err = server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
@@ -1075,7 +1079,6 @@ func TestNonHostLeavesTable(t *testing.T) {
 	tablesResp, err := server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
 	require.NoError(t, err)
 	assert.Len(t, tablesResp.Tables, 1)
-	assert.Equal(t, host, tablesResp.Tables[0].HostId)
 	assert.Equal(t, int32(1), tablesResp.Tables[0].CurrentPlayers, "Table should have 1 player remaining")
 }
 
@@ -1103,6 +1106,56 @@ func TestLeaveTable(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.False(t, resp.Success)
+}
+
+func TestLeaveTableDuringPendingSettlementKeepsSeat(t *testing.T) {
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	srv, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	server := &TestServer{Server: srv}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	host := "host"
+	ctx, _ = server.CreateTestSession(ctx, host, host)
+
+	createResp, err := server.CreateTable(ctx, &pokerrpc.CreateTableRequest{
+		PlayerId:      host,
+		SmallBlind:    5,
+		BigBlind:      10,
+		MinPlayers:    2,
+		MaxPlayers:    2,
+		BuyIn:         100,
+		StartingChips: 1000,
+		AutoAdvanceMs: 1000,
+	})
+	require.NoError(t, err)
+	tableID := createResp.TableId
+
+	server.markPendingSettlement(tableID)
+
+	leaveResp, err := server.LeaveTable(ctx, &pokerrpc.LeaveTableRequest{
+		PlayerId: host,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+	assert.True(t, leaveResp.Success)
+	assert.Contains(t, leaveResp.Message, "seat is reserved")
+
+	table, ok := server.GetTable(tableID)
+	require.True(t, ok)
+	require.NotNil(t, table.GetUser(host))
+
+	tablesResp, err := server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
+	require.NoError(t, err)
+	require.Len(t, tablesResp.Tables, 1)
+	assert.Equal(t, int32(1), tablesResp.Tables[0].CurrentPlayers)
 }
 
 func TestJoinTable(t *testing.T) {

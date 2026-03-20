@@ -20,7 +20,6 @@ func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChip
 		ID:            "tbl-test",
 		Log:           createTestLogger(),
 		GameLog:       createTestLogger(),
-		HostID:        "host",
 		BuyIn:         0,
 		MinPlayers:    minPlayers,
 		MaxPlayers:    maxPlayers,
@@ -82,11 +81,6 @@ func TestTableUserManagement(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "user not at table")
 
-	// SetHost validations
-	err = tbl.SetHost("nope")
-	require.Error(t, err)
-	err = tbl.SetHost("u1")
-	require.NoError(t, err)
 }
 
 func TestTableStateTransitionsAndStartGame(t *testing.T) {
@@ -1017,7 +1011,6 @@ func TestTableClose_Idempotent(t *testing.T) {
 		ID:             "test-table",
 		Log:            createTestLogger(),
 		GameLog:        createTestLogger(),
-		HostID:         "host1",
 		BuyIn:          1000,
 		MinPlayers:     2,
 		MaxPlayers:     6,
@@ -1052,7 +1045,6 @@ func TestTableClose_Concurrent(t *testing.T) {
 		ID:             "test-table",
 		Log:            createTestLogger(),
 		GameLog:        createTestLogger(),
-		HostID:         "host1",
 		BuyIn:          1000,
 		MinPlayers:     2,
 		MaxPlayers:     6,
@@ -1112,7 +1104,6 @@ func TestTableClose_WithGame(t *testing.T) {
 		ID:               "test-table",
 		Log:              createTestLogger(),
 		GameLog:          createTestLogger(),
-		HostID:           "host1",
 		BuyIn:            0,
 		MinPlayers:       2,
 		MaxPlayers:       2,
@@ -1184,7 +1175,6 @@ func TestTableClose_BackgroundGoroutinesStop(t *testing.T) {
 		ID:             "test-table",
 		Log:            createTestLogger(),
 		GameLog:        createTestLogger(),
-		HostID:         "host1",
 		BuyIn:          1000,
 		MinPlayers:     2,
 		MaxPlayers:     6,
@@ -1230,7 +1220,6 @@ func TestTableClose_WaitGroupProperlyTracked(t *testing.T) {
 		ID:             "test-table",
 		Log:            createTestLogger(),
 		GameLog:        createTestLogger(),
-		HostID:         "host1",
 		BuyIn:          1000,
 		MinPlayers:     2,
 		MaxPlayers:     6,
