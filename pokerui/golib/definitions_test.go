@@ -20,6 +20,23 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
+func TestTableFromProtoIncludesPlayers(t *testing.T) {
+	t.Helper()
+
+	dto := tableFromProto(&pokerrpc.Table{
+		Id: "table-1",
+		Players: []*pokerrpc.Player{
+			{Id: "p1", Name: "Alice", TableSeat: 0},
+			{Id: "p2", Name: "Bob", TableSeat: 1},
+		},
+	})
+
+	require.NotNil(t, dto)
+	require.Len(t, dto.Players, 2)
+	require.Equal(t, "Alice", dto.Players[0].Name)
+	require.Equal(t, "Bob", dto.Players[1].Name)
+}
+
 // This test reproduces the cache-spam scenario: invalid escrow funding
 // updates (wrong amount) for multiple escrows that all reference the same
 // funding outpoint are cached individually, leading to duplicate dropdown

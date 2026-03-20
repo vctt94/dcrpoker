@@ -1228,6 +1228,14 @@ func TestJoinTable(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, resp.Success)
+
+	tablesResp, err := server.GetTables(ctx, &pokerrpc.GetTablesRequest{})
+	require.NoError(t, err)
+	require.Len(t, tablesResp.Tables, 1)
+	assert.Len(t, tablesResp.Tables[0].Players, 3)
+	assert.Equal(t, player1ID, tablesResp.Tables[0].Players[0].Name)
+	assert.Equal(t, player2ID, tablesResp.Tables[0].Players[1].Name)
+	assert.Equal(t, player3ID, tablesResp.Tables[0].Players[2].Name)
 }
 
 func TestJoinTableAfterGameStartFails(t *testing.T) {

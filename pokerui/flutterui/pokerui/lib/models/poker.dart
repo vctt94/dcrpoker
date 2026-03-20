@@ -1024,19 +1024,9 @@ class PokerModel extends ChangeNotifier {
   Future<void> _fetchInitialTables() async {
     try {
       final list = await Golib.getPokerTables();
-      tables = List.unmodifiable(list.map((t) => UiTable(
-            id: t.id,
-            players: const [], // Players come from game updates/notifications
-            smallBlind: t.smallBlind,
-            bigBlind: t.bigBlind,
-            maxPlayers: t.maxPlayers,
-            minPlayers: t.minPlayers,
-            currentPlayers: t.currentPlayers,
-            buyInAtoms: t.buyIn,
-            phase: pr.GamePhase.WAITING,
-            gameStarted: t.gameStarted,
-            allReady: t.allPlayersReady,
-          )));
+      tables = List.unmodifiable(
+        list.map((t) => UiTable.fromProto(t.toProtobuf())),
+      );
       if (currentTableId == null) {
         _state = PokerState.browsingTables;
         game = null;

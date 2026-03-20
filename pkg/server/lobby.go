@@ -373,12 +373,20 @@ func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) 
 	// Snapshot current tables from concurrent registry
 	tableRefs := s.getAllTables()
 
-	// Build response using regular table methods (no server lock held)
+	// Build response using collected snapshots so initial lobby fetches carry
+	// the same roster data as notification-driven table updates.
 	tables := make([]*pokerrpc.Table, 0, len(tableRefs))
 	for _, table := range tableRefs {
 		config := table.GetConfig()
+		snap, err := s.collectTableSnapshot(config.ID)
+		if err == nil {
+			tables = append(tables, tableSnapshotToProtoTable(snap))
+			continue
+		}
+
+		s.log.Warnf("GetTables: failed to collect snapshot for %s: %v", config.ID, err)
+
 		users := table.GetUsers()
-		game := table.GetGame()
 
 		protoTable := &pokerrpc.Table{
 			Id:              config.ID,
@@ -389,8 +397,25 @@ func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) 
 			MinPlayers:      int32(table.GetMinPlayers()),
 			CurrentPlayers:  int32(len(users)),
 			BuyIn:           config.BuyIn,
-			GameStarted:     game != nil,
+			GameStarted:     table.IsGameStarted(),
 			AllPlayersReady: table.AreAllPlayersReady(),
+			Phase:           pokerrpc.GamePhase_WAITING,
+		}
+		for _, user := range users {
+			if user == nil {
+				continue
+			}
+			userSnap := user.GetSnapshot()
+			protoTable.Players = append(protoTable.Players, &pokerrpc.Player{
+				Id:              userSnap.ID,
+				Name:            userSnap.Name,
+				IsReady:         userSnap.IsReady,
+				IsDisconnected:  userSnap.IsDisconnected,
+				EscrowId:        userSnap.EscrowID,
+				EscrowReady:     userSnap.EscrowReady,
+				PresignComplete: userSnap.PresignComplete,
+				TableSeat:       int32(userSnap.TableSeat),
+			})
 		}
 		tables = append(tables, protoTable)
 	}
