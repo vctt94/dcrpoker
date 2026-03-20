@@ -18,15 +18,12 @@ class ShowdownView extends StatefulWidget {
 }
 
 class _ShowdownViewState extends State<ShowdownView> {
-  Timer? _countdownTimer;
   Timer? _autoCloseTimer;
-  int _secondsRemaining = 5;
   bool _showSidebar = true;
 
   @override
   void initState() {
     super.initState();
-    _startCountdown();
     // Auto-close sidebar after 5 seconds
     _autoCloseTimer = Timer(const Duration(seconds: 5), () {
       if (mounted) {
@@ -37,7 +34,6 @@ class _ShowdownViewState extends State<ShowdownView> {
 
   @override
   void dispose() {
-    _countdownTimer?.cancel();
     _autoCloseTimer?.cancel();
     super.dispose();
   }
@@ -48,21 +44,6 @@ class _ShowdownViewState extends State<ShowdownView> {
         _showSidebar = false;
       });
     }
-  }
-
-  void _startCountdown() {
-    _secondsRemaining = 5;
-    _countdownTimer?.cancel();
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          _secondsRemaining--;
-          if (_secondsRemaining <= 0) {
-            timer.cancel();
-          }
-        });
-      }
-    });
   }
 
   @override
@@ -116,28 +97,18 @@ class _ShowdownViewState extends State<ShowdownView> {
 
     final showdownFooter = model.isGameEndPending
         ? Center(
-            child: Row(
+            child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.amber, width: 2),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '$_secondsRemaining',
-                      style: const TextStyle(
-                        color: Colors.amber,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                const Text(
+                  'Game ended. Press Continue.',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(height: 10),
                 ElevatedButton.icon(
                   onPressed: () {
                     _closeSidebar();
