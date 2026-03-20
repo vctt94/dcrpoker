@@ -32,6 +32,13 @@ class GameEndedView extends StatelessWidget {
     return pid.length > 8 ? '${pid.substring(0, 8)}...' : pid;
   }
 
+  String _winnerChipLabel(UiWinner w) {
+    if (w.playerId == model.playerId) {
+      return 'You';
+    }
+    return _winnerLabel(w);
+  }
+
   String _winnerSummary() {
     final winners = model.lastWinners;
     if (winners.isEmpty) {
@@ -49,7 +56,10 @@ class GameEndedView extends StatelessWidget {
 
     final names = winners.map(_winnerLabel).toList(growable: false);
     if (names.length == 1) {
-      return 'Winner: ${names.first}';
+      return 'Congratulations! You are the winner.';
+    }
+    if (iWon) {
+      return 'Congratulations! You are one of the winners.';
     }
     return 'Winners: ${names.join(', ')}';
   }
@@ -175,7 +185,7 @@ class GameEndedView extends StatelessWidget {
                                         backgroundColor:
                                             Colors.green.withOpacity(0.15),
                                         label: Text(
-                                          _winnerLabel(w),
+                                          _winnerChipLabel(w),
                                           style: const TextStyle(
                                               color: Colors.white),
                                         ),

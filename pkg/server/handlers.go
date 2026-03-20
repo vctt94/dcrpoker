@@ -170,6 +170,13 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 	nh.server.log.Infof("Game ended - winner: %s, seat: %d, matchID: %s, pot: %d",
 		pl.WinnerID, pl.WinnerSeat, pl.MatchID, pl.TotalPot)
 
+	winnerLabel := pl.WinnerID
+	if table, ok := nh.server.getTable(event.TableID); ok && table != nil {
+		if winner := table.GetUser(pl.WinnerID); winner != nil && winner.Name != "" {
+			winnerLabel = winner.Name
+		}
+	}
+
 	// Send personalized notifications to each player
 	for _, playerID := range event.PlayerIDs {
 		isWinner := playerID == pl.WinnerID
@@ -177,7 +184,7 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 		if isWinner {
 			message = fmt.Sprintf("Congratulations! You won the game with %d chips!", pl.TotalPot)
 		} else {
-			message = fmt.Sprintf("Game over. %s won with %d chips.", pl.WinnerID, pl.TotalPot)
+			message = fmt.Sprintf("Game over. %s won with %d chips.", winnerLabel, pl.TotalPot)
 		}
 
 		notification := &pokerrpc.Notification{
