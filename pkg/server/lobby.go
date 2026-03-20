@@ -771,7 +771,14 @@ func (s *Server) scheduleTableRemoval(tableID string) <-chan struct{} {
 		defer timer.Stop()
 		select {
 		case <-timer.C:
+			select {
+			case <-s.stopChan:
+				return
+			default:
+			}
 			s.publishTableRemovedEvent(tableID)
+		case <-s.stopChan:
+			return
 		case <-s.getTableRemovalAck(tableID):
 			// Already removed elsewhere; skip.
 		}
@@ -803,6 +810,12 @@ func (s *Server) schedulePostGameTableCleanup(tableID string) {
 // can notify clients and persist the final snapshot before cleanup.
 func (s *Server) publishTableRemovedEvent(tableID string) <-chan struct{} {
 	ack := s.getTableRemovalAck(tableID)
+	select {
+	case <-s.stopChan:
+		s.signalTableRemovalDone(tableID)
+		return ack
+	default:
+	}
 
 	evt, err := s.buildGameEvent(
 		pokerrpc.NotificationType_TABLE_REMOVED,

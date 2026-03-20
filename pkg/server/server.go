@@ -124,6 +124,11 @@ type Server struct {
 	// WaitGroup to ensure all active stream handlers complete before Shutdown
 	streamHandlersWg sync.WaitGroup
 
+	// Shutdown signalling for background goroutines such as delayed table
+	// cleanup, which must stop scheduling work once server teardown begins.
+	stopChan chan struct{}
+	stopOnce sync.Once
+
 	// Event-driven architecture components
 	eventProcessor *EventProcessor
 
@@ -158,6 +163,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 		chainParams:   selectChainParams(cfg.Network),
 		adaptorSecret: cfg.AdaptorSecret,
 		defaultTables: append([]DefaultTableProfile(nil), cfg.DefaultTables...),
+		stopChan:      make(chan struct{}),
 	}
 
 	// Initialize auth state
@@ -445,6 +451,7 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 		db:            db,
 		chainParams:   selectChainParams("testnet"),
 		adaptorSecret: "",
+		stopChan:      make(chan struct{}),
 	}
 
 	// Initialize auth state
@@ -466,6 +473,14 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 
 // Stop gracefully stops the server
 func (s *Server) Stop() {
+	if s != nil {
+		s.stopOnce.Do(func() {
+			if s.stopChan != nil {
+				close(s.stopChan)
+			}
+		})
+	}
+
 	// Stop gRPC server first to cancel all stream contexts and prevent new RPC calls.
 	// This ensures that no new game actions can be triggered via RPC after shutdown starts.
 	if s.grpcServer != nil {
