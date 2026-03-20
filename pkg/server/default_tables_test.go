@@ -59,7 +59,10 @@ adaptorsecret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 	require.Equal(t, filepath.Join(dir, defaultTablesFilename), cfg.DefaultTablesPath)
 	_, err = os.Stat(cfg.DefaultTablesPath)
 	require.NoError(t, err)
-	require.Len(t, cfg.DefaultTables, 9)
+
+	profiles, err := loadDefaultTableProfiles(cfg.DefaultTablesPath)
+	require.NoError(t, err)
+	require.Equal(t, profiles, cfg.DefaultTables)
 }
 
 func TestManagedTablePersistsWithoutCreator(t *testing.T) {
