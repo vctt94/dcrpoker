@@ -216,7 +216,6 @@ class UiBetFx {
 @immutable
 class UiTable {
   final String id;
-  final String hostId;
   final List<UiPlayer> players;
   final int smallBlind;
   final int bigBlind;
@@ -230,7 +229,6 @@ class UiTable {
 
   const UiTable({
     required this.id,
-    required this.hostId,
     required this.players,
     required this.smallBlind,
     required this.bigBlind,
@@ -245,7 +243,6 @@ class UiTable {
 
   factory UiTable.fromProto(pr.Table t) => UiTable(
         id: t.id,
-        hostId: t.hostId,
         players: List.unmodifiable(t.players.map(UiPlayer.fromProto)),
         smallBlind: t.smallBlind.toInt(),
         bigBlind: t.bigBlind.toInt(),
@@ -1029,7 +1026,6 @@ class PokerModel extends ChangeNotifier {
       final list = await Golib.getPokerTables();
       tables = List.unmodifiable(list.map((t) => UiTable(
             id: t.id,
-            hostId: t.hostId,
             players: const [], // Players come from game updates/notifications
             smallBlind: t.smallBlind,
             bigBlind: t.bigBlind,

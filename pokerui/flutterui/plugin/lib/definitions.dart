@@ -507,8 +507,6 @@ class CreateWaitingRoomArgs {
 class PokerTable {
   @JsonKey(name: 'id')
   final String id;
-  @JsonKey(name: 'host_id')
-  final String hostId;
   @JsonKey(name: 'small_blind')
   final int smallBlind;
   @JsonKey(name: 'big_blind')
@@ -530,7 +528,6 @@ class PokerTable {
 
   PokerTable(
     this.id,
-    this.hostId,
     this.smallBlind,
     this.bigBlind,
     this.maxPlayers,
@@ -549,7 +546,6 @@ class PokerTable {
   pr.Table toProtobuf() {
     final t = pr.Table()
       ..id = id
-      ..hostId = hostId
       ..smallBlind = Int64(smallBlind)
       ..bigBlind = Int64(bigBlind)
       ..maxPlayers = maxPlayers

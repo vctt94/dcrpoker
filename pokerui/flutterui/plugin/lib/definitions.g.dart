@@ -377,7 +377,6 @@ Map<String, dynamic> _$CreateWaitingRoomArgsToJson(
 
 PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
   json['id'] as String,
-  json['host_id'] as String,
   (json['small_blind'] as num).toInt(),
   (json['big_blind'] as num).toInt(),
   (json['max_players'] as num).toInt(),
@@ -394,7 +393,6 @@ PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
 Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
     <String, dynamic>{
       'id': instance.id,
-      'host_id': instance.hostId,
       'small_blind': instance.smallBlind,
       'big_blind': instance.bigBlind,
       'max_players': instance.maxPlayers,

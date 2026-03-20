@@ -60,10 +60,9 @@ func (r *Renderer) RenderTableList() string {
 		for i, table := range r.ui.tables {
 			isSelected := i == r.ui.selectedTable
 
-			// Create more compact table info
-			tableID := table.Id
-			if len(tableID) > 20 {
-				tableID = tableID[:17] + "..."
+			tableLabel := strings.TrimSpace(table.Name)
+			if tableLabel == "" {
+				tableLabel = table.Id
 			}
 
 			// Add status indicators for better information
@@ -81,7 +80,7 @@ func (r *Renderer) RenderTableList() string {
 			// Compact single-line format with enhanced information
 			tableInfo := fmt.Sprintf("%s | %s | Players: %d/%d | Blinds: %d/%d",
 				status,
-				tableID,
+				tableLabel,
 				table.CurrentPlayers,
 				table.MaxPlayers,
 				table.SmallBlind,

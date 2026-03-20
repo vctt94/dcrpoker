@@ -408,7 +408,6 @@ type waitingRoom struct {
 // All fields are explicitly set to avoid JSON type ambiguity
 type pokerTable struct {
 	ID              string `json:"id"`
-	HostID          string `json:"host_id"`
 	SmallBlind      int64  `json:"small_blind"`
 	BigBlind        int64  `json:"big_blind"`
 	MaxPlayers      int32  `json:"max_players"`
@@ -426,7 +425,6 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 	}
 	return &pokerTable{
 		ID:              t.Id,
-		HostID:          t.HostId,
 		SmallBlind:      t.SmallBlind,
 		BigBlind:        t.BigBlind,
 		MaxPlayers:      t.MaxPlayers,
@@ -441,7 +439,6 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 // notificationTableDTO represents a table in a notification, including players
 type ntfnTableDTO struct {
 	ID              string       `json:"id"`
-	HostID          string       `json:"host_id"`
 	SmallBlind      int64        `json:"small_blind"`
 	BigBlind        int64        `json:"big_blind"`
 	MaxPlayers      int32        `json:"max_players"`
@@ -464,7 +461,6 @@ func tableFromProtoForNtfn(t *pokerrpc.Table) *ntfnTableDTO {
 	}
 	return &ntfnTableDTO{
 		ID:              t.Id,
-		HostID:          t.HostId,
 		SmallBlind:      t.SmallBlind,
 		BigBlind:        t.BigBlind,
 		MaxPlayers:      t.MaxPlayers,
