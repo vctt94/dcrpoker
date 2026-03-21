@@ -224,7 +224,7 @@ func (s *Server) applyGameSnapshot(table *poker.Table, gs *poker.GameStateSnapsh
 
 	// 3) Apply snapshot-declared phase exactly; do not derive from board size.
 	phase := gs.Phase
-	g.SetGameState(gs.Dealer, gs.Round, gs.CurrentBet, gs.Pot, phase)
+	g.SetGameState(gs.Dealer, gs.Round, gs.CurrentBet, gs.Pot, gs.LastRaiseAmount, phase)
 
 	// 4) Restore per-player derived fields (balance, currentBet, positions, turn)
 	// Use the available Player.Unmarshal helper to set role flags consistently.

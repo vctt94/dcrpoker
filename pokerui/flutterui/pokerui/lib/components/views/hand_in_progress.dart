@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
@@ -16,8 +17,18 @@ class HandInProgressView extends StatefulWidget {
   @override
   State<HandInProgressView> createState() => _HandInProgressViewState();
 
-  static int calculateTotalBet(int amt, int currentBet, int myBet, int bb) {
-    return amt;
+  static int calculateTotalBet(
+    int amt,
+    int currentBet,
+    int myBet,
+    int bb, {
+    int myBalance = 0,
+  }) {
+    return normalizeBetInputToTotal(
+      entered: amt,
+      myBet: myBet,
+      myBalance: myBalance,
+    );
   }
 }
 

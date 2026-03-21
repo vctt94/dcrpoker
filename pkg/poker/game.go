@@ -75,6 +75,8 @@ type Game struct {
 	round      int
 
 	// Betting-round bookkeeping
+	// lastRaiseAmount tracks the minimum legal raise increment for the current street.
+	lastRaiseAmount int64
 	// Index of the last player who made an aggressive action that set/increased
 	// the street-wide bet (bet or raise). -1 means no aggressor this street.
 	lastAggressor int
@@ -138,6 +140,15 @@ func (g *Game) sendTableEvent(event GameEvent) {
 	}
 }
 
+// resetBettingRound resets per-street betting bookkeeping.
+// Requires: g.mu held.
+func (g *Game) resetBettingRound() {
+	mustHeld(&g.mu)
+	g.currentBet = 0
+	g.lastAggressor = -1
+	g.lastRaiseAmount = g.config.BigBlind
+}
+
 // NewGame creates a new poker game with the given configuration
 // Players are managed by the Table, not the Game
 func NewGame(cfg GameConfig) (*Game, error) {
@@ -153,6 +164,10 @@ func NewGame(cfg GameConfig) (*Game, error) {
 		return nil, fmt.Errorf("poker: AutoAdvanceDelay must be set to a positive duration (e.g., 1s)")
 	}
 
+	if cfg.BigBlind <= 0 {
+		return nil, fmt.Errorf("poker: BigBlind must be greater than zero")
+	}
+
 	// Create a new deck with the given seed (or random if not specified)
 	var rng *rand.Rand
 	if cfg.Seed != 0 {
@@ -162,18 +177,19 @@ func NewGame(cfg GameConfig) (*Game, error) {
 	}
 
 	g := &Game{
-		players:        make([]*Player, 0, cfg.NumPlayers), // Empty slice, Table will populate
-		currentPlayer:  0,
-		dealer:         -1, // Start at -1 so first advancement makes it 0
-		deck:           newDeck(rng),
-		communityCards: nil,
-		potManager:     NewPotManager(cfg.NumPlayers),
-		currentBet:     0,
-		round:          0,
-		config:         cfg,
-		log:            cfg.Log,
-		phase:          pokerrpc.GamePhase_NEW_HAND_DEALING,
-		lastAggressor:  -1,
+		players:         make([]*Player, 0, cfg.NumPlayers), // Empty slice, Table will populate
+		currentPlayer:   0,
+		dealer:          -1, // Start at -1 so first advancement makes it 0
+		deck:            newDeck(rng),
+		communityCards:  nil,
+		potManager:      NewPotManager(cfg.NumPlayers),
+		currentBet:      0,
+		round:           0,
+		config:          cfg,
+		log:             cfg.Log,
+		phase:           pokerrpc.GamePhase_NEW_HAND_DEALING,
+		lastRaiseAmount: cfg.BigBlind,
+		lastAggressor:   -1,
 	}
 
 	// Initialize state machine with first state function
@@ -270,8 +286,8 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 	g.round++
 	// Reset hand-specific state inside FSM (except deck reseed which happens
 	// before dealing to keep a single deck per hand)
+	g.resetBettingRound()
 	g.communityCards = nil
-	g.currentBet = 0
 	g.winners = nil
 
 	// Cancel any pending auto-start from the previous hand.
@@ -529,9 +545,8 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	// Deal flop on entry; guard against double-deal
 	g.dealFlop()
-	g.currentBet = 0
+	g.resetBettingRound()
 	g.phase = pokerrpc.GamePhase_FLOP
-	g.lastAggressor = -1
 
 	// Snapshot auto-advance flag and count actionable players
 	autoAdvance := g.autoAdvanceEnabled
@@ -590,9 +605,8 @@ func stateFlop(g *Game, in <-chan any) GameStateFn {
 func stateTurn(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	g.dealTurn()
-	g.currentBet = 0
+	g.resetBettingRound()
 	g.phase = pokerrpc.GamePhase_TURN
-	g.lastAggressor = -1
 
 	autoAdvance := g.autoAdvanceEnabled
 	activePlayers := g.countActivePlayers()
@@ -636,9 +650,8 @@ func stateRiver(g *Game, in <-chan any) GameStateFn {
 	g.mu.Lock()
 	// Deal river on entry; guard against double-deal
 	g.dealRiver()
-	g.currentBet = 0
+	g.resetBettingRound()
 	g.phase = pokerrpc.GamePhase_RIVER
-	g.lastAggressor = -1
 
 	// Check if auto-advance is enabled and count actionable players
 	autoAdvance := g.autoAdvanceEnabled
@@ -1615,18 +1628,17 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		}
 	}
 
-	// When there is no live bet (opening the betting), enforce minimum opening bet
-	// of at least the big blind, unless the player is going all-in for less.
+	minRaise := g.lastRaiseAmount
+	isShortAllIn := delta > 0 && delta == balance
+
 	if tableBet == 0 {
-		minOpen := g.config.BigBlind
-		if minOpen < 0 {
-			minOpen = 0
+		if amount < minRaise && !isShortAllIn {
+			return fmt.Errorf("minimum bet is %d", minRaise)
 		}
-		if amount < minOpen {
-			// Allow short-stack all-in that is less than min open
-			if !(delta > 0 && delta == balance) {
-				return fmt.Errorf("minimum bet is the big blind (%d)", minOpen)
-			}
+	} else if amount > tableBet {
+		raiseSize := amount - tableBet
+		if raiseSize < minRaise && !isShortAllIn {
+			return fmt.Errorf("minimum raise is %d (current bet: %d, attempted: %d)", minRaise, tableBet, amount)
 		}
 	}
 
@@ -1640,14 +1652,26 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 		}
 	}
 
-	// Update game-wide current bet; if this action set/increased the street-wide
-	// bet, record the aggressor so we can detect end-of-round when action
-	// returns to them with all bets matched.
 	if amount > g.currentBet {
+		prevTableBet := g.currentBet
 		g.currentBet = amount
-		// Record aggressor as the actor currently taking a turn
+
+		raiseSize := amount - prevTableBet
+		isOpeningBet := prevTableBet == 0
+		isFullRaise := !isOpeningBet && raiseSize >= minRaise
+
 		if g.currentPlayer >= 0 && g.currentPlayer < len(g.players) {
-			g.lastAggressor = g.currentPlayer
+			if isOpeningBet || isFullRaise {
+				g.lastAggressor = g.currentPlayer
+			}
+		}
+
+		if isOpeningBet {
+			if !isShortAllIn {
+				g.lastRaiseAmount = amount
+			}
+		} else if isFullRaise {
+			g.lastRaiseAmount = raiseSize
 		}
 	}
 
@@ -2192,26 +2216,10 @@ func (g *Game) maybeCompleteBettingRound() {
 		return
 	}
 
-	// 6) Determine end-of-round based on aggressor:
-	// - If there was an aggressor (bet/raise this street), the round ends when
-	//   all actionable bets are matched and action returns to the last aggressor.
-	// - If there was no aggressor (all checks), the round ends when action
-	//   returns to the street starter.
-	if g.lastAggressor >= 0 {
-		// If aggressor exists and is still actionable, require action to have
-		// returned to them. If they're not actionable (all-in/folded), treat
-		// them as satisfied so we don't block advancement.
-		if g.lastAggressor < len(g.players) {
-			if p := g.players[g.lastAggressor]; p != nil && p.GetCurrentStateString() == IN_GAME_STATE && g.currentPlayer != g.lastAggressor {
-				return
-			}
-		}
-	} else {
-		// No aggressor case: round ends when action returns to street starter
-		starter := g.computeStreetStarterIndex()
-		if starter < 0 || g.currentPlayer != starter {
-			return
-		}
+	// 6) Once all actionable bets are matched, the street closes when action
+	// returns to the last full aggressor, or to the street starter if everyone checked.
+	if !g.actionReturnedToCloser(effectiveBet) {
+		return
 	}
 
 	// 7) Street is complete -> signal FSM to advance exactly one street.
@@ -2232,6 +2240,63 @@ func (g *Game) maybeCompleteBettingRound() {
 	}
 	// Reset aggressor marker eagerly; state entry also resets this defensively.
 	g.lastAggressor = -1
+}
+
+// nextActionablePlayerAfter returns the next IN_GAME player after idx, wrapping
+// around the table. Returns -1 if none are actionable. Requires: g.mu held.
+func (g *Game) nextActionablePlayerAfter(idx int) int {
+	mustHeld(&g.mu)
+
+	n := len(g.players)
+	if n < 2 {
+		return -1
+	}
+
+	for step := 1; step < n; step++ {
+		next := (idx + step) % n
+		if p := g.players[next]; p != nil && p.GetCurrentStateString() == IN_GAME_STATE {
+			return next
+		}
+	}
+	return -1
+}
+
+// actionReturnedToCloser reports whether betting has come back to the player
+// who would close the street: the last full aggressor when there was a bet or
+// raise, otherwise the street starter after a round of checks.
+//
+// A short all-in underraise does not become the closer. If it forces the last
+// aggressor to respond and action has already advanced past them again, allow
+// the street to close once their bet is matched.
+//
+// Requires: g.mu held.
+func (g *Game) actionReturnedToCloser(effectiveBet int64) bool {
+	mustHeld(&g.mu)
+
+	if g.lastAggressor < 0 {
+		starter := g.computeStreetStarterIndex()
+		return starter >= 0 && g.currentPlayer == starter
+	}
+
+	if g.lastAggressor >= len(g.players) {
+		return true
+	}
+
+	aggressor := g.players[g.lastAggressor]
+	if aggressor == nil || aggressor.GetCurrentStateString() != IN_GAME_STATE {
+		return true
+	}
+
+	if g.currentPlayer == g.lastAggressor {
+		return true
+	}
+
+	aggressor.mu.RLock()
+	aggressorBet := aggressor.currentBet
+	aggressor.mu.RUnlock()
+
+	nextAfterAggressor := g.nextActionablePlayerAfter(g.lastAggressor)
+	return g.currentPlayer == nextAfterAggressor && aggressorBet >= effectiveBet
 }
 
 // computeStreetStarterIndexLocked returns the index of the first actionable
@@ -2355,13 +2420,18 @@ func (g *Game) RestoreDeckState(state *DeckState) error {
 }
 
 // SetGameState allows restoring game state from persistence
-func (g *Game) SetGameState(dealer, round int, currentBet, pot int64, phase pokerrpc.GamePhase) {
+func (g *Game) SetGameState(dealer, round int, currentBet, pot, lastRaiseAmount int64, phase pokerrpc.GamePhase) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
 	g.dealer = dealer
 	g.round = round
 	g.currentBet = currentBet
+	if lastRaiseAmount > 0 {
+		g.lastRaiseAmount = lastRaiseAmount
+	} else {
+		g.lastRaiseAmount = g.config.BigBlind
+	}
 	g.phase = phase
 	// Note: Pot will be restored through the potManager when restoring player bets
 	// We can't directly set the pot value, but it will be calculated from player bets
@@ -2610,17 +2680,18 @@ type PlayerSnapshot struct {
 
 // GameStateSnapshot represents a point-in-time snapshot of game state for safe concurrent access
 type GameStateSnapshot struct {
-	Dealer         int
-	CurrentBet     int64
-	Pot            int64
-	Round          int
-	BetRound       int
-	Phase          pokerrpc.GamePhase
-	CommunityCards []Card
-	DeckState      *DeckState
-	Players        []PlayerSnapshot
-	CurrentPlayer  string
-	Winners        []PlayerSnapshot
+	Dealer          int
+	CurrentBet      int64
+	LastRaiseAmount int64
+	Pot             int64
+	Round           int
+	BetRound        int
+	Phase           pokerrpc.GamePhase
+	CommunityCards  []Card
+	DeckState       *DeckState
+	Players         []PlayerSnapshot
+	CurrentPlayer   string
+	Winners         []PlayerSnapshot
 }
 
 // GetStateSnapshot returns an atomic snapshot of the game state for safe concurrent access
@@ -2778,17 +2849,18 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	}
 
 	return GameStateSnapshot{
-		Dealer:         g.dealer,
-		CurrentBet:     g.currentBet,
-		Pot:            potAmount,
-		Round:          g.round,
-		BetRound:       br,
-		Phase:          g.phase,
-		CommunityCards: communityCardsCopy,
-		DeckState:      g.deck.GetState(),
-		Players:        playersCopy,
-		CurrentPlayer:  curID,
-		Winners:        winners,
+		Dealer:          g.dealer,
+		CurrentBet:      g.currentBet,
+		LastRaiseAmount: g.lastRaiseAmount,
+		Pot:             potAmount,
+		Round:           g.round,
+		BetRound:        br,
+		Phase:           g.phase,
+		CommunityCards:  communityCardsCopy,
+		DeckState:       g.deck.GetState(),
+		Players:         playersCopy,
+		CurrentPlayer:   curID,
+		Winners:         winners,
 	}
 }
 
