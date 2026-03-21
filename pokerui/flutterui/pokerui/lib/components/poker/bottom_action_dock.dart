@@ -158,6 +158,7 @@ class MobileHeroActionPanel extends StatelessWidget {
     this.showSidebar = false,
     this.onToggleSidebar,
     this.showActions = true,
+    this.reserveActionSpace = false,
     this.footer,
   }) : assert(
           !showActions ||
@@ -175,6 +176,7 @@ class MobileHeroActionPanel extends StatelessWidget {
   final bool showSidebar;
   final VoidCallback? onToggleSidebar;
   final bool showActions;
+  final bool reserveActionSpace;
   final Widget? footer;
 
   int _resolveBigBlind() {
@@ -189,6 +191,7 @@ class MobileHeroActionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final canAct = model.canAct;
+    final actionRowHeight = 48 * buttonScale(bp);
     final me = model.me;
     final isShowing = me?.cardsRevealed ?? false;
     final cards =
@@ -233,20 +236,32 @@ class MobileHeroActionPanel extends StatelessWidget {
                 _LastHandButton(active: showSidebar, onTap: onToggleSidebar!),
             ],
           ),
-          if (showActions) ...[
+          if (showActions || reserveActionSpace) ...[
             const SizedBox(height: PokerSpacing.sm),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: canAct
-                  ? _ActionButtons(
-                      model: model,
-                      showBetInput: showBetInput,
-                      betCtrl: betCtrl!,
-                      onToggleBetInput: onToggleBetInput!,
-                      onCloseBetInput: onCloseBetInput!,
-                      bb: _resolveBigBlind(),
-                    )
-                  : _WaitingIndicator(model: model),
+            SizedBox(
+              height: actionRowHeight,
+              child: Visibility(
+                visible: showActions,
+                maintainState: reserveActionSpace,
+                maintainAnimation: reserveActionSpace,
+                maintainSize: reserveActionSpace,
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: canAct
+                        ? _ActionButtons(
+                            model: model,
+                            showBetInput: showBetInput,
+                            betCtrl: betCtrl!,
+                            onToggleBetInput: onToggleBetInput!,
+                            onCloseBetInput: onCloseBetInput!,
+                            bb: _resolveBigBlind(),
+                          )
+                        : _WaitingIndicator(model: model),
+                  ),
+                ),
+              ),
             ),
           ],
           if (footer != null) ...[

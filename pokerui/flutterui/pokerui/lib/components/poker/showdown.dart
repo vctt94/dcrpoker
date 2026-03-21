@@ -99,7 +99,7 @@ class _ShowdownViewState extends State<ShowdownView> {
       ],
     );
 
-    final showdownFooter = model.isGameEndPending
+    final Widget? showdownFooter = model.isGameEndPending
         ? Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -135,48 +135,43 @@ class _ShowdownViewState extends State<ShowdownView> {
               ],
             ),
           )
-        : const SizedBox.shrink();
+        : null;
 
     if (isMobile) {
-      return LayoutBuilder(builder: (context, constraints) {
-        final maxTableHeight =
-            constraints.maxHeight - mobileHeroPanelMinHeight(bp);
-        final tableMax = maxTableHeight < 220.0 ? 220.0 : maxTableHeight;
-        final tableHeight =
-            (constraints.maxHeight * mobileTableHeightFraction(bp))
-                .clamp(220.0, tableMax)
-                .toDouble();
-        return Column(
-          children: [
-            SizedBox(height: tableHeight, child: tableStack),
-            Expanded(
-              child: MobileHeroActionPanel(
-                model: model,
-                showActions: false,
-                footer: showdownFooter,
-              ),
-            ),
-          ],
-        );
-      });
+      return Column(
+        children: [
+          Expanded(child: tableStack),
+          MobileHeroActionPanel(
+            model: model,
+            showActions: false,
+            reserveActionSpace: true,
+            footer: showdownFooter,
+          ),
+        ],
+      );
     }
 
-    return Column(
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        Expanded(child: tableStack),
-        // Always reserve bottom space to prevent the table from jumping
-        // when transitioning from HandInProgressView (which has BottomActionDock).
-        Container(
-          constraints: BoxConstraints(minHeight: actionDockMinHeight(bp)),
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 10,
-            bottom: safeBottomPadding(context, minPadding: 10),
+        tableStack,
+        if (showdownFooter != null)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              constraints: BoxConstraints(minHeight: actionDockMinHeight(bp)),
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 10,
+                bottom: safeBottomPadding(context, minPadding: 10),
+              ),
+              color: const Color(0xFF121212),
+              child: showdownFooter,
+            ),
           ),
-          color: const Color(0xFF121212),
-          child: showdownFooter,
-        ),
       ],
     );
   }
