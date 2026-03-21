@@ -912,6 +912,16 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 		}
 		return map[string]string{"status": "ok"}, nil
 
+	case CTReconnectNow:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.ReconnectNow()
+		if err != nil {
+			return nil, fmt.Errorf("failed to reconnect now: %v", err)
+		}
+		return map[string]string{"status": "ok"}, nil
+
 	case CTEvaluateHand:
 		var req evaluateHand
 		if err := decodeStrict(cmd.Payload, &req); err != nil {

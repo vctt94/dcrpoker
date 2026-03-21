@@ -126,6 +126,9 @@ type PokerClient struct {
 	// Loop coordination
 	ntfnLoopMu      sync.Mutex
 	ntfnLoopRunning bool
+
+	notificationReconnectCh chan struct{}
+	gameReconnectCh         chan struct{}
 }
 
 // NewPokerClient creates a new poker client with notification support
@@ -169,19 +172,21 @@ func wrapPokerClient(ctx context.Context, cfg *ClientConfig, base *PokerClient) 
 	ctx, cancel := context.WithCancel(ctx)
 
 	pc := &PokerClient{
-		ID:           base.ID,
-		DataDir:      base.DataDir,
-		LobbyService: base.LobbyService,
-		PokerService: base.PokerService,
-		conn:         base.conn,
-		cfg:          cfg,
-		ntfns:        cfg.Notifications,
-		log:          base.log,
-		logBackend:   base.logBackend,
-		UpdatesCh:    make(chan tea.Msg, 100),
-		ErrorsCh:     make(chan error, 10),
-		ctx:          ctx,
-		cancelFunc:   cancel,
+		ID:                      base.ID,
+		DataDir:                 base.DataDir,
+		LobbyService:            base.LobbyService,
+		PokerService:            base.PokerService,
+		conn:                    base.conn,
+		cfg:                     cfg,
+		ntfns:                   cfg.Notifications,
+		log:                     base.log,
+		logBackend:              base.logBackend,
+		UpdatesCh:               make(chan tea.Msg, 100),
+		ErrorsCh:                make(chan error, 10),
+		ctx:                     ctx,
+		cancelFunc:              cancel,
+		notificationReconnectCh: make(chan struct{}, 1),
+		gameReconnectCh:         make(chan struct{}, 1),
 	}
 
 	if err := pc.validate(); err != nil {
@@ -400,47 +405,7 @@ func (pc *PokerClient) setSessionToken(token string) {
 	pc.Unlock()
 }
 
-// reconnect attempts to reconnect to the server and restart the notification stream
-func (pc *PokerClient) reconnect() error {
-	pc.reconnectMu.Lock()
-	defer pc.reconnectMu.Unlock()
-
-	if pc.reconnecting {
-		return nil // Already reconnecting
-	}
-
-	pc.reconnecting = true
-	defer func() { pc.reconnecting = false }()
-
-	pc.log.Info("attempting to reconnect...")
-
-	// Close existing connection
-	if pc.conn != nil {
-		pc.conn.Close()
-	}
-
-	// Create new context for reconnection
-	ctx, cancel := context.WithCancel(pc.ctx)
-	pc.cancelFunc = cancel
-
-	client, err := newClient(ctx, pc.cfg)
-	if err != nil {
-		return fmt.Errorf("failed to reconnect client: %v", err)
-	}
-
-	// Update client fields
-	pc.LobbyService = client.LobbyService
-	pc.PokerService = client.PokerService
-	pc.conn = client.conn
-
-	// Restart notification stream
-	if err := pc.StartNotificationStream(ctx); err != nil {
-		return fmt.Errorf("failed to restart notification stream: %v", err)
-	}
-
-	pc.log.Info("successfully reconnected")
-	return nil
-}
+// reconnect attempts to reconnect to the server and restart the notification stream.
 
 // GetCurrentTableID returns the current table ID
 func (pc *PokerClient) GetCurrentTableID() string {
@@ -663,14 +628,91 @@ func capBackoff(current, max time.Duration) time.Duration {
 	return next
 }
 
-func waitWithBackoff(ctx context.Context, d time.Duration) bool {
+func waitWithBackoffOrSignal(ctx context.Context, d time.Duration, signal <-chan struct{}) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 
 	select {
 	case <-ctx.Done():
 		return false
+	case <-signal:
+		return true
 	case <-timer.C:
 		return true
 	}
+}
+
+func (pc *PokerClient) signalNotificationReconnect() {
+	select {
+	case pc.notificationReconnectCh <- struct{}{}:
+	default:
+	}
+}
+
+func (pc *PokerClient) signalGameReconnect() {
+	select {
+	case pc.gameReconnectCh <- struct{}{}:
+	default:
+	}
+}
+
+// ReconnectNow forces any active streams to reconnect immediately instead of
+// waiting for the normal retry timer or keepalive detection.
+func (pc *PokerClient) ReconnectNow() error {
+	if err := pc.validate(); err != nil {
+		return fmt.Errorf("cannot reconnect now: %v", err)
+	}
+
+	pc.reconnectMu.Lock()
+	defer pc.reconnectMu.Unlock()
+
+	if pc.reconnecting {
+		return nil
+	}
+
+	pc.reconnecting = true
+	defer func() { pc.reconnecting = false }()
+
+	pc.log.Info("forcing immediate reconnect attempt")
+
+	replacement, err := newClient(pc.ctx, pc.cfg)
+	if err != nil {
+		return fmt.Errorf("failed to reconnect client: %v", err)
+	}
+
+	oldConn := pc.conn
+	pc.LobbyService = replacement.LobbyService
+	pc.PokerService = replacement.PokerService
+	pc.conn = replacement.conn
+	pc.notifier = nil
+
+	pc.gameStreamMu.Lock()
+	pc.gameStream = nil
+	pc.gameStreamMu.Unlock()
+
+	if oldConn != nil {
+		if err := oldConn.Close(); err != nil {
+			pc.log.Warnf("failed to close previous connection during reconnect: %v", err)
+		}
+	}
+
+	pc.signalNotificationReconnect()
+	pc.signalGameReconnect()
+
+	pc.ntfnLoopMu.Lock()
+	ntfnLoopRunning := pc.ntfnLoopRunning
+	pc.ntfnLoopMu.Unlock()
+	if !ntfnLoopRunning {
+		if err := pc.StartNotificationStream(pc.ctx); err != nil {
+			return fmt.Errorf("restart notification stream: %w", err)
+		}
+	}
+
+	if pc.GetCurrentTableID() != "" {
+		if err := pc.StartGameStream(pc.ctx); err != nil {
+			return fmt.Errorf("restart game stream: %w", err)
+		}
+	}
+
+	return nil
 }

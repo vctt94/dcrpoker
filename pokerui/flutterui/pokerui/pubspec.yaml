@@ -39,10 +39,12 @@ dependencies:
   grpc: ^4.0.1
   dio: ^5.7.0
   ini: ^2.1.0
+  collection: ^1.19.1
   window_manager: ^0.4.3
   provider: ^6.1.2
   path: ^1.9.0
   audioplayers: ^6.1.0
+  file_picker: ^8.1.7
 
 dev_dependencies:
   flutter_test:

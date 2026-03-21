@@ -77,6 +77,7 @@ const (
 	CTRequestLoginCode CmdType = 0x29
 	CTSetPayoutAddress CmdType = 0x2a
 	CTGetPayoutAddress CmdType = 0x2b
+	CTReconnectNow     CmdType = 0x2c
 
 	CTCreateLockFile        CmdType = 0x60
 	CTCloseLockFile         CmdType = 0x61

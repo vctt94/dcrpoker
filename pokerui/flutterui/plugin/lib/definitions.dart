@@ -74,7 +74,7 @@ class InitClient {
     this.logFile,
     this.debugLevel,
     this.soundsEnabled,
-);
+  );
 
   factory InitClient.fromJson(Map<String, dynamic> json) =>
       _$InitClientFromJson(json);
@@ -366,7 +366,7 @@ class ServerInfo {
     required this.serverAddr,
   });
   const ServerInfo.empty()
-      : this(innerFingerprint: "", outerFingerprint: "", serverAddr: "");
+    : this(innerFingerprint: "", outerFingerprint: "", serverAddr: "");
 
   factory ServerInfo.fromJson(Map<String, dynamic> json) =>
       _$ServerInfoFromJson(json);
@@ -729,8 +729,8 @@ class PlayerDTO {
     this.escrowId,
     this.escrowReady,
     this.tableSeat, [
-      this.cardsRevealed = false,
-    ]);
+    this.cardsRevealed = false,
+  ]);
 
   factory PlayerDTO.fromJson(Map<String, dynamic> json) =>
       _$PlayerDTOFromJson(json);
@@ -750,7 +750,8 @@ class PlayerDTO {
       ..isReady = isReady
       ..isDisconnected = disconnected
       ..handDescription = handDescription
-      ..playerState = pr.PlayerState.valueOf(playerState) ??
+      ..playerState =
+          pr.PlayerState.valueOf(playerState) ??
           pr.PlayerState.PLAYER_STATE_UNINITIALIZED
       ..isSmallBlind = isSmallBlind
       ..isBigBlind = isBigBlind
@@ -863,8 +864,9 @@ class WinnerDTO {
     final hrRaw = json['handRank'] ?? json['hand_rank'];
     final handRank = hrRaw is num ? hrRaw.toInt() : int.tryParse('$hrRaw') ?? 0;
     final winningsRaw = json['winnings'];
-    final winnings =
-        winningsRaw is num ? winningsRaw.toInt() : int.tryParse('$winningsRaw') ?? 0;
+    final winnings = winningsRaw is num
+        ? winningsRaw.toInt()
+        : int.tryParse('$winningsRaw') ?? 0;
     final bestRaw = json['bestHand'] ?? json['best_hand'];
     List<CardDTO>? bestHand;
     if (bestRaw is List) {
@@ -926,19 +928,20 @@ class ShowdownPlayerDTO {
       finalState: fsRaw is num ? fsRaw.toInt() : int.tryParse('$fsRaw'),
       handRank: hrRaw is num ? hrRaw.toInt() : int.tryParse('$hrRaw'),
       bestHand: bestHand,
-      contribution:
-          contribRaw is num ? contribRaw.toInt() : int.tryParse('$contribRaw'),
+      contribution: contribRaw is num
+          ? contribRaw.toInt()
+          : int.tryParse('$contribRaw'),
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'playerId': playerId,
-        'holeCards': holeCards?.map((c) => c.toJson()).toList(),
-        'finalState': finalState,
-        'handRank': handRank,
-        'bestHand': bestHand?.map((c) => c.toJson()).toList(),
-        'contribution': contribution,
-      };
+    'playerId': playerId,
+    'holeCards': holeCards?.map((c) => c.toJson()).toList(),
+    'finalState': finalState,
+    'handRank': handRank,
+    'bestHand': bestHand?.map((c) => c.toJson()).toList(),
+    'contribution': contribution,
+  };
 
   pr.ShowdownPlayer toProtobuf() {
     final sp = pr.ShowdownPlayer()..playerId = playerId;
@@ -950,7 +953,8 @@ class ShowdownPlayerDTO {
     }
     if (finalState != null) {
       sp.finalState =
-          pr.PlayerState.valueOf(finalState!) ?? pr.PlayerState.PLAYER_STATE_UNINITIALIZED;
+          pr.PlayerState.valueOf(finalState!) ??
+          pr.PlayerState.PLAYER_STATE_UNINITIALIZED;
     }
     if (handRank != null) {
       sp.handRank = pr.HandRank.valueOf(handRank!) ?? pr.HandRank.HIGH_CARD;
@@ -1030,7 +1034,10 @@ class NotificationDTO {
     List<ShowdownPlayerDTO>? showdownPlayers;
     if (playersRaw is List) {
       showdownPlayers = playersRaw
-          .map((e) => ShowdownPlayerDTO.fromJson(Map<String, dynamic>.from(e as Map)))
+          .map(
+            (e) =>
+                ShowdownPlayerDTO.fromJson(Map<String, dynamic>.from(e as Map)),
+          )
           .toList();
     }
     final boardRaw = json['board'];
@@ -1053,7 +1060,8 @@ class NotificationDTO {
         : int.tryParse('$showdownPotRaw');
 
     debugPrint(
-        '[NtfParse] type=$rawType winners=${winners?.length ?? 0} players=${showdownPlayers?.length ?? 0} board=${board?.length ?? 0} pot=${showdownPot ?? 0}');
+      '[NtfParse] type=$rawType winners=${winners?.length ?? 0} players=${showdownPlayers?.length ?? 0} board=${board?.length ?? 0} pot=${showdownPot ?? 0}',
+    );
 
     return NotificationDTO(
       rawType,
@@ -1069,7 +1077,9 @@ class NotificationDTO {
       countdown: (json['countdown'] as num?)?.toInt(),
       table: json['table'] == null
           ? null
-          : PokerTable.fromJson(Map<String, dynamic>.from(json['table'] as Map)),
+          : PokerTable.fromJson(
+              Map<String, dynamic>.from(json['table'] as Map),
+            ),
       winners: winners,
       showdownPot: showdownPot,
       showdownPlayers: showdownPlayers,
@@ -1214,11 +1224,7 @@ class PresignError {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'tableId': tableId,
-      'playerId': playerId,
-      'error': error,
-    };
+    return {'tableId': tableId, 'playerId': playerId, 'error': error};
   }
 }
 
@@ -1389,7 +1395,8 @@ abstract class PluginPlatform {
   }
 
   Future<SetPayoutAddressResponse> setPayoutAddress(
-      SetPayoutAddressRequest req) async {
+    SetPayoutAddressRequest req,
+  ) async {
     const cmdType = CTSetPayoutAddress;
     final result = await asyncCall(cmdType, req.toJson());
     return SetPayoutAddressResponse.fromJson(_asJsonMap(result));
@@ -1424,9 +1431,7 @@ abstract class PluginPlatform {
     return _asJsonMap(res);
   }
 
-  Future<Map<String, dynamic>> updateConfig(
-    UpdateConfig args,
-  ) async {
+  Future<Map<String, dynamic>> updateConfig(UpdateConfig args) async {
     final res = await asyncCall(CTUpdateConfig, args.toJson());
     return _asJsonMap(res);
   }
@@ -1611,7 +1616,10 @@ abstract class PluginPlatform {
     });
   }
 
-  Future<Map<String, String>> archiveSessionKey(String matchId, Map<String, dynamic> escrowInfo) async {
+  Future<Map<String, String>> archiveSessionKey(
+    String matchId,
+    Map<String, dynamic> escrowInfo,
+  ) async {
     final res = await asyncCall(CTArchiveSessionKey, {
       'match_id': matchId,
       'escrow_info': escrowInfo,
@@ -1713,6 +1721,10 @@ abstract class PluginPlatform {
   Future<void> startGameStream() async {
     await asyncCall(CTStartGameStream, "");
   }
+
+  Future<void> reconnectNow() async {
+    await asyncCall(CTReconnectNow, "");
+  }
 }
 
 /// -------------------- Commands & Notifications --------------------
@@ -1774,6 +1786,7 @@ const int CTResumeSession = 0x28;
 const int CTRequestLoginCode = 0x29;
 const int CTSetPayoutAddress = 0x2a;
 const int CTGetPayoutAddress = 0x2b;
+const int CTReconnectNow = 0x2c;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =

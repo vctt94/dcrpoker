@@ -96,7 +96,8 @@ class PokerBootstrapApp extends StatefulWidget {
   State<PokerBootstrapApp> createState() => _PokerBootstrapAppState();
 }
 
-class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
+class _PokerBootstrapAppState extends State<PokerBootstrapApp>
+    with WidgetsBindingObserver {
   late final ConfigNotifier _configNotifier;
   NotificationModel? _notificationModel;
   PokerModel? _pokerModel;
@@ -108,6 +109,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   List<String> _missingFields = const [];
   StreamSubscription<LocalWaitingRoom>? _wrCreatedSub;
   bool _attemptedSessionRestore = false;
+  bool _resumeReconnectInFlight = false;
+  int _lastResumeReconnectMs = 0;
 
   ThemeData get _theme => ThemeData.dark().copyWith(
         scaffoldBackgroundColor: const Color.fromARGB(255, 25, 23, 44),
@@ -117,6 +120,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _configNotifier = ConfigNotifier();
     _configNotifier.updateConfig(widget.initialConfig);
     // Listen to config changes
@@ -126,10 +130,45 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _configNotifier.removeListener(_onConfigChanged);
     _configNotifier.dispose();
     _disposeCurrentModel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      return;
+    }
+    unawaited(_reconnectAfterResume());
+  }
+
+  Future<void> _reconnectAfterResume() async {
+    if (_needsLogin || _pokerModel == null || _resumeReconnectInFlight) {
+      return;
+    }
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastResumeReconnectMs < 1500) {
+      return;
+    }
+
+    _resumeReconnectInFlight = true;
+    _lastResumeReconnectMs = now;
+    try {
+      await Golib.reconnectNow();
+      await _pokerModel?.refreshTables();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Fast reconnect after resume failed',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      _resumeReconnectInFlight = false;
+    }
   }
 
   void _onConfigChanged() {
@@ -141,7 +180,6 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       }
     }
   }
-
 
   void _disposeCurrentModel() {
     _pokerModel?.dispose();
@@ -221,7 +259,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       // will reuse the existing client handle
       final pokerModel = await PokerModel.fromConfig(cfg, notificationModel);
       pokerModel.updateAuthedPayoutAddress(_authedPayoutAddress);
-      
+
       // Authentication already happened in LoginScreen, so we can proceed
       await pokerModel.init();
       if (!mounted) {
@@ -267,7 +305,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
       // Reload config from golib - this reads the file from disk
       await _configNotifier.reload();
       if (!mounted) return false;
-      
+
       setState(() {
         _attemptedSessionRestore = false;
       });
@@ -293,7 +331,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
   }
 
   Future<void> _openConfig(BuildContext context) async {
-    final cfg = _configNotifier.hasConfig ? _configNotifier.value : Config.filled();
+    final cfg =
+        _configNotifier.hasConfig ? _configNotifier.value : Config.filled();
     final navigator = Navigator.of(context);
     await navigator.push(
       MaterialPageRoute(
@@ -348,7 +387,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp> {
         ),
       );
     }
-    
+
     final cfg = _configNotifier.value;
 
     // Show login screen if needed
@@ -441,7 +480,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     // Watch config notifier to ensure MaterialApp rebuilds when config changes
     context.watch<ConfigNotifier>();
-    
+
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Poker UI',
@@ -466,16 +505,16 @@ class MyApp extends StatelessWidget {
               child: const PokerHomeScreen(),
             ),
         '/settings': (context) {
-              // Get the current config from the notifier
-              final currentConfigNotifier = context.watch<ConfigNotifier>();
-              return NewConfigScreen(
-                model: NewConfigModel.fromConfig(currentConfigNotifier.value),
-                onConfigSaved: () async {
-                  // Reload config from golib
-                  await currentConfigNotifier.reload();
-                },
-              );
+          // Get the current config from the notifier
+          final currentConfigNotifier = context.watch<ConfigNotifier>();
+          return NewConfigScreen(
+            model: NewConfigModel.fromConfig(currentConfigNotifier.value),
+            onConfigSaved: () async {
+              // Reload config from golib
+              await currentConfigNotifier.reload();
             },
+          );
+        },
         '/logs': (context) => const LogsScreen(),
         '/sign-address': (context) => const SignAddressScreen(),
         '/open-escrow': (context) => const OpenEscrowScreen(),

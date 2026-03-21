@@ -3,7 +3,7 @@
 # Building
 
 Requires [flutter](https://wwww.flutter.dev). Requires xcode for macos/ios.
-Requires Android NDK to build for android. 
+Requires Android NDK to build for android.
 
 ## Native Desktop
 
