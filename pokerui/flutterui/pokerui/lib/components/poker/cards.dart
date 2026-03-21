@@ -5,9 +5,7 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/config.dart';
-
-// Shared card rendering widgets to ensure a single source of truth
-// for card visuals across the app (faces, backs, and flip animation).
+import 'package:pokerui/theme/colors.dart';
 
 String suitSym(String suit) {
   final s = suit.toLowerCase();
@@ -38,6 +36,124 @@ Color suitColor(String suit, {CardColorTheme? cardTheme}) {
   return Colors.black;
 }
 
+// ── Pip layout positions for number cards ──
+// Normalized (x, y) positions where 0,0 is top-left and 1,1 is bottom-right
+// of the pip area. Some bottom-half pips are drawn upside-down.
+const Map<int, List<_PipPos>> _pipLayouts = {
+  1: [_PipPos(0.5, 0.5, false)],
+  2: [_PipPos(0.5, 0.2, false), _PipPos(0.5, 0.8, true)],
+  3: [
+    _PipPos(0.5, 0.2, false),
+    _PipPos(0.5, 0.5, false),
+    _PipPos(0.5, 0.8, true)
+  ],
+  4: [
+    _PipPos(0.3, 0.2, false),
+    _PipPos(0.7, 0.2, false),
+    _PipPos(0.3, 0.8, true),
+    _PipPos(0.7, 0.8, true),
+  ],
+  5: [
+    _PipPos(0.3, 0.2, false),
+    _PipPos(0.7, 0.2, false),
+    _PipPos(0.5, 0.5, false),
+    _PipPos(0.3, 0.8, true),
+    _PipPos(0.7, 0.8, true),
+  ],
+  6: [
+    _PipPos(0.3, 0.2, false),
+    _PipPos(0.7, 0.2, false),
+    _PipPos(0.3, 0.5, false),
+    _PipPos(0.7, 0.5, false),
+    _PipPos(0.3, 0.8, true),
+    _PipPos(0.7, 0.8, true),
+  ],
+  7: [
+    _PipPos(0.3, 0.2, false),
+    _PipPos(0.7, 0.2, false),
+    _PipPos(0.5, 0.35, false),
+    _PipPos(0.3, 0.5, false),
+    _PipPos(0.7, 0.5, false),
+    _PipPos(0.3, 0.8, true),
+    _PipPos(0.7, 0.8, true),
+  ],
+  8: [
+    _PipPos(0.3, 0.2, false),
+    _PipPos(0.7, 0.2, false),
+    _PipPos(0.5, 0.35, false),
+    _PipPos(0.3, 0.5, false),
+    _PipPos(0.7, 0.5, false),
+    _PipPos(0.5, 0.65, true),
+    _PipPos(0.3, 0.8, true),
+    _PipPos(0.7, 0.8, true),
+  ],
+  9: [
+    _PipPos(0.3, 0.18, false),
+    _PipPos(0.7, 0.18, false),
+    _PipPos(0.3, 0.39, false),
+    _PipPos(0.7, 0.39, false),
+    _PipPos(0.5, 0.5, false),
+    _PipPos(0.3, 0.61, true),
+    _PipPos(0.7, 0.61, true),
+    _PipPos(0.3, 0.82, true),
+    _PipPos(0.7, 0.82, true),
+  ],
+  10: [
+    _PipPos(0.3, 0.15, false),
+    _PipPos(0.7, 0.15, false),
+    _PipPos(0.5, 0.28, false),
+    _PipPos(0.3, 0.38, false),
+    _PipPos(0.7, 0.38, false),
+    _PipPos(0.3, 0.62, true),
+    _PipPos(0.7, 0.62, true),
+    _PipPos(0.5, 0.72, true),
+    _PipPos(0.3, 0.85, true),
+    _PipPos(0.7, 0.85, true),
+  ],
+};
+
+class _PipPos {
+  final double x, y;
+  final bool inverted;
+  const _PipPos(this.x, this.y, this.inverted);
+}
+
+int? _rankToCount(String value) {
+  switch (value.toUpperCase()) {
+    case 'A':
+      return 1;
+    case '2':
+      return 2;
+    case '3':
+      return 3;
+    case '4':
+      return 4;
+    case '5':
+      return 5;
+    case '6':
+      return 6;
+    case '7':
+      return 7;
+    case '8':
+      return 8;
+    case '9':
+      return 9;
+    case '10':
+      return 10;
+    default:
+      return null;
+  }
+}
+
+bool _isFaceCard(String value) {
+  final v = value.toUpperCase();
+  return v == 'J' || v == 'Q' || v == 'K';
+}
+
+// ─────────────────────────────────────────────
+// CardFace Widget
+// ─────────────────────────────────────────────
+
 class CardFace extends StatelessWidget {
   const CardFace({super.key, required pr.Card? card, this.cardTheme})
       : _card = card;
@@ -49,98 +165,79 @@ class CardFace extends StatelessWidget {
     final value = _card?.value ?? '';
     final suit = _card?.suit ?? '';
     final suitSymbol = suitSym(suit);
-    final suitTint = suitColor(suit, cardTheme: cardTheme);
+    final tint = suitColor(suit, cardTheme: cardTheme);
+
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, c) {
           final w = c.maxWidth.clamp(20.0, double.infinity);
           final h = c.maxHeight.clamp(28.0, double.infinity);
-          final rankFs = (w * 0.30).clamp(10.0, 28.0).toDouble();
-          final suitFs = (w * 0.26).clamp(8.0, 24.0).toDouble();
-          final centerFs = (math.min(w, h) * 0.35).clamp(12.0, 40.0).toDouble();
-          final textColor = suitTint;
-          final borderColor = Colors.black87;
+          final isSmall = w < 36;
+          final rankFs = (w * 0.28).clamp(8.0, 22.0).toDouble();
+          final suitFs = (w * 0.22).clamp(6.0, 18.0).toDouble();
+
           return Container(
-            constraints: const BoxConstraints(
-              minWidth: 20.0,
-              minHeight: 28.0,
-            ),
             decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: borderColor, width: 2),
-              boxShadow: [
+              color: PokerColors.cardFace,
+              borderRadius: BorderRadius.circular((w * 0.1).clamp(4.0, 10.0)),
+              border: Border.all(color: const Color(0xFFD0D0D0), width: 1),
+              boxShadow: const [
                 BoxShadow(
-                    color: Colors.black.withOpacity(0.30),
-                    blurRadius: 6,
-                    spreadRadius: 1),
+                  color: Color(0x40000000),
+                  blurRadius: 6,
+                  spreadRadius: 0.5,
+                  offset: Offset(0, 2),
+                ),
               ],
             ),
-            child: Padding(
-              padding: const EdgeInsets.all(4.0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular((w * 0.1).clamp(4.0, 10.0)),
               child: Stack(
                 children: [
-                  Align(
-                    alignment: Alignment.topLeft,
-                    child: FittedBox(
-                      alignment: Alignment.topLeft,
-                      fit: BoxFit.scaleDown,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(value,
-                              style: TextStyle(
-                                  color: textColor,
-                                  fontSize: rankFs,
-                                  fontWeight: FontWeight.w900)),
-                          Text(suitSymbol,
-                              style: TextStyle(
-                                  color: textColor,
-                                  fontSize: suitFs,
-                                  fontWeight: FontWeight.w700)),
-                        ],
+                  // Corner index: top-left
+                  Positioned(
+                    left: w * 0.06,
+                    top: h * 0.04,
+                    child: _CornerIndex(
+                      rank: value,
+                      suit: suitSymbol,
+                      color: tint,
+                      rankSize: rankFs,
+                      suitSize: suitFs * 0.85,
+                    ),
+                  ),
+                  // Corner index: bottom-right (rotated 180)
+                  Positioned(
+                    right: w * 0.06,
+                    bottom: h * 0.04,
+                    child: Transform.rotate(
+                      angle: math.pi,
+                      child: _CornerIndex(
+                        rank: value,
+                        suit: suitSymbol,
+                        color: tint,
+                        rankSize: rankFs,
+                        suitSize: suitFs * 0.85,
                       ),
                     ),
                   ),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Transform.rotate(
-                      angle: math.pi,
-                      child: FittedBox(
-                        alignment: Alignment.topLeft,
-                        fit: BoxFit.scaleDown,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(value,
-                                style: TextStyle(
-                                    color: textColor,
-                                    fontSize: rankFs,
-                                    fontWeight: FontWeight.w900)),
-                            Text(suitSymbol,
-                                style: TextStyle(
-                                    color: textColor,
-                                    fontSize: suitFs,
-                                    fontWeight: FontWeight.w700)),
-                          ],
+                  // Center content
+                  if (!isSmall)
+                    Positioned.fill(
+                      child: Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: w * 0.18,
+                          vertical: h * 0.15,
+                        ),
+                        child: _CardCenter(
+                          value: value,
+                          suit: suitSymbol,
+                          color: tint,
+                          width: w,
+                          height: h,
                         ),
                       ),
                     ),
-                  ),
-                  Center(
-                    child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        suitSymbol,
-                        style: TextStyle(
-                            color: textColor,
-                            fontSize: centerFs,
-                            fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -151,30 +248,243 @@ class CardFace extends StatelessWidget {
   }
 }
 
+class _CornerIndex extends StatelessWidget {
+  const _CornerIndex({
+    required this.rank,
+    required this.suit,
+    required this.color,
+    required this.rankSize,
+    required this.suitSize,
+  });
+  final String rank, suit;
+  final Color color;
+  final double rankSize, suitSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Text(rank,
+            style: TextStyle(
+              color: color,
+              fontSize: rankSize,
+              fontWeight: FontWeight.w900,
+              height: 1.1,
+            )),
+        Text(suit,
+            style: TextStyle(
+              color: color,
+              fontSize: suitSize,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
+            )),
+      ],
+    );
+  }
+}
+
+class _CardCenter extends StatelessWidget {
+  const _CardCenter({
+    required this.value,
+    required this.suit,
+    required this.color,
+    required this.width,
+    required this.height,
+  });
+  final String value, suit;
+  final Color color;
+  final double width, height;
+
+  @override
+  Widget build(BuildContext context) {
+    final pipCount = _rankToCount(value);
+    final pipSize = (math.min(width, height) * 0.18).clamp(8.0, 20.0);
+
+    if (value.toUpperCase() == 'A') {
+      return Center(
+        child: Text(suit,
+            style: TextStyle(
+              color: color,
+              fontSize: (math.min(width, height) * 0.45).clamp(14.0, 44.0),
+              fontWeight: FontWeight.w600,
+            )),
+      );
+    }
+
+    if (_isFaceCard(value)) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(value,
+                style: TextStyle(
+                  color: color,
+                  fontSize: (math.min(width, height) * 0.32).clamp(12.0, 32.0),
+                  fontWeight: FontWeight.w800,
+                )),
+            Text(suit,
+                style: TextStyle(
+                  color: color,
+                  fontSize: (math.min(width, height) * 0.2).clamp(8.0, 22.0),
+                  fontWeight: FontWeight.w600,
+                )),
+          ],
+        ),
+      );
+    }
+
+    if (pipCount != null && _pipLayouts.containsKey(pipCount)) {
+      final positions = _pipLayouts[pipCount]!;
+      return LayoutBuilder(builder: (context, c) {
+        final areaW = c.maxWidth;
+        final areaH = c.maxHeight;
+        return Stack(
+          children: positions.map((p) {
+            final x = p.x * areaW - pipSize / 2;
+            final y = p.y * areaH - pipSize / 2;
+            return Positioned(
+              left: x.clamp(0.0, areaW - pipSize),
+              top: y.clamp(0.0, areaH - pipSize),
+              child: p.inverted
+                  ? Transform.rotate(
+                      angle: math.pi,
+                      child: Text(suit,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: pipSize,
+                            height: 1.0,
+                          )),
+                    )
+                  : Text(suit,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: pipSize,
+                        height: 1.0,
+                      )),
+            );
+          }).toList(),
+        );
+      });
+    }
+
+    // Fallback: centered suit
+    return Center(
+      child: Text(suit,
+          style: TextStyle(
+            color: color,
+            fontSize: (math.min(width, height) * 0.35).clamp(12.0, 36.0),
+            fontWeight: FontWeight.w600,
+          )),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────
+// CardBack Widget
+// ─────────────────────────────────────────────
+
 class CardBack extends StatelessWidget {
   const CardBack({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFF1B1E2C), Color(0xFF0E111A)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.black, width: 2),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withOpacity(0.30),
+    return LayoutBuilder(builder: (context, c) {
+      final w = c.maxWidth;
+      final radius = (w * 0.1).clamp(4.0, 10.0);
+      return Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(color: const Color(0xFF0A0D18), width: 1.5),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x40000000),
               blurRadius: 6,
-              spreadRadius: 1),
-        ],
-      ),
-    );
+              spreadRadius: 0.5,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(radius - 1),
+          child: CustomPaint(
+            painter: _CardBackPainter(),
+            size: Size.infinite,
+          ),
+        ),
+      );
+    });
   }
 }
+
+class _CardBackPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
+
+    // Background gradient
+    final bgPaint = Paint()
+      ..shader = const LinearGradient(
+        colors: [PokerColors.cardBackStart, PokerColors.cardBackEnd],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ).createShader(rect);
+    canvas.drawRect(rect, bgPaint);
+
+    // Diamond lattice pattern
+    final linePaint = Paint()
+      ..color = PokerColors.primary.withOpacity(0.12)
+      ..strokeWidth = 0.8
+      ..style = PaintingStyle.stroke;
+
+    final step = size.width * 0.3;
+    for (double x = -size.height; x < size.width + size.height; x += step) {
+      canvas.drawLine(
+          Offset(x, 0), Offset(x + size.height, size.height), linePaint);
+      canvas.drawLine(
+          Offset(x + size.height, 0), Offset(x, size.height), linePaint);
+    }
+
+    // Inner border
+    final innerBorder = RRect.fromRectAndRadius(
+      Rect.fromLTWH(3, 3, size.width - 6, size.height - 6),
+      Radius.circular(size.width * 0.06),
+    );
+    canvas.drawRRect(
+        innerBorder,
+        Paint()
+          ..color = PokerColors.primary.withOpacity(0.18)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0);
+
+    // Center diamond emblem
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+    final d = size.width * 0.18;
+    final path = Path()
+      ..moveTo(cx, cy - d)
+      ..lineTo(cx + d * 0.7, cy)
+      ..lineTo(cx, cy + d)
+      ..lineTo(cx - d * 0.7, cy)
+      ..close();
+    canvas.drawPath(
+        path, Paint()..color = PokerColors.primary.withOpacity(0.22));
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = PokerColors.accent.withOpacity(0.3)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ─────────────────────────────────────────────
+// FlipCard Animation
+// ─────────────────────────────────────────────
 
 class FlipCard extends StatelessWidget {
   const FlipCard(
@@ -193,7 +503,6 @@ class FlipCard extends StatelessWidget {
     return AnimatedSwitcher(
       duration: const Duration(milliseconds: 280),
       transitionBuilder: (child, anim) {
-        // Backface-correct 3D flip so text never mirrors.
         final rotate = Tween(begin: math.pi, end: 0.0).animate(anim);
         return AnimatedBuilder(
           animation: rotate,
@@ -223,6 +532,10 @@ class FlipCard extends StatelessWidget {
     );
   }
 }
+
+// ─────────────────────────────────────────────
+// HeroCardFlipOverlay
+// ─────────────────────────────────────────────
 
 class HeroCardFlipOverlay extends StatelessWidget {
   const HeroCardFlipOverlay({
@@ -254,15 +567,11 @@ class HeroCardFlipOverlay extends StatelessWidget {
       final centerY = layout.center.dy;
       final uiSizeMultiplier = uiSizeMultiplierFromKey(context.uiSize);
 
-      // --- Anchor hero cards just above the hero seat ---
-      // Compute toggle/header metrics first so we know the full tray height.
       final headerHeight = (cw * 0.45).clamp(16.0, 24.0);
       final headerGap = (4.0 * uiSizeMultiplier).clamp(2.0, 6.0);
       final trayContentH =
           ch + (onToggle != null ? headerGap + headerHeight : 0);
 
-      // Hero seat position (must match _positionForSeat's hero push).
-      // Clamp to canvasBounds so the hero seat can extend below the 16:9 zone.
       final canvas = layout.canvasBounds;
       final heroPush = layout.ringRadiusY * kHeroSeatExtraFraction;
       final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
@@ -270,11 +579,9 @@ class HeroCardFlipOverlay extends StatelessWidget {
           .clamp(canvas.top + seatPadding, canvas.bottom - seatPadding);
       final heroSeatTop = heroSeatCenterY - kPlayerRadius * uiSizeMultiplier;
 
-      // Card tray sits directly above the hero seat with a small gap.
       final cardGapAboveHero = 10.0 * uiSizeMultiplier;
       var y = heroSeatTop - trayContentH - cardGapAboveHero;
 
-      // Dealer zone bottom — cards must never overlap the pot badge.
       final potCenter =
           potChipCenter(layout, uiSizeMultiplier: uiSizeMultiplier);
       final potBadgeHalfH = 18.0 * uiSizeMultiplier;
@@ -300,11 +607,12 @@ class HeroCardFlipOverlay extends StatelessWidget {
           ? box.bottom - headerHeight - 2.0
           : rawHeaderTop;
       final iconSize = (headerHeight * 0.6).clamp(10.0, 18.0);
-      final accent = showing ? Colors.amber : Colors.white70;
-      final borderColor =
-          showing ? Colors.amber.withOpacity(0.6) : Colors.white30;
+      final labelAccent =
+          showing ? PokerColors.warning : PokerColors.textSecondary;
+      final labelBorder = showing
+          ? PokerColors.warning.withOpacity(0.5)
+          : PokerColors.borderSubtle;
 
-      // Tray background wraps cards + toggle.
       final trayPadH = cw * 0.18;
       final trayPadTop = cw * 0.14;
       final trayPadBottom = cw * 0.10;
@@ -316,7 +624,7 @@ class HeroCardFlipOverlay extends StatelessWidget {
               trayPadBottom;
       final trayHeight = trayBottom - trayTop;
 
-      final children = <Widget>[
+      return Stack(children: [
         Positioned(
           left: trayLeft,
           top: trayTop,
@@ -325,85 +633,76 @@ class HeroCardFlipOverlay extends StatelessWidget {
           child: IgnorePointer(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.28),
+                color: PokerColors.overlayLight,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Colors.white.withOpacity(0.06),
-                  width: 1,
-                ),
+                border: Border.all(color: PokerColors.overlaySubtle, width: 1),
               ),
             ),
           ),
         ),
         Positioned(
-            left: x1,
-            top: y,
-            width: cw,
-            height: ch,
-            child: FlipCard(
-                faceUp: showFace,
-                card: cards.isNotEmpty ? cards[0] : null,
-                cardTheme: cardTheme)),
+          left: x1,
+          top: y,
+          width: cw,
+          height: ch,
+          child: FlipCard(
+            faceUp: showFace,
+            card: cards.isNotEmpty ? cards[0] : null,
+            cardTheme: cardTheme,
+          ),
+        ),
         Positioned(
-            left: x2,
-            top: y,
-            width: cw,
-            height: ch,
-            child: FlipCard(
-                faceUp: showFace,
-                card: cards.length > 1 ? cards[1] : null,
-                cardTheme: cardTheme)),
-      ];
-
-      return Stack(children: [
-        ...children,
+          left: x2,
+          top: y,
+          width: cw,
+          height: ch,
+          child: FlipCard(
+            faceUp: showFace,
+            card: cards.length > 1 ? cards[1] : null,
+            cardTheme: cardTheme,
+          ),
+        ),
         if (onToggle != null)
           Positioned(
             left: x1,
             top: headerTop,
             width: headerWidth,
             height: headerHeight,
-            child: Tooltip(
-              message: actionLabel,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(headerHeight / 2),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                  child: Material(
-                    color: Colors.white.withOpacity(0.12),
-                    child: InkWell(
-                      onTap: onToggle,
-                      borderRadius: BorderRadius.circular(headerHeight / 2),
-                      child: Container(
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(headerHeight / 2),
-                          border: Border.all(color: borderColor),
-                        ),
-                        padding: EdgeInsets.symmetric(
-                          horizontal: headerHeight * 0.55,
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              showing ? Icons.visibility : Icons.visibility_off,
-                              size: iconSize,
-                              color: accent,
-                            ),
-                            SizedBox(width: headerHeight * 0.25),
-                            Text(
-                              actionLabel,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(headerHeight / 2),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+                child: Material(
+                  color: PokerColors.overlaySubtle,
+                  child: InkWell(
+                    onTap: onToggle,
+                    borderRadius: BorderRadius.circular(headerHeight / 2),
+                    child: Container(
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(headerHeight / 2),
+                        border: Border.all(color: labelBorder),
+                      ),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: headerHeight * 0.55),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            showing ? Icons.visibility : Icons.visibility_off,
+                            size: iconSize,
+                            color: labelAccent,
+                          ),
+                          SizedBox(width: headerHeight * 0.25),
+                          Text(actionLabel,
                               style: TextStyle(
-                                color: accent,
+                                color: labelAccent,
                                 fontSize:
                                     (headerHeight * 0.45).clamp(10.0, 14.0),
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.6,
-                              ),
-                            ),
-                          ],
-                        ),
+                              )),
+                        ],
                       ),
                     ),
                   ),
@@ -416,88 +715,9 @@ class HeroCardFlipOverlay extends StatelessWidget {
   }
 }
 
-// Canvas-based card drawing utilities for CustomPainter usage
-void drawCardFace(Canvas canvas, double x, double y, double width,
-    double height, pr.Card card,
-    {CardColorTheme? cardTheme}) {
-  // Card background
-  final cardPaint = Paint()
-    ..color = Colors.white
-    ..style = PaintingStyle.fill;
-
-  final cardRect = RRect.fromRectAndRadius(
-    Rect.fromLTWH(x, y, width, height),
-    const Radius.circular(4),
-  );
-  canvas.drawRRect(cardRect, cardPaint);
-
-  // Card border
-  final borderPaint = Paint()
-    ..color = Colors.black
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1;
-
-  canvas.drawRRect(cardRect, borderPaint);
-
-  // Card content
-  final textPainter = TextPainter(
-    text: TextSpan(
-      text: '${card.value}\n${getSuitSymbol(card.suit)}',
-      style: TextStyle(
-        color: getSuitColor(card.suit, cardTheme: cardTheme),
-        fontSize: 10,
-        fontWeight: FontWeight.bold,
-      ),
-    ),
-    textDirection: TextDirection.ltr,
-  );
-  textPainter.layout();
-  textPainter.paint(
-    canvas,
-    Offset(x + (width - textPainter.width) / 2,
-        y + (height - textPainter.height) / 2),
-  );
-}
-
-void drawCardBack(
-    Canvas canvas, double x, double y, double width, double height) {
-  // Card back background
-  final backPaint = Paint()
-    ..shader = const LinearGradient(
-      colors: [Color(0xFF1B1E2C), Color(0xFF0E111A)],
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-    ).createShader(Rect.fromLTWH(x, y, width, height));
-
-  final cardRect = RRect.fromRectAndRadius(
-    Rect.fromLTWH(x, y, width, height),
-    const Radius.circular(4),
-  );
-  canvas.drawRRect(cardRect, backPaint);
-
-  // Border
-  final borderPaint = Paint()
-    ..color = Colors.black
-    ..style = PaintingStyle.stroke
-    ..strokeWidth = 1;
-  canvas.drawRRect(cardRect, borderPaint);
-
-  // Minimal back pattern
-  final pipPainter = TextPainter(
-    text: const TextSpan(
-      text: '♠',
-      style: TextStyle(
-          color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
-    ),
-    textDirection: TextDirection.ltr,
-  );
-  pipPainter.layout();
-  pipPainter.paint(
-    canvas,
-    Offset(x + (width - pipPainter.width) / 2,
-        y + (height - pipPainter.height) / 2),
-  );
-}
+// ─────────────────────────────────────────────
+// Canvas-based card utilities (for opponent cards drawn on painter)
+// ─────────────────────────────────────────────
 
 String getSuitSymbol(String suit) {
   switch (suit.toLowerCase()) {
@@ -514,33 +734,82 @@ String getSuitSymbol(String suit) {
   }
 }
 
-Color getSuitColor(String suit, {CardColorTheme? cardTheme}) {
-  final theme = cardTheme ?? CardColorTheme.standard;
-  final s = suit.toLowerCase();
-  // Check for Unicode symbols first
-  if (suit == '♥' || suit == '\u2665') {
-    return theme.heartsColor;
-  }
-  if (suit == '♦' || suit == '\u2666') {
-    return theme.diamondsColor;
-  }
-  if (suit == '♣' || suit == '\u2663') {
-    return theme.clubsColor;
-  }
-  if (suit == '♠' || suit == '\u2660') {
-    return theme.spadesColor;
-  }
-  // Then check lowercase strings
-  switch (s) {
-    case 'hearts':
-      return theme.heartsColor;
-    case 'diamonds':
-      return theme.diamondsColor;
-    case 'clubs':
-      return theme.clubsColor;
-    case 'spades':
-      return theme.spadesColor;
-    default:
-      return Colors.black;
-  }
+Color getSuitColor(String suit, {CardColorTheme? cardTheme}) =>
+    suitColor(suit, cardTheme: cardTheme);
+
+void drawCardFace(Canvas canvas, double x, double y, double width,
+    double height, pr.Card card,
+    {CardColorTheme? cardTheme}) {
+  final cardRect = RRect.fromRectAndRadius(
+    Rect.fromLTWH(x, y, width, height),
+    Radius.circular(width * 0.08),
+  );
+  // White card surface
+  canvas.drawRRect(cardRect, Paint()..color = PokerColors.cardFace);
+  // Subtle border
+  canvas.drawRRect(
+      cardRect,
+      Paint()
+        ..color = const Color(0xFFCCCCCC)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.8);
+  // Shadow
+  canvas.drawRRect(
+    cardRect.shift(const Offset(0, 1)),
+    Paint()
+      ..color = const Color(0x30000000)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
+  );
+
+  final tint = getSuitColor(card.suit, cardTheme: cardTheme);
+  final suitSym = getSuitSymbol(card.suit);
+
+  // Rank + suit text
+  final tp = TextPainter(
+    text: TextSpan(
+      text: '${card.value}\n$suitSym',
+      style: TextStyle(
+          color: tint,
+          fontSize: (width * 0.24).clamp(7.0, 14.0),
+          fontWeight: FontWeight.w900,
+          height: 1.2),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  tp.paint(canvas, Offset(x + width * 0.08, y + height * 0.06));
+}
+
+void drawCardBack(
+    Canvas canvas, double x, double y, double width, double height) {
+  final cardRect = RRect.fromRectAndRadius(
+    Rect.fromLTWH(x, y, width, height),
+    Radius.circular(width * 0.08),
+  );
+
+  final bgPaint = Paint()
+    ..shader = const LinearGradient(
+      colors: [PokerColors.cardBackStart, PokerColors.cardBackEnd],
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ).createShader(Rect.fromLTWH(x, y, width, height));
+  canvas.drawRRect(cardRect, bgPaint);
+
+  canvas.drawRRect(
+      cardRect,
+      Paint()
+        ..color = const Color(0xFF0A0D18)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1);
+
+  // Small diamond emblem
+  final cx = x + width / 2;
+  final cy = y + height / 2;
+  final d = width * 0.15;
+  final path = Path()
+    ..moveTo(cx, cy - d)
+    ..lineTo(cx + d * 0.7, cy)
+    ..lineTo(cx, cy + d)
+    ..lineTo(cx - d * 0.7, cy)
+    ..close();
+  canvas.drawPath(path, Paint()..color = PokerColors.primary.withOpacity(0.25));
 }

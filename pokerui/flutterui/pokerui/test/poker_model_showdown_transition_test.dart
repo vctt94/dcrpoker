@@ -119,11 +119,14 @@ pr.Player _player({
   bool isSmallBlind = false,
   bool isBigBlind = false,
   int tableSeat = 0,
+  List<pr.Card> hand = const [],
+  bool cardsRevealed = false,
 }) {
   return pr.Player(
     id: id,
     name: name,
     balance: Int64(balance),
+    hand: hand,
     currentBet: Int64(0),
     folded: folded,
     isTurn: false,
@@ -141,7 +144,7 @@ pr.Player _player({
     isDisconnected: false,
     tableSeat: tableSeat,
     presignComplete: false,
-    cardsRevealed: false,
+    cardsRevealed: cardsRevealed,
   );
 }
 
@@ -150,6 +153,7 @@ pr.ShowdownPlayer _showdownPlayer({
   required String name,
   required pr.PlayerState finalState,
   int contribution = 0,
+  List<pr.Card> holeCards = const [],
 }) {
   return pr.ShowdownPlayer(
     playerId: id,
@@ -157,6 +161,7 @@ pr.ShowdownPlayer _showdownPlayer({
     handRank: pr.HandRank.HIGH_CARD,
     contribution: Int64(contribution),
     name: name,
+    holeCards: holeCards,
   );
 }
 
@@ -371,5 +376,73 @@ void main() {
       model.gameEndingMessage,
       'You lost all your chips and have been removed from the table.',
     );
+  });
+
+  test('showdown hands remain visible when later showdown snapshots redact hand', () {
+    const tableId = 'table-1';
+    const heroId = 'hero';
+    const villainId = 'villain';
+    final villainHand = [
+      pr.Card(value: 'A', suit: 'Spades'),
+      pr.Card(value: 'K', suit: 'Spades'),
+    ];
+
+    final model = PokerModel(playerId: heroId, dataDir: '/tmp/test');
+    model.currentTableId = tableId;
+    model.game = UiGameState.fromUpdate(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.SHOWDOWN,
+      players: [
+        _player(id: heroId, name: 'Hero', tableSeat: 0),
+        _player(id: villainId, name: 'Villain', tableSeat: 1),
+      ],
+      currentPlayer: '',
+    ));
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.SHOWDOWN_RESULT,
+      tableId: tableId,
+      showdown: pr.Showdown(
+        winners: const [],
+        pot: Int64(30),
+        board: const [],
+        players: [
+          _showdownPlayer(
+            id: heroId,
+            name: 'Hero',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+          ),
+          _showdownPlayer(
+            id: villainId,
+            name: 'Villain',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+            holeCards: villainHand,
+          ),
+        ],
+        handId: 'hand-3',
+        round: 3,
+      ),
+    ));
+
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.SHOWDOWN,
+      players: [
+        _player(id: heroId, name: 'Hero', tableSeat: 0),
+        _player(
+          id: villainId,
+          name: 'Villain',
+          tableSeat: 1,
+          cardsRevealed: true,
+        ),
+      ],
+      currentPlayer: '',
+    ));
+
+    final villain = model.game!.players.firstWhere((p) => p.id == villainId);
+    expect(villain.cardsRevealed, isTrue);
+    expect(villain.hand, hasLength(2));
+    expect(villain.hand.first.value, equals('A'));
+    expect(villain.hand.last.value, equals('K'));
   });
 }

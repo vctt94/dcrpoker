@@ -23,6 +23,7 @@ import 'package:pokerui/screens/sign_address.dart';
 import 'package:pokerui/screens/open_escrow.dart';
 import 'package:pokerui/screens/escrow_history.dart';
 import 'package:pokerui/client_init.dart';
+import 'package:pokerui/theme/poker_theme.dart';
 
 Future<void> runNewConfigApp(List<String> args) async {
   final newConfig = NewConfigModel(args);
@@ -112,10 +113,7 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp>
   bool _resumeReconnectInFlight = false;
   int _lastResumeReconnectMs = 0;
 
-  ThemeData get _theme => ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color.fromARGB(255, 25, 23, 44),
-        primaryColor: Colors.blueAccent,
-      );
+  ThemeData get _theme => buildPokerTheme();
 
   @override
   void initState() {
@@ -484,10 +482,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Poker UI',
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color.fromARGB(255, 25, 23, 44),
-        primaryColor: Colors.blueAccent,
-      ),
+      theme: buildPokerTheme(),
       builder: (context, child) {
         return Stack(
           children: [

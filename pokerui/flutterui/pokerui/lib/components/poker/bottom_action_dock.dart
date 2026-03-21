@@ -4,18 +4,22 @@ import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
+import 'package:pokerui/theme/spacing.dart';
 
-/// Styled action button used inside the [BottomActionDock].
 class _ActionButton extends StatelessWidget {
   const _ActionButton({
     required this.label,
     required this.onPressed,
     required this.color,
+    this.icon,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final Color color;
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -27,31 +31,36 @@ class _ActionButton extends StatelessWidget {
         backgroundColor: color,
         foregroundColor: Colors.white,
         padding: EdgeInsets.symmetric(
-          horizontal: 18 * scale,
-          vertical: 10 * scale,
+          horizontal: 20 * scale,
+          vertical: 12 * scale,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24 * scale),
+          borderRadius: BorderRadius.circular(12 * scale),
         ),
-        elevation: 4,
-        shadowColor: color.withOpacity(0.4),
+        elevation: 2,
+        shadowColor: color.withOpacity(0.3),
       ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 14 * scale,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.3,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16 * scale),
+            SizedBox(width: 6 * scale),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 14 * scale,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Bottom action dock: Fold / Call / Raise buttons, bet input, waiting state.
-///
-/// This is a normal layout widget (not a Positioned overlay) designed to sit at
-/// the bottom of a Column below the table canvas.
 class BottomActionDock extends StatelessWidget {
   const BottomActionDock({
     super.key,
@@ -89,9 +98,9 @@ class BottomActionDock extends StatelessWidget {
 
     return Container(
       padding: EdgeInsets.only(
-        left: 12,
-        right: 12,
-        top: 8,
+        left: PokerSpacing.md,
+        right: PokerSpacing.md,
+        top: PokerSpacing.sm,
         bottom: safeBottomPadding(context, minPadding: 8),
       ),
       constraints: BoxConstraints(minHeight: actionDockMinHeight(bp)),
@@ -100,34 +109,36 @@ class BottomActionDock extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            const Color(0xFF121212).withOpacity(0.0),
-            const Color(0xFF121212).withOpacity(0.95),
+            PokerColors.screenBg.withOpacity(0.0),
+            PokerColors.screenBg.withOpacity(0.95),
           ],
         ),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (hasLastShowdown && onToggleSidebar != null)
-            _LastHandButton(
-              active: showSidebar,
-              onTap: onToggleSidebar!,
-            ),
-          if (hasLastShowdown && onToggleSidebar != null)
-            const SizedBox(width: 8),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: canAct
-                  ? _ActionButtons(
-                      model: model,
-                      showBetInput: showBetInput,
-                      betCtrl: betCtrl,
-                      onToggleBetInput: onToggleBetInput,
-                      onCloseBetInput: onCloseBetInput,
-                      bb: _resolveBigBlind(),
-                    )
-                  : _WaitingIndicator(model: model),
-            ),
+          Row(
+            children: [
+              if (hasLastShowdown && onToggleSidebar != null)
+                _LastHandButton(active: showSidebar, onTap: onToggleSidebar!),
+              if (hasLastShowdown && onToggleSidebar != null)
+                const SizedBox(width: PokerSpacing.sm),
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: canAct
+                      ? _ActionButtons(
+                          model: model,
+                          showBetInput: showBetInput,
+                          betCtrl: betCtrl,
+                          onToggleBetInput: onToggleBetInput,
+                          onCloseBetInput: onCloseBetInput,
+                          bb: _resolveBigBlind(),
+                        )
+                      : _WaitingIndicator(model: model),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -135,7 +146,6 @@ class BottomActionDock extends StatelessWidget {
   }
 }
 
-/// Mobile-only bottom panel that separates hero cards from the table canvas.
 class MobileHeroActionPanel extends StatelessWidget {
   const MobileHeroActionPanel({
     super.key,
@@ -188,14 +198,12 @@ class MobileHeroActionPanel extends StatelessWidget {
     return Container(
       constraints: BoxConstraints(minHeight: mobileHeroPanelMinHeight(bp)),
       padding: EdgeInsets.only(
-        left: 8,
-        right: 8,
-        top: 6,
+        left: PokerSpacing.sm,
+        right: PokerSpacing.sm,
+        top: PokerSpacing.sm,
         bottom: safeBottomPadding(context, minPadding: 6),
       ),
-      decoration: const BoxDecoration(
-        color: Color(0xFF121212),
-      ),
+      decoration: const BoxDecoration(color: PokerColors.screenBg),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -203,33 +211,30 @@ class MobileHeroActionPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _CompactHeroCards(cards: cards),
-              const SizedBox(width: 6),
+              const SizedBox(width: PokerSpacing.sm),
               GestureDetector(
                 onTap: !hasCards
                     ? null
                     : () {
-                        if (isShowing) {
+                        if (isShowing)
                           model.hideCards();
-                        } else {
+                        else
                           model.showCards();
-                        }
                       },
                 child: Icon(
                   isShowing ? Icons.visibility : Icons.visibility_off,
                   size: 18,
-                  color: isShowing ? Colors.amber : Colors.white38,
+                  color:
+                      isShowing ? PokerColors.warning : PokerColors.textMuted,
                 ),
               ),
               const Spacer(),
               if (hasLastShowdown && onToggleSidebar != null)
-                _LastHandButton(
-                  active: showSidebar,
-                  onTap: onToggleSidebar!,
-                ),
+                _LastHandButton(active: showSidebar, onTap: onToggleSidebar!),
             ],
           ),
           if (showActions) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: PokerSpacing.sm),
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: canAct
@@ -245,7 +250,7 @@ class MobileHeroActionPanel extends StatelessWidget {
             ),
           ],
           if (footer != null) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: PokerSpacing.sm),
             footer!,
           ],
         ],
@@ -287,30 +292,27 @@ class _LastHandButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = active ? Colors.amber : Colors.white70;
-    return Tooltip(
-      message: 'View last showdown',
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.5),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.white.withOpacity(0.2)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.history, color: accent, size: 16),
-                const SizedBox(width: 5),
-                Text('Last Hand',
-                    style: TextStyle(color: accent, fontSize: 12)),
-              ],
-            ),
+    final accent = active ? PokerColors.warning : PokerColors.textSecondary;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: PokerColors.overlayLight,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: PokerColors.borderSubtle),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.history, color: accent, size: 16),
+              const SizedBox(width: 5),
+              Text('Last Hand',
+                  style: PokerTypography.labelSmall.copyWith(color: accent)),
+            ],
           ),
         ),
       ),
@@ -325,14 +327,15 @@ class _WaitingIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(
+          horizontal: PokerSpacing.lg, vertical: PokerSpacing.sm),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.6),
+        color: PokerColors.overlayMedium,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        model.autoAdvanceAllIn ? 'Auto-advancing (all-in)' : 'Waiting...',
-        style: const TextStyle(color: Colors.white, fontSize: 14),
+        model.autoAdvanceAllIn ? 'All-in' : 'Waiting...',
+        style: PokerTypography.bodyMedium,
       ),
     );
   }
@@ -383,31 +386,35 @@ class _ActionButtons extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         _ActionButton(
-          label: 'Fold (F)',
+          label: 'Fold',
+          icon: Icons.cancel_outlined,
           onPressed: model.fold,
-          color: const Color(0xFFD32F2F),
+          color: PokerColors.foldBtn,
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: PokerSpacing.sm),
         if (canCheck)
           _ActionButton(
-            label: 'Check (K)',
+            label: 'Check',
+            icon: Icons.check,
             onPressed: model.check,
-            color: const Color(0xFF37474F),
+            color: PokerColors.checkBtn,
           )
         else
           _ActionButton(
-            label: 'Call${toCall > 0 ? ' ($toCall)' : ''} (C)',
+            label: 'Call${toCall > 0 ? ' $toCall' : ''}',
+            icon: Icons.call_made,
             onPressed: model.callBet,
-            color: const Color(0xFF37474F),
+            color: PokerColors.checkBtn,
           ),
-        const SizedBox(width: 8),
+        const SizedBox(width: PokerSpacing.sm),
         _ActionButton(
           label: isRaise ? (wouldBeAllIn ? 'All-in' : 'Raise') : 'Bet',
+          icon: Icons.arrow_upward,
           onPressed: () {
             if (betCtrl.text.isEmpty) _seedDefault(betCtrl, bb, currentBet);
             onToggleBetInput();
           },
-          color: const Color(0xFF2E7D32),
+          color: PokerColors.betBtn,
         ),
       ],
     );
@@ -434,9 +441,7 @@ class _BetInputRow extends StatelessWidget {
 
   final PokerModel model;
   final TextEditingController betCtrl;
-  final int currentBet;
-  final int myBet;
-  final int bb;
+  final int currentBet, myBet, bb;
   final bool isRaise;
   final VoidCallback onClose;
 
@@ -468,9 +473,8 @@ class _BetInputRow extends StatelessWidget {
 
     final ok = await model.makeBet(totalAmt);
     if (!ok && model.errorMessage.isNotEmpty && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(model.errorMessage)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(model.errorMessage)));
       return;
     }
     onClose();
@@ -480,69 +484,49 @@ class _BetInputRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final scale = buttonScale(bp);
-
-    void setTo3xBB() {
-      final threeBB = bb * 3;
-      final target =
-          (bb > 0 && currentBet >= threeBB) ? (currentBet * 3) : threeBB;
-      betCtrl.text = target.toString();
-    }
-
     final threeBB = bb * 3;
     final presetLabel = (bb > 0 && currentBet >= threeBB) ? '3x Bet' : '3x BB';
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 110 * scale,
-              child: TextField(
-                controller: betCtrl,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  labelText: isRaise ? 'Total raise' : 'Total bet',
-                  labelStyle:
-                      const TextStyle(color: Colors.white70, fontSize: 12),
-                  isDense: true,
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                  hintText: isRaise
-                      ? 'e.g. ${currentBet > 0 ? currentBet : bb}'
-                      : 'e.g. ${bb > 0 ? bb * 3 : 50}',
-                  hintStyle: const TextStyle(color: Colors.white54),
-                  filled: true,
-                  fillColor: Colors.black54,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Colors.white24),
-                  ),
-                ),
-                onSubmitted: (_) => _submitBet(context),
-              ),
+        SizedBox(
+          width: 110 * scale,
+          child: TextField(
+            controller: betCtrl,
+            keyboardType: TextInputType.number,
+            style: PokerTypography.bodyMedium,
+            decoration: InputDecoration(
+              labelText: isRaise ? 'Raise to' : 'Bet',
+              isDense: true,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             ),
-            const SizedBox(height: 4),
-            _BetDeltaLabel(
-              betCtrl: betCtrl,
-              myBet: myBet,
-              myBalance: model.me?.balance ?? 0,
-              currentBet: currentBet,
-              bb: bb,
-              isRaise: isRaise,
-            ),
-          ],
+            onSubmitted: (_) => _submitBet(context),
+          ),
         ),
-        const SizedBox(width: 6),
-        _ActionButton(
+        const SizedBox(width: PokerSpacing.sm),
+        // Quick-bet presets
+        _QuickBetChip(
           label: presetLabel,
-          onPressed: bb > 0 ? setTo3xBB : null,
-          color: const Color(0xFF37474F),
+          onTap: bb > 0
+              ? () {
+                  final target = (bb > 0 && currentBet >= threeBB)
+                      ? (currentBet * 3)
+                      : threeBB;
+                  betCtrl.text = target.toString();
+                }
+              : null,
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: PokerSpacing.xs),
+        _QuickBetChip(
+          label: 'Pot',
+          onTap: () {
+            final pot = model.game?.pot ?? 0;
+            if (pot > 0) betCtrl.text = pot.toString();
+          },
+        ),
+        const SizedBox(width: PokerSpacing.sm),
         Builder(builder: (context) {
           final meBal = model.me?.balance ?? 0;
           final entered = int.tryParse(betCtrl.text.trim()) ?? 0;
@@ -559,54 +543,47 @@ class _BetInputRow extends StatelessWidget {
           return _ActionButton(
             label: label,
             onPressed: () => _submitBet(context),
-            color: const Color(0xFF2E7D32),
+            color: PokerColors.betBtn,
           );
         }),
-        const SizedBox(width: 6),
+        const SizedBox(width: PokerSpacing.xs),
         TextButton(
           onPressed: onClose,
-          child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          child: Text('Cancel', style: PokerTypography.labelSmall),
         ),
       ],
     );
   }
 }
 
-class _BetDeltaLabel extends StatelessWidget {
-  const _BetDeltaLabel({
-    required this.betCtrl,
-    required this.myBet,
-    required this.myBalance,
-    required this.currentBet,
-    required this.bb,
-    required this.isRaise,
-  });
-
-  final TextEditingController betCtrl;
-  final int myBet;
-  final int myBalance;
-  final int currentBet;
-  final int bb;
-  final bool isRaise;
+class _QuickBetChip extends StatelessWidget {
+  const _QuickBetChip({required this.label, this.onTap});
+  final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    final entered = int.tryParse(betCtrl.text.trim()) ?? 0;
-    final maxTotal = myBalance + myBet;
-    final normalized = normalizeBetInputToTotal(
-      entered: entered,
-      myBet: myBet,
-      myBalance: myBalance,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: PokerSpacing.sm,
+            vertical: PokerSpacing.xs,
+          ),
+          decoration: BoxDecoration(
+            color: PokerColors.overlayLight,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: PokerColors.borderSubtle),
+          ),
+          child: Text(
+            label,
+            style: PokerTypography.labelSmall,
+          ),
+        ),
+      ),
     );
-    final displayEntered =
-        normalized > 0 ? normalized : (isRaise ? currentBet : bb * 3);
-    final displayDelta = displayEntered > myBet ? (displayEntered - myBet) : 0;
-    if (displayDelta == displayEntered) return const SizedBox.shrink();
-    final isAllIn = displayEntered == maxTotal && maxTotal > 0;
-    final label = isAllIn
-        ? 'All-in $displayEntered'
-        : 'Adds $displayDelta, total $displayEntered';
-    return Text(label,
-        style: const TextStyle(color: Colors.white70, fontSize: 11));
   }
 }

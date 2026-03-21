@@ -1,17 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/minimal_showdown.dart';
+import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/components/poker/minimal_showdown.dart';
-import 'package:pokerui/components/poker/bottom_action_dock.dart';
-import 'package:pokerui/components/poker/responsive.dart';
-import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class ShowdownView extends StatefulWidget {
-  const ShowdownView({super.key, required this.model});
   final PokerModel model;
+  const ShowdownView({super.key, required this.model});
 
   @override
   State<ShowdownView> createState() => _ShowdownViewState();
@@ -20,16 +20,11 @@ class ShowdownView extends StatefulWidget {
 class _ShowdownViewState extends State<ShowdownView> {
   Timer? _autoCloseTimer;
   bool _showSidebar = true;
+  int _lastShowdownFxMs = 0;
 
   @override
   void initState() {
     super.initState();
-    // Auto-close sidebar after 5 seconds
-    _autoCloseTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted) {
-        _closeSidebar();
-      }
-    });
   }
 
   @override
@@ -54,6 +49,20 @@ class _ShowdownViewState extends State<ShowdownView> {
       return const Center(child: Text('No game data available'));
     }
 
+    // Re-open and re-arm auto-close when a new showdown event arrives.
+    final fxMs = model.lastShowdownFxMs;
+    if (fxMs != 0 && fxMs != _lastShowdownFxMs) {
+      _lastShowdownFxMs = fxMs;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _showSidebar = true;
+        });
+        _autoCloseTimer?.cancel();
+        _autoCloseTimer = Timer(const Duration(seconds: 5), _closeSidebar);
+      });
+    }
+
     // Auto-close sidebar if game phase is no longer SHOWDOWN
     if (game.phase != pr.GamePhase.SHOWDOWN && _showSidebar) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -63,26 +72,21 @@ class _ShowdownViewState extends State<ShowdownView> {
       });
     }
 
-    final focusNode = FocusNode();
     final theme = PokerThemeConfig.fromContext(context);
     final bp = PokerBreakpointQuery.of(context);
-    final isPhone = bp.isNarrow;
-    final aspect = tableAspectRatio(bp);
-    final pokerGame = PokerGame(
-      model.playerId,
-      model,
-      theme: theme,
-    );
+    final isMobile = bp.isNarrow;
+    final pokerGame = PokerGame(model.playerId, model, theme: theme);
     final winners = model.lastWinners;
+    final tableAr = tableAspectRatio(bp);
 
     final tableStack = Stack(
       fit: StackFit.expand,
       children: [
         pokerGame.buildWidget(
           game,
-          focusNode,
-          aspectRatio: aspect,
-          showHeroCardsOverlay: !isPhone,
+          FocusNode(),
+          aspectRatio: tableAr,
+          showHeroCardsOverlay: !isMobile,
         ),
         _ShowdownFxOverlay(model: model),
         if (winners.isNotEmpty && _showSidebar)
@@ -133,7 +137,7 @@ class _ShowdownViewState extends State<ShowdownView> {
           )
         : const SizedBox.shrink();
 
-    if (isPhone) {
+    if (isMobile) {
       return LayoutBuilder(builder: (context, constraints) {
         final maxTableHeight =
             constraints.maxHeight - mobileHeroPanelMinHeight(bp);
@@ -205,25 +209,22 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     _maybeRestartFx();
   }
 
-  @override
-  void dispose() {
-    _chipCtrl.dispose();
-    super.dispose();
-  }
-
   void _maybeRestartFx() {
     final winners = widget.model.lastWinners;
     final fxMs = widget.model.lastShowdownFxMs;
-    // ignore: avoid_print
     if (winners.isEmpty || fxMs == 0) return;
     if (fxMs != _lastFxMs) {
-      // Debug visibility to trace animation triggers
-      // ignore: avoid_print
       _lastFxMs = fxMs;
       _chipCtrl
         ..reset()
         ..forward();
     }
+  }
+
+  @override
+  void dispose() {
+    _chipCtrl.dispose();
+    super.dispose();
   }
 
   @override

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/config.dart';
+import 'package:pokerui/theme/colors.dart';
 
-/// Decred brand colors
-const Color decredBlue = Color(0xFF2970FF);
-const Color decredGreen = Color(0xFF2ED6A1);
+const Color decredBlue = PokerColors.primary;
+const Color decredGreen = PokerColors.accent;
 
 class CardColorTheme {
   final Color heartsColor;
@@ -18,20 +18,18 @@ class CardColorTheme {
     required this.spadesColor,
   });
 
-  /// Standard card colors (red for hearts/diamonds, black for clubs/spades)
   static const CardColorTheme standard = CardColorTheme(
     heartsColor: Color(0xFFD7263D),
     diamondsColor: Color(0xFFE65100),
-    clubsColor: Color.fromARGB(255, 12, 86, 235), // Bright blue
+    clubsColor: Color.fromARGB(255, 12, 86, 235),
     spadesColor: Color.fromARGB(255, 1, 14, 32),
   );
 
-  /// DCR-themed card colors (bright for hearts/diamonds, dark for clubs/spades)
   static const CardColorTheme decred = CardColorTheme(
-    heartsColor: decredGreen,
-    diamondsColor: decredBlue,
-    clubsColor: Color(0xFF0D2B5A), // Darker blue (dark, still readable)
-    spadesColor: Color(0xFF0A4A3A), // Darker green (dark, still readable)
+    heartsColor: PokerColors.accent,
+    diamondsColor: PokerColors.primary,
+    clubsColor: Color(0xFF0D2B5A),
+    spadesColor: Color(0xFF0A4A3A),
   );
 }
 
@@ -51,29 +49,25 @@ class TableThemeConfig {
   static const TableThemeConfig decred = TableThemeConfig(
     key: 'decred',
     displayName: 'Decred Blue',
-    feltColor: Color(0xFF091440),
-    borderColor: decredGreen,
+    feltColor: PokerColors.feltDecred,
+    borderColor: PokerColors.accent,
   );
 
   static const TableThemeConfig classic = TableThemeConfig(
     key: 'classic',
     displayName: 'Classic Felt',
-    feltColor: Color(0xFF0D4F3C),
-    borderColor: Color(0xFF8B4513),
+    feltColor: PokerColors.feltClassic,
+    borderColor: PokerColors.feltBorderClassic,
   );
 
   static const TableThemeConfig decredInverse = TableThemeConfig(
     key: 'decred_inverse',
     displayName: 'Decred Green',
-    feltColor: decredGreen,
-    borderColor: Color(0xFF091440), // Dark blue as border
+    feltColor: PokerColors.accent,
+    borderColor: PokerColors.feltDecred,
   );
 
-  static const List<TableThemeConfig> presets = [
-    decred,
-    decredInverse,
-    classic,
-  ];
+  static const List<TableThemeConfig> presets = [decred, decredInverse, classic];
 
   static TableThemeConfig fromKey(String key) {
     final normalized = key.toLowerCase();
@@ -110,8 +104,6 @@ const List<CardColorTheme> cardColorThemePresets = [
   CardColorTheme.decred,
 ];
 
-/// Get card size multiplier from config key
-/// Returns: xs=0.6, small=0.8, medium=1.0, large=1.2, xl=1.4
 double cardSizeMultiplierFromKey(String key) {
   final normalized = key.toLowerCase();
   switch (normalized) {
@@ -129,8 +121,6 @@ double cardSizeMultiplierFromKey(String key) {
   }
 }
 
-/// Get UI size multiplier from config key (affects icons, fonts, player circles, etc.)
-/// Returns: xs=0.7, small=0.85, medium=1.0, large=1.15, xl=1.3
 double uiSizeMultiplierFromKey(String key) {
   final normalized = key.toLowerCase();
   switch (normalized) {
@@ -148,7 +138,6 @@ double uiSizeMultiplierFromKey(String key) {
   }
 }
 
-/// Bundles all visual theme settings for the poker table
 class PokerThemeConfig {
   final TableThemeConfig tableTheme;
   final CardColorTheme cardTheme;
@@ -166,7 +155,6 @@ class PokerThemeConfig {
     required this.logoPosition,
   });
 
-  /// Create from config values using BuildContext extension
   factory PokerThemeConfig.fromContext(BuildContext context) {
     return PokerThemeConfig(
       tableTheme: TableThemeConfig.fromKey(context.tableTheme),

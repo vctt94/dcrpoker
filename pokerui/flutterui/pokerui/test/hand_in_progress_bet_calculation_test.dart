@@ -22,8 +22,8 @@ void main() {
   });
 
   test('No prior bet: entered amount is total', () {
-    const myBet = 0;
     const input = 150;
+    const myBet = 0;
     final totalBet = HandInProgressView.calculateTotalBet(
       input,
       /*currentBet=*/ 0,
@@ -36,8 +36,8 @@ void main() {
   });
 
   test('With prior bet: entered amount stays as total', () {
-    const myBet = 40;
     const input = 60;
+    const myBet = 40;
     final totalBet = HandInProgressView.calculateTotalBet(
       input,
       /*currentBet=*/ 100,

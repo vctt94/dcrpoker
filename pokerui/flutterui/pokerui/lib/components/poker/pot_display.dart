@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
 
-/// Compact pot display anchored on the felt. Also serves as the anchor point
-/// for chip animations by aligning to `potChipCenter`.
-/// Plays a brief scale-up pulse whenever the pot value increases.
 class PotDisplay extends StatefulWidget {
   const PotDisplay({super.key, required this.pot, required this.theme});
 
@@ -67,14 +66,10 @@ class _PotDisplayState extends State<PotDisplay>
               uiSizeMultiplier: theme.uiSizeMultiplier,
             );
 
-            final textStyle = TextStyle(
-              color: Colors.white,
+            final textStyle = PokerTypography.potLabel.copyWith(
               fontSize: 14 * theme.uiSizeMultiplier,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 0.2,
             );
-            final label =
-                TextSpan(text: 'Pot: ${widget.pot}', style: textStyle);
+            final label = TextSpan(text: 'Pot: ${widget.pot}', style: textStyle);
             final painter = TextPainter(
               text: label,
               textDirection: TextDirection.ltr,
@@ -106,11 +101,11 @@ class _PotDisplayState extends State<PotDisplay>
                     ),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF0C1222).withOpacity(0.9),
+                        color: PokerColors.surfaceDim.withOpacity(0.92),
                         borderRadius:
                             BorderRadius.circular(14 * theme.uiSizeMultiplier),
                         border: Border.all(
-                          color: decredBlue.withOpacity(0.8),
+                          color: PokerColors.potBorder.withOpacity(0.7),
                           width: 1.5 * theme.uiSizeMultiplier,
                         ),
                         boxShadow: [
@@ -164,7 +159,7 @@ class _ChipIcon extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: const LinearGradient(
-            colors: [decredBlue, decredGreen],
+            colors: [PokerColors.primary, PokerColors.accent],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -179,7 +174,7 @@ class _ChipIcon extends StatelessWidget {
             height: innerSize,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF0D1A2F).withOpacity(0.9),
+              color: PokerColors.surfaceDim.withOpacity(0.9),
               border: Border.all(
                 color: Colors.white.withOpacity(0.7),
                 width: size * 0.06,

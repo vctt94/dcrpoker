@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
+import 'package:pokerui/theme/spacing.dart';
 
 class IdleView extends StatelessWidget {
   const IdleView({super.key, required this.model});
@@ -11,42 +14,19 @@ class IdleView extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Icon(Icons.casino, size: 64, color: Colors.white70),
-          const SizedBox(height: 16),
-          const Text(
-            'Welcome to Poker!',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+          Icon(Icons.style, size: 64, color: PokerColors.primary.withOpacity(0.6)),
+          const SizedBox(height: PokerSpacing.lg),
+          Text('Welcome to Poker!', style: PokerTypography.headlineLarge),
+          const SizedBox(height: PokerSpacing.sm),
+          Text(
+            'Browse tables or create one to start playing',
+            style: PokerTypography.bodySmall,
           ),
-          const SizedBox(height: 8),
-          const Text(
-            'Connect to a poker server to start playing',
-            style: TextStyle(color: Colors.white70),
-          ),
-          const SizedBox(height: 24),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton.icon(
-                onPressed: () {
-                  model.browseTables();
-                },
-                icon: const Icon(Icons.table_restaurant),
-                label: const Text('Browse Tables'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-              ),
-              const SizedBox(width: 16),
-              ElevatedButton.icon(
-                onPressed: () {
-                  // TODO: Implement create table functionality
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Create table functionality coming soon')),
-                  );
-                },
-                icon: const Icon(Icons.add),
-                label: const Text('Create Table'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-              ),
-            ],
+          const SizedBox(height: PokerSpacing.xxl),
+          ElevatedButton.icon(
+            onPressed: model.browseTables,
+            icon: const Icon(Icons.table_restaurant, size: 18),
+            label: const Text('Browse Tables'),
           ),
         ],
       ),

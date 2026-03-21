@@ -912,6 +912,7 @@ class PokerModel extends ChangeNotifier {
   }
 
   UiGameState _keepGameWithShowdownPlayers(UiGameState nextGame) {
+    nextGame = _rehydrateGameWithShowdownHands(nextGame);
     final liveGame = game;
     // Preserve the full showdown roster only while the server is still
     // broadcasting SHOWDOWN snapshots. Once the next hand starts, the live
@@ -925,7 +926,20 @@ class PokerModel extends ChangeNotifier {
       return nextGame;
     }
     return nextGame.copyWith(
-      players: List<UiPlayer>.unmodifiable(liveGame.players),
+      players: List<UiPlayer>.unmodifiable(
+        _hydrateShowdownHands(liveGame.players),
+      ),
+    );
+  }
+
+  UiGameState _rehydrateGameWithShowdownHands(UiGameState nextGame) {
+    if (nextGame.phase != pr.GamePhase.SHOWDOWN) {
+      return nextGame;
+    }
+    return nextGame.copyWith(
+      players: List<UiPlayer>.unmodifiable(
+        _hydrateShowdownHands(nextGame.players),
+      ),
     );
   }
 
@@ -1740,6 +1754,7 @@ class PokerModel extends ChangeNotifier {
       final gameStateJson = respMap['game_state'] as Map<String, dynamic>;
       final dto = GameUpdateDTO.fromJson(gameStateJson);
       final gameUpdate = dto.toProtobuf();
+      _stashShowdownHands(gameUpdate);
       game = _keepGameWithShowdownPlayers(UiGameState.fromUpdate(gameUpdate));
       final mePlayer = me;
       if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {

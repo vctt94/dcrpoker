@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/dialogs/create_table.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
+import 'package:pokerui/theme/spacing.dart';
 
 enum _SortBy { players, blinds, buyIn }
 
@@ -21,69 +24,19 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
       s.isEmpty ? '' : (s.length <= n ? s : s.substring(0, n));
   double _toDcr(int atoms) => atoms / 1e8;
 
-  String _playerLabel(UiPlayer p) {
-    final name = p.name.trim();
-    if (name.isNotEmpty) {
-      return name.length > 14 ? '${name.substring(0, 14)}...' : name;
-    }
-    return _shortId(p.id, 10);
-  }
-
-  Widget _playerPill(UiPlayer p) {
-    final ready = p.isReady;
-    final color = ready ? Colors.green.shade600 : Colors.blue.shade400;
-    final icon = ready ? Icons.check_circle : Icons.hourglass_empty;
-    final escrowColor = p.escrowId.isEmpty
-        ? Colors.white30
-        : (p.escrowReady ? Colors.greenAccent : Colors.amberAccent);
-    return Container(
-      margin: const EdgeInsets.only(right: 8, bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-          color: color.withOpacity(0.15),
-          borderRadius: BorderRadius.circular(12)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
-          Text(_playerLabel(p),
-              style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-          if (p.escrowId.isNotEmpty) ...[
-            const SizedBox(width: 8),
-            Container(
-              width: 10,
-              height: 10,
-              decoration:
-                  BoxDecoration(color: escrowColor, shape: BoxShape.circle),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   List<UiTable> get _filteredSortedTables {
-    final model = widget.model;
-    var list = model.tables;
-    if (_hideFull) {
-      list = list.where((t) => t.currentPlayers < t.maxPlayers).toList();
-    }
-    if (_showWaitingOnly) {
-      list = list.where((t) => !t.gameStarted).toList();
-    }
+    var list = widget.model.tables;
+    if (_hideFull) list = list.where((t) => t.currentPlayers < t.maxPlayers).toList();
+    if (_showWaitingOnly) list = list.where((t) => !t.gameStarted).toList();
     switch (_sort) {
       case _SortBy.players:
-        list = List.of(list)
-          ..sort((a, b) => (b.currentPlayers).compareTo(a.currentPlayers));
+        list = List.of(list)..sort((a, b) => b.currentPlayers.compareTo(a.currentPlayers));
         break;
       case _SortBy.blinds:
-        list = List.of(list)
-          ..sort((a, b) => (b.bigBlind).compareTo(a.bigBlind));
+        list = List.of(list)..sort((a, b) => b.bigBlind.compareTo(a.bigBlind));
         break;
       case _SortBy.buyIn:
-        list = List.of(list)
-          ..sort((a, b) => (a.buyInAtoms).compareTo(b.buyInAtoms));
+        list = List.of(list)..sort((a, b) => a.buyInAtoms.compareTo(b.buyInAtoms));
         break;
     }
     return list;
@@ -98,22 +51,16 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.table_restaurant, size: 64, color: Colors.white70),
-            const SizedBox(height: 16),
-            const Text('No Tables Available',
-                style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white)),
-            const SizedBox(height: 8),
-            const Text('Create a new table to start playing',
-                style: TextStyle(color: Colors.white70)),
-            const SizedBox(height: 24),
+            Icon(Icons.style, size: 64, color: PokerColors.textMuted),
+            const SizedBox(height: PokerSpacing.lg),
+            Text('No Tables', style: PokerTypography.headlineMedium),
+            const SizedBox(height: PokerSpacing.sm),
+            Text('Create one to start playing', style: PokerTypography.bodySmall),
+            const SizedBox(height: PokerSpacing.xl),
             ElevatedButton.icon(
               onPressed: () => CreateTableDialog.open(context, model),
-              icon: const Icon(Icons.add),
+              icon: const Icon(Icons.add, size: 18),
               label: const Text('Create Table'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
             ),
           ],
         ),
@@ -121,210 +68,269 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
     }
 
     final tables = _filteredSortedTables;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final crossAxisCount = screenWidth > 900 ? 3 : (screenWidth > 600 ? 2 : 1);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         // Toolbar
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: PokerSpacing.lg),
+          child: Row(
             children: [
-              DropdownButton<_SortBy>(
-                dropdownColor: const Color(0xFF1B1E2C),
-                value: _sort,
-                items: const [
-                  DropdownMenuItem(
-                      value: _SortBy.players, child: Text('Sort: Players')),
-                  DropdownMenuItem(
-                      value: _SortBy.blinds, child: Text('Sort: Blinds')),
-                  DropdownMenuItem(
-                      value: _SortBy.buyIn, child: Text('Sort: Buy-in')),
-                ],
-                onChanged: (v) => setState(() => _sort = v ?? _sort),
-              ),
-              FilterChip(
-                label: const Text('Hide full'),
-                selected: _hideFull,
-                onSelected: (v) => setState(() => _hideFull = v),
-              ),
-              FilterChip(
-                label: const Text('Waiting only'),
-                selected: _showWaitingOnly,
-                onSelected: (v) => setState(() => _showWaitingOnly = v),
-              ),
-              IconButton(
-                tooltip: 'Refresh',
-                onPressed: model.browseTables,
-                icon: const Icon(Icons.refresh, color: Colors.white70),
-              ),
-              ElevatedButton.icon(
-                onPressed: () => CreateTableDialog.open(context, model),
-                icon: const Icon(Icons.add),
-                label: const Text('Create'),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 8),
-
-        // Tables list
-        ListView.builder(
-          padding: const EdgeInsets.all(16),
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: tables.length,
-          itemBuilder: (context, index) {
-            final t = tables[index];
-            final full = t.currentPlayers >= t.maxPlayers;
-            final started = t.gameStarted;
-            // Consider both live players list and current session table
-            final alreadySeated = widget.model.currentTableId == t.id ||
-                t.players.any((p) => p.id == model.playerId);
-            // Allow opening the table even if full when already seated; otherwise
-            // block joins for started games or full seats.
-            final canJoin = alreadySeated || (!started && !full);
-            final statusColor = started ? Colors.green : Colors.blue.shade500;
-            final statusText = started ? 'In Progress' : 'Waiting';
-
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              color: const Color(0xFF1B1E2C),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              Expanded(
+                child: Wrap(
+                  spacing: PokerSpacing.sm,
+                  runSpacing: PokerSpacing.sm,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.table_restaurant,
-                            color: Colors.blue, size: 24),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text('Table ${_shortId(t.id)}',
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white)),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                              color: statusColor,
-                              borderRadius: BorderRadius.circular(12)),
-                          child: Text(statusText,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold)),
-                        ),
-                      ],
+                    _FilterChip(
+                      label: 'Hide full',
+                      selected: _hideFull,
+                      onSelected: (v) => setState(() => _hideFull = v),
                     ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _chip(Icons.people,
-                            '${t.currentPlayers}/${t.maxPlayers}'),
-                        _chip(Icons.attach_money,
-                            '${t.smallBlind}/${t.bigBlind}'),
-                        _chip(Icons.account_balance_wallet,
-                            '${_toDcr(t.buyInAtoms).toStringAsFixed(2)} DCR'),
-                      ],
+                    _FilterChip(
+                      label: 'Waiting',
+                      selected: _showWaitingOnly,
+                      onSelected: (v) => setState(() => _showWaitingOnly = v),
                     ),
-                    const SizedBox(height: 8),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        minHeight: 6,
-                        value: (t.maxPlayers == 0)
-                            ? 0
-                            : (t.currentPlayers / t.maxPlayers)
-                                .clamp(0, 1)
-                                .toDouble(),
-                        backgroundColor: Colors.white10,
-                        valueColor: AlwaysStoppedAnimation(
-                            full ? Colors.redAccent : Colors.lightBlueAccent),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (t.players.isNotEmpty) ...[
-                      Wrap(
-                        children: t.players.map(_playerPill).toList(),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        Text(
-                          'Buy-in: ${_toDcr(t.buyInAtoms).toStringAsFixed(4)} DCR  •  Blinds: ${t.smallBlind}/${t.bigBlind}',
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                        Tooltip(
-                          message: alreadySeated
-                              ? 'Return to your table'
-                              : started
-                                  ? 'Game already started; joining disabled'
-                                  : (canJoin
-                                      ? 'Join this table'
-                                      : 'Table is full'),
-                          child: ElevatedButton(
-                            onPressed: canJoin
-                                ? () {
-                                    if (alreadySeated) {
-                                      widget.model.openTableView();
-                                    } else {
-                                      widget.model.joinTable(t.id);
-                                    }
-                                  }
-                                : null,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor:
-                                  canJoin ? Colors.green : Colors.grey,
-                              foregroundColor: Colors.white,
-                            ),
-                            child: Text(alreadySeated
-                                ? 'Open Table'
-                                : started
-                                    ? 'Game Started'
-                                    : 'Join'),
-                          ),
-                        ),
-                      ],
+                    IconButton(
+                      tooltip: 'Refresh',
+                      onPressed: model.browseTables,
+                      icon: const Icon(Icons.refresh, color: PokerColors.textSecondary, size: 20),
                     ),
                   ],
                 ),
               ),
-            );
-          },
+              ElevatedButton.icon(
+                onPressed: () => CreateTableDialog.open(context, model),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Create'),
+              ),
+            ],
+          ),
         ),
+        const SizedBox(height: PokerSpacing.md),
+
+        // Table grid
+        if (crossAxisCount > 1)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: PokerSpacing.lg),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                crossAxisSpacing: PokerSpacing.md,
+                mainAxisSpacing: PokerSpacing.md,
+                // Fixed card height is more stable than aspect ratio here:
+                // table metadata plus the join action do not compress well.
+                mainAxisExtent: 168,
+              ),
+              itemCount: tables.length,
+              itemBuilder: (context, i) => _TableCard(
+                table: tables[i],
+                model: model,
+                shortId: _shortId,
+                toDcr: _toDcr,
+              ),
+            ),
+          )
+        else
+          ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: PokerSpacing.lg),
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: tables.length,
+            itemBuilder: (context, i) => Padding(
+              padding: const EdgeInsets.only(bottom: PokerSpacing.md),
+              child: _TableCard(
+                table: tables[i],
+                model: model,
+                shortId: _shortId,
+                toDcr: _toDcr,
+              ),
+            ),
+          ),
       ],
     );
   }
+}
 
-  Widget _chip(IconData icon, String text) {
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.label, required this.selected, required this.onSelected});
+  final String label;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return FilterChip(
+      label: Text(label, style: PokerTypography.labelSmall.copyWith(
+        color: selected ? PokerColors.primary : PokerColors.textSecondary,
+      )),
+      selected: selected,
+      onSelected: onSelected,
+      selectedColor: PokerColors.primary.withOpacity(0.15),
+      checkmarkColor: PokerColors.primary,
+      backgroundColor: PokerColors.surface,
+      side: BorderSide(
+        color: selected ? PokerColors.primary.withOpacity(0.5) : PokerColors.borderSubtle,
+      ),
+    );
+  }
+}
+
+class _TableCard extends StatelessWidget {
+  const _TableCard({
+    required this.table,
+    required this.model,
+    required this.shortId,
+    required this.toDcr,
+  });
+  final UiTable table;
+  final PokerModel model;
+  final String Function(String, [int]) shortId;
+  final double Function(int) toDcr;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = table;
+    final full = t.currentPlayers >= t.maxPlayers;
+    final started = t.gameStarted;
+    final alreadySeated = model.currentTableId == t.id ||
+        t.players.any((p) => p.id == model.playerId);
+    final canJoin = alreadySeated || (!started && !full);
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.all(PokerSpacing.lg),
       decoration: BoxDecoration(
-          color: Colors.grey.shade800, borderRadius: BorderRadius.circular(8)),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 16, color: Colors.white70),
+        color: PokerColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PokerColors.borderSubtle),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final fillHeight = constraints.hasBoundedHeight;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: fillHeight ? MainAxisSize.max : MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Table ${shortId(t.id)}',
+                      style: PokerTypography.titleSmall,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  _StatusPill(started: started),
+                ],
+              ),
+              const SizedBox(height: PokerSpacing.md),
+
+              // Stats row
+              Wrap(
+                spacing: PokerSpacing.md,
+                runSpacing: PokerSpacing.xs,
+                children: [
+                  _Stat(icon: Icons.people_outline, text: '${t.currentPlayers}/${t.maxPlayers}'),
+                  _Stat(icon: Icons.toll, text: '${t.smallBlind}/${t.bigBlind}'),
+                  _Stat(icon: Icons.account_balance_wallet_outlined,
+                      text: '${toDcr(t.buyInAtoms).toStringAsFixed(2)} DCR'),
+                ],
+              ),
+              const SizedBox(height: PokerSpacing.md),
+
+              // Player count bar
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                  minHeight: 4,
+                  value: t.maxPlayers == 0
+                      ? 0
+                      : (t.currentPlayers / t.maxPlayers).clamp(0.0, 1.0),
+                  backgroundColor: PokerColors.borderSubtle,
+                  valueColor: AlwaysStoppedAnimation(
+                      full ? PokerColors.danger : PokerColors.primary),
+                ),
+              ),
+              if (fillHeight)
+                const Spacer()
+              else
+                const SizedBox(height: PokerSpacing.md),
+
+              // Join button
+              Align(
+                alignment: Alignment.centerRight,
+                child: ElevatedButton(
+                  onPressed: canJoin
+                      ? () {
+                          if (alreadySeated) {
+                            model.openTableView();
+                          } else {
+                            model.joinTable(t.id);
+                          }
+                        }
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: canJoin ? PokerColors.success : PokerColors.surfaceBright,
+                    foregroundColor: canJoin ? Colors.black : PokerColors.textMuted,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  ),
+                  child: Text(alreadySeated
+                      ? 'Open'
+                      : started
+                          ? 'Started'
+                          : 'Join'),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.started});
+  final bool started;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = started ? PokerColors.success : PokerColors.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.4)),
+      ),
+      child: Text(
+        started ? 'Playing' : 'Waiting',
+        style: PokerTypography.labelSmall.copyWith(color: color, fontSize: 10),
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 14, color: PokerColors.textMuted),
         const SizedBox(width: 4),
-        Text(text, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-      ]),
+        Text(text, style: PokerTypography.bodySmall),
+      ],
     );
   }
 }

@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/bet_sidebar.dart';
+import 'package:pokerui/components/poker/responsive.dart';
+import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/components/poker/showdown_sidebar.dart';
-import 'package:pokerui/components/poker/bet_sidebar.dart';
-import 'package:pokerui/components/poker/bottom_action_dock.dart';
-import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/models/poker.dart';
-import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class HandInProgressView extends StatefulWidget {
-  const HandInProgressView({super.key, required this.model});
   final PokerModel model;
+  const HandInProgressView({super.key, required this.model});
 
   @override
   State<HandInProgressView> createState() => _HandInProgressViewState();
@@ -32,163 +32,178 @@ class HandInProgressView extends StatefulWidget {
   }
 }
 
-class _HandInProgressViewState extends State<HandInProgressView> {
+class _HandInProgressViewState extends State<HandInProgressView>
+    with SingleTickerProviderStateMixin {
+  final FocusNode _gameFocusNode = FocusNode();
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
-  bool _wasMyTurn = false;
   bool _showSidebar = false;
 
   @override
   void dispose() {
+    _gameFocusNode.dispose();
     _betCtrl.dispose();
     super.dispose();
   }
 
-  void _toggleSidebar() {
-    setState(() {
-      _showSidebar = !_showSidebar;
-    });
-  }
-
-  void _closeSidebar() {
-    setState(() {
-      _showSidebar = false;
-    });
-  }
+  bool get _hasLastShowdown => widget.model.hasLastShowdown;
 
   @override
   Widget build(BuildContext context) {
-    final game = widget.model.game;
-    if (game == null) {
-      return const Center(child: Text('No game data available'));
-    }
-
-    final canAct = widget.model.canAct;
-    if (canAct && !_wasMyTurn) {
-      _betCtrl.clear();
-    }
-    if (_showBetInput && _wasMyTurn && !canAct) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          setState(() {
-            _showBetInput = false;
-          });
-        }
-      });
-    }
-    _wasMyTurn = canAct;
-
-    final focusNode = FocusNode();
+    final model = widget.model;
     final theme = PokerThemeConfig.fromContext(context);
     final bp = PokerBreakpointQuery.of(context);
-    final isPhone = bp.isNarrow;
-    final aspect = tableAspectRatio(bp);
-    final pokerGame = PokerGame(
-      widget.model.playerId,
-      widget.model,
-      theme: theme,
-    );
+    final isMobile = bp.isNarrow;
+    final pokerGame = PokerGame(model.playerId, model, theme: theme);
+    final tableAr = tableAspectRatio(bp);
+    final gameState = model.game ??
+        UiGameState(
+          tableId: '',
+          phase: pr.GamePhase.PRE_FLOP,
+          phaseName: 'hand',
+          players: [],
+          communityCards: [],
+          pot: 0,
+          currentBet: 0,
+          currentPlayerId: '',
+          minRaise: 0,
+          maxRaise: 0,
+          bigBlind: 0,
+          smallBlind: 0,
+          gameStarted: true,
+          playersRequired: 0,
+          playersJoined: 0,
+          timeBankSeconds: 0,
+          turnDeadlineUnixMs: 0,
+        );
 
-    final tableStack = Stack(
-      children: [
-        pokerGame.buildWidget(
-          game,
-          focusNode,
-          aspectRatio: aspect,
-          showHeroCardsOverlay: !isPhone,
-        ),
-        if (game.currentBet > 0 && game.phase != pr.GamePhase.SHOWDOWN)
-          BetSidebar(
-            gameState: game,
-            playerId: widget.model.playerId,
-            theme: theme,
-          ),
-        _BetFxOverlay(model: widget.model),
-        if (_showSidebar && widget.model.hasLastShowdown)
-          ShowdownSidebar(
-            model: widget.model,
-            isVisible: _showSidebar,
-            onClose: _closeSidebar,
-          ),
-      ],
-    );
+    final isReady = model.iAmReady;
+    final isWaiting = gameState.phase == pr.GamePhase.WAITING;
 
-    if (isPhone) {
-      return LayoutBuilder(builder: (context, constraints) {
-        final maxTableHeight =
-            constraints.maxHeight - mobileHeroPanelMinHeight(bp);
-        final tableMax = maxTableHeight < 220.0 ? 220.0 : maxTableHeight;
-        final tableHeight =
-            (constraints.maxHeight * mobileTableHeightFraction(bp))
-                .clamp(220.0, tableMax)
-                .toDouble();
-        return Column(
-          children: [
-            SizedBox(height: tableHeight, child: tableStack),
-            Expanded(
-              child: MobileHeroActionPanel(
-                model: widget.model,
-                showBetInput: _showBetInput,
-                betCtrl: _betCtrl,
-                onToggleBetInput: () => setState(() => _showBetInput = true),
-                onCloseBetInput: () => setState(() => _showBetInput = false),
-                hasLastShowdown: widget.model.hasLastShowdown,
-                showSidebar: _showSidebar,
-                onToggleSidebar: _toggleSidebar,
+    if (isMobile) {
+      return Column(
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                pokerGame.buildWidget(gameState, _gameFocusNode,
+                    aspectRatio: tableAr,
+                    showHeroCardsOverlay: false,
+                    onReadyHotkey: isWaiting ? () => model.setReady() : null),
+                if (isWaiting)
+                  pokerGame.buildReadyToPlayOverlay(context, isReady, false, '',
+                      () => model.setReady(), gameState),
+                _AnimatedChipOverlay(
+                    model: model, theme: theme, aspectRatio: tableAr),
+                if (!isWaiting && gameState.currentBet > 0)
+                  BetSidebar(model: model),
+              ],
+            ),
+          ),
+          if (!isWaiting)
+            MobileHeroActionPanel(
+              model: model,
+              showBetInput: _showBetInput,
+              betCtrl: _betCtrl,
+              onToggleBetInput: () =>
+                  setState(() => _showBetInput = !_showBetInput),
+              onCloseBetInput: () => setState(() => _showBetInput = false),
+              hasLastShowdown: _hasLastShowdown,
+              showSidebar: _showSidebar,
+              onToggleSidebar: () =>
+                  setState(() => _showSidebar = !_showSidebar),
+            ),
+          if (_showSidebar && _hasLastShowdown)
+            SizedBox(
+              height: 200,
+              child: ShowdownSidebar(
+                model: model,
+                visible: true,
               ),
             ),
-          ],
-        );
-      });
+        ],
+      );
     }
 
-    return Column(
+    // Desktop layout
+    return Stack(
+      fit: StackFit.expand,
       children: [
-        Expanded(child: tableStack),
-        BottomActionDock(
-          model: widget.model,
-          showBetInput: _showBetInput,
-          betCtrl: _betCtrl,
-          onToggleBetInput: () => setState(() => _showBetInput = true),
-          onCloseBetInput: () => setState(() => _showBetInput = false),
-          hasLastShowdown: widget.model.hasLastShowdown,
-          showSidebar: _showSidebar,
-          onToggleSidebar: _toggleSidebar,
-        ),
+        pokerGame.buildWidget(gameState, _gameFocusNode,
+            aspectRatio: tableAr,
+            onReadyHotkey: isWaiting ? () => model.setReady() : null),
+        if (isWaiting)
+          pokerGame.buildReadyToPlayOverlay(
+              context, isReady, false, '', () => model.setReady(), gameState),
+        _AnimatedChipOverlay(model: model, theme: theme, aspectRatio: tableAr),
+        if (!isWaiting && gameState.currentBet > 0) BetSidebar(model: model),
+        if (!isWaiting)
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            child: BottomActionDock(
+              model: model,
+              showBetInput: _showBetInput,
+              betCtrl: _betCtrl,
+              onToggleBetInput: () =>
+                  setState(() => _showBetInput = !_showBetInput),
+              onCloseBetInput: () => setState(() => _showBetInput = false),
+              hasLastShowdown: _hasLastShowdown,
+              showSidebar: _showSidebar,
+              onToggleSidebar: () =>
+                  setState(() => _showSidebar = !_showSidebar),
+            ),
+          ),
+        if (_showSidebar && _hasLastShowdown)
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 80,
+            width: 300,
+            child: ShowdownSidebar(
+              model: model,
+              visible: true,
+            ),
+          ),
       ],
     );
   }
 }
 
-class _BetFxOverlay extends StatefulWidget {
-  const _BetFxOverlay({required this.model});
+/// Animated chip particles from each player's bet to the pot.
+class _AnimatedChipOverlay extends StatefulWidget {
+  const _AnimatedChipOverlay({
+    required this.model,
+    required this.theme,
+    required this.aspectRatio,
+  });
   final PokerModel model;
+  final PokerThemeConfig theme;
+  final double aspectRatio;
 
   @override
-  State<_BetFxOverlay> createState() => _BetFxOverlayState();
+  State<_AnimatedChipOverlay> createState() => _AnimatedChipOverlayState();
 }
 
-class _BetFxOverlayState extends State<_BetFxOverlay>
+class _AnimatedChipOverlayState extends State<_AnimatedChipOverlay>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
+  late final AnimationController _ctrl;
   int _lastFxMs = 0;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 700));
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
   }
 
   @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didUpdateWidget(covariant _BetFxOverlay oldWidget) {
-    super.didUpdateWidget(oldWidget);
+  void didUpdateWidget(covariant _AnimatedChipOverlay old) {
+    super.didUpdateWidget(old);
     final fx = widget.model.lastBetFx;
     if (fx != null && fx.createdMs != _lastFxMs) {
       _lastFxMs = fx.createdMs;
@@ -199,43 +214,53 @@ class _BetFxOverlayState extends State<_BetFxOverlay>
   }
 
   @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final fx = widget.model.lastBetFx;
     final game = widget.model.game;
     if (fx == null || game == null) return const SizedBox.shrink();
 
-    return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final layout = resolveTableLayout(size);
-      final theme = PokerThemeConfig.fromContext(context);
-      final hasCurrentBet = game.currentBet > 0;
-      final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
-      final seatPositions = seatPositionsFor(
-        game.players,
-        widget.model.playerId,
-        layout.center,
-        layout.ringRadiusX,
-        layout.ringRadiusY,
-        clampBounds: layout.canvasBounds,
-        minSeatTop: minSeatTop,
-        uiSizeMultiplier: theme.uiSizeMultiplier,
-      );
-      final from = seatPositions[fx.playerId] ?? layout.center;
-      final to =
-          potChipCenter(layout, uiSizeMultiplier: theme.uiSizeMultiplier);
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        return LayoutBuilder(builder: (context, c) {
+          final layout =
+              resolveTableLayout(c.biggest, aspectRatio: widget.aspectRatio);
+          final hasCurrentBet = game.currentBet > 0;
+          final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
+          final seatPositions = seatPositionsFor(
+            game.players,
+            widget.model.playerId,
+            layout.center,
+            layout.ringRadiusX,
+            layout.ringRadiusY,
+            clampBounds: layout.canvasBounds,
+            minSeatTop: minSeatTop,
+            uiSizeMultiplier: widget.theme.uiSizeMultiplier,
+          );
+          final from = seatPositions[fx.playerId] ?? layout.center;
+          final to = potChipCenter(layout,
+              uiSizeMultiplier: widget.theme.uiSizeMultiplier);
+          final anim =
+              CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
+          final t = Tween(begin: 0.0, end: 1.0).animate(anim);
 
-      final anim = CurvedAnimation(parent: _ctrl, curve: Curves.easeOutCubic);
-      final t = Tween(begin: 0.0, end: 1.0).animate(anim);
+          const particles = 4;
+          final children = <Widget>[];
+          for (int i = 0; i < particles; i++) {
+            final delay = i * 0.06;
+            children.add(_AnimatedChip(t: t, delay: delay, from: from, to: to));
+          }
 
-      const particles = 4;
-      final children = <Widget>[];
-      for (int i = 0; i < particles; i++) {
-        final delay = i * 0.06;
-        children.add(_AnimatedChip(t: t, delay: delay, from: from, to: to));
-      }
-
-      return IgnorePointer(child: Stack(children: children));
-    });
+          return IgnorePointer(child: Stack(children: children));
+        });
+      },
+    );
   }
 }
 

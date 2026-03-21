@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/minimal_showdown.dart';
@@ -104,6 +105,7 @@ UiPlayer _createPlayer({
   int tableSeat = 0,
   List<pr.Card> hand = const [],
   String handDesc = '',
+  bool cardsRevealed = false,
 }) {
   return UiPlayer(
     id: id,
@@ -120,6 +122,7 @@ UiPlayer _createPlayer({
     isReady: true,
     isDisconnected: false,
     handDesc: handDesc,
+    cardsRevealed: cardsRevealed,
     tableSeat: tableSeat,
   );
 }
@@ -180,19 +183,11 @@ void main() {
       // There may be multiple CustomPaint widgets, so we check for at least one
       expect(find.byType(CustomPaint), findsWidgets);
       
-      // Find the CustomPaint widget that contains the PokerPainter
-      // The PokerPainter draws the players on the canvas
+      // Players are now rendered via PlayerSeatsOverlay (widget-based),
+      // not a PokerPainter canvas. Verify that CustomPaint widgets still
+      // exist (table background) and that the game state is intact.
       final customPaints = find.byType(CustomPaint);
       expect(customPaints, findsWidgets);
-      
-      // Verify at least one CustomPaint has a PokerPainter
-      bool foundPokerPainter = false;
-      tester.allWidgets.whereType<CustomPaint>().forEach((cp) {
-        if (cp.painter is PokerPainter) {
-          foundPokerPainter = true;
-        }
-      });
-      expect(foundPokerPainter, isTrue);
       
       // Verify the game state has 3 players
       expect(model.game!.players.length, equals(3));
@@ -269,26 +264,20 @@ void main() {
       
       await tester.pump();
       
-      // Verify the PokerPainter is created with correct game state
-      // Find the CustomPaint widget that contains the PokerPainter
-      PokerPainter? painter;
-      tester.allWidgets.whereType<CustomPaint>().forEach((cp) {
-        if (cp.painter is PokerPainter) {
-          painter = cp.painter as PokerPainter;
-        }
-      });
-      
-      expect(painter, isNotNull);
-      
-      // Verify painter has the correct game state
-      final p = painter!; // Use null-assertion since we checked it's not null
-      expect(p.gameState.players.length, equals(3));
-      expect(p.currentPlayerId, equals(heroId));
-      
-      // Verify all players are in the painter's game state
-      expect(p.gameState.players.any((player) => player.id == heroId), isTrue);
-      expect(p.gameState.players.any((player) => player.id == 'player2'), isTrue);
-      expect(p.gameState.players.any((player) => player.id == 'player3'), isTrue);
+      // Players are now rendered via PlayerSeatsOverlay instead of PokerPainter.
+      // Verify the game state directly and ensure the seat labels render.
+      expect(model.game!.players.length, equals(3));
+      expect(model.game!.currentPlayerId, isEmpty);
+
+      // Verify all players are in the game state
+      expect(model.game!.players.any((player) => player.id == heroId), isTrue);
+      expect(model.game!.players.any((player) => player.id == 'player2'), isTrue);
+      expect(model.game!.players.any((player) => player.id == 'player3'), isTrue);
+
+      // Verify seat labels are present in the rendered widget tree.
+      expect(find.text('Hero'), findsOneWidget);
+      expect(find.text('Player 2'), findsOneWidget);
+      expect(find.text('Player 3'), findsOneWidget);
     });
     
     testWidgets('Table renders with correct aspect ratio', (WidgetTester tester) async {
@@ -343,11 +332,76 @@ void main() {
       expect(sizedBox.width, equals(800));
       expect(sizedBox.height, equals(450));
       
-      // Verify AspectRatio widget exists (16:9 aspect ratio for poker table)
-      expect(find.byType(AspectRatio), findsOneWidget);
-      
-      final aspectRatio = tester.widget<AspectRatio>(find.byType(AspectRatio));
-      expect(aspectRatio.aspectRatio, equals(16 / 9));
+      // The refactor passes the desired ratio into PokerTableBackground
+      // instead of wrapping the table in a dedicated AspectRatio widget.
+      final tableBackground = tester.widget<PokerTableBackground>(
+        find.byType(PokerTableBackground),
+      );
+      expect(tableBackground.aspectRatio, equals(16 / 9));
+    });
+
+    testWidgets('Opponent cards remain hidden at showdown when not revealed',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(
+            id: 'player2',
+            name: 'Player 2',
+            tableSeat: 1,
+            hand: [
+              _createCard('A', 'Spades'),
+              _createCard('K', 'Spades'),
+            ],
+            cardsRevealed: false,
+          ),
+        ],
+        communityCards: const [],
+        pot: 100,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: pokerGame.buildWidget(
+                  model.game!,
+                  focusNode,
+                  showHeroCardsOverlay: false,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      expect(find.byType(CardFace), findsNothing);
+      expect(find.byType(CardBack), findsNWidgets(2));
     });
     
     testWidgets('Visual snapshot: 3 players rendered on table', (WidgetTester tester) async {
@@ -785,8 +839,7 @@ void main() {
                   // Showdown sidebar overlaid on the left (handles its own positioning)
                   ShowdownSidebar(
                     model: model,
-                    isVisible: true,
-                    onClose: () {},
+                    visible: true,
                   ),
                 ],
               ),
@@ -965,8 +1018,7 @@ void main() {
                   // Showdown sidebar overlaid on the left (handles its own positioning)
                   ShowdownSidebar(
                     model: model,
-                    isVisible: true,
-                    onClose: () {},
+                    visible: true,
                   ),
                 ],
               ),
@@ -1172,4 +1224,3 @@ void main() {
     });
   });
 }
-

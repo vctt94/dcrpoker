@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
 import 'table.dart';
 import 'table_theme.dart';
 
@@ -40,30 +42,29 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         widgets.add(Positioned(
           left: pos.dx - 36,
           top: pos.dy + 24,
-          child: Tooltip(
-            message: 'Player disconnected',
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              constraints: const BoxConstraints(minWidth: 60, maxWidth: 140),
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: Colors.red.withOpacity(0.8),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.signal_wifi_off, size: 14, color: Colors.white),
-                  const SizedBox(width: 4),
-                  Flexible(
-                    child: Text(
-                      p.name.isNotEmpty ? _shortName(p.name) : 'Disconnected',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            constraints: const BoxConstraints(minWidth: 60, maxWidth: 140),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: PokerColors.danger.withOpacity(0.8),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.signal_wifi_off, size: 14, color: Colors.white),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    p.name.isNotEmpty ? _shortName(p.name) : 'Disconnected',
+                    overflow: TextOverflow.ellipsis,
+                    style: PokerTypography.labelSmall.copyWith(
+                      color: Colors.white, fontSize: 11,
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ));
