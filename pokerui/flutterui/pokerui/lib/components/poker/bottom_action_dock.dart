@@ -455,13 +455,20 @@ class _BetInputRow extends StatelessWidget {
       return;
     }
 
+    final myBalance = model.me?.balance ?? 0;
     final totalAmt = normalizeBetInputToTotal(
       entered: entered,
       myBet: myBet,
-      myBalance: model.me?.balance ?? 0,
+      myBalance: myBalance,
+    );
+    final shortAllIn = isShortAllInTarget(
+      totalTarget: totalAmt,
+      myBet: myBet,
+      myBalance: myBalance,
+      currentBet: currentBet,
     );
 
-    if (currentBet > 0 && totalAmt < currentBet) {
+    if (currentBet > 0 && totalAmt < currentBet && !shortAllIn) {
       final minRaise = currentBet - myBet;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

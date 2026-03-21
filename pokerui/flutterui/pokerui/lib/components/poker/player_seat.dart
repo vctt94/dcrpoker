@@ -129,74 +129,96 @@ class _PlayerSeatWidget extends StatelessWidget {
     final showCards = !isHero &&
         _showCardsPhase(gameState.phase) &&
         !(player.folded && !player.cardsRevealed);
-    final showFaceUpCards =
-        showCards && (!isShowdown || player.cardsRevealed) && player.hand.isNotEmpty;
+    final showFaceUpCards = showCards &&
+        (!isShowdown || player.cardsRevealed) &&
+        player.hand.isNotEmpty;
     final showCardBacks =
         showCards && !showFaceUpCards && (!player.folded || !isShowdown);
+    final badges = _buildBadges();
+    final avatar = _AvatarCircle(
+      initials: initials,
+      color: seatColor,
+      radius: radius,
+      isCurrent: isCurrent,
+      isFolded: player.folded,
+      isDisconnected: player.isDisconnected,
+      isHero: isHero,
+      balance: player.balance,
+      uiScale: uiScale,
+      turnDeadlineMs: isCurrent ? gameState.turnDeadlineUnixMs : 0,
+      timeBankSeconds: gameState.timeBankSeconds,
+      isAutoAdvance: isAutoAdvanceAllIn(gameState),
+      holeCards: showFaceUpCards ? player.hand : const [],
+      showCardBacks: showCardBacks,
+      cardScale: cardScale,
+    );
 
     return SizedBox(
       width: diameter + 60,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Chip balance above avatar (except hero, who shows it inside)
-          if (!isHero && player.balance > 0)
-            _ChipBadge(balance: player.balance, uiScale: uiScale),
-          if (!isHero && player.balance > 0) SizedBox(height: 3 * uiScale),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final shouldStackBadges = badges.isNotEmpty &&
+              constraints.maxWidth < diameter + 72 * uiScale;
 
-          // Avatar + badges row
-          Row(
+          return Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Avatar circle (cards rendered inside when applicable)
-              _AvatarCircle(
-                initials: initials,
-                color: seatColor,
-                radius: radius,
-                isCurrent: isCurrent,
-                isFolded: player.folded,
-                isDisconnected: player.isDisconnected,
-                isHero: isHero,
-                balance: player.balance,
-                uiScale: uiScale,
-                turnDeadlineMs:
-                    isCurrent ? gameState.turnDeadlineUnixMs : 0,
-                timeBankSeconds: gameState.timeBankSeconds,
-                isAutoAdvance: isAutoAdvanceAllIn(gameState),
-                holeCards: showFaceUpCards ? player.hand : const [],
-                showCardBacks: showCardBacks,
-                cardScale: cardScale,
-              ),
-              SizedBox(width: 4 * uiScale),
-              // Role badges column
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: _buildBadges(),
+              // Chip balance above avatar (except hero, who shows it inside)
+              if (!isHero && player.balance > 0)
+                _ChipBadge(balance: player.balance, uiScale: uiScale),
+              if (!isHero && player.balance > 0) SizedBox(height: 3 * uiScale),
+
+              if (badges.isEmpty)
+                avatar
+              else if (shouldStackBadges)
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    avatar,
+                    SizedBox(height: 4 * uiScale),
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 4 * uiScale,
+                      runSpacing: 0,
+                      children: badges,
+                    ),
+                  ],
+                )
+              else
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    avatar,
+                    SizedBox(width: 4 * uiScale),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: badges,
+                    ),
+                  ],
+                ),
+
+              SizedBox(height: 3 * uiScale),
+
+              // Player name
+              Text(
+                displayName,
+                style: PokerTypography.playerName.copyWith(
+                  fontSize: 11 * uiScale,
+                  color: player.folded
+                      ? PokerColors.textMuted
+                      : PokerColors.textPrimary,
+                  decoration: player.folded ? TextDecoration.lineThrough : null,
+                  decorationColor: PokerColors.textMuted,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
               ),
             ],
-          ),
-
-          SizedBox(height: 3 * uiScale),
-
-          // Player name
-          Text(
-            displayName,
-            style: PokerTypography.playerName.copyWith(
-              fontSize: 11 * uiScale,
-              color: player.folded
-                  ? PokerColors.textMuted
-                  : PokerColors.textPrimary,
-              decoration:
-                  player.folded ? TextDecoration.lineThrough : null,
-              decorationColor: PokerColors.textMuted,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -204,14 +226,14 @@ class _PlayerSeatWidget extends StatelessWidget {
   List<Widget> _buildBadges() {
     final badges = <Widget>[];
     if (player.isDealer)
-      badges.add(_RoleBadge(
-          label: 'D', color: PokerColors.warning, uiScale: uiScale));
+      badges.add(
+          _RoleBadge(label: 'D', color: PokerColors.warning, uiScale: uiScale));
     if (player.isSmallBlind)
       badges.add(_RoleBadge(
           label: 'SB', color: PokerColors.primary, uiScale: uiScale));
     if (player.isBigBlind)
-      badges.add(_RoleBadge(
-          label: 'BB', color: PokerColors.accent, uiScale: uiScale));
+      badges.add(
+          _RoleBadge(label: 'BB', color: PokerColors.accent, uiScale: uiScale));
     if (player.isAllIn)
       badges.add(_RoleBadge(
           label: 'ALL-IN', color: PokerColors.danger, uiScale: uiScale));
@@ -263,8 +285,8 @@ class _AvatarCircleState extends State<_AvatarCircle>
   @override
   void initState() {
     super.initState();
-    _timerCtrl = AnimationController(
-        vsync: this, duration: const Duration(seconds: 1));
+    _timerCtrl =
+        AnimationController(vsync: this, duration: const Duration(seconds: 1));
     if (widget.isCurrent &&
         widget.turnDeadlineMs > 0 &&
         !widget.isAutoAdvance) {
@@ -371,10 +393,11 @@ class _AvatarCircleState extends State<_AvatarCircle>
                   final nowMs = DateTime.now().millisecondsSinceEpoch;
                   final remainingMs =
                       (widget.turnDeadlineMs - nowMs).clamp(0, 1 << 30);
-                  final totalDurationMs =
-                      ((widget.timeBankSeconds > 0 ? widget.timeBankSeconds : 30) *
-                              1000)
-                          .toDouble();
+                  final totalDurationMs = ((widget.timeBankSeconds > 0
+                              ? widget.timeBankSeconds
+                              : 30) *
+                          1000)
+                      .toDouble();
                   final fraction =
                       (remainingMs / totalDurationMs).clamp(0.0, 1.0);
                   final ringColor = fraction > 0.5
@@ -425,8 +448,7 @@ class _AvatarCircleState extends State<_AvatarCircle>
                       : (widget.isCurrent
                           ? PokerColors.turnHighlight
                           : PokerColors.borderSubtle.withOpacity(0.5)),
-                  width:
-                      (widget.isCurrent ? 2.5 : 1.5) * widget.uiScale,
+                  width: (widget.isCurrent ? 2.5 : 1.5) * widget.uiScale,
                 ),
               ),
               child: ClipOval(
@@ -462,8 +484,7 @@ class _ChipBadge extends StatelessWidget {
       ),
       child: Text(
         '$balance',
-        style:
-            PokerTypography.chipCount.copyWith(fontSize: 11 * uiScale),
+        style: PokerTypography.chipCount.copyWith(fontSize: 11 * uiScale),
       ),
     );
   }
@@ -471,9 +492,7 @@ class _ChipBadge extends StatelessWidget {
 
 class _RoleBadge extends StatelessWidget {
   const _RoleBadge(
-      {required this.label,
-      required this.color,
-      required this.uiScale});
+      {required this.label, required this.color, required this.uiScale});
   final String label;
   final Color color;
   final double uiScale;
@@ -500,8 +519,7 @@ class _RoleBadge extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: PokerTypography.badgeLabel
-              .copyWith(fontSize: 10 * uiScale),
+          style: PokerTypography.badgeLabel.copyWith(fontSize: 10 * uiScale),
         ),
       ),
     );

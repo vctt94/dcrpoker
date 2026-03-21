@@ -20,3 +20,16 @@ int normalizeBetInputToTotal({
 
   return entered;
 }
+
+bool isShortAllInTarget({
+  required int totalTarget,
+  required int myBet,
+  required int myBalance,
+  required int currentBet,
+}) {
+  if (currentBet <= 0) return false;
+  if (totalTarget >= currentBet) return false;
+
+  final maxTotal = myBet + myBalance;
+  return maxTotal > 0 && totalTarget >= maxTotal;
+}

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
 
 void main() {
@@ -47,5 +48,30 @@ void main() {
     );
 
     expect(totalBet, equals(60));
+  });
+
+  test('Short all-in target below the call amount is valid', () {
+    const myBet = 0;
+    const myBalance = 1000;
+    const currentBet = 2000;
+
+    final totalBet = HandInProgressView.calculateTotalBet(
+      myBalance,
+      currentBet,
+      myBet,
+      20,
+      myBalance: myBalance,
+    );
+
+    expect(totalBet, equals(1000));
+    expect(
+      isShortAllInTarget(
+        totalTarget: totalBet,
+        myBet: myBet,
+        myBalance: myBalance,
+        currentBet: currentBet,
+      ),
+      isTrue,
+    );
   });
 }
