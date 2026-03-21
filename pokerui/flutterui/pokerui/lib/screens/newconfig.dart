@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 
@@ -27,10 +28,10 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   final _formKey = GlobalKey<FormState>();
 
   // text controllers
-  late final _serverAddr    = TextEditingController(text: widget.model.serverAddr);
-  late final _grpcCert      = TextEditingController(text: widget.model.grpcCertPath);
-  late final _address       = TextEditingController(text: widget.model.address);
-  late final _debugLvl      = TextEditingController(text: widget.model.debugLevel);
+  late final _serverAddr = TextEditingController(text: widget.model.serverAddr);
+  late final _grpcCert = TextEditingController(text: widget.model.grpcCertPath);
+  late final _address = TextEditingController(text: widget.model.address);
+  late final _debugLvl = TextEditingController(text: widget.model.debugLevel);
 
   bool _soundsEnabled = true;
   late String _tableTheme;
@@ -81,10 +82,10 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.grpcCertPath,
         widget.model.debugLevel,
       );
-      
+
       // Call the native plugin command
       final result = await Golib.createDefaultConfig(config);
-      
+
       if (result['status'] != 'created') {
         final err = result['error'] ?? 'unknown error';
         throw Exception('Failed to create config: $err');
@@ -113,9 +114,9 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         _hideTableLogo,
         _logoPosition,
       );
-      
+
       final result = await Golib.updateConfig(updateArgs);
-      
+
       if (result['status'] != 'updated') {
         final err = result['error'] ?? 'unknown error';
         throw Exception('Failed to update config: $err');
@@ -130,10 +131,12 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   Future<void> _createServerCertViaCommand() async {
     try {
       // Call the native plugin command to create the server certificate
-      final result = await Golib.createDefaultServerCert(widget.model.grpcCertPath);
-      
+      final result =
+          await Golib.createDefaultServerCert(widget.model.grpcCertPath);
+
       if (result['status'] != 'created') {
-        throw Exception('Failed to create server certificate: ${result['error']}');
+        throw Exception(
+            'Failed to create server certificate: ${result['error']}');
       }
     } catch (e) {
       debugPrint('Native plugin createDefaultServerCert failed: $e');
@@ -149,35 +152,35 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
 
       // update model from fields
       widget.model
-        ..serverAddr        = _serverAddr.text
-        ..grpcCertPath      = _grpcCert.text
-        ..address           = _address.text
-        ..debugLevel        = _debugLvl.text
-        ..soundsEnabled     = _soundsEnabled
-        ..tableTheme        = _tableTheme
-        ..cardTheme         = _cardTheme
-        ..cardSize          = _cardSize
-        ..uiSize            = _uiSize
-        ..hideTableLogo     = _hideTableLogo
-        ..logoPosition      = _logoPosition;
+        ..serverAddr = _serverAddr.text
+        ..grpcCertPath = _grpcCert.text
+        ..address = _address.text
+        ..debugLevel = _debugLvl.text
+        ..soundsEnabled = _soundsEnabled
+        ..tableTheme = _tableTheme
+        ..cardTheme = _cardTheme
+        ..cardSize = _cardSize
+        ..uiSize = _uiSize
+        ..hideTableLogo = _hideTableLogo
+        ..logoPosition = _logoPosition;
 
       await _prepareDataDir();
-      
+
       // Use the new command to create config instead of direct file writing
       await _createConfigCmd();
-      
+
       // Update theme and sound settings
       await _updateConfigCmd();
-      
+
       // Update sound service immediately after saving config
       SoundService().setEnabled(_soundsEnabled);
-      
+
       await widget.onConfigSaved();
 
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('Config saved!')));
-        await _initHeaderInfo();           // refresh header box
+        await _initHeaderInfo(); // refresh header box
         // Close settings so callers can immediately reflect new config (theme/logo) without manual refresh.
         if (mounted) {
           final nav = Navigator.of(context);
@@ -195,6 +198,57 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
     }
   }
 
+  Future<void> _pickGrpcCert() async {
+    try {
+      const allowedExtensions = {'cert', 'crt', 'pem'};
+      final result = await FilePicker.platform.pickFiles(
+        allowMultiple: false,
+        type: Platform.isAndroid ? FileType.any : FileType.custom,
+        allowedExtensions:
+            Platform.isAndroid ? null : allowedExtensions.toList(),
+      );
+
+      if (result == null) {
+        return;
+      }
+
+      final selectedFile = result.files.single;
+      final selectedExtension =
+          p.extension(selectedFile.name).replaceFirst('.', '').toLowerCase();
+      if (!allowedExtensions.contains(selectedExtension)) {
+        throw Exception(
+            'Please select a certificate file (.cert, .crt, or .pem)');
+      }
+
+      final selectedPath = selectedFile.path;
+      if (selectedPath == null || selectedPath.isEmpty) {
+        throw Exception('Selected file path is not accessible on this device');
+      }
+
+      await widget.model.appDatadir();
+      final importPath = p.join(widget.model.dataDir, selectedFile.name);
+      final sourcePath = p.normalize(selectedPath);
+      final targetPath = p.normalize(importPath);
+
+      if (sourcePath != targetPath) {
+        await Directory(widget.model.dataDir).create(recursive: true);
+        await File(sourcePath).copy(targetPath);
+      }
+
+      setState(() {
+        _grpcCert.text = targetPath;
+      });
+    } catch (e) {
+      debugPrint('Error picking gRPC cert: $e');
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unable to select certificate: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SharedLayout(
@@ -209,25 +263,41 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                 _HeaderBox(cfgPath: _cfgPath, dataDir: _dataDir),
                 const SizedBox(height: 20),
                 _field(_serverAddr, 'Server Address', required: true),
-                _field(_grpcCert, 'gRPC Server Cert Path'),
+                _field(
+                  _grpcCert,
+                  'gRPC Server Cert Path',
+                  suffixIcon: IconButton(
+                    tooltip: 'Select certificate file',
+                    onPressed: _pickGrpcCert,
+                    icon: const Icon(Icons.folder_open, color: Colors.white70),
+                  ),
+                ),
                 _field(_address, 'Payout Address or PubKey (33/65B hex)'),
                 const SizedBox(height: 12),
-                const Text('Logging Configuration', 
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text('Logging Configuration',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 _field(_debugLvl, 'Debug Level'),
                 const SizedBox(height: 12),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Enable Sounds', style: TextStyle(color: Colors.white)),
-                    Switch(value: _soundsEnabled,
-                           onChanged: (v) => setState(() => _soundsEnabled = v)),
+                    const Text('Enable Sounds',
+                        style: TextStyle(color: Colors.white)),
+                    Switch(
+                        value: _soundsEnabled,
+                        onChanged: (v) => setState(() => _soundsEnabled = v)),
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Text('Table Appearance', 
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text('Table Appearance',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   initialValue: _tableTheme,
@@ -246,7 +316,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   items: TableThemeConfig.presets
                       .map((t) => DropdownMenuItem(
                             value: t.key,
-                            child: Text(t.displayName, style: const TextStyle(color: Colors.white)),
+                            child: Text(t.displayName,
+                                style: const TextStyle(color: Colors.white)),
                           ))
                       .toList(),
                   onChanged: (value) {
@@ -273,7 +344,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   items: cardColorThemePresets
                       .map((t) => DropdownMenuItem(
                             value: cardColorThemeKey(t),
-                            child: Text(cardColorThemeDisplayName(t), style: const TextStyle(color: Colors.white)),
+                            child: Text(cardColorThemeDisplayName(t),
+                                style: const TextStyle(color: Colors.white)),
                           ))
                       .toList(),
                   onChanged: (value) {
@@ -300,23 +372,28 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   items: const [
                     DropdownMenuItem(
                       value: 'xs',
-                      child: Text('Extra Small', style: TextStyle(color: Colors.white)),
+                      child: Text('Extra Small',
+                          style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'small',
-                      child: Text('Small', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Small', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'medium',
-                      child: Text('Medium', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Medium', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'large',
-                      child: Text('Large', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Large', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'xl',
-                      child: Text('Extra Large', style: TextStyle(color: Colors.white)),
+                      child: Text('Extra Large',
+                          style: TextStyle(color: Colors.white)),
                     ),
                   ],
                   onChanged: (value) {
@@ -343,23 +420,28 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   items: const [
                     DropdownMenuItem(
                       value: 'xs',
-                      child: Text('Extra Small', style: TextStyle(color: Colors.white)),
+                      child: Text('Extra Small',
+                          style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'small',
-                      child: Text('Small', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Small', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'medium',
-                      child: Text('Medium', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Medium', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'large',
-                      child: Text('Large', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Large', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'xl',
-                      child: Text('Extra Large', style: TextStyle(color: Colors.white)),
+                      child: Text('Extra Large',
+                          style: TextStyle(color: Colors.white)),
                     ),
                   ],
                   onChanged: (value) {
@@ -372,7 +454,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Show Table Logo', style: TextStyle(color: Colors.white)),
+                    const Text('Show Table Logo',
+                        style: TextStyle(color: Colors.white)),
                     Switch(
                       value: !_hideTableLogo,
                       onChanged: (v) => setState(() => _hideTableLogo = !v),
@@ -397,23 +480,28 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   items: const [
                     DropdownMenuItem(
                       value: 'center',
-                      child: Text('Center', style: TextStyle(color: Colors.white)),
+                      child:
+                          Text('Center', style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'top_left',
-                      child: Text('Top Left', style: TextStyle(color: Colors.white)),
+                      child: Text('Top Left',
+                          style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'top_right',
-                      child: Text('Top Right', style: TextStyle(color: Colors.white)),
+                      child: Text('Top Right',
+                          style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'bottom_left',
-                      child: Text('Bottom Left', style: TextStyle(color: Colors.white)),
+                      child: Text('Bottom Left',
+                          style: TextStyle(color: Colors.white)),
                     ),
                     DropdownMenuItem(
                       value: 'bottom_right',
-                      child: Text('Bottom Right', style: TextStyle(color: Colors.white)),
+                      child: Text('Bottom Right',
+                          style: TextStyle(color: Colors.white)),
                     ),
                   ],
                   onChanged: (value) {
@@ -423,7 +511,8 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
-                ElevatedButton(onPressed: _save, child: const Text('Save Config')),
+                ElevatedButton(
+                    onPressed: _save, child: const Text('Save Config')),
               ],
             ),
           ),
@@ -434,7 +523,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
 
   // simple builder for text fields
   Widget _field(TextEditingController c, String label,
-      {bool required = false, bool obscure = false}) {
+      {bool required = false, bool obscure = false, Widget? suffixIcon}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: TextFormField(
@@ -450,10 +539,10 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
           focusedBorder: const UnderlineInputBorder(
             borderSide: BorderSide(color: Colors.blueAccent),
           ),
+          suffixIcon: suffixIcon,
         ),
-        validator: required
-            ? (v) => v == null || v.isEmpty ? 'Required' : null
-            : null,
+        validator:
+            required ? (v) => v == null || v.isEmpty ? 'Required' : null : null,
       ),
     );
   }
@@ -475,7 +564,7 @@ class _HeaderBox extends StatelessWidget {
       decoration: BoxDecoration(
         color: const Color(0xFF1B1E2C),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.blueAccent.withOpacity(.3)),
+        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -485,14 +574,18 @@ class _HeaderBox extends StatelessWidget {
               Icon(Icons.settings_applications, color: Colors.blueAccent),
               SizedBox(width: 8),
               Text('Config & Data Directory',
-                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 12),
           const Text('Config file:', style: TextStyle(color: Colors.white70)),
           _Code(cfgPath),
           const SizedBox(height: 8),
-          const Text('Data directory:', style: TextStyle(color: Colors.white70)),
+          const Text('Data directory:',
+              style: TextStyle(color: Colors.white70)),
           _Code(dataDir),
           const SizedBox(height: 8),
         ],
@@ -515,6 +608,7 @@ class _Code extends StatelessWidget {
           border: Border.all(color: Colors.grey.shade700),
         ),
         child: SelectableText(text,
-            style: const TextStyle(color: Colors.white, fontFamily: 'monospace', fontSize: 12)),
+            style: const TextStyle(
+                color: Colors.white, fontFamily: 'monospace', fontSize: 12)),
       );
 }
