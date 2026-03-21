@@ -51,7 +51,7 @@ func (pc *PokerClient) StartGameStream(ctx context.Context) error {
 
 func (pc *PokerClient) runGameStreamLoop(ctx context.Context, tableID string) {
 	backoff := 500 * time.Millisecond
-	const maxBackoff = 30 * time.Second
+	const maxBackoff = 5 * time.Second
 
 	defer func() {
 		pc.gameStreamMu.Lock()
@@ -79,7 +79,7 @@ func (pc *PokerClient) runGameStreamLoop(ctx context.Context, tableID string) {
 			}
 
 			pc.enqueueError(fmt.Errorf("failed to start game stream: %w", err))
-			if !waitWithBackoff(ctx, backoff) {
+			if !waitWithBackoffOrSignal(ctx, backoff, pc.gameReconnectCh) {
 				return
 			}
 			backoff = capBackoff(backoff, maxBackoff)
@@ -103,7 +103,7 @@ func (pc *PokerClient) runGameStreamLoop(ctx context.Context, tableID string) {
 			pc.gameStreamMu.Unlock()
 
 			pc.setGameStreamConnectionState(false, err)
-			if !waitWithBackoff(ctx, backoff) {
+			if !waitWithBackoffOrSignal(ctx, backoff, pc.gameReconnectCh) {
 				return
 			}
 			backoff = capBackoff(backoff, maxBackoff)
@@ -303,7 +303,7 @@ func (pc *PokerClient) runNotificationLoop(ctx context.Context) {
 	}()
 
 	backoff := 500 * time.Millisecond
-	const maxBackoff = 30 * time.Second
+	const maxBackoff = 5 * time.Second
 
 	for {
 		if ctx.Err() != nil {
@@ -316,7 +316,7 @@ func (pc *PokerClient) runNotificationLoop(ctx context.Context) {
 				return
 			}
 			pc.setConnectionState(false, err)
-			if !waitWithBackoff(ctx, backoff) {
+			if !waitWithBackoffOrSignal(ctx, backoff, pc.notificationReconnectCh) {
 				return
 			}
 			backoff = capBackoff(backoff, maxBackoff)
@@ -337,7 +337,7 @@ func (pc *PokerClient) runNotificationLoop(ctx context.Context) {
 			}
 
 			pc.setConnectionState(false, err)
-			if !waitWithBackoff(ctx, backoff) {
+			if !waitWithBackoffOrSignal(ctx, backoff, pc.notificationReconnectCh) {
 				return
 			}
 			backoff = capBackoff(backoff, maxBackoff)

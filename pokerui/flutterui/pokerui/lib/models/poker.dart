@@ -542,6 +542,9 @@ class PokerModel extends ChangeNotifier {
   void _onNotification(pr.Notification n) {
     switch (n.type) {
       case pr.NotificationType.NOTIFICATION_STREAM_CONNECTED:
+        // Force a full resync in case lobby/table notifications were missed
+        // while the device was asleep.
+        unawaited(refreshTables());
         // Force a full resync in case the initial resync GameUpdate was missed.
         unawaited(_restoreCurrentTable());
         break;
@@ -1100,6 +1103,10 @@ class PokerModel extends ChangeNotifier {
       _state = PokerState.browsingTables;
       notifyListeners();
     }
+  }
+
+  Future<void> refreshTables() async {
+    await _fetchInitialTables();
   }
 
   Future<String?> createTable({
