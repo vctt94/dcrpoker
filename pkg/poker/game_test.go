@@ -78,7 +78,9 @@ func TestNewGame(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
 		StartingChips:    1000, // Set to 1000 to match the expected balance
-		Seed:             42,   // Use a fixed seed for deterministic testing
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             42, // Use a fixed seed for deterministic testing
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
 	}
@@ -162,6 +164,8 @@ func TestDealCards(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
 		StartingChips:    100,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             42,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -215,6 +219,8 @@ func TestDealCards(t *testing.T) {
 func TestCommunityCards(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             42,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -278,6 +284,8 @@ func TestShowdown(t *testing.T) {
 	// Create a game with 2 players
 	cfg := GameConfig{
 		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             42,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -405,6 +413,8 @@ func TestShowdownHandRankPropagates(t *testing.T) {
 func TestSplitPotForcesWinnerReveal(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             42,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -460,6 +470,8 @@ func TestSplitPotForcesWinnerReveal(t *testing.T) {
 func TestFoldWinDoesNotReveal(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             99,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -517,6 +529,8 @@ func TestTieBreakerShowdown(t *testing.T) {
 	// Create a game with 3 players
 	cfg := GameConfig{
 		NumPlayers:       3,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             42,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -601,6 +615,8 @@ func TestTieBreakerShowdown(t *testing.T) {
 func TestSplitPotShowdown(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             1,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -657,6 +673,8 @@ func TestSplitPotShowdown(t *testing.T) {
 func TestSidePotShowdown(t *testing.T) {
 	cfg := GameConfig{
 		NumPlayers:       3,
+		SmallBlind:       10,
+		BigBlind:         20,
 		Seed:             1,
 		Log:              createTestLogger(),
 		AutoAdvanceDelay: 1 * time.Second,
@@ -986,6 +1004,198 @@ func TestCallShortStackAllInDoesNotForceMatchCurrentBet(t *testing.T) {
 	assert.Equal(t, int64(0), g.GetCurrentBet(), "Table currentBet should be 0 after advancing to FLOP")
 }
 
+// Minimum raise enforcement should reject sub-min raises but still allow a
+// short-stack all-in for less than the minimum raise.
+func TestHandlePlayerBetEnforcesMinimumRaise(t *testing.T) {
+	newGame := func(t *testing.T, startingChips int64) (*Game, context.CancelFunc) {
+		t.Helper()
+		cfg := GameConfig{
+			NumPlayers:       3,
+			StartingChips:    startingChips,
+			SmallBlind:       10,
+			BigBlind:         20,
+			Log:              createTestLogger(),
+			AutoAdvanceDelay: 1 * time.Second,
+		}
+		g, err := NewGame(cfg)
+		require.NoError(t, err)
+		users := []*User{
+			NewUser("p1", nil, nil),
+			NewUser("p2", nil, nil),
+			NewUser("p3", nil, nil),
+		}
+		g.SetPlayers(users)
+		ctx, cancel := context.WithCancel(context.Background())
+		go g.Start(ctx)
+		g.sm.Send(evStartHand{})
+		require.Eventually(t, func() bool {
+			return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+		}, 2*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP")
+		return g, cancel
+	}
+
+	waitForUTGTurn := func(t *testing.T, g *Game) *Player {
+		t.Helper()
+		var p *Player
+		require.Eventually(t, func() bool {
+			p = g.GetCurrentPlayerObject()
+			return p != nil && p.ID() == "p1"
+		}, 2*time.Second, 10*time.Millisecond, "UTG should act first pre-flop in 3-handed")
+		return p
+	}
+
+	t.Run("rejects sub-minimum raise", func(t *testing.T) {
+		g, cancel := newGame(t, 1000)
+		t.Cleanup(cancel)
+
+		current := waitForUTGTurn(t, g)
+		require.Equal(t, int64(20), g.GetCurrentBet(), "table bet should reflect big blind")
+
+		// Attempt to raise from 0 to 25 (only 5 over the big blind) should fail.
+		err := g.HandlePlayerBet(current.ID(), 25)
+		require.Error(t, err)
+	})
+
+	t.Run("allows short all-in below minimum raise", func(t *testing.T) {
+		g, cancel := newGame(t, 30) // UTG will have 30 chips total
+		t.Cleanup(cancel)
+
+		// Make sure only the UTG stack is short; others remain deep.
+		g.players[1].SetBalance(1000)
+		g.players[2].SetBalance(1000)
+
+		current := waitForUTGTurn(t, g)
+		require.Equal(t, int64(20), g.GetCurrentBet(), "table bet should reflect big blind")
+
+		// UTG goes all-in for 30: raise size is only 10 over the 20 big blind, below min-raise, but allowed as all-in.
+		err := g.HandlePlayerBet(current.ID(), 30)
+		require.NoError(t, err)
+		snap := g.GetStateSnapshot()
+		require.True(t, snap.Players[0].IsAllIn, "short-stack raise to all-in should be allowed")
+	})
+
+	t.Run("short all-in underraise does not reset aggressor or min raise", func(t *testing.T) {
+		g, cancel := newGame(t, 1000)
+		t.Cleanup(cancel)
+
+		// In 3-handed pre-flop, p2 is the small blind with 10 already posted.
+		// Reduce their remaining stack so their only raise is an under-min all-in.
+		g.players[1].SetBalance(80)
+
+		current := waitForUTGTurn(t, g)
+		require.Equal(t, "p1", current.ID())
+
+		// Open to 60 over the 20 big blind. This is a full raise of 40.
+		require.NoError(t, g.HandlePlayerBet(current.ID(), 60))
+		require.Equal(t, int64(60), g.GetCurrentBet())
+
+		g.mu.RLock()
+		require.Equal(t, 0, g.lastAggressor)
+		require.Equal(t, int64(40), g.lastRaiseAmount)
+		g.mu.RUnlock()
+
+		// Small blind goes all-in to 90 total: only 30 over 60, so below the 40 min raise.
+		require.NoError(t, g.HandlePlayerBet("p2", 90))
+		require.Equal(t, int64(90), g.GetCurrentBet())
+
+		g.mu.RLock()
+		require.Equal(t, 0, g.lastAggressor, "short all-in underraise must not become the new aggressor")
+		require.Equal(t, int64(40), g.lastRaiseAmount, "short all-in underraise must not reduce the minimum raise size")
+		g.mu.RUnlock()
+
+		// Remaining players can still respond and the round should complete normally.
+		require.NoError(t, g.HandlePlayerCall("p3"))
+		require.NoError(t, g.HandlePlayerCall("p1"))
+		require.Eventually(t, func() bool {
+			return g.GetPhase() == pokerrpc.GamePhase_FLOP
+		}, 2*time.Second, 10*time.Millisecond, "betting round should complete after matching the short all-in underraise")
+	})
+}
+
+func TestSetGameStateRestoresLastRaiseAmount(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		StartingChips:    1000,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
+
+	g, err := NewGame(cfg)
+	require.NoError(t, err)
+	g.SetGameState(0, 7, 60, 0, 40, pokerrpc.GamePhase_PRE_FLOP)
+
+	snap := g.GetStateSnapshot()
+	require.Equal(t, int64(40), snap.LastRaiseAmount)
+
+	restored, err := NewGame(cfg)
+	require.NoError(t, err)
+	restored.SetGameState(snap.Dealer, snap.Round, snap.CurrentBet, snap.Pot, snap.LastRaiseAmount, snap.Phase)
+
+	restored.mu.RLock()
+	defer restored.mu.RUnlock()
+	require.Equal(t, int64(40), restored.lastRaiseAmount)
+	require.Equal(t, int64(60), restored.currentBet)
+}
+
+func TestOpeningShortAllInDoesNotLowerMinimumRaise(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		StartingChips:    100,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 50 * time.Millisecond,
+	}
+	g, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("sb", nil, nil),
+		NewUser("bb", nil, nil),
+	}
+	g.SetPlayers(users)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+	g.sm.Send(evStartHand{})
+
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP")
+
+	// Force a clean street state directly so this test isolates the opening
+	// short-all-in behavior in handlePlayerBet rather than hand progression.
+	g.SetGameState(g.GetDealer(), g.GetRound(), 0, 0, cfg.BigBlind, pokerrpc.GamePhase_FLOP)
+	for _, p := range g.players {
+		p.SetCurrentBet(0)
+		p.EndTurn()
+	}
+	g.mu.Lock()
+	g.lastAggressor = -1
+	g.mu.Unlock()
+	g.SetCurrentPlayerByID("sb")
+
+	require.Equal(t, int64(0), g.GetCurrentBet(), "new street should start with no live bet")
+
+	actor := g.GetCurrentPlayerObject()
+	require.NotNil(t, actor, "there should be a street opener")
+	require.Equal(t, "sb", actor.ID())
+
+	// Make the first actor a short stack so their only opening action is a
+	// below-BB all-in. This should be allowed, but it must not reduce the
+	// minimum legal raise size for the street.
+	actor.SetBalance(15)
+	require.NoError(t, g.HandlePlayerBet(actor.ID(), 15))
+
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	require.Equal(t, int64(15), g.currentBet, "table bet should reflect the short all-in")
+	require.Equal(t, int64(20), g.lastRaiseAmount, "opening short all-in must not lower the minimum raise below the big blind")
+}
+
 // When blinds alone put a player all-in and only one actionable player remains,
 // the hand should auto-advance without waiting for a redundant check/fold.
 func TestAutoAdvanceWhenBlindsShortStackAllIn(t *testing.T) {
@@ -1028,6 +1238,70 @@ func TestAutoAdvanceWhenBlindsShortStackAllIn(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return g.GetPhase() == pokerrpc.GamePhase_FLOP
 	}, 1*time.Second, 20*time.Millisecond, "Hand should auto-advance from blinds when only one active player remains")
+}
+
+// When the big blind cannot cover the full blind amount, they must post their
+// full stack as an all-in blind, remain in the hand, and action should continue
+// with the other player rather than treating the short blind poster as folded/out.
+func TestShortBigBlindPostsAllInAndStaysInHand(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		StartingChips:    100,
+		SmallBlind:       5,
+		BigBlind:         10,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 50 * time.Millisecond,
+	}
+	g, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("sb", nil, nil), // Dealer/SB in heads-up
+		NewUser("bb", nil, nil), // Big blind
+	}
+	g.SetPlayers(users)
+
+	g.players[0].SetBalance(100)
+	g.players[1].SetBalance(7) // Cannot cover the 10-chip big blind
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+	g.sm.Send(evStartHand{})
+
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP")
+
+	snap := g.GetStateSnapshot()
+	require.Len(t, snap.Players, 2)
+
+	var bbSnap PlayerSnapshot
+	for _, p := range snap.Players {
+		switch p.ID {
+		case "bb":
+			bbSnap = p
+		}
+	}
+
+	require.Equal(t, int64(7), bbSnap.CurrentBet, "short big blind should post only the chips they have")
+	require.Equal(t, int64(0), bbSnap.Balance, "short big blind should have no chips left after posting")
+	require.True(t, bbSnap.IsAllIn, "short big blind should be all-in from posting the blind")
+	require.False(t, bbSnap.Folded, "short big blind must remain in the hand, not be folded")
+	require.Equal(t, ALL_IN_STATE, bbSnap.StateString, "short big blind should be in ALL_IN state")
+
+	require.Equal(t, "sb", g.GetCurrentPlayerObject().ID(), "action should continue with the small blind")
+
+	// SB should be able to complete the betting round against the short BB.
+	require.NoError(t, g.HandlePlayerCall("sb"))
+
+	require.Eventually(t, func() bool {
+		phase := g.GetPhase()
+		return phase == pokerrpc.GamePhase_FLOP ||
+			phase == pokerrpc.GamePhase_TURN ||
+			phase == pokerrpc.GamePhase_RIVER ||
+			phase == pokerrpc.GamePhase_SHOWDOWN
+	}, 2*time.Second, 10*time.Millisecond, "hand should continue after the short big blind posts all-in")
 }
 
 // Reproduces a stall when the pre-flop aggressor is all-in: action never

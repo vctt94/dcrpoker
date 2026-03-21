@@ -966,7 +966,7 @@ func TestBetValidation_MinOpenBetBelowBBRejected(t *testing.T) {
 	_, err = server.MakeBet(ctx, &pokerrpc.MakeBetRequest{PlayerId: actor, TableId: tableID, Amount: 5})
 	require.Error(t, err)
 	assert.Equal(t, codes.InvalidArgument, status.Code(err))
-	assert.Contains(t, err.Error(), "big blind")
+	assert.Contains(t, err.Error(), "minimum bet is 10")
 }
 
 func TestLastPlayerLeavesTableClosure(t *testing.T) {

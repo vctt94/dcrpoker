@@ -186,3 +186,46 @@ func TestResetForNewHand_ClearsFoldState(t *testing.T) {
 	assert.NotEqual(t, FOLDED_STATE, player.GetCurrentStateString(), "Player should not be folded after new hand reset")
 	assert.Equal(t, IN_GAME_STATE, player.GetCurrentStateString(), "Player should be in IN_GAME state after reset")
 }
+
+func TestDeductBlindIsIdempotentPerHand(t *testing.T) {
+	player := NewPlayer("test-player", "Test Player", 1000)
+	t.Cleanup(player.Close)
+
+	require.NoError(t, player.HandleStartHand())
+
+	first, err := player.DeductBlind(50)
+	require.NoError(t, err)
+	require.Equal(t, int64(50), first)
+	require.Equal(t, int64(950), player.Balance())
+	require.Equal(t, int64(50), player.CurrentBet())
+
+	second, err := player.DeductBlind(50)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), second)
+	require.Equal(t, int64(950), player.Balance())
+	require.Equal(t, int64(50), player.CurrentBet())
+}
+
+func TestDeductBlindResetsForNextHand(t *testing.T) {
+	player := NewPlayer("test-player", "Test Player", 1000)
+	t.Cleanup(player.Close)
+
+	require.NoError(t, player.HandleStartHand())
+
+	paid, err := player.DeductBlind(50)
+	require.NoError(t, err)
+	require.Equal(t, int64(50), paid)
+
+	player.EndHandParticipation()
+	require.Eventually(t, func() bool {
+		return player.GetCurrentStateString() == AT_TABLE_STATE && player.CurrentBet() == 0
+	}, 200*time.Millisecond, 10*time.Millisecond)
+
+	require.NoError(t, player.HandleStartHand())
+
+	paid, err = player.DeductBlind(50)
+	require.NoError(t, err)
+	require.Equal(t, int64(50), paid)
+	require.Equal(t, int64(900), player.Balance())
+	require.Equal(t, int64(50), player.CurrentBet())
+}

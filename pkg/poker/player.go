@@ -201,9 +201,12 @@ func stateAtTable(p *Player, in <-chan any) PlayerStateFn {
 			case evDeductBlind:
 				// Deduct blind while still AT_TABLE (before hand starts)
 				p.mu.Lock()
-				amount := e.Amt
-				if amount > p.balance {
-					amount = p.balance
+				amount := int64(0)
+				if p.currentBet == 0 {
+					amount = e.Amt
+					if amount > p.balance {
+						amount = p.balance
+					}
 				}
 				if amount > 0 {
 					p.balance -= amount
@@ -627,9 +630,12 @@ func stateHandActive(p *Player, in <-chan any) HandParticipationStateFn {
 
 		case evDeductBlind:
 			p.mu.Lock()
-			amount := e.Amt
-			if amount > p.balance {
-				amount = p.balance
+			amount := int64(0)
+			if p.currentBet == 0 {
+				amount = e.Amt
+				if amount > p.balance {
+					amount = p.balance
+				}
 			}
 			allInAfter := false
 			if amount > 0 {
