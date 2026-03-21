@@ -1665,7 +1665,12 @@ func (g *Game) handlePlayerBet(playerID string, amount int64) error {
 				g.lastAggressor = g.currentPlayer
 			}
 		}
-		if isFullRaise {
+
+		if isOpeningBet {
+			if !isShortAllIn {
+				g.lastRaiseAmount = amount
+			}
+		} else if isFullRaise {
 			g.lastRaiseAmount = raiseSize
 		}
 	}

@@ -1196,6 +1196,57 @@ func TestOpeningShortAllInDoesNotLowerMinimumRaise(t *testing.T) {
 	require.Equal(t, int64(20), g.lastRaiseAmount, "opening short all-in must not lower the minimum raise below the big blind")
 }
 
+func TestOpeningBetSetsMinimumFutureRaise(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		StartingChips:    200,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 50 * time.Millisecond,
+	}
+	g, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("sb", nil, nil),
+		NewUser("bb", nil, nil),
+	}
+	g.SetPlayers(users)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+	g.sm.Send(evStartHand{})
+
+	require.Eventually(t, func() bool {
+		return g.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond, "game should reach PRE_FLOP")
+
+	// Force a clean post-flop street so this test isolates the opening-bet
+	// behavior in handlePlayerBet rather than pre-flop blind mechanics.
+	g.SetGameState(g.GetDealer(), g.GetRound(), 0, 0, cfg.BigBlind, pokerrpc.GamePhase_FLOP)
+	for _, p := range g.players {
+		p.SetCurrentBet(0)
+		p.EndTurn()
+	}
+	g.mu.Lock()
+	g.lastAggressor = -1
+	g.mu.Unlock()
+	g.SetCurrentPlayerByID("sb")
+
+	actor := g.GetCurrentPlayerObject()
+	require.NotNil(t, actor, "there should be a street opener")
+	require.Equal(t, "sb", actor.ID())
+
+	require.NoError(t, g.HandlePlayerBet(actor.ID(), 100))
+
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	require.Equal(t, int64(100), g.currentBet, "table bet should reflect the opening bet")
+	require.Equal(t, int64(100), g.lastRaiseAmount, "opening bet must set the next minimum raise size to the amount opened")
+}
+
 // When blinds alone put a player all-in and only one actionable player remains,
 // the hand should auto-advance without waiting for a redundant check/fold.
 func TestAutoAdvanceWhenBlindsShortStackAllIn(t *testing.T) {
