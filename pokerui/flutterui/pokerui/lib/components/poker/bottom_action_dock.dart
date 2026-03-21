@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/models/poker.dart';
@@ -441,15 +442,21 @@ class _BetInputRow extends StatelessWidget {
 
   Future<void> _submitBet(BuildContext context) async {
     final raw = betCtrl.text.trim();
-    final amt = int.tryParse(raw) ?? 0;
-    if (amt <= 0) {
+    final entered = int.tryParse(raw) ?? 0;
+    if (entered <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a valid bet amount')),
       );
       return;
     }
 
-    if (currentBet > 0 && amt < currentBet) {
+    final totalAmt = normalizeBetInputToTotal(
+      entered: entered,
+      myBet: myBet,
+      myBalance: model.me?.balance ?? 0,
+    );
+
+    if (currentBet > 0 && totalAmt < currentBet) {
       final minRaise = currentBet - myBet;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -459,7 +466,7 @@ class _BetInputRow extends StatelessWidget {
       return;
     }
 
-    final ok = await model.makeBet(amt);
+    final ok = await model.makeBet(totalAmt);
     if (!ok && model.errorMessage.isNotEmpty && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(model.errorMessage)),
@@ -539,7 +546,13 @@ class _BetInputRow extends StatelessWidget {
         Builder(builder: (context) {
           final meBal = model.me?.balance ?? 0;
           final entered = int.tryParse(betCtrl.text.trim()) ?? 0;
-          final target = entered > 0 ? entered : currentBet;
+          final target = entered > 0
+              ? normalizeBetInputToTotal(
+                  entered: entered,
+                  myBet: myBet,
+                  myBalance: meBal,
+                )
+              : currentBet;
           final myTotal = meBal + myBet;
           final isAllIn = target >= myTotal && myTotal > 0;
           final label = isAllIn ? 'All-in' : (isRaise ? 'Raise' : 'Bet');
@@ -580,9 +593,13 @@ class _BetDeltaLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final entered = int.tryParse(betCtrl.text.trim()) ?? 0;
     final maxTotal = myBalance + myBet;
-    final capped = entered > maxTotal ? maxTotal : entered;
+    final normalized = normalizeBetInputToTotal(
+      entered: entered,
+      myBet: myBet,
+      myBalance: myBalance,
+    );
     final displayEntered =
-        capped > 0 ? capped : (isRaise ? currentBet : bb * 3);
+        normalized > 0 ? normalized : (isRaise ? currentBet : bb * 3);
     final displayDelta = displayEntered > myBet ? (displayEntered - myBet) : 0;
     if (displayDelta == displayEntered) return const SizedBox.shrink();
     final isAllIn = displayEntered == maxTotal && maxTotal > 0;
