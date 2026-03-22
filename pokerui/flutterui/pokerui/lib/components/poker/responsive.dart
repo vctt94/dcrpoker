@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pokerui/components/poker/scene_layout.dart';
 
 /// Screen-width breakpoints for adaptive poker layout.
 enum PokerBreakpoint {
@@ -48,12 +49,13 @@ extension PokerBreakpointQuery on PokerBreakpoint {
 double tableAspectRatio(PokerBreakpoint bp) {
   switch (bp) {
     case PokerBreakpoint.compact:
-      return 1.0;
+      return 0.95;
     case PokerBreakpoint.regular:
-      return 1.15;
+      return 1.05;
     case PokerBreakpoint.expanded:
+      return 1.3;
     case PokerBreakpoint.wide:
-      return 16 / 9;
+      return 1.55;
   }
 }
 
@@ -115,6 +117,20 @@ double fontScale(PokerBreakpoint bp) {
 
 /// Whether a side rail should be rendered at this breakpoint.
 bool showSideRail(PokerBreakpoint bp) => bp == PokerBreakpoint.wide;
+
+/// Whether the current viewport should use the compact table layout that keeps
+/// hero cards and actions in a bottom panel instead of on-table overlays.
+///
+/// This applies to phones, tablets/smaller laptops (`expanded`), and short
+/// desktop windows where the standard overlay stack becomes visually cramped.
+bool useCompactTableLayoutForSize(PokerBreakpoint bp, Size size) {
+  return PokerSceneLayout.resolveMode(size).isCompact;
+}
+
+bool useCompactTableLayout(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  return useCompactTableLayoutForSize(PokerBreakpointQuery.of(context), size);
+}
 
 /// Vertical share used by the table canvas in the phone layout.
 double mobileTableHeightFraction(PokerBreakpoint bp) {

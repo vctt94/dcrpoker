@@ -23,6 +23,7 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
     return LayoutBuilder(builder: (context, c) {
       final theme = PokerThemeConfig.fromContext(context);
       final layout = resolveTableLayout(c.biggest);
+      final scene = layout.scene;
       final seats = seatPositionsFor(
         players,
         heroId,
@@ -32,6 +33,7 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         clampBounds: layout.canvasBounds,
         minSeatTop: minSeatTopFor(layout.viewport, hasCurrentBet),
         uiSizeMultiplier: theme.uiSizeMultiplier,
+        sceneLayout: scene,
       );
 
       final widgets = <Widget>[];
@@ -39,9 +41,20 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         if (!p.isDisconnected) continue;
         final pos = seats[p.id];
         if (pos == null) continue;
+        final isHero = p.id == heroId;
+        final preferredTop = pos.dy + (isHero ? 20.0 : 46.0);
+        final maxTop = isHero
+            ? scene.heroDockRect.top - 28.0
+            : scene.topSeatBandRect.bottom - 28.0;
+        final top = preferredTop.clamp(
+          isHero
+              ? scene.tableRect.bottom - 36.0
+              : scene.topSeatBandRect.top + 6.0,
+          maxTop,
+        );
         widgets.add(Positioned(
           left: pos.dx - 36,
-          top: pos.dy + 24,
+          top: top,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             constraints: const BoxConstraints(minWidth: 60, maxWidth: 140),
@@ -53,14 +66,16 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.signal_wifi_off, size: 14, color: Colors.white),
+                const Icon(Icons.signal_wifi_off,
+                    size: 14, color: Colors.white),
                 const SizedBox(width: 4),
                 Flexible(
                   child: Text(
                     p.name.isNotEmpty ? _shortName(p.name) : 'Disconnected',
                     overflow: TextOverflow.ellipsis,
                     style: PokerTypography.labelSmall.copyWith(
-                      color: Colors.white, fontSize: 11,
+                      color: Colors.white,
+                      fontSize: 11,
                     ),
                   ),
                 ),

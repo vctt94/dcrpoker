@@ -1,0 +1,717 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/cards.dart';
+import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/responsive.dart';
+import 'package:pokerui/components/poker/scene_layout.dart';
+import 'package:pokerui/components/poker/showdown.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/config.dart';
+import 'package:pokerui/models/poker.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+
+class _MockPokerModel extends PokerModel {
+  _MockPokerModel({required super.playerId}) : super(dataDir: '/tmp/test');
+
+  @override
+  Future<void> init() async {}
+
+  @override
+  Future<void> browseTables() async {}
+
+  @override
+  Future<void> refreshGameState() async {}
+
+  @override
+  Future<void> leaveTable() async {}
+
+  @override
+  Future<bool> fold() async => false;
+
+  @override
+  Future<bool> callBet() async => false;
+
+  @override
+  Future<bool> check() async => false;
+
+  @override
+  Future<bool> makeBet(int amountChips) async => false;
+}
+
+final _defaultConfig = Config(
+  serverAddr: '127.0.0.1:50051',
+  grpcCertPath: '',
+  payoutAddress: '',
+  debugLevel: 'info',
+  soundsEnabled: false,
+  dataDir: '/tmp/test',
+  address: '',
+  tableTheme: 'classic',
+  cardTheme: 'standard',
+  cardSize: 'medium',
+  uiSize: 'medium',
+  hideTableLogo: false,
+  logoPosition: 'center',
+);
+
+UiPlayer _player({
+  required String id,
+  required String name,
+  bool isDealer = false,
+  bool isSmallBlind = false,
+  bool isBigBlind = false,
+  int currentBet = 0,
+  List<pr.Card> hand = const [],
+}) {
+  return UiPlayer(
+    id: id,
+    name: name,
+    balance: 1000,
+    hand: hand,
+    currentBet: currentBet,
+    folded: false,
+    isTurn: false,
+    isAllIn: false,
+    isDealer: isDealer,
+    isSmallBlind: isSmallBlind,
+    isBigBlind: isBigBlind,
+    isReady: true,
+    isDisconnected: false,
+    handDesc: '',
+  );
+}
+
+UiGameState _gameState(pr.GamePhase phase) {
+  return UiGameState(
+    tableId: 'table-1',
+    phase: phase,
+    phaseName: phase == pr.GamePhase.SHOWDOWN ? 'Showdown' : 'Pre-Flop',
+    players: [
+      _player(
+        id: 'hero',
+        name: 'Hero',
+        currentBet: phase == pr.GamePhase.SHOWDOWN ? 0 : 10,
+        hand: [
+          pr.Card()
+            ..value = 'A'
+            ..suit = 'spades',
+          pr.Card()
+            ..value = 'K'
+            ..suit = 'hearts',
+        ],
+      ),
+      _player(
+        id: 'villain',
+        name: 'Villain',
+        currentBet: phase == pr.GamePhase.SHOWDOWN ? 0 : 20,
+      ),
+    ],
+    communityCards: const [],
+    pot: phase == pr.GamePhase.SHOWDOWN ? 30 : 60,
+    currentBet: phase == pr.GamePhase.SHOWDOWN ? 0 : 20,
+    currentPlayerId: 'hero',
+    minRaise: 20,
+    maxRaise: 1000,
+    smallBlind: 10,
+    bigBlind: 20,
+    gameStarted: true,
+    playersRequired: 2,
+    playersJoined: 2,
+    timeBankSeconds: 30,
+    turnDeadlineUnixMs: 0,
+  );
+}
+
+Widget _wrap({
+  required Widget child,
+  required Size size,
+  Config? config,
+}) {
+  final configNotifier = ConfigNotifier()
+    ..updateConfig(config ?? _defaultConfig);
+  return ChangeNotifierProvider<ConfigNotifier>.value(
+    value: configNotifier,
+    child: MaterialApp(
+      home: MediaQuery(
+        data: MediaQueryData(size: size),
+        child: Scaffold(
+          body: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: child,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+void main() {
+  test('expanded and short desktop windows use compact table layout', () {
+    expect(
+      useCompactTableLayoutForSize(
+        PokerBreakpoint.expanded,
+        const Size(800, 600),
+      ),
+      isTrue,
+    );
+    expect(
+      useCompactTableLayoutForSize(
+        PokerBreakpoint.wide,
+        const Size(1280, 800),
+      ),
+      isFalse,
+    );
+  });
+
+  test('scene layout modes resolve as expected for target viewports', () {
+    expect(
+      PokerSceneLayout.resolveMode(const Size(390, 844)),
+      PokerLayoutMode.compactPortrait,
+    );
+    expect(
+      PokerSceneLayout.resolveMode(const Size(800, 600)),
+      PokerLayoutMode.compactLandscape,
+    );
+    expect(
+      PokerSceneLayout.resolveMode(const Size(1024, 768)),
+      PokerLayoutMode.standard,
+    );
+  });
+
+  test('desktop scene layout keeps top opponents clearly above the board', () {
+    final standardLayout = PokerSceneLayout.resolve(const Size(1024, 768));
+    final wideLayout = PokerSceneLayout.resolve(const Size(1440, 900));
+
+    final standardAnchor = standardLayout.opponentAnchors(2).first;
+    final wideAnchor = wideLayout.opponentAnchors(2).first;
+
+    expect(
+      standardLayout.communityRect.top - standardAnchor.dy,
+      greaterThan(120),
+    );
+    expect(
+      wideLayout.communityRect.top - wideAnchor.dy,
+      greaterThan(140),
+    );
+  });
+
+  test('desktop two-opponent anchors stay centered over the table', () {
+    final standardLayout = PokerSceneLayout.resolve(const Size(1024, 768));
+    final wideLayout = PokerSceneLayout.resolve(const Size(1440, 900));
+
+    final standardAnchors = standardLayout.opponentAnchors(2);
+    final wideAnchors = wideLayout.opponentAnchors(2);
+
+    expect(
+      standardAnchors.first.dx,
+      greaterThan(standardLayout.topSeatBandRect.left +
+          standardLayout.topSeatBandRect.width * 0.28),
+    );
+    expect(
+      standardAnchors.last.dx,
+      lessThan(standardLayout.topSeatBandRect.right -
+          standardLayout.topSeatBandRect.width * 0.28),
+    );
+    expect(
+      wideAnchors.first.dx,
+      greaterThan(wideLayout.topSeatBandRect.left +
+          wideLayout.topSeatBandRect.width * 0.3),
+    );
+    expect(
+      wideAnchors.last.dx,
+      lessThan(wideLayout.topSeatBandRect.right -
+          wideLayout.topSeatBandRect.width * 0.3),
+    );
+  });
+
+  testWidgets('live street bets do not also render in the center pot',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero', currentBet: 10),
+        _player(id: 'villain', name: 'Villain', currentBet: 20),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(800, 600),
+    ));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('seat_bet_hero')), findsOneWidget);
+    expect(find.byKey(const ValueKey('seat_bet_villain')), findsOneWidget);
+    expect(find.byKey(const Key('poker-pot-display')), findsNothing);
+    expect(find.byKey(const Key('poker-pot-total')), findsNothing);
+  });
+
+  testWidgets(
+      'hand view keeps rail and hero dock clear of the board at 800x600',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(800, 600),
+    ));
+    await tester.pump();
+
+    expect(find.byType(MobileHeroActionPanel), findsNothing);
+    expect(find.byType(BottomActionDock), findsOneWidget);
+    expect(find.byKey(const Key('poker-right-rail')), findsNothing);
+    expect(find.byKey(const Key('poker-hero-dock')), findsOneWidget);
+    expect(find.byKey(const Key('desktop-bet-summary')), findsNothing);
+    expect(find.byKey(const ValueKey('seat_bet_villain')), findsOneWidget);
+    expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
+    final potRect = tester.getRect(find.text('Pot: 30'));
+    final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+    final betRect =
+        tester.getRect(find.byKey(const ValueKey('seat_bet_villain')));
+    final toggleRect =
+        tester.getRect(find.byKey(const Key('poker-show-cards-toggle')));
+    expect(dockRect.top, greaterThan(potRect.bottom));
+    expect(toggleRect.bottom, lessThan(dockRect.bottom));
+    expect(betRect.bottom, lessThan(dockRect.top));
+  });
+
+  testWidgets(
+      'showdown view keeps rail and hero dock clear of the board at 800x600',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.SHOWDOWN);
+    model.lastWinners = const [
+      UiWinner(
+        playerId: 'hero',
+        handRank: pr.HandRank.PAIR,
+        bestHand: [],
+        winnings: 30,
+      ),
+    ];
+
+    await tester.pumpWidget(_wrap(
+      child: ShowdownView(model: model),
+      size: const Size(800, 600),
+    ));
+    await tester.pump();
+
+    expect(find.byType(MobileHeroActionPanel), findsNothing);
+    expect(find.byType(BottomActionDock), findsOneWidget);
+    expect(find.byKey(const Key('poker-right-rail')), findsNothing);
+    expect(find.byKey(const Key('poker-hero-dock')), findsOneWidget);
+    expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
+    expect(find.text('Showdown'), findsNothing);
+    final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+    final boardPotRect =
+        tester.getRect(find.byKey(const Key('poker-pot-display')));
+    expect(dockRect.top, greaterThan(boardPotRect.bottom));
+  });
+
+  testWidgets(
+      'opening last hand hides the external toggle and shows a closable sidebar',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+    model.setShowdownDataForTest(
+      players: model.game!.players,
+      communityCards: const [],
+      pot: 30,
+      winners: const [
+        UiWinner(
+          playerId: 'hero',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 30,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(886, 764),
+    ));
+    await tester.pump();
+
+    expect(find.text('Last Hand'), findsOneWidget);
+    expect(find.byKey(const Key('showdown-sidebar')), findsNothing);
+
+    await tester.tap(find.text('Last Hand'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('showdown-sidebar')), findsOneWidget);
+    expect(find.text('Last Hand'), findsNothing);
+    expect(find.byTooltip('Close last hand details'), findsOneWidget);
+    expect(find.text('Pair'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Close last hand details'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('showdown-sidebar')), findsNothing);
+    expect(find.text('Last Hand'), findsOneWidget);
+  });
+
+  testWidgets(
+      'top seat badges stay above the pot/community area on small screens',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero', isBigBlind: true),
+        _player(
+          id: 'villain',
+          name: 'Villain',
+          isDealer: true,
+          isSmallBlind: true,
+        ),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(800, 600),
+    ));
+    await tester.pump();
+
+    final dealerRect = tester.getRect(find.text('D'));
+    final smallBlindRect = tester.getRect(find.text('SB').first);
+    final potRect = tester.getRect(find.text('Pot: 30'));
+
+    expect(dealerRect.bottom, lessThan(potRect.top));
+    expect(smallBlindRect.bottom, lessThan(potRect.top));
+  });
+
+  testWidgets('phone portrait stays readable with xl card size',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(390, 844),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    expect(find.byType(MobileHeroActionPanel), findsOneWidget);
+    expect(find.byKey(const Key('poker-right-rail')), findsNothing);
+    final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+    final potRect = tester.getRect(find.byKey(const Key('poker-pot-display')));
+    final heroCardRect = tester.getRect(find.byType(CardFace).first);
+    final betRect =
+        tester.getRect(find.byKey(const ValueKey('seat_bet_villain')));
+    final toggleRect =
+        tester.getRect(find.byKey(const Key('poker-show-cards-toggle')));
+
+    expect(find.byKey(const Key('desktop-bet-summary')), findsNothing);
+    expect(find.byKey(const ValueKey('seat_bet_villain')), findsOneWidget);
+    expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
+    expect(dockRect.top, greaterThan(potRect.bottom));
+    expect(potRect.bottom, lessThan(heroCardRect.top));
+    expect(heroCardRect.width, greaterThan(50));
+    expect(toggleRect.bottom, lessThan(dockRect.bottom));
+    expect(betRect.bottom, lessThan(dockRect.top));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('1024x768 standard layout keeps desktop dock and rail separated',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(1024, 768),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    expect(find.byType(BottomActionDock), findsOneWidget);
+    expect(find.byType(MobileHeroActionPanel), findsNothing);
+    expect(find.byKey(const Key('poker-right-rail')), findsNothing);
+    expect(find.byKey(const Key('desktop-bet-summary')), findsNothing);
+    expect(find.byKey(const ValueKey('seat_bet_villain')), findsOneWidget);
+    final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+    final potRect = tester.getRect(find.text('Pot: 30'));
+    final heroCardRect = tester.getRect(find.byType(CardFace).first);
+
+    expect(dockRect.top, greaterThan(potRect.bottom));
+    expect(heroCardRect.bottom, lessThan(dockRect.top));
+  });
+
+  testWidgets('desktop hero cards stay anchored across action state changes',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(1024, 768),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    final activeCardRect = tester.getRect(find.byType(CardFace).first);
+    expect(find.textContaining('Call 10'), findsOneWidget);
+
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [
+            pr.Card()
+              ..value = 'A'
+              ..suit = 'spades',
+            pr.Card()
+              ..value = 'K'
+              ..suit = 'hearts',
+          ],
+        ),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 0,
+      currentPlayerId: 'villain',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+    model.notifyListeners();
+    await tester.pump();
+
+    final waitingCardRect = tester.getRect(find.byType(CardFace).first);
+    expect(waitingCardRect.left, closeTo(activeCardRect.left, 0.01));
+    expect(waitingCardRect.top, closeTo(activeCardRect.top, 0.01));
+  });
+
+  testWidgets('desktop action buttons stay pinned across dock state changes',
+      (WidgetTester tester) async {
+    final betCtrl = TextEditingController();
+    addTearDown(betCtrl.dispose);
+    final idleModel = _MockPokerModel(playerId: 'hero');
+    idleModel.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [
+            pr.Card()
+              ..value = 'A'
+              ..suit = 'spades',
+            pr.Card()
+              ..value = 'K'
+              ..suit = 'hearts',
+          ],
+        ),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 0,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: SizedBox(
+          width: 1024,
+          height: 180,
+          child: BottomActionDock(
+            model: idleModel,
+            showBetInput: false,
+            betCtrl: betCtrl,
+            onToggleBetInput: () {},
+            onCloseBetInput: () {},
+          ),
+        ),
+      ),
+      size: const Size(1024, 768),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    final activeFoldBottom = tester.getRect(find.text('Fold')).bottom;
+
+    final betModel = _MockPokerModel(playerId: 'hero');
+    betModel.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [
+            pr.Card()
+              ..value = 'A'
+              ..suit = 'spades',
+            pr.Card()
+              ..value = 'K'
+              ..suit = 'hearts',
+          ],
+        ),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 0,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+    await tester.pumpWidget(_wrap(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: SizedBox(
+          width: 1024,
+          height: 180,
+          child: BottomActionDock(
+            model: betModel,
+            showBetInput: false,
+            betCtrl: betCtrl,
+            onToggleBetInput: () {},
+            onCloseBetInput: () {},
+          ),
+        ),
+      ),
+      size: const Size(1024, 768),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    expect(
+      tester.getRect(find.text('Fold')).bottom,
+      closeTo(activeFoldBottom, 0.01),
+    );
+  });
+
+  testWidgets('table rebuild does not steal focus from text inputs',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+    final gameFocusNode = FocusNode(debugLabel: 'game');
+    final textFocusNode = FocusNode(debugLabel: 'bet-input');
+    addTearDown(gameFocusNode.dispose);
+    addTearDown(textFocusNode.dispose);
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(390, 844),
+      child: StatefulBuilder(
+        builder: (context, setState) {
+          final theme = PokerThemeConfig.fromContext(context);
+          final game = PokerGame(model.playerId, model, theme: theme);
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              game.buildWidget(
+                model.game!,
+                gameFocusNode,
+                aspectRatio: 16 / 9,
+              ),
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16,
+                child: Material(
+                  child: TextField(
+                    key: const ValueKey('overlay-input'),
+                    focusNode: textFocusNode,
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 16,
+                right: 16,
+                child: ElevatedButton(
+                  onPressed: () => setState(() {}),
+                  child: const Text('Rebuild'),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    ));
+    await tester.pump();
+
+    expect(gameFocusNode.hasFocus, isTrue);
+
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+
+    expect(textFocusNode.hasFocus, isTrue);
+
+    await tester.tap(find.text('Rebuild'));
+    await tester.pump();
+
+    expect(textFocusNode.hasFocus, isTrue);
+    expect(gameFocusNode.hasFocus, isFalse);
+  });
+}

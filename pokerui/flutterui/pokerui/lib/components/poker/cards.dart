@@ -1,10 +1,7 @@
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
-import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/config.dart';
 import 'package:pokerui/theme/colors.dart';
 
 String suitSym(String suit) {
@@ -173,8 +170,10 @@ class CardFace extends StatelessWidget {
           final w = c.maxWidth.clamp(20.0, double.infinity);
           final h = c.maxHeight.clamp(28.0, double.infinity);
           final isSmall = w < 36;
-          final rankFs = (w * 0.28).clamp(8.0, 22.0).toDouble();
-          final suitFs = (w * 0.22).clamp(6.0, 18.0).toDouble();
+          final rankFs = (w * 0.32).clamp(9.0, 24.0).toDouble();
+          final suitFs = (w * 0.27).clamp(8.0, 20.0).toDouble();
+          final isRedSuit = suitSymbol == '♥' || suitSymbol == '♦';
+          final cornerSuitSize = suitFs * (isRedSuit ? 1.2 : 1.12);
 
           return Container(
             decoration: BoxDecoration(
@@ -203,7 +202,7 @@ class CardFace extends StatelessWidget {
                       suit: suitSymbol,
                       color: tint,
                       rankSize: rankFs,
-                      suitSize: suitFs * 0.85,
+                      suitSize: cornerSuitSize,
                     ),
                   ),
                   // Corner index: bottom-right (rotated 180)
@@ -217,7 +216,7 @@ class CardFace extends StatelessWidget {
                         suit: suitSymbol,
                         color: tint,
                         rankSize: rankFs,
-                        suitSize: suitFs * 0.85,
+                        suitSize: cornerSuitSize,
                       ),
                     ),
                   ),
@@ -530,188 +529,6 @@ class FlipCard extends StatelessWidget {
         if (currentChild != null) currentChild,
       ]),
     );
-  }
-}
-
-// ─────────────────────────────────────────────
-// HeroCardFlipOverlay
-// ─────────────────────────────────────────────
-
-class HeroCardFlipOverlay extends StatelessWidget {
-  const HeroCardFlipOverlay({
-    super.key,
-    required this.cards,
-    required this.showFace,
-    this.onToggle,
-    this.toggleShown,
-    this.cardTheme,
-  });
-  final List<pr.Card> cards;
-  final bool showFace;
-  final VoidCallback? onToggle;
-  final bool? toggleShown;
-  final CardColorTheme? cardTheme;
-
-  @override
-  Widget build(BuildContext context) {
-    final cardSizeMultiplier = cardSizeMultiplierFromKey(context.cardSize);
-    return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final layout = resolveTableLayout(size);
-      final box = layout.viewport;
-      final baseCw = math.max(math.min(box.width * 0.06, 56.0), 40.0);
-      final cw = baseCw * cardSizeMultiplier;
-      final ch = cw * 1.4;
-      final gap = cw * 0.12;
-      final centerX = layout.center.dx;
-      final centerY = layout.center.dy;
-      final uiSizeMultiplier = uiSizeMultiplierFromKey(context.uiSize);
-
-      final headerHeight = (cw * 0.45).clamp(16.0, 24.0);
-      final headerGap = (4.0 * uiSizeMultiplier).clamp(2.0, 6.0);
-      final trayContentH =
-          ch + (onToggle != null ? headerGap + headerHeight : 0);
-
-      final canvas = layout.canvasBounds;
-      final heroPush = layout.ringRadiusY * kHeroSeatExtraFraction;
-      final seatPadding = kPlayerRadius + layout.playerOffset + 10.0;
-      final heroSeatCenterY = (centerY + layout.ringRadiusY + heroPush)
-          .clamp(canvas.top + seatPadding, canvas.bottom - seatPadding);
-      final heroSeatTop = heroSeatCenterY - kPlayerRadius * uiSizeMultiplier;
-
-      final cardGapAboveHero = 10.0 * uiSizeMultiplier;
-      var y = heroSeatTop - trayContentH - cardGapAboveHero;
-
-      final potCenter =
-          potChipCenter(layout, uiSizeMultiplier: uiSizeMultiplier);
-      final potBadgeHalfH = 18.0 * uiSizeMultiplier;
-      final dealerZoneBottom = potCenter.dy + potBadgeHalfH;
-
-      final minPad = 16.0 * uiSizeMultiplier;
-      final minY = dealerZoneBottom + minPad;
-      final maxY = heroSeatTop - ch - minPad;
-      if (minY <= maxY) {
-        y = y.clamp(minY, maxY);
-      } else {
-        final available = heroSeatTop - dealerZoneBottom;
-        y = dealerZoneBottom + (available - ch) / 2;
-      }
-
-      final x1 = centerX - cw - gap / 2;
-      final x2 = centerX + gap / 2;
-      final showing = toggleShown ?? showFace;
-      final actionLabel = showing ? 'HIDE' : 'SHOW';
-      final headerWidth = (cw * 2) + gap;
-      final rawHeaderTop = y + ch + headerGap;
-      final headerTop = rawHeaderTop > box.bottom - headerHeight - 2.0
-          ? box.bottom - headerHeight - 2.0
-          : rawHeaderTop;
-      final iconSize = (headerHeight * 0.6).clamp(10.0, 18.0);
-      final labelAccent =
-          showing ? PokerColors.warning : PokerColors.textSecondary;
-      final labelBorder = showing
-          ? PokerColors.warning.withOpacity(0.5)
-          : PokerColors.borderSubtle;
-
-      final trayPadH = cw * 0.18;
-      final trayPadTop = cw * 0.14;
-      final trayPadBottom = cw * 0.10;
-      final trayLeft = x1 - trayPadH;
-      final trayTop = y - trayPadTop;
-      final trayWidth = headerWidth + trayPadH * 2;
-      final trayBottom =
-          (onToggle != null ? headerTop + headerHeight : y + ch) +
-              trayPadBottom;
-      final trayHeight = trayBottom - trayTop;
-
-      return Stack(children: [
-        Positioned(
-          left: trayLeft,
-          top: trayTop,
-          width: trayWidth,
-          height: trayHeight,
-          child: IgnorePointer(
-            child: Container(
-              decoration: BoxDecoration(
-                color: PokerColors.overlayLight,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: PokerColors.overlaySubtle, width: 1),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: x1,
-          top: y,
-          width: cw,
-          height: ch,
-          child: FlipCard(
-            faceUp: showFace,
-            card: cards.isNotEmpty ? cards[0] : null,
-            cardTheme: cardTheme,
-          ),
-        ),
-        Positioned(
-          left: x2,
-          top: y,
-          width: cw,
-          height: ch,
-          child: FlipCard(
-            faceUp: showFace,
-            card: cards.length > 1 ? cards[1] : null,
-            cardTheme: cardTheme,
-          ),
-        ),
-        if (onToggle != null)
-          Positioned(
-            left: x1,
-            top: headerTop,
-            width: headerWidth,
-            height: headerHeight,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(headerHeight / 2),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
-                child: Material(
-                  color: PokerColors.overlaySubtle,
-                  child: InkWell(
-                    onTap: onToggle,
-                    borderRadius: BorderRadius.circular(headerHeight / 2),
-                    child: Container(
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(headerHeight / 2),
-                        border: Border.all(color: labelBorder),
-                      ),
-                      padding:
-                          EdgeInsets.symmetric(horizontal: headerHeight * 0.55),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            showing ? Icons.visibility : Icons.visibility_off,
-                            size: iconSize,
-                            color: labelAccent,
-                          ),
-                          SizedBox(width: headerHeight * 0.25),
-                          Text(actionLabel,
-                              style: TextStyle(
-                                color: labelAccent,
-                                fontSize:
-                                    (headerHeight * 0.45).clamp(10.0, 14.0),
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.6,
-                              )),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ]);
-    });
   }
 }
 

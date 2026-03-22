@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'table.dart';
 
@@ -15,14 +17,17 @@ class TableLogoOverlay extends StatelessWidget {
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
       final layout = resolveTableLayout(size);
-      final tableCenterX = layout.center.dx;
-      final tableCenterY = layout.center.dy;
-      final tableRadiusX = layout.tableRadiusX;
-      final tableRadiusY = layout.tableRadiusY;
-      
+      final scene = layout.scene;
+      final tableRect = scene.tableRect;
+      final tableCenterX = tableRect.center.dx;
+      final tableCenterY = tableRect.center.dy;
+      final tableRadiusX = tableRect.width / 2;
+      final tableRadiusY = tableRect.height / 2;
+
       // Logo size based on table size
-      final logoSize = (tableRadiusX * 0.25 * uiSizeMultiplier).clamp(40.0, 100.0);
-      
+      final logoSize =
+          (tableRadiusX * 0.25 * uiSizeMultiplier).clamp(40.0, 100.0);
+
       // Calculate position within the table ellipse based on logoPosition config
       // Use a fraction of the table radius to keep logo well within table bounds
       double left, top;
@@ -30,11 +35,17 @@ class TableLogoOverlay extends StatelessWidget {
       switch (pos) {
         case 'top_center':
           left = tableCenterX - logoSize / 2;
-          top = tableCenterY - tableRadiusY * 0.6 - logoSize / 2;
+          top = math.max(
+            tableRect.top + 12,
+            scene.boardRect.top - logoSize - 16,
+          );
           break;
         case 'bottom_center':
           left = tableCenterX - logoSize / 2;
-          top = tableCenterY + tableRadiusY * 0.6 - logoSize / 2;
+          top = math.min(
+            tableRect.bottom - logoSize - 12,
+            scene.boardRect.bottom + 16,
+          );
           break;
         case 'left_center':
           left = tableCenterX - tableRadiusX * 0.6 - logoSize / 2;
@@ -63,10 +74,13 @@ class TableLogoOverlay extends StatelessWidget {
         case 'center':
         default:
           left = tableCenterX - logoSize / 2;
-          top = tableCenterY - logoSize / 2;
+          top = math.max(
+            tableRect.top + 16,
+            scene.boardRect.top - logoSize - 18,
+          );
           break;
       }
-      
+
       return Stack(
         fit: StackFit.expand,
         children: [
@@ -77,7 +91,8 @@ class TableLogoOverlay extends StatelessWidget {
             height: logoSize,
             child: IgnorePointer(
               child: Opacity(
-                opacity: 0.6, // Semi-transparent so it doesn't obstruct gameplay
+                opacity:
+                    0.6, // Semi-transparent so it doesn't obstruct gameplay
                 child: Image.asset(
                   'assets/images/dcrlogo.png',
                   fit: BoxFit.contain,
@@ -94,4 +109,3 @@ class TableLogoOverlay extends StatelessWidget {
     });
   }
 }
-

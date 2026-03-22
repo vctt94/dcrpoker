@@ -1,8 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'pot_display.dart';
+import 'scene_layout.dart';
 import 'table.dart';
 import 'table_theme.dart';
 import 'cards.dart';
@@ -16,19 +19,357 @@ Color _seatColorFromId(String id) {
   return HSLColor.fromAHSL(1.0, hue, 0.5, 0.4).toColor();
 }
 
-String _playerInitials(String name) {
-  if (name.isEmpty) return '?';
-  final parts = name.trim().split(RegExp(r'\s+'));
-  if (parts.length >= 2) {
-    return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-  }
-  return name.substring(0, name.length >= 2 ? 2 : 1).toUpperCase();
-}
-
 /// Whether the game phase warrants showing hole-card slots.
 bool _showCardsPhase(pr.GamePhase phase) {
   return phase != pr.GamePhase.WAITING &&
       phase != pr.GamePhase.NEW_HAND_DEALING;
+}
+
+bool _showSeatCards(UiPlayer player, bool isHero, UiGameState gameState) {
+  return !isHero &&
+      _showCardsPhase(gameState.phase) &&
+      !(player.folded && !player.cardsRevealed);
+}
+
+bool _showSeatFaceUpCards(UiPlayer player, UiGameState gameState,
+    {required bool showCards}) {
+  final isShowdown = gameState.phase == pr.GamePhase.SHOWDOWN;
+  return showCards &&
+      (!isShowdown || player.cardsRevealed) &&
+      player.hand.isNotEmpty;
+}
+
+bool _showSeatCardBacks(UiPlayer player, UiGameState gameState,
+    {required bool showCards, required bool showFaceUpCards}) {
+  return showCards &&
+      !showFaceUpCards &&
+      (!player.folded || gameState.phase != pr.GamePhase.SHOWDOWN);
+}
+
+bool _reserveSeatRail(UiPlayer player, bool isHero, UiGameState gameState,
+    {bool showHeroCardsInSeat = false}) {
+  if (!_showCardsPhase(gameState.phase)) return false;
+  if (isHero) return showHeroCardsInSeat;
+  return true;
+}
+
+class _SeatCardMetrics {
+  const _SeatCardMetrics({
+    required this.width,
+    required this.height,
+    required this.visibleHeight,
+    required this.gap,
+    required this.railWidth,
+  });
+
+  final double width;
+  final double height;
+  final double visibleHeight;
+  final double gap;
+  final double railWidth;
+}
+
+class _ResolvedSeatLayout {
+  const _ResolvedSeatLayout({
+    required this.player,
+    required this.displayName,
+    required this.isHero,
+    required this.isCurrent,
+    required this.seatColor,
+    required this.cards,
+    required this.showFaceUpCards,
+    required this.showCardBacks,
+    required this.showRailCards,
+    required this.reserveRail,
+    required this.radius,
+    required this.uiScale,
+    required this.cardScale,
+    required this.turnDeadlineMs,
+    required this.timeBankSeconds,
+    required this.isAutoAdvance,
+    required this.left,
+    required this.top,
+    required this.width,
+    required this.height,
+    required this.avatarBox,
+    required this.coreWidth,
+    required this.coreHeight,
+    required this.plateLeft,
+    required this.plateWidth,
+    required this.plateHeight,
+    required this.betAnchor,
+    this.railMetrics,
+    this.cardLeft = 0,
+  });
+
+  final UiPlayer player;
+  final String displayName;
+  final bool isHero;
+  final bool isCurrent;
+  final Color seatColor;
+  final List<pr.Card> cards;
+  final bool showFaceUpCards;
+  final bool showCardBacks;
+  final bool showRailCards;
+  final bool reserveRail;
+  final double radius;
+  final double uiScale;
+  final double cardScale;
+  final int turnDeadlineMs;
+  final int timeBankSeconds;
+  final bool isAutoAdvance;
+  final double left;
+  final double top;
+  final double width;
+  final double height;
+  final double avatarBox;
+  final double coreWidth;
+  final double coreHeight;
+  final double plateLeft;
+  final double plateWidth;
+  final double plateHeight;
+  final double cardLeft;
+  final Offset? betAnchor;
+  final _SeatCardMetrics? railMetrics;
+}
+
+_SeatCardMetrics _seatCardMetrics(
+    double radius, double cardScale, double uiScale,
+    {required bool isHero}) {
+  final baseMultiplier = isHero ? 1.3 : 1.0;
+  final minWidth = isHero ? 42.0 : 30.0;
+  final maxWidth = isHero ? 70.0 : 58.0;
+  final cw = (radius * baseMultiplier * cardScale)
+      .clamp(minWidth, maxWidth)
+      .toDouble();
+  final gap = (cw * 0.12).clamp(3.0, isHero ? 8.0 : 6.0).toDouble();
+  final railSideInset =
+      (cw * (isHero ? 0.16 : 0.12)).clamp(4.0, 10.0).toDouble();
+  final ch = cw * 1.4;
+  final visibleHeight = ch * 0.5;
+  return _SeatCardMetrics(
+    width: cw,
+    height: ch,
+    visibleHeight: visibleHeight,
+    gap: gap,
+    railWidth: (cw * 2) + gap + (railSideInset * 2) + 4.0,
+  );
+}
+
+double _seatInfoPlateWidth({required bool isHero, required double uiScale}) {
+  final base = isHero ? 122.0 : 108.0;
+  return (base * uiScale).clamp(90.0, 156.0).toDouble();
+}
+
+double _seatInfoPlateHeight(UiPlayer player,
+    {required bool isHero, required double uiScale}) {
+  var height = 38.0 * uiScale;
+  final statusCount = [
+    if (player.isSmallBlind) 'SB',
+    if (player.isBigBlind) 'BB',
+    if (player.isDisconnected) 'OFF',
+  ].length;
+  if (statusCount > 0) {
+    height += 16.0 * uiScale;
+  }
+  if (player.isAllIn) {
+    height += 18.0 * uiScale;
+  }
+  if (isHero) {
+    height += 2.0 * uiScale;
+  }
+  return height;
+}
+
+double _seatCorePlateLeft(double radius, double uiScale) {
+  return (radius + (22.0 * uiScale)).clamp(40.0, 68.0).toDouble();
+}
+
+double _heroSeatDockOverlap(PokerLayoutMode mode, double uiScale) {
+  final base = switch (mode) {
+    PokerLayoutMode.compactPortrait => 18.0,
+    PokerLayoutMode.compactLandscape => 22.0,
+    PokerLayoutMode.standard => 28.0,
+    PokerLayoutMode.wide => 34.0,
+  };
+  return (base * uiScale).clamp(12.0, 44.0).toDouble();
+}
+
+Offset _betAnchorForSeat({
+  required Offset seatCenter,
+  required Offset potCenter,
+  required Rect tableBounds,
+  required bool isHero,
+  required double seatRadius,
+  required double uiScale,
+}) {
+  if (isHero) {
+    final heroAnchor = Offset(
+      seatCenter.dx - (seatRadius * 1.55),
+      seatCenter.dy - (seatRadius * 1.55),
+    );
+    final horizontalPad = 42.0 * uiScale;
+    final verticalPad = 24.0 * uiScale;
+    return Offset(
+      heroAnchor.dx.clamp(
+        tableBounds.left + horizontalPad,
+        tableBounds.right - horizontalPad,
+      ),
+      heroAnchor.dy.clamp(
+        tableBounds.top + verticalPad,
+        tableBounds.bottom - verticalPad,
+      ),
+    );
+  }
+
+  final dx = potCenter.dx - seatCenter.dx;
+  final dy = potCenter.dy - seatCenter.dy;
+  final distance = math.sqrt((dx * dx) + (dy * dy));
+  if (distance <= 0.001) return potCenter;
+
+  final dirX = dx / distance;
+  final dirY = dy / distance;
+  final seatClearance = seatRadius + (24.0 * uiScale);
+  final potClearance = (34.0 * uiScale).clamp(28.0, 42.0).toDouble();
+  final usableDistance = math.max(0.0, distance - seatClearance - potClearance);
+  final progress = 0.18;
+  final travel = seatClearance + usableDistance * progress;
+  final anchor = Offset(
+    seatCenter.dx + (dirX * travel),
+    seatCenter.dy + (dirY * travel),
+  );
+  final horizontalPad = 46.0 * uiScale;
+  final verticalPad = 24.0 * uiScale;
+  return Offset(
+    anchor.dx.clamp(
+      tableBounds.left + horizontalPad,
+      tableBounds.right - horizontalPad,
+    ),
+    anchor.dy.clamp(
+      tableBounds.top + verticalPad,
+      tableBounds.bottom - verticalPad,
+    ),
+  );
+}
+
+_ResolvedSeatLayout _resolveSeatLayout({
+  required UiPlayer player,
+  required String heroId,
+  required UiGameState gameState,
+  required PokerThemeConfig theme,
+  required PokerSceneLayout scene,
+  required Offset seatPosition,
+  required List<pr.Card> heroCardsCache,
+  required bool showHeroCardsInSeat,
+}) {
+  final isHeroSeat = player.id == heroId;
+  final isCurrent = player.id == gameState.currentPlayerId && !player.folded;
+  final displayName = player.name.isNotEmpty ? player.name : 'Player';
+  final seatColor = isHeroSeat
+      ? PokerColors.heroSeat
+      : (player.isDisconnected
+          ? Colors.red.shade700
+          : (player.folded
+              ? const Color(0xFF3A3D4A)
+              : _seatColorFromId(player.id)));
+  final cards = isHeroSeat
+      ? (player.hand.isNotEmpty ? player.hand : heroCardsCache)
+      : player.hand;
+  final showCards = _showSeatCards(player, isHeroSeat, gameState);
+  final showFaceUpCards =
+      _showSeatFaceUpCards(player, gameState, showCards: showCards);
+  final showCardBacks = _showSeatCardBacks(player, gameState,
+      showCards: showCards, showFaceUpCards: showFaceUpCards);
+  final renderHeroCardsInSeat =
+      isHeroSeat && showHeroCardsInSeat && _showCardsPhase(gameState.phase);
+  final reserveRail = _reserveSeatRail(player, isHeroSeat, gameState,
+      showHeroCardsInSeat: renderHeroCardsInSeat);
+  final showRailCards =
+      isHeroSeat ? renderHeroCardsInSeat : (showFaceUpCards || showCardBacks);
+  final radius = kPlayerRadius * theme.uiSizeMultiplier;
+  final uiScale = theme.uiSizeMultiplier;
+  final cardScale = theme.cardSizeMultiplier;
+  final isAutoAdvance = isAutoAdvanceAllIn(gameState);
+  final avatarBox = radius * 2 + 8;
+  final plateLeft = _seatCorePlateLeft(radius, uiScale);
+  final plateWidth = _seatInfoPlateWidth(isHero: isHeroSeat, uiScale: uiScale);
+  final plateHeight =
+      _seatInfoPlateHeight(player, isHero: isHeroSeat, uiScale: uiScale);
+  final coreWidth = plateLeft + plateWidth + 2.0;
+  final coreHeight = math.max(avatarBox, plateHeight);
+  final railMetrics = reserveRail
+      ? _seatCardMetrics(radius, cardScale, uiScale, isHero: isHeroSeat)
+      : null;
+  final width = railMetrics == null
+      ? coreWidth
+      : math.max(coreWidth, railMetrics.railWidth);
+  final height =
+      railMetrics == null ? coreHeight : railMetrics.visibleHeight + coreHeight;
+  final cardLeft = railMetrics == null
+      ? 0.0
+      : (plateLeft + ((plateWidth - railMetrics.railWidth) / 2))
+          .clamp(0.0, math.max(0.0, width - railMetrics.railWidth))
+          .toDouble();
+  final seatCenter = Offset(seatPosition.dx, seatPosition.dy + radius);
+
+  var top = seatCenter.dy - radius - 8;
+  if (!isHeroSeat) {
+    final minTop = scene.topSeatBandRect.top + 6.0;
+    final maxTop = scene.topSeatBandRect.bottom - height - 6.0;
+    top = maxTop >= minTop ? top.clamp(minTop, maxTop).toDouble() : minTop;
+  } else {
+    final minTop = scene.potRect.bottom + 12.0;
+    final maxTop = scene.heroDockRect.top -
+        height +
+        _heroSeatDockOverlap(scene.mode, uiScale);
+    top = maxTop >= minTop
+        ? math.min(
+            math.max(top, minTop),
+            maxTop,
+          )
+        : minTop;
+  }
+
+  return _ResolvedSeatLayout(
+    player: player,
+    displayName: displayName,
+    isHero: isHeroSeat,
+    isCurrent: isCurrent,
+    seatColor: seatColor,
+    cards: cards,
+    showFaceUpCards: showFaceUpCards,
+    showCardBacks: showCardBacks,
+    showRailCards: showRailCards,
+    reserveRail: reserveRail,
+    radius: radius,
+    uiScale: uiScale,
+    cardScale: cardScale,
+    turnDeadlineMs: isCurrent ? gameState.turnDeadlineUnixMs : 0,
+    timeBankSeconds: gameState.timeBankSeconds,
+    isAutoAdvance: isAutoAdvance,
+    left: seatCenter.dx - width / 2,
+    top: top,
+    width: width,
+    height: height,
+    avatarBox: avatarBox,
+    coreWidth: coreWidth,
+    coreHeight: coreHeight,
+    plateLeft: plateLeft,
+    plateWidth: plateWidth,
+    plateHeight: plateHeight,
+    cardLeft: cardLeft,
+    betAnchor: player.currentBet > 0
+        ? _betAnchorForSeat(
+            seatCenter: seatCenter,
+            potCenter: scene.potRect.center,
+            tableBounds: scene.tableRect,
+            isHero: isHeroSeat,
+            seatRadius: radius,
+            uiScale: uiScale,
+          )
+        : null,
+    railMetrics: railMetrics,
+  );
 }
 
 /// Widget overlay that positions all player seats around the table.
@@ -38,12 +379,16 @@ class PlayerSeatsOverlay extends StatelessWidget {
     required this.gameState,
     required this.heroId,
     required this.theme,
+    this.heroCardsCache = const [],
+    this.showHeroCardsInSeat = false,
     this.aspectRatio = 16 / 9,
   });
 
   final UiGameState gameState;
   final String heroId;
   final PokerThemeConfig theme;
+  final List<pr.Card> heroCardsCache;
+  final bool showHeroCardsInSeat;
   final double aspectRatio;
 
   @override
@@ -53,9 +398,9 @@ class PlayerSeatsOverlay extends StatelessWidget {
     return LayoutBuilder(builder: (context, c) {
       final size = c.biggest;
       final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
+      final scene = layout.scene;
       final hasCurrentBet = gameState.currentBet > 0;
       final minSeat = minSeatTopFor(layout.viewport, hasCurrentBet);
-      final playerRadius = kPlayerRadius * theme.uiSizeMultiplier;
 
       final seats = seatPositionsFor(
         gameState.players,
@@ -66,28 +411,46 @@ class PlayerSeatsOverlay extends StatelessWidget {
         clampBounds: layout.canvasBounds,
         minSeatTop: minSeat,
         uiSizeMultiplier: theme.uiSizeMultiplier,
+        sceneLayout: scene,
       );
 
       final children = <Widget>[];
       for (final player in gameState.players) {
         final pos = seats[player.id];
         if (pos == null) continue;
-        final seatCenterX = pos.dx;
-        final seatCenterY = pos.dy + playerRadius;
+        final seatLayout = _resolveSeatLayout(
+          player: player,
+          heroId: heroId,
+          gameState: gameState,
+          theme: theme,
+          scene: scene,
+          seatPosition: pos,
+          heroCardsCache: heroCardsCache,
+          showHeroCardsInSeat: showHeroCardsInSeat,
+        );
 
         children.add(Positioned(
-          left: seatCenterX - playerRadius - 30,
-          top: seatCenterY - playerRadius - 8,
+          left: seatLayout.left,
+          top: seatLayout.top,
           child: _PlayerSeatWidget(
-            player: player,
-            isHero: player.id == heroId,
-            isCurrent: player.id == gameState.currentPlayerId && !player.folded,
-            gameState: gameState,
-            radius: playerRadius,
-            uiScale: theme.uiSizeMultiplier,
-            cardScale: theme.cardSizeMultiplier,
+            layout: seatLayout,
           ),
         ));
+
+        if (seatLayout.betAnchor != null) {
+          children.add(Positioned(
+            left: seatLayout.betAnchor!.dx,
+            top: seatLayout.betAnchor!.dy,
+            child: FractionalTranslation(
+              translation: const Offset(-0.5, -0.5),
+              child: _SeatBetStack(
+                key: ValueKey('seat_bet_${player.id}'),
+                amount: player.currentBet,
+                theme: theme,
+              ),
+            ),
+          ));
+        }
       }
 
       return Stack(children: children);
@@ -95,149 +458,365 @@ class PlayerSeatsOverlay extends StatelessWidget {
   }
 }
 
-class _PlayerSeatWidget extends StatelessWidget {
-  const _PlayerSeatWidget({
-    required this.player,
-    required this.isHero,
-    required this.isCurrent,
-    required this.gameState,
-    required this.radius,
-    required this.uiScale,
-    required this.cardScale,
+class _SeatBetStack extends StatelessWidget {
+  const _SeatBetStack({
+    super.key,
+    required this.amount,
+    required this.theme,
   });
 
-  final UiPlayer player;
-  final bool isHero, isCurrent;
-  final UiGameState gameState;
-  final double radius, uiScale, cardScale;
+  final int amount;
+  final PokerThemeConfig theme;
 
   @override
   Widget build(BuildContext context) {
-    final displayName = player.name.isNotEmpty ? player.name : 'Player';
-    final initials = _playerInitials(displayName);
-    final isShowdown = gameState.phase == pr.GamePhase.SHOWDOWN;
-    final seatColor = isHero
-        ? PokerColors.heroSeat
-        : (player.isDisconnected
-            ? Colors.red.shade700
-            : (player.folded
-                ? const Color(0xFF3A3D4A)
-                : _seatColorFromId(player.id)));
-    final diameter = radius * 2;
+    return BetStackVisual(
+      amount: amount,
+      theme: theme,
+    );
+  }
+}
 
-    // Determine if we should show cards inside the circle for this opponent.
-    final showCards = !isHero &&
-        _showCardsPhase(gameState.phase) &&
-        !(player.folded && !player.cardsRevealed);
-    final showFaceUpCards = showCards &&
-        (!isShowdown || player.cardsRevealed) &&
-        player.hand.isNotEmpty;
-    final showCardBacks =
-        showCards && !showFaceUpCards && (!player.folded || !isShowdown);
-    final badges = _buildBadges();
+class _PlayerSeatWidget extends StatelessWidget {
+  const _PlayerSeatWidget({
+    required this.layout,
+  });
+
+  final _ResolvedSeatLayout layout;
+
+  @override
+  Widget build(BuildContext context) {
     final avatar = _AvatarCircle(
-      initials: initials,
-      color: seatColor,
-      radius: radius,
-      isCurrent: isCurrent,
-      isFolded: player.folded,
-      isDisconnected: player.isDisconnected,
-      isHero: isHero,
-      balance: player.balance,
-      uiScale: uiScale,
-      turnDeadlineMs: isCurrent ? gameState.turnDeadlineUnixMs : 0,
-      timeBankSeconds: gameState.timeBankSeconds,
-      isAutoAdvance: isAutoAdvanceAllIn(gameState),
-      holeCards: showFaceUpCards ? player.hand : const [],
-      showCardBacks: showCardBacks,
-      cardScale: cardScale,
+      color: layout.seatColor,
+      radius: layout.radius,
+      isCurrent: layout.isCurrent,
+      isFolded: layout.player.folded,
+      isDisconnected: layout.player.isDisconnected,
+      isHero: layout.isHero,
+      uiScale: layout.uiScale,
+      turnDeadlineMs: layout.turnDeadlineMs,
+      timeBankSeconds: layout.timeBankSeconds,
+      isAutoAdvance: layout.isAutoAdvance,
+      holeCards: const [],
+      showCardBacks: false,
+      cardScale: layout.cardScale,
+    );
+    final core = _SeatCore(
+      key: ValueKey('seat_core_${layout.player.id}'),
+      layout: layout,
+      avatar: avatar,
     );
 
-    return SizedBox(
-      width: diameter + 60,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final shouldStackBadges = badges.isNotEmpty &&
-              constraints.maxWidth < diameter + 72 * uiScale;
-
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Chip balance above avatar (except hero, who shows it inside)
-              if (!isHero && player.balance > 0)
-                _ChipBadge(balance: player.balance, uiScale: uiScale),
-              if (!isHero && player.balance > 0) SizedBox(height: 3 * uiScale),
-
-              if (badges.isEmpty)
-                avatar
-              else if (shouldStackBadges)
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    avatar,
-                    SizedBox(height: 4 * uiScale),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 4 * uiScale,
-                      runSpacing: 0,
-                      children: badges,
-                    ),
-                  ],
-                )
-              else
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    avatar,
-                    SizedBox(width: 4 * uiScale),
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: badges,
-                    ),
-                  ],
+    if (layout.reserveRail && layout.railMetrics != null) {
+      return SizedBox(
+        key: ValueKey('seat_widget_${layout.player.id}'),
+        width: layout.width,
+        height: layout.height,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            if (layout.showRailCards)
+              Positioned(
+                top: 0,
+                left: layout.cardLeft,
+                child: _SeatCardsRail(
+                  key: ValueKey('seat_cards_${layout.player.id}'),
+                  metrics: layout.railMetrics!,
+                  cards: layout.showFaceUpCards || layout.isHero
+                      ? layout.cards
+                      : const [],
+                  showCardBacks: !layout.showFaceUpCards &&
+                      !layout.isHero &&
+                      layout.showCardBacks,
                 ),
-
-              SizedBox(height: 3 * uiScale),
-
-              // Player name
-              Text(
-                displayName,
-                style: PokerTypography.playerName.copyWith(
-                  fontSize: 11 * uiScale,
-                  color: player.folded
-                      ? PokerColors.textMuted
-                      : PokerColors.textPrimary,
-                  decoration: player.folded ? TextDecoration.lineThrough : null,
-                  decorationColor: PokerColors.textMuted,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
               ),
-            ],
-          );
-        },
+            Positioned(
+              top: layout.railMetrics!.visibleHeight,
+              left: 0,
+              right: 0,
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: core,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SizedBox(
+      key: ValueKey('seat_widget_${layout.player.id}'),
+      width: layout.width,
+      height: layout.height,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: core,
       ),
     );
   }
+}
 
-  List<Widget> _buildBadges() {
-    final badges = <Widget>[];
-    if (player.isDealer)
-      badges.add(
-          _RoleBadge(label: 'D', color: PokerColors.warning, uiScale: uiScale));
-    if (player.isSmallBlind)
-      badges.add(_RoleBadge(
-          label: 'SB', color: PokerColors.primary, uiScale: uiScale));
-    if (player.isBigBlind)
-      badges.add(
-          _RoleBadge(label: 'BB', color: PokerColors.accent, uiScale: uiScale));
-    if (player.isAllIn)
-      badges.add(_RoleBadge(
-          label: 'ALL-IN', color: PokerColors.danger, uiScale: uiScale));
-    return badges;
+class _SeatCardsRail extends StatelessWidget {
+  const _SeatCardsRail({
+    super.key,
+    required this.metrics,
+    required this.cards,
+    required this.showCardBacks,
+  });
+
+  final _SeatCardMetrics metrics;
+  final List<pr.Card> cards;
+  final bool showCardBacks;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget buildCard(int index) {
+      if (cards.length > index) {
+        return FlipCard(faceUp: true, card: cards[index]);
+      }
+      if (showCardBacks) {
+        return const CardBack();
+      }
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      width: metrics.railWidth,
+      height: metrics.height,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SeatRailCard(
+              width: metrics.width,
+              height: metrics.height,
+              angle: -0.05,
+              child: buildCard(0),
+            ),
+            SizedBox(width: metrics.gap),
+            _SeatRailCard(
+              width: metrics.width,
+              height: metrics.height,
+              angle: 0.05,
+              child: buildCard(1),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SeatRailCard extends StatelessWidget {
+  const _SeatRailCard({
+    required this.width,
+    required this.height,
+    required this.angle,
+    required this.child,
+  });
+
+  final double width;
+  final double height;
+  final double angle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Transform.rotate(
+      angle: angle,
+      child: SizedBox(
+        width: width,
+        height: height,
+        child: child,
+      ),
+    );
+  }
+}
+
+class _SeatCore extends StatelessWidget {
+  const _SeatCore({
+    super.key,
+    required this.layout,
+    required this.avatar,
+  });
+
+  final _ResolvedSeatLayout layout;
+  final Widget avatar;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: layout.coreWidth,
+      height: layout.coreHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: layout.plateLeft,
+            top: (layout.coreHeight - layout.plateHeight) / 2,
+            child: _SeatInfoPlate(
+              layout: layout,
+            ),
+          ),
+          Positioned(
+            left: 0,
+            top: (layout.coreHeight - layout.avatarBox) / 2,
+            child: avatar,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SeatInfoPlate extends StatelessWidget {
+  const _SeatInfoPlate({
+    required this.layout,
+  });
+
+  final _ResolvedSeatLayout layout;
+
+  @override
+  Widget build(BuildContext context) {
+    final statusBadges = <Widget>[
+      if (layout.player.isSmallBlind)
+        _InlineSeatBadge(
+          label: 'SB',
+          background: PokerColors.primary,
+          foreground: Colors.white,
+          uiScale: layout.uiScale,
+        ),
+      if (layout.player.isBigBlind)
+        _InlineSeatBadge(
+          label: 'BB',
+          background: PokerColors.accent,
+          foreground: Colors.black,
+          uiScale: layout.uiScale,
+        ),
+      if (layout.player.isDisconnected)
+        _InlineSeatBadge(
+          label: 'OFF',
+          background: PokerColors.dangerDark,
+          foreground: Colors.white,
+          uiScale: layout.uiScale,
+        ),
+    ];
+    final statusColumn = statusBadges.isEmpty
+        ? null
+        : Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (int i = 0; i < statusBadges.length; i++) ...[
+                if (i > 0) SizedBox(height: 4 * layout.uiScale),
+                statusBadges[i],
+              ],
+            ],
+          );
+
+    return Container(
+      width: layout.plateWidth,
+      padding: EdgeInsets.fromLTRB(
+        20 * layout.uiScale,
+        7 * layout.uiScale,
+        10 * layout.uiScale,
+        7 * layout.uiScale,
+      ),
+      decoration: BoxDecoration(
+        color: layout.isCurrent
+            ? PokerColors.surfaceBright
+            : (layout.isHero ? PokerColors.surface : PokerColors.surfaceDim),
+        borderRadius: BorderRadius.circular(12 * layout.uiScale),
+        border: Border.all(
+          color: layout.isCurrent
+              ? PokerColors.turnHighlight.withValues(alpha: 0.5)
+              : PokerColors.borderSubtle.withValues(alpha: 0.8),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: layout.isHero ? 0.3 : 0.24),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  layout.displayName,
+                  style: PokerTypography.playerName.copyWith(
+                    fontSize: 11 * layout.uiScale,
+                    color: layout.player.folded
+                        ? PokerColors.textMuted
+                        : PokerColors.textPrimary,
+                    decoration: layout.player.folded
+                        ? TextDecoration.lineThrough
+                        : null,
+                    decorationColor: PokerColors.textMuted,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (layout.player.isDealer)
+                _InlineSeatBadge(
+                  label: 'D',
+                  background: PokerColors.warning,
+                  foreground: Colors.black,
+                  uiScale: layout.uiScale,
+                ),
+            ],
+          ),
+          SizedBox(height: 4 * layout.uiScale),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Text(
+                  '${layout.player.balance}',
+                  style: PokerTypography.chipCount.copyWith(
+                    fontSize: layout.isHero
+                        ? 12 * layout.uiScale
+                        : 11 * layout.uiScale,
+                    color: layout.player.folded
+                        ? PokerColors.textSecondary
+                        : PokerColors.textPrimary,
+                  ),
+                ),
+              ),
+              if (statusColumn != null) SizedBox(width: 8 * layout.uiScale),
+              if (statusColumn != null) statusColumn,
+            ],
+          ),
+          if (layout.player.isAllIn) SizedBox(height: 5 * layout.uiScale),
+          if (layout.player.isAllIn)
+            Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: 8 * layout.uiScale,
+                vertical: 3 * layout.uiScale,
+              ),
+              decoration: BoxDecoration(
+                color: PokerColors.danger,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'ALL-IN',
+                style: PokerTypography.badgeLabel.copyWith(
+                  fontSize: 10 * layout.uiScale,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -247,14 +826,12 @@ class _PlayerSeatWidget extends StatelessWidget {
 
 class _AvatarCircle extends StatefulWidget {
   const _AvatarCircle({
-    required this.initials,
     required this.color,
     required this.radius,
     required this.isCurrent,
     required this.isFolded,
     required this.isDisconnected,
     required this.isHero,
-    required this.balance,
     required this.uiScale,
     required this.turnDeadlineMs,
     required this.timeBankSeconds,
@@ -264,12 +841,10 @@ class _AvatarCircle extends StatefulWidget {
     this.cardScale = 1.0,
   });
 
-  final String initials;
   final Color color;
   final double radius, uiScale, cardScale;
   final bool isCurrent, isFolded, isDisconnected, isHero, isAutoAdvance;
   final bool showCardBacks;
-  final int balance;
   final int turnDeadlineMs;
   final int timeBankSeconds;
   final List<pr.Card> holeCards;
@@ -320,10 +895,17 @@ class _AvatarCircleState extends State<_AvatarCircle>
     final showCards = hasRevealedCards || widget.showCardBacks;
 
     if (showCards) {
-      // Size the cards to fit comfortably inside the circle.
-      final cw = diameter * 0.34 * widget.cardScale;
+      // Use the inner circle size after border so the mini-card row never
+      // overflows at larger ui/card scale combinations.
+      final borderWidth =
+          ((widget.isCurrent ? 2.5 : 1.5) * widget.uiScale).toDouble();
+      final innerDiameter = math.max(0.0, diameter - (borderWidth * 2));
+      final gap = (innerDiameter * 0.04).clamp(2.0, 4.0).toDouble();
+      final targetCw = diameter * 0.34 * widget.cardScale;
+      final maxWidthCw = math.max(0.0, (innerDiameter - gap) / 2);
+      final maxHeightCw = innerDiameter / 1.4;
+      final cw = math.min(targetCw, math.min(maxWidthCw, maxHeightCw));
       final ch = cw * 1.4;
-      final gap = diameter * 0.04;
 
       Widget card1;
       Widget card2;
@@ -348,25 +930,10 @@ class _AvatarCircleState extends State<_AvatarCircle>
       );
     }
 
-    // Hero shows chip balance; others show initials.
-    if (widget.isHero && widget.balance > 0) {
-      return Text(
-        '${widget.balance}',
-        style: PokerTypography.chipCount.copyWith(
-          fontSize: 11 * widget.uiScale,
-        ),
-        textAlign: TextAlign.center,
-      );
-    }
-
-    return Text(
-      widget.initials,
-      style: TextStyle(
-        color: Colors.white.withOpacity(0.9),
-        fontSize: widget.radius * 0.52,
-        fontWeight: FontWeight.w800,
-        letterSpacing: 0.5,
-      ),
+    return Icon(
+      Icons.person_rounded,
+      size: widget.radius * 0.86,
+      color: Colors.white.withValues(alpha: 0.88),
     );
   }
 
@@ -427,7 +994,7 @@ class _AvatarCircleState extends State<_AvatarCircle>
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
-                      color: PokerColors.turnHighlight.withOpacity(0.35),
+                      color: PokerColors.turnHighlight.withValues(alpha: 0.35),
                       blurRadius: 12,
                       spreadRadius: 2,
                     ),
@@ -447,7 +1014,7 @@ class _AvatarCircleState extends State<_AvatarCircle>
                       ? Colors.orangeAccent
                       : (widget.isCurrent
                           ? PokerColors.turnHighlight
-                          : PokerColors.borderSubtle.withOpacity(0.5)),
+                          : PokerColors.borderSubtle.withValues(alpha: 0.5)),
                   width: (widget.isCurrent ? 2.5 : 1.5) * widget.uiScale,
                 ),
               ),
@@ -466,60 +1033,42 @@ class _AvatarCircleState extends State<_AvatarCircle>
 // Small helper widgets
 // ─────────────────────────────────────────────
 
-class _ChipBadge extends StatelessWidget {
-  const _ChipBadge({required this.balance, required this.uiScale});
-  final int balance;
+class _InlineSeatBadge extends StatelessWidget {
+  const _InlineSeatBadge({
+    required this.label,
+    required this.background,
+    required this.foreground,
+    required this.uiScale,
+  });
+
+  final String label;
+  final Color background;
+  final Color foreground;
   final double uiScale;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: EdgeInsets.symmetric(
-        horizontal: 8 * uiScale,
+        horizontal: 6 * uiScale,
         vertical: 2 * uiScale,
       ),
       decoration: BoxDecoration(
-        color: PokerColors.overlayHeavy,
-        borderRadius: BorderRadius.circular(8 * uiScale),
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.24),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: Text(
-        '$balance',
-        style: PokerTypography.chipCount.copyWith(fontSize: 11 * uiScale),
-      ),
-    );
-  }
-}
-
-class _RoleBadge extends StatelessWidget {
-  const _RoleBadge(
-      {required this.label, required this.color, required this.uiScale});
-  final String label;
-  final Color color;
-  final double uiScale;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: EdgeInsets.only(bottom: 2 * uiScale),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: 6 * uiScale,
-          vertical: 2 * uiScale,
-        ),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(4 * uiScale),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.3),
-              blurRadius: 2,
-              offset: const Offset(0, 1),
-            ),
-          ],
-        ),
-        child: Text(
-          label,
-          style: PokerTypography.badgeLabel.copyWith(fontSize: 10 * uiScale),
+        label,
+        style: PokerTypography.badgeLabel.copyWith(
+          fontSize: 9 * uiScale,
+          color: foreground,
         ),
       ),
     );

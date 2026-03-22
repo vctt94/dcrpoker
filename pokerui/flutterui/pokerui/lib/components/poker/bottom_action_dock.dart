@@ -3,10 +3,24 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/responsive.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
 import 'package:pokerui/theme/spacing.dart';
+
+class _ActionControls {
+  const _ActionControls({
+    required this.betCtrl,
+    required this.onToggleBetInput,
+    required this.onCloseBetInput,
+  });
+
+  final TextEditingController betCtrl;
+  final VoidCallback onToggleBetInput;
+  final VoidCallback onCloseBetInput;
+}
 
 class _ActionButton extends StatelessWidget {
   const _ActionButton({
@@ -38,7 +52,7 @@ class _ActionButton extends StatelessWidget {
           borderRadius: BorderRadius.circular(12 * scale),
         ),
         elevation: 2,
-        shadowColor: color.withOpacity(0.3),
+        shadowColor: color.withValues(alpha: 0.3),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -62,26 +76,37 @@ class _ActionButton extends StatelessWidget {
 }
 
 class BottomActionDock extends StatelessWidget {
-  const BottomActionDock({
+  BottomActionDock({
     super.key,
     required this.model,
     required this.showBetInput,
-    required this.betCtrl,
-    required this.onToggleBetInput,
-    required this.onCloseBetInput,
-    this.hasLastShowdown = false,
-    this.showSidebar = false,
-    this.onToggleSidebar,
-  });
+    required TextEditingController betCtrl,
+    required VoidCallback onToggleBetInput,
+    required VoidCallback onCloseBetInput,
+    this.reserveActionSpace = false,
+    this.footer,
+  })  : _actionControls = _ActionControls(
+          betCtrl: betCtrl,
+          onToggleBetInput: onToggleBetInput,
+          onCloseBetInput: onCloseBetInput,
+        ),
+        showActions = true;
+
+  const BottomActionDock.passive({
+    super.key,
+    required this.model,
+    this.reserveActionSpace = false,
+    this.footer,
+  })  : showBetInput = false,
+        _actionControls = null,
+        showActions = false;
 
   final PokerModel model;
   final bool showBetInput;
-  final TextEditingController betCtrl;
-  final VoidCallback onToggleBetInput;
-  final VoidCallback onCloseBetInput;
-  final bool hasLastShowdown;
-  final bool showSidebar;
-  final VoidCallback? onToggleSidebar;
+  final _ActionControls? _actionControls;
+  final bool showActions;
+  final bool reserveActionSpace;
+  final Widget? footer;
 
   int _resolveBigBlind() {
     if ((model.game?.bigBlind ?? 0) > 0) return model.game!.bigBlind;
@@ -95,6 +120,10 @@ class BottomActionDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final canAct = model.canAct;
+    final me = model.me;
+    final cards =
+        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.myHoleCardsCache;
+    final hasCards = cards.isNotEmpty;
 
     return Container(
       padding: EdgeInsets.only(
@@ -109,69 +138,127 @@ class BottomActionDock extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            PokerColors.screenBg.withOpacity(0.0),
-            PokerColors.screenBg.withOpacity(0.95),
+            PokerColors.screenBg.withValues(alpha: 0.0),
+            PokerColors.screenBg.withValues(alpha: 0.95),
           ],
         ),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              if (hasLastShowdown && onToggleSidebar != null)
-                _LastHandButton(active: showSidebar, onTap: onToggleSidebar!),
-              if (hasLastShowdown && onToggleSidebar != null)
-                const SizedBox(width: PokerSpacing.sm),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: canAct
-                      ? _ActionButtons(
-                          model: model,
-                          showBetInput: showBetInput,
-                          betCtrl: betCtrl,
-                          onToggleBetInput: onToggleBetInput,
-                          onCloseBetInput: onCloseBetInput,
-                          bb: _resolveBigBlind(),
-                        )
-                      : _WaitingIndicator(model: model),
-                ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final tightDesktopHeight = constraints.maxHeight <= 124;
+          final headerGap =
+              tightDesktopHeight ? PokerSpacing.xs : PokerSpacing.sm;
+          final actionControls = _actionControls;
+          final actions = Visibility(
+            visible: showActions,
+            maintainState: reserveActionSpace,
+            maintainAnimation: reserveActionSpace,
+            maintainSize: reserveActionSpace,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: showActions && canAct
+                    ? _ActionButtons(
+                        model: model,
+                        showBetInput: showBetInput,
+                        betCtrl: actionControls!.betCtrl,
+                        onToggleBetInput: actionControls.onToggleBetInput,
+                        onCloseBetInput: actionControls.onCloseBetInput,
+                        bb: _resolveBigBlind(),
+                      )
+                    : showActions
+                        ? _WaitingIndicator(model: model)
+                        : const SizedBox.shrink(),
               ),
+            ),
+          );
+          final headerPanel = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (hasCards) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _ShowCardsDockToggle(
+                    model: model,
+                    compact: true,
+                  ),
+                ),
+                if (showActions || reserveActionSpace)
+                  SizedBox(height: headerGap),
+              ],
             ],
-          ),
-        ],
+          );
+          final hasBottomSection =
+              showActions || reserveActionSpace || footer != null;
+          final bottomSection = Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (showActions || reserveActionSpace) actions,
+              if (footer != null) ...[
+                if (showActions || reserveActionSpace)
+                  const SizedBox(height: PokerSpacing.sm),
+                footer!,
+              ],
+            ],
+          );
+
+          return Column(
+            mainAxisSize: MainAxisSize.max,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (hasCards)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: headerPanel,
+                ),
+              if (hasBottomSection) const Spacer(),
+              if (hasBottomSection) bottomSection,
+            ],
+          );
+        },
       ),
     );
   }
 }
 
 class MobileHeroActionPanel extends StatelessWidget {
-  const MobileHeroActionPanel({
+  MobileHeroActionPanel({
     super.key,
     required this.model,
-    this.showBetInput = false,
-    this.betCtrl,
-    this.onToggleBetInput,
-    this.onCloseBetInput,
+    required this.showBetInput,
+    required TextEditingController betCtrl,
+    required VoidCallback onToggleBetInput,
+    required VoidCallback onCloseBetInput,
     this.hasLastShowdown = false,
     this.showSidebar = false,
     this.onToggleSidebar,
-    this.showActions = true,
     this.reserveActionSpace = false,
     this.footer,
-  }) : assert(
-          !showActions ||
-              (betCtrl != null &&
-                  onToggleBetInput != null &&
-                  onCloseBetInput != null),
-        );
+  })  : _actionControls = _ActionControls(
+          betCtrl: betCtrl,
+          onToggleBetInput: onToggleBetInput,
+          onCloseBetInput: onCloseBetInput,
+        ),
+        showActions = true;
+
+  MobileHeroActionPanel.passive({
+    super.key,
+    required this.model,
+    this.hasLastShowdown = false,
+    this.showSidebar = false,
+    this.onToggleSidebar,
+    this.reserveActionSpace = false,
+    this.footer,
+  })  : showBetInput = false,
+        _actionControls = null,
+        showActions = false;
 
   final PokerModel model;
   final bool showBetInput;
-  final TextEditingController? betCtrl;
-  final VoidCallback? onToggleBetInput;
-  final VoidCallback? onCloseBetInput;
+  final _ActionControls? _actionControls;
   final bool hasLastShowdown;
   final bool showSidebar;
   final VoidCallback? onToggleSidebar;
@@ -191,85 +278,156 @@ class MobileHeroActionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final canAct = model.canAct;
-    final actionRowHeight = 48 * buttonScale(bp);
+    final actionControls = _actionControls;
+    final actionRowHeight = (48 * buttonScale(bp)).floorToDouble();
     final me = model.me;
-    final isShowing = me?.cardsRevealed ?? false;
     final cards =
         (me?.hand.isNotEmpty ?? false) ? me!.hand : model.myHoleCardsCache;
     final hasCards = cards.isNotEmpty;
 
-    return Container(
-      constraints: BoxConstraints(minHeight: mobileHeroPanelMinHeight(bp)),
-      padding: EdgeInsets.only(
-        left: PokerSpacing.sm,
-        right: PokerSpacing.sm,
-        top: PokerSpacing.sm,
-        bottom: safeBottomPadding(context, minPadding: 6),
-      ),
-      decoration: const BoxDecoration(color: PokerColors.screenBg),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _CompactHeroCards(cards: cards),
-              const SizedBox(width: PokerSpacing.sm),
-              GestureDetector(
-                onTap: !hasCards
-                    ? null
-                    : () {
-                        if (isShowing)
-                          model.hideCards();
-                        else
-                          model.showCards();
-                      },
-                child: Icon(
-                  isShowing ? Icons.visibility : Icons.visibility_off,
-                  size: 18,
-                  color:
-                      isShowing ? PokerColors.warning : PokerColors.textMuted,
-                ),
-              ),
-              const Spacer(),
-              if (hasLastShowdown && onToggleSidebar != null)
-                _LastHandButton(active: showSidebar, onTap: onToggleSidebar!),
-            ],
-          ),
-          if (showActions || reserveActionSpace) ...[
-            const SizedBox(height: PokerSpacing.sm),
-            SizedBox(
-              height: actionRowHeight,
-              child: Visibility(
-                visible: showActions,
-                maintainState: reserveActionSpace,
-                maintainAnimation: reserveActionSpace,
-                maintainSize: reserveActionSpace,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: canAct
-                        ? _ActionButtons(
-                            model: model,
-                            showBetInput: showBetInput,
-                            betCtrl: betCtrl!,
-                            onToggleBetInput: onToggleBetInput!,
-                            onCloseBetInput: onCloseBetInput!,
-                            bb: _resolveBigBlind(),
-                          )
-                        : _WaitingIndicator(model: model),
+    return LayoutBuilder(
+      builder: (context, panelConstraints) {
+        final availableHeight = panelConstraints.maxHeight;
+        final tightVertical =
+            availableHeight.isFinite && availableHeight <= 152.0;
+        final sectionGap = tightVertical ? 6.0 : PokerSpacing.sm;
+        final trailingGap = tightVertical ? 4.0 : 6.0;
+        final trailingSectionGap = tightVertical ? 6.0 : PokerSpacing.sm;
+        final topPadding = tightVertical ? 6.0 : PokerSpacing.sm;
+        final headerSection = LayoutBuilder(
+          builder: (context, constraints) {
+            final hasLastHandButton =
+                hasLastShowdown && onToggleSidebar != null;
+            final cardScale = cardSizeMultiplierFromKey(context.cardSize);
+            final cardWidth = (42.0 * cardScale).clamp(24.0, 60.0).toDouble();
+            final cardGap = (cardWidth * 0.14).clamp(4.0, 8.0).toDouble();
+            final cardsWidth = (cardWidth * 2) + cardGap;
+            var trailingWidth = 0.0;
+            if (hasCards && trailingWidth < 116.0) trailingWidth = 116.0;
+            final lastHandWidth = hasLastHandButton ? 92.0 : 0.0;
+            if (lastHandWidth > trailingWidth) {
+              trailingWidth = lastHandWidth;
+            }
+            final stackedHeader =
+                constraints.maxWidth < cardsWidth + trailingWidth + 36.0;
+            final cardsRow = _CompactHeroCards(cards: cards);
+            final hasTrailingControls = hasCards || hasLastHandButton;
+            final trailingControls = hasTrailingControls
+                ? Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (hasCards)
+                        _ShowCardsDockToggle(
+                          model: model,
+                          compact: true,
+                        ),
+                      if (hasCards && hasLastHandButton)
+                        SizedBox(height: trailingGap),
+                      if (hasLastHandButton) ...[
+                        if (hasCards) SizedBox(height: trailingSectionGap),
+                        PokerLastHandButton(
+                          active: showSidebar,
+                          onTap: onToggleSidebar!,
+                          compact: true,
+                        ),
+                      ],
+                    ],
+                  )
+                : const SizedBox.shrink();
+
+            if (!stackedHeader) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  cardsRow,
+                  const Spacer(),
+                  if (hasTrailingControls) trailingControls,
+                ],
+              );
+            }
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                cardsRow,
+                if (hasTrailingControls) ...[
+                  SizedBox(height: sectionGap),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: trailingControls,
+                  ),
+                ],
+              ],
+            );
+          },
+        );
+        final hasBottomSection =
+            showActions || reserveActionSpace || footer != null;
+        final bottomSection = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showActions || reserveActionSpace)
+              SizedBox(
+                height: actionRowHeight,
+                child: Visibility(
+                  visible: showActions,
+                  maintainState: reserveActionSpace,
+                  maintainAnimation: reserveActionSpace,
+                  maintainSize: reserveActionSpace,
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: showActions && canAct
+                          ? _ActionButtons(
+                              model: model,
+                              showBetInput: showBetInput,
+                              betCtrl: actionControls!.betCtrl,
+                              onToggleBetInput: actionControls.onToggleBetInput,
+                              onCloseBetInput: actionControls.onCloseBetInput,
+                              bb: _resolveBigBlind(),
+                            )
+                          : showActions
+                              ? _WaitingIndicator(model: model)
+                              : const SizedBox.shrink(),
+                    ),
                   ),
                 ),
               ),
-            ),
+            if (footer != null) ...[
+              if (showActions || reserveActionSpace)
+                SizedBox(height: sectionGap),
+              footer!,
+            ],
           ],
-          if (footer != null) ...[
-            const SizedBox(height: PokerSpacing.sm),
-            footer!,
-          ],
-        ],
-      ),
+        );
+        return Container(
+          constraints: BoxConstraints(minHeight: mobileHeroPanelMinHeight(bp)),
+          padding: EdgeInsets.only(
+            left: PokerSpacing.sm,
+            right: PokerSpacing.sm,
+            top: topPadding,
+            bottom: safeBottomPadding(context, minPadding: 6),
+          ),
+          decoration: const BoxDecoration(color: PokerColors.screenBg),
+          child: Column(
+            mainAxisSize: MainAxisSize.max,
+            mainAxisAlignment: hasBottomSection
+                ? MainAxisAlignment.spaceBetween
+                : MainAxisAlignment.start,
+            children: [
+              headerSection,
+              if (hasBottomSection)
+                Padding(
+                  padding: EdgeInsets.only(top: sectionGap),
+                  child: bottomSection,
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
@@ -280,12 +438,15 @@ class _CompactHeroCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const cw = 42.0;
-    const ch = cw * 1.4;
-    const gap = 6.0;
+    final theme = PokerThemeConfig.fromContext(context);
+    final cw = (42.0 * theme.cardSizeMultiplier).clamp(24.0, 60.0).toDouble();
+    final ch = cw * 1.4;
+    final gap = (cw * 0.14).clamp(4.0, 8.0).toDouble();
 
     Widget buildCard(int index) {
-      if (cards.length > index) return CardFace(card: cards[index]);
+      if (cards.length > index) {
+        return CardFace(card: cards[index], cardTheme: theme.cardTheme);
+      }
       return const CardBack();
     }
 
@@ -293,17 +454,92 @@ class _CompactHeroCards extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(width: cw, height: ch, child: buildCard(0)),
-        const SizedBox(width: gap),
+        SizedBox(width: gap),
         SizedBox(width: cw, height: ch, child: buildCard(1)),
       ],
     );
   }
 }
 
-class _LastHandButton extends StatelessWidget {
-  const _LastHandButton({required this.active, required this.onTap});
+class _ShowCardsDockToggle extends StatelessWidget {
+  const _ShowCardsDockToggle({
+    required this.model,
+    this.compact = false,
+  });
+
+  final PokerModel model;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasCards = (model.me?.hand.isNotEmpty ?? false) ||
+        model.myHoleCardsCache.isNotEmpty;
+    if (!hasCards) return const SizedBox.shrink();
+
+    final showing = model.me?.cardsRevealed ?? false;
+    final accent = showing ? PokerColors.warning : PokerColors.textPrimary;
+    final label = showing ? 'Hide Cards' : 'Show Cards';
+
+    return Tooltip(
+      message: label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: const Key('poker-show-cards-toggle'),
+          onTap: () {
+            if (showing) {
+              model.hideCards();
+            } else {
+              model.showCards();
+            }
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 10 : 12,
+              vertical: compact ? 7 : 8,
+            ),
+            decoration: BoxDecoration(
+              color: PokerColors.overlayLight,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: showing ? PokerColors.warning : PokerColors.borderSubtle,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  showing ? Icons.visibility_off : Icons.visibility,
+                  size: compact ? 14 : 16,
+                  color: accent,
+                ),
+                SizedBox(width: compact ? 5 : 6),
+                Text(
+                  label,
+                  style: PokerTypography.labelSmall.copyWith(
+                    color: accent,
+                    fontSize: compact ? 10.5 : 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class PokerLastHandButton extends StatelessWidget {
+  const PokerLastHandButton(
+      {super.key,
+      required this.active,
+      required this.onTap,
+      this.compact = false});
   final bool active;
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -314,7 +550,10 @@ class _LastHandButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 10,
+            vertical: 8,
+          ),
           decoration: BoxDecoration(
             color: PokerColors.overlayLight,
             borderRadius: BorderRadius.circular(8),
@@ -324,9 +563,11 @@ class _LastHandButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Icon(Icons.history, color: accent, size: 16),
-              const SizedBox(width: 5),
-              Text('Last Hand',
-                  style: PokerTypography.labelSmall.copyWith(color: accent)),
+              if (!compact) ...[
+                const SizedBox(width: 5),
+                Text('Last Hand',
+                    style: PokerTypography.labelSmall.copyWith(color: accent)),
+              ],
             ],
           ),
         ),
@@ -571,7 +812,7 @@ class _BetInputRow extends StatelessWidget {
         const SizedBox(width: PokerSpacing.xs),
         TextButton(
           onPressed: onClose,
-          child: Text('Cancel', style: PokerTypography.labelSmall),
+          child: const Text('Cancel', style: PokerTypography.labelSmall),
         ),
       ],
     );
