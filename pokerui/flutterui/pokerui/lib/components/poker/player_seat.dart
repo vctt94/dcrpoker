@@ -69,6 +69,13 @@ class _SeatCardMetrics {
   final double railWidth;
 }
 
+enum _SeatRailPlacement {
+  top,
+  left,
+  right,
+  bottom,
+}
+
 class _ResolvedSeatLayout {
   const _ResolvedSeatLayout({
     required this.player,
@@ -92,14 +99,18 @@ class _ResolvedSeatLayout {
     required this.width,
     required this.height,
     required this.avatarBox,
+    required this.avatarLeft,
     required this.coreWidth,
     required this.coreHeight,
+    required this.coreLeft,
+    required this.coreTop,
     required this.plateLeft,
     required this.plateWidth,
     required this.plateHeight,
     required this.betAnchor,
     this.railMetrics,
     this.cardLeft = 0,
+    this.cardTop = 0,
   });
 
   final UiPlayer player;
@@ -123,22 +134,31 @@ class _ResolvedSeatLayout {
   final double width;
   final double height;
   final double avatarBox;
+  final double avatarLeft;
   final double coreWidth;
   final double coreHeight;
+  final double coreLeft;
+  final double coreTop;
   final double plateLeft;
   final double plateWidth;
   final double plateHeight;
   final double cardLeft;
+  final double cardTop;
   final Offset? betAnchor;
   final _SeatCardMetrics? railMetrics;
 }
 
 _SeatCardMetrics _seatCardMetrics(
-    double radius, double cardScale, double uiScale,
-    {required bool isHero}) {
-  final baseMultiplier = isHero ? 1.3 : 1.0;
-  final minWidth = isHero ? 42.0 : 30.0;
-  final maxWidth = isHero ? 70.0 : 58.0;
+  double radius,
+  double cardScale,
+  double uiScale, {
+  required bool isHero,
+  required PokerLayoutMode mode,
+}) {
+  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
+  final baseMultiplier = isHero ? 1.3 : (compactOpponent ? 0.76 : 1.0);
+  final minWidth = isHero ? 42.0 : (compactOpponent ? 22.0 : 30.0);
+  final maxWidth = isHero ? 70.0 : (compactOpponent ? 40.0 : 58.0);
   final cw = (radius * baseMultiplier * cardScale)
       .clamp(minWidth, maxWidth)
       .toDouble();
@@ -156,14 +176,24 @@ _SeatCardMetrics _seatCardMetrics(
   );
 }
 
-double _seatInfoPlateWidth({required bool isHero, required double uiScale}) {
-  final base = isHero ? 122.0 : 108.0;
-  return (base * uiScale).clamp(90.0, 156.0).toDouble();
+double _seatInfoPlateWidth({
+  required bool isHero,
+  required double uiScale,
+  required PokerLayoutMode mode,
+}) {
+  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
+  final base = isHero ? 122.0 : (compactOpponent ? 84.0 : 108.0);
+  return (base * uiScale)
+      .clamp(compactOpponent ? 72.0 : 90.0, 156.0)
+      .toDouble();
 }
 
 double _seatInfoPlateHeight(UiPlayer player,
-    {required bool isHero, required double uiScale}) {
-  var height = 38.0 * uiScale;
+    {required bool isHero,
+    required double uiScale,
+    required PokerLayoutMode mode}) {
+  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
+  var height = (compactOpponent ? 34.0 : 38.0) * uiScale;
   final statusCount = [
     if (player.isSmallBlind) 'SB',
     if (player.isBigBlind) 'BB',
@@ -181,8 +211,16 @@ double _seatInfoPlateHeight(UiPlayer player,
   return height;
 }
 
-double _seatCorePlateLeft(double radius, double uiScale) {
-  return (radius + (22.0 * uiScale)).clamp(40.0, 68.0).toDouble();
+double _seatCorePlateLeft(
+  double radius,
+  double uiScale, {
+  required bool isHero,
+  required PokerLayoutMode mode,
+}) {
+  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
+  return (radius + ((compactOpponent ? 14.0 : 22.0) * uiScale))
+      .clamp(compactOpponent ? 22.0 : 40.0, 68.0)
+      .toDouble();
 }
 
 double _heroSeatDockOverlap(PokerLayoutMode mode, double uiScale) {
@@ -193,6 +231,20 @@ double _heroSeatDockOverlap(PokerLayoutMode mode, double uiScale) {
     PokerLayoutMode.wide => 34.0,
   };
   return (base * uiScale).clamp(12.0, 44.0).toDouble();
+}
+
+_SeatRailPlacement _railPlacementForSeat({
+  required bool isHeroSeat,
+}) {
+  if (isHeroSeat) return _SeatRailPlacement.top;
+  return _SeatRailPlacement.top;
+}
+
+double _safeClamp(double value, double lower, double upper) {
+  if (upper < lower) {
+    return (lower + upper) / 2;
+  }
+  return value.clamp(lower, upper).toDouble();
 }
 
 Offset _betAnchorForSeat({
@@ -211,41 +263,51 @@ Offset _betAnchorForSeat({
     final horizontalPad = 42.0 * uiScale;
     final verticalPad = 24.0 * uiScale;
     return Offset(
-      heroAnchor.dx.clamp(
+      _safeClamp(
+        heroAnchor.dx,
         tableBounds.left + horizontalPad,
         tableBounds.right - horizontalPad,
       ),
-      heroAnchor.dy.clamp(
+      _safeClamp(
+        heroAnchor.dy,
         tableBounds.top + verticalPad,
         tableBounds.bottom - verticalPad,
       ),
     );
   }
 
-  final dx = potCenter.dx - seatCenter.dx;
-  final dy = potCenter.dy - seatCenter.dy;
-  final distance = math.sqrt((dx * dx) + (dy * dy));
-  if (distance <= 0.001) return potCenter;
+  final tableCenter = tableBounds.center;
+  final isTopSeat =
+      seatCenter.dy <= tableCenter.dy - (tableBounds.height * 0.08);
+  final isLeftSeat = seatCenter.dx < tableCenter.dx;
+  final topSeatX = seatCenter.dx < tableCenter.dx - (seatRadius * 0.45)
+      ? seatCenter.dx - (seatRadius * 0.22)
+      : (seatCenter.dx > tableCenter.dx + (seatRadius * 0.45)
+          ? seatCenter.dx + (seatRadius * 0.22)
+          : seatCenter.dx);
+  final inwardX = seatRadius * 0.04;
+  final downwardY = (seatRadius * 1.52) + (4.0 * uiScale);
+  final topSeatGap = (seatRadius * 1.32) + (10.0 * uiScale);
 
-  final dirX = dx / distance;
-  final dirY = dy / distance;
-  final seatClearance = seatRadius + (24.0 * uiScale);
-  final potClearance = (34.0 * uiScale).clamp(28.0, 42.0).toDouble();
-  final usableDistance = math.max(0.0, distance - seatClearance - potClearance);
-  final progress = 0.18;
-  final travel = seatClearance + usableDistance * progress;
-  final anchor = Offset(
-    seatCenter.dx + (dirX * travel),
-    seatCenter.dy + (dirY * travel),
-  );
-  final horizontalPad = 46.0 * uiScale;
-  final verticalPad = 24.0 * uiScale;
+  final anchor = isTopSeat
+      ? Offset(
+          topSeatX,
+          seatCenter.dy + topSeatGap,
+        )
+      : Offset(
+          seatCenter.dx + (isLeftSeat ? inwardX : -inwardX),
+          seatCenter.dy + downwardY,
+        );
+  final horizontalPad = 22.0 * uiScale;
+  final verticalPad = 20.0 * uiScale;
   return Offset(
-    anchor.dx.clamp(
+    _safeClamp(
+      anchor.dx,
       tableBounds.left + horizontalPad,
       tableBounds.right - horizontalPad,
     ),
-    anchor.dy.clamp(
+    _safeClamp(
+      anchor.dy,
       tableBounds.top + verticalPad,
       tableBounds.bottom - verticalPad,
     ),
@@ -286,36 +348,122 @@ _ResolvedSeatLayout _resolveSeatLayout({
       showHeroCardsInSeat: renderHeroCardsInSeat);
   final showRailCards =
       isHeroSeat ? renderHeroCardsInSeat : (showFaceUpCards || showCardBacks);
-  final radius = kPlayerRadius * theme.uiSizeMultiplier;
+  final radius = kPlayerRadius *
+      theme.uiSizeMultiplier *
+      (!isHeroSeat && scene.isPhonePortrait ? 0.74 : 1.0);
   final uiScale = theme.uiSizeMultiplier;
   final cardScale = theme.cardSizeMultiplier;
   final isAutoAdvance = isAutoAdvanceAllIn(gameState);
   final avatarBox = radius * 2 + 8;
-  final plateLeft = _seatCorePlateLeft(radius, uiScale);
-  final plateWidth = _seatInfoPlateWidth(isHero: isHeroSeat, uiScale: uiScale);
-  final plateHeight =
-      _seatInfoPlateHeight(player, isHero: isHeroSeat, uiScale: uiScale);
-  final coreWidth = plateLeft + plateWidth + 2.0;
+  final seatCenter = Offset(seatPosition.dx, seatPosition.dy + radius);
+  final railPlacement = _railPlacementForSeat(
+    isHeroSeat: isHeroSeat,
+  );
+  final basePlateLeft = _seatCorePlateLeft(
+    radius,
+    uiScale,
+    isHero: isHeroSeat,
+    mode: scene.mode,
+  );
+  final plateWidth = _seatInfoPlateWidth(
+    isHero: isHeroSeat,
+    uiScale: uiScale,
+    mode: scene.mode,
+  );
+  final plateHeight = _seatInfoPlateHeight(
+    player,
+    isHero: isHeroSeat,
+    uiScale: uiScale,
+    mode: scene.mode,
+  );
+  final coreWidth = basePlateLeft + plateWidth + 2.0;
+  final shouldMirror = !isHeroSeat &&
+      seatCenter.dx > scene.tableCenter.dx + (scene.tableRect.width * 0.09);
+  final avatarLeft = shouldMirror ? coreWidth - avatarBox : 0.0;
+  final plateLeft = shouldMirror ? 0.0 : basePlateLeft;
   final coreHeight = math.max(avatarBox, plateHeight);
   final railMetrics = reserveRail
-      ? _seatCardMetrics(radius, cardScale, uiScale, isHero: isHeroSeat)
+      ? _seatCardMetrics(
+          radius,
+          cardScale,
+          uiScale,
+          isHero: isHeroSeat,
+          mode: scene.mode,
+        )
       : null;
-  final width = railMetrics == null
-      ? coreWidth
-      : math.max(coreWidth, railMetrics.railWidth);
-  final height =
-      railMetrics == null ? coreHeight : railMetrics.visibleHeight + coreHeight;
-  final cardLeft = railMetrics == null
+  final sideRailGap = 4.0 * uiScale;
+  final width = switch (railPlacement) {
+    _ when railMetrics == null => coreWidth,
+    _SeatRailPlacement.left || _SeatRailPlacement.right => coreWidth,
+    _ => math.max(coreWidth, railMetrics!.railWidth),
+  };
+  final height = switch (railPlacement) {
+    _ when railMetrics == null => coreHeight,
+    _SeatRailPlacement.left ||
+    _SeatRailPlacement.right =>
+      math.max(coreHeight, railMetrics!.height),
+    _ => coreHeight + railMetrics!.visibleHeight,
+  };
+  final coreLeft = switch (railPlacement) {
+    _ when railMetrics == null => 0.0,
+    _SeatRailPlacement.left || _SeatRailPlacement.right => 0.0,
+    _ => (width - coreWidth) / 2,
+  };
+  final coreTop = switch (railPlacement) {
+    _ when railMetrics == null => 0.0,
+    _SeatRailPlacement.left ||
+    _SeatRailPlacement.right =>
+      (height - coreHeight) / 2,
+    _SeatRailPlacement.top => railMetrics!.visibleHeight,
+    _SeatRailPlacement.bottom => 0.0,
+  };
+  final avatarCenterX = coreLeft + avatarLeft + avatarBox / 2;
+  final centeredRailLeft = railMetrics == null
       ? 0.0
-      : (plateLeft + ((plateWidth - railMetrics.railWidth) / 2))
+      : (coreLeft + plateLeft + ((plateWidth - railMetrics.railWidth) / 2))
           .clamp(0.0, math.max(0.0, width - railMetrics.railWidth))
           .toDouble();
-  final seatCenter = Offset(seatPosition.dx, seatPosition.dy + radius);
+  final cardLeft = switch (railPlacement) {
+    _ when railMetrics == null => 0.0,
+    _SeatRailPlacement.left => -(railMetrics!.railWidth + sideRailGap),
+    _SeatRailPlacement.right => coreWidth + sideRailGap,
+    _ => centeredRailLeft,
+  };
+  final cardTop = switch (railPlacement) {
+    _ when railMetrics == null => 0.0,
+    _SeatRailPlacement.left ||
+    _SeatRailPlacement.right =>
+      (height - railMetrics!.height) / 2,
+    _SeatRailPlacement.top => 0.0,
+    _SeatRailPlacement.bottom =>
+      coreHeight - (railMetrics!.height - railMetrics.visibleHeight),
+  };
+  final railOverflowLeft = switch (railPlacement) {
+    _ when railMetrics == null => 0.0,
+    _SeatRailPlacement.left => railMetrics!.railWidth + sideRailGap,
+    _ => 0.0,
+  };
+  final railOverflowRight = switch (railPlacement) {
+    _ when railMetrics == null => 0.0,
+    _SeatRailPlacement.right => railMetrics!.railWidth + sideRailGap,
+    _ => 0.0,
+  };
+  final sideRailClampFactor = scene.isPhonePortrait ? 0.4 : 1.0;
+
+  var left =
+      isHeroSeat ? seatCenter.dx - width / 2 : seatCenter.dx - avatarCenterX;
+  final minLeft =
+      scene.contentRect.left + 6.0 + railOverflowLeft * sideRailClampFactor;
+  final maxLeft = scene.contentRect.right -
+      width -
+      6.0 -
+      railOverflowRight * sideRailClampFactor;
+  left = maxLeft >= minLeft ? left.clamp(minLeft, maxLeft).toDouble() : minLeft;
 
   var top = seatCenter.dy - radius - 8;
   if (!isHeroSeat) {
-    final minTop = scene.topSeatBandRect.top + 6.0;
-    final maxTop = scene.topSeatBandRect.bottom - height - 6.0;
+    final minTop = scene.contentRect.top + 6.0;
+    final maxTop = scene.heroDockRect.top - height - 12.0;
     top = maxTop >= minTop ? top.clamp(minTop, maxTop).toDouble() : minTop;
   } else {
     final minTop = scene.potRect.bottom + 12.0;
@@ -329,6 +477,41 @@ _ResolvedSeatLayout _resolveSeatLayout({
           )
         : minTop;
   }
+
+  if (!isHeroSeat) {
+    final seatRect = Rect.fromLTWH(left, top, width, height);
+    if (seatRect.overlaps(scene.boardRect)) {
+      if (seatCenter.dx < scene.tableCenter.dx - 8.0) {
+        left = math.min(left, scene.boardRect.left - width - 8.0);
+      } else if (seatCenter.dx > scene.tableCenter.dx + 8.0) {
+        left = math.max(left, scene.boardRect.right + 8.0);
+      } else {
+        top = math.min(top, scene.boardRect.top - height - 10.0);
+      }
+      left = _safeClamp(
+        left,
+        scene.contentRect.left + 6.0,
+        scene.contentRect.right - width - 6.0,
+      );
+      top = _safeClamp(
+        top,
+        scene.contentRect.top + 6.0,
+        scene.heroDockRect.top - height - 12.0,
+      );
+
+      final adjustedRect = Rect.fromLTWH(left, top, width, height);
+      if (adjustedRect.overlaps(scene.boardRect)) {
+        top = _safeClamp(
+          scene.boardRect.top - height - 10.0,
+          scene.contentRect.top + 6.0,
+          scene.heroDockRect.top - height - 12.0,
+        );
+      }
+    }
+  }
+
+  final avatarCenterY = top + coreTop + (coreHeight / 2);
+  final actualSeatCenter = Offset(left + avatarCenterX, avatarCenterY);
 
   return _ResolvedSeatLayout(
     player: player,
@@ -347,20 +530,24 @@ _ResolvedSeatLayout _resolveSeatLayout({
     turnDeadlineMs: isCurrent ? gameState.turnDeadlineUnixMs : 0,
     timeBankSeconds: gameState.timeBankSeconds,
     isAutoAdvance: isAutoAdvance,
-    left: seatCenter.dx - width / 2,
+    left: left,
     top: top,
     width: width,
     height: height,
     avatarBox: avatarBox,
+    avatarLeft: avatarLeft,
     coreWidth: coreWidth,
     coreHeight: coreHeight,
+    coreLeft: coreLeft,
+    coreTop: coreTop,
     plateLeft: plateLeft,
     plateWidth: plateWidth,
     plateHeight: plateHeight,
     cardLeft: cardLeft,
+    cardTop: cardTop,
     betAnchor: player.currentBet > 0
         ? _betAnchorForSeat(
-            seatCenter: seatCenter,
+            seatCenter: actualSeatCenter,
             potCenter: scene.potRect.center,
             tableBounds: scene.tableRect,
             isHero: isHeroSeat,
@@ -517,7 +704,7 @@ class _PlayerSeatWidget extends StatelessWidget {
           children: [
             if (layout.showRailCards)
               Positioned(
-                top: 0,
+                top: layout.cardTop,
                 left: layout.cardLeft,
                 child: _SeatCardsRail(
                   key: ValueKey('seat_cards_${layout.player.id}'),
@@ -531,13 +718,9 @@ class _PlayerSeatWidget extends StatelessWidget {
                 ),
               ),
             Positioned(
-              top: layout.railMetrics!.visibleHeight,
-              left: 0,
-              right: 0,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: core,
-              ),
+              top: layout.coreTop,
+              left: layout.coreLeft,
+              child: core,
             ),
           ],
         ),
@@ -656,11 +839,12 @@ class _SeatCore extends StatelessWidget {
             left: layout.plateLeft,
             top: (layout.coreHeight - layout.plateHeight) / 2,
             child: _SeatInfoPlate(
+              key: ValueKey('seat_plate_${layout.player.id}'),
               layout: layout,
             ),
           ),
           Positioned(
-            left: 0,
+            left: layout.avatarLeft,
             top: (layout.coreHeight - layout.avatarBox) / 2,
             child: avatar,
           ),
@@ -672,6 +856,7 @@ class _SeatCore extends StatelessWidget {
 
 class _SeatInfoPlate extends StatelessWidget {
   const _SeatInfoPlate({
+    super.key,
     required this.layout,
   });
 
@@ -789,6 +974,9 @@ class _SeatInfoPlate extends StatelessWidget {
                         ? PokerColors.textSecondary
                         : PokerColors.textPrimary,
                   ),
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               if (statusColumn != null) SizedBox(width: 8 * layout.uiScale),

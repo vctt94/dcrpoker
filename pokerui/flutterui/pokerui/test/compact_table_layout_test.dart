@@ -182,7 +182,7 @@ void main() {
     );
   });
 
-  test('desktop scene layout keeps top opponents clearly above the board', () {
+  test('desktop scene layout keeps opponent anchors above the board', () {
     final standardLayout = PokerSceneLayout.resolve(const Size(1024, 768));
     final wideLayout = PokerSceneLayout.resolve(const Size(1440, 900));
 
@@ -191,15 +191,15 @@ void main() {
 
     expect(
       standardLayout.communityRect.top - standardAnchor.dy,
-      greaterThan(120),
+      greaterThan(80),
     );
     expect(
       wideLayout.communityRect.top - wideAnchor.dy,
-      greaterThan(140),
+      greaterThan(90),
     );
   });
 
-  test('desktop two-opponent anchors stay centered over the table', () {
+  test('desktop two-opponent anchors straddle the table center', () {
     final standardLayout = PokerSceneLayout.resolve(const Size(1024, 768));
     final wideLayout = PokerSceneLayout.resolve(const Size(1440, 900));
 
@@ -208,23 +208,19 @@ void main() {
 
     expect(
       standardAnchors.first.dx,
-      greaterThan(standardLayout.topSeatBandRect.left +
-          standardLayout.topSeatBandRect.width * 0.28),
+      lessThan(standardLayout.tableCenter.dx - 40),
     );
     expect(
       standardAnchors.last.dx,
-      lessThan(standardLayout.topSeatBandRect.right -
-          standardLayout.topSeatBandRect.width * 0.28),
+      greaterThan(standardLayout.tableCenter.dx + 40),
     );
     expect(
       wideAnchors.first.dx,
-      greaterThan(wideLayout.topSeatBandRect.left +
-          wideLayout.topSeatBandRect.width * 0.3),
+      lessThan(wideLayout.tableCenter.dx - 60),
     );
     expect(
       wideAnchors.last.dx,
-      lessThan(wideLayout.topSeatBandRect.right -
-          wideLayout.topSeatBandRect.width * 0.3),
+      greaterThan(wideLayout.tableCenter.dx + 60),
     );
   });
 
@@ -447,6 +443,160 @@ void main() {
     expect(heroCardRect.width, greaterThan(50));
     expect(toggleRect.bottom, lessThan(dockRect.bottom));
     expect(betRect.bottom, lessThan(dockRect.top));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phone portrait opponents stay clear of community slots',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'left', name: 'Left', isSmallBlind: true),
+        _player(id: 'top', name: 'Top', isBigBlind: true),
+        _player(id: 'right', name: 'Right', isDealer: true),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 4,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(390, 844),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    final slotRects = List<Rect>.generate(
+      5,
+      (index) => tester.getRect(find.byKey(ValueKey('community_slot_$index'))),
+    );
+    final seatRects = [
+      tester.getRect(find.byKey(const ValueKey('seat_widget_left'))),
+      tester.getRect(find.byKey(const ValueKey('seat_widget_top'))),
+      tester.getRect(find.byKey(const ValueKey('seat_widget_right'))),
+    ];
+
+    for (final seatRect in seatRects) {
+      for (final slotRect in slotRects) {
+        expect(seatRect.overlaps(slotRect), isFalse);
+      }
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phone portrait three opponents stay in upper seats',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'left', name: 'Left'),
+        _player(id: 'top', name: 'Top'),
+        _player(id: 'right', name: 'Right'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 4,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(390, 844),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    final layout = PokerSceneLayout.resolve(const Size(390, 844));
+    final seatRects = [
+      tester.getRect(find.byKey(const ValueKey('seat_widget_left'))),
+      tester.getRect(find.byKey(const ValueKey('seat_widget_top'))),
+      tester.getRect(find.byKey(const ValueKey('seat_widget_right'))),
+    ];
+
+    for (final rect in seatRects) {
+      expect(rect.center.dy, lessThan(layout.tableCenter.dy));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phone portrait upper arc seats keep cards above the seat core',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'left', name: 'Left'),
+        _player(id: 'top', name: 'Top'),
+        _player(id: 'right', name: 'Right'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 4,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: HandInProgressView(model: model),
+      size: const Size(390, 844),
+      config: _defaultConfig.copyWith(cardSize: 'xl'),
+    ));
+    await tester.pump();
+
+    final leftCardsRect =
+        tester.getRect(find.byKey(const ValueKey('seat_cards_left')));
+    final leftCoreRect =
+        tester.getRect(find.byKey(const ValueKey('seat_core_left')));
+    final rightCardsRect =
+        tester.getRect(find.byKey(const ValueKey('seat_cards_right')));
+    final rightCoreRect =
+        tester.getRect(find.byKey(const ValueKey('seat_core_right')));
+
+    expect(leftCardsRect.center.dy, lessThan(leftCoreRect.center.dy));
+    expect(rightCardsRect.center.dy, lessThan(rightCoreRect.center.dy));
+    expect(leftCardsRect.right, greaterThan(leftCoreRect.left + 12));
+    expect(leftCardsRect.left, lessThan(leftCoreRect.right - 12));
+    expect(rightCardsRect.right, greaterThan(rightCoreRect.left + 12));
+    expect(rightCardsRect.left, lessThan(rightCoreRect.right - 12));
     expect(tester.takeException(), isNull);
   });
 

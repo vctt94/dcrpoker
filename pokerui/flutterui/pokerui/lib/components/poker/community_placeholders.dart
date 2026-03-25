@@ -43,7 +43,10 @@ class CommunityCardSlots extends StatelessWidget {
           height: ch,
           child: hasCard
               ? CardFace(card: cards[i], cardTheme: theme.cardTheme)
-              : _PlaceholderSlot(borderRadius: (cw * 0.1).clamp(4.0, 10.0)),
+              : _PlaceholderSlot(
+                  key: ValueKey('community_slot_$i'),
+                  borderRadius: (cw * 0.1).clamp(4.0, 10.0),
+                ),
         ));
       }
       return IgnorePointer(child: Stack(children: children));
@@ -52,7 +55,7 @@ class CommunityCardSlots extends StatelessWidget {
 }
 
 class _PlaceholderSlot extends StatelessWidget {
-  const _PlaceholderSlot({required this.borderRadius});
+  const _PlaceholderSlot({super.key, required this.borderRadius});
   final double borderRadius;
 
   @override

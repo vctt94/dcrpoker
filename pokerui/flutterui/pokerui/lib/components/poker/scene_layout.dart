@@ -50,6 +50,7 @@ class PokerSceneLayout {
 
   bool get isCompact => mode.isCompact;
   bool get isWide => mode.isWideDesktop;
+  bool get isPhonePortrait => mode == PokerLayoutMode.compactPortrait;
 
   Offset get tableCenter => tableRect.center;
 
@@ -94,8 +95,8 @@ class PokerSceneLayout {
     double railWidth;
     switch (mode) {
       case PokerLayoutMode.compactPortrait:
-        topBandHeight = (contentRect.height * 0.15).clamp(96.0, 120.0);
-        heroDockHeight = (contentRect.height * 0.2).clamp(156.0, 196.0);
+        topBandHeight = (contentRect.height * 0.12).clamp(72.0, 98.0);
+        heroDockHeight = (contentRect.height * 0.2).clamp(156.0, 188.0);
         railWidth = 0;
         break;
       case PokerLayoutMode.compactLandscape:
@@ -117,6 +118,15 @@ class PokerSceneLayout {
 
     final maxRail = math.max(0.0, contentRect.width - 220.0);
     railWidth = math.min(railWidth, maxRail);
+
+    final reservedHeight = topBandHeight + heroDockHeight + gap * 2;
+    final minBodyHeight = mode.isCompact ? 24.0 : 40.0;
+    final maxReservedHeight = math.max(0.0, contentRect.height - minBodyHeight);
+    if (reservedHeight > maxReservedHeight && reservedHeight > 0) {
+      final scale = maxReservedHeight / reservedHeight;
+      topBandHeight *= scale;
+      heroDockHeight *= scale;
+    }
 
     final heroDockRect = Rect.fromLTWH(
       contentRect.left,
@@ -140,12 +150,20 @@ class PokerSceneLayout {
             bodyRect.height,
           );
     final leftRailRect = Rect.fromLTWH(bodyRect.left, bodyRect.top, 0, 0);
-    final tableRect = Rect.fromLTRB(
-      bodyRect.left,
-      bodyRect.top,
-      math.max(bodyRect.left, rightRailRect.left - gap),
-      bodyRect.bottom,
-    );
+    final tableWidthRight = math.max(bodyRect.left, rightRailRect.left - gap);
+    final tableRect = mode == PokerLayoutMode.compactPortrait
+        ? Rect.fromLTRB(
+            bodyRect.left + gap * 0.25,
+            bodyRect.top + bodyRect.height * 0.12,
+            tableWidthRight - gap * 0.25,
+            bodyRect.bottom - bodyRect.height * 0.08,
+          )
+        : Rect.fromLTRB(
+            bodyRect.left,
+            bodyRect.top,
+            tableWidthRight,
+            bodyRect.bottom,
+          );
     final topSeatBandRect = Rect.fromLTRB(
       contentRect.left,
       contentRect.top,
@@ -153,11 +171,19 @@ class PokerSceneLayout {
       contentRect.top + topBandHeight,
     );
 
-    final boardWidthFactor = mode.isCompact ? 0.66 : 0.58;
+    final boardWidthFactor = switch (mode) {
+      PokerLayoutMode.compactPortrait => 0.5,
+      PokerLayoutMode.compactLandscape => 0.66,
+      PokerLayoutMode.standard => 0.58,
+      PokerLayoutMode.wide => 0.58,
+    };
     final boardWidth =
         (tableRect.width * boardWidthFactor).clamp(148.0, tableRect.width);
-    final maxBoardHeight =
-        (tableRect.height * (mode.isCompact ? 0.19 : 0.17)).clamp(38.0, 84.0);
+    final maxBoardHeight = (tableRect.height *
+            (mode == PokerLayoutMode.compactPortrait
+                ? 0.145
+                : (mode.isCompact ? 0.19 : 0.17)))
+        .clamp(34.0, 84.0);
     final cardWidthFromHeight = maxBoardHeight / 1.4;
     final cardWidthFromWidth = (boardWidth / 5.45).clamp(24.0, 84.0);
     final communityCardWidth =
@@ -166,7 +192,7 @@ class PokerSceneLayout {
     final communityWidth = communityCardWidth * 5 + communityCardWidth * 0.4;
     final communityTop = tableRect.top +
         tableRect.height *
-            (mode == PokerLayoutMode.compactPortrait ? 0.29 : 0.31);
+            (mode == PokerLayoutMode.compactPortrait ? 0.36 : 0.31);
     final communityRect = Rect.fromLTWH(
       tableRect.center.dx - communityWidth / 2,
       communityTop,
@@ -214,81 +240,51 @@ class PokerSceneLayout {
     );
   }
 
-  List<Offset> opponentAnchors(int opponentCount) {
+  List<Offset> opponentAnchors(int opponentCount, {double uiScale = 1.0}) {
     if (opponentCount <= 0) return const [];
-    final shouldUseTwoRows = opponentCount > 4 ||
-        (mode == PokerLayoutMode.compactPortrait && opponentCount > 3);
-    final rows = shouldUseTwoRows ? 2 : 1;
-    final firstRowCount =
-        rows == 1 ? opponentCount : (opponentCount / 2).ceil();
-    final secondRowCount = opponentCount - firstRowCount;
-    final topInset = (topSeatBandRect.height * 0.16).clamp(8.0, 20.0);
-    final bottomInset = (topSeatBandRect.height * 0.16).clamp(8.0, 20.0);
-    final singleRowYFactor = switch (mode) {
-      PokerLayoutMode.compactPortrait => 0.70,
-      PokerLayoutMode.compactLandscape => 0.66,
-      PokerLayoutMode.standard => 0.58,
-      PokerLayoutMode.wide => 0.54,
+    final offsets = switch ((mode, opponentCount)) {
+      (PokerLayoutMode.compactPortrait, 1) => const [0.0],
+      (PokerLayoutMode.compactPortrait, 2) => const [-52.0, 52.0],
+      (PokerLayoutMode.compactPortrait, 3) => const [-74.0, 0.0, 74.0],
+      (PokerLayoutMode.compactPortrait, 4) => const [-86.0, -28.0, 28.0, 86.0],
+      (PokerLayoutMode.compactPortrait, 5) => const [
+          -124.0,
+          -66.0,
+          0.0,
+          66.0,
+          124.0
+        ],
+      (PokerLayoutMode.compactPortrait, _) => List<double>.generate(
+          opponentCount,
+          (index) => -126.0 + (252.0 * index) / (opponentCount - 1),
+        ),
+      (_, 1) => const [0.0],
+      (_, 2) => const [-40.0, 40.0],
+      (_, 3) => const [-70.0, 0.0, 70.0],
+      (_, 4) => const [-82.0, -28.0, 28.0, 82.0],
+      (_, 5) => const [-120.0, -70.0, 0.0, 70.0, 120.0],
+      _ => List<double>.generate(
+          opponentCount,
+          (index) => -122.0 + (244.0 * index) / (opponentCount - 1),
+        ),
     };
-    final upperRowFactor = mode.isCompact ? 0.24 : 0.18;
-    final lowerRowFactor = mode.isCompact ? 0.08 : 0.14;
-    final yPositions = rows == 1
-        ? [topSeatBandRect.top + topSeatBandRect.height * singleRowYFactor]
-        : [
-            topSeatBandRect.top +
-                topInset +
-                (topSeatBandRect.height * upperRowFactor),
-            topSeatBandRect.bottom -
-                bottomInset -
-                (topSeatBandRect.height * lowerRowFactor),
-          ];
 
-    List<Offset> distribute(int count, double y, double horizontalInset) {
-      if (count <= 0) return const [];
-      if (count == 1) {
-        return [Offset(topSeatBandRect.center.dx, y)];
-      }
-      if (count == 2) {
-        final leftFactor = switch (mode) {
-          PokerLayoutMode.compactPortrait => 0.26,
-          PokerLayoutMode.compactLandscape => 0.28,
-          PokerLayoutMode.standard => 0.32,
-          PokerLayoutMode.wide => 0.34,
-        };
-        return [
-          Offset(topSeatBandRect.left + topSeatBandRect.width * leftFactor, y),
-          Offset(
-            topSeatBandRect.right - topSeatBandRect.width * leftFactor,
-            y,
-          ),
-        ];
-      }
-      final adjustedInset = count <= 2
-          ? horizontalInset * 2.0
-          : (count == 3 ? horizontalInset * 1.45 : horizontalInset);
-      final usable = Rect.fromLTRB(
-        topSeatBandRect.left + adjustedInset,
-        topSeatBandRect.top,
-        topSeatBandRect.right - adjustedInset,
-        topSeatBandRect.bottom,
+    final xOutside = isPhonePortrait
+        ? (tableRect.width * 0.042 + 14.0 * uiScale).clamp(20.0, 38.0)
+        : (tableRect.width * 0.018 + 10.0 * uiScale).clamp(12.0, 28.0);
+    final yOutside = isPhonePortrait
+        ? (tableRect.height * 0.06 + 18.0 * uiScale).clamp(28.0, 48.0)
+        : (tableRect.height * 0.038 + 14.0 * uiScale).clamp(20.0, 40.0);
+    final xRadius = tableRadiusX + xOutside;
+    final yRadius = tableRadiusY + yOutside;
+
+    return offsets.map((offset) {
+      final angle = (270.0 + offset) * math.pi / 180.0;
+      return Offset(
+        tableCenter.dx + xRadius * math.cos(angle),
+        tableCenter.dy + yRadius * math.sin(angle),
       );
-      final spacing = usable.width / (count + 1);
-      return List<Offset>.generate(
-        count,
-        (index) => Offset(usable.left + spacing * (index + 1), y),
-      );
-    }
-
-    final inset = (topSeatBandRect.width * (mode.isCompact ? 0.06 : 0.08))
-        .clamp(18.0, 60.0);
-
-    final anchors = <Offset>[
-      ...distribute(firstRowCount, yPositions.first, inset),
-    ];
-    if (secondRowCount > 0) {
-      anchors.addAll(distribute(secondRowCount, yPositions.last, inset * 1.4));
-    }
-    return anchors;
+    }).toList(growable: false);
   }
 
   Offset heroSeatAnchor({double uiScale = 1.0}) {

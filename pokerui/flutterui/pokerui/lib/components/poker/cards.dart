@@ -45,67 +45,67 @@ const Map<int, List<_PipPos>> _pipLayouts = {
     _PipPos(0.5, 0.8, true)
   ],
   4: [
-    _PipPos(0.3, 0.2, false),
-    _PipPos(0.7, 0.2, false),
-    _PipPos(0.3, 0.8, true),
-    _PipPos(0.7, 0.8, true),
+    _PipPos(0.24, 0.2, false),
+    _PipPos(0.76, 0.2, false),
+    _PipPos(0.24, 0.8, true),
+    _PipPos(0.76, 0.8, true),
   ],
   5: [
-    _PipPos(0.3, 0.2, false),
-    _PipPos(0.7, 0.2, false),
+    _PipPos(0.24, 0.2, false),
+    _PipPos(0.76, 0.2, false),
     _PipPos(0.5, 0.5, false),
-    _PipPos(0.3, 0.8, true),
-    _PipPos(0.7, 0.8, true),
+    _PipPos(0.24, 0.8, true),
+    _PipPos(0.76, 0.8, true),
   ],
   6: [
-    _PipPos(0.3, 0.2, false),
-    _PipPos(0.7, 0.2, false),
-    _PipPos(0.3, 0.5, false),
-    _PipPos(0.7, 0.5, false),
-    _PipPos(0.3, 0.8, true),
-    _PipPos(0.7, 0.8, true),
+    _PipPos(0.24, 0.2, false),
+    _PipPos(0.76, 0.2, false),
+    _PipPos(0.24, 0.5, false),
+    _PipPos(0.76, 0.5, false),
+    _PipPos(0.24, 0.8, true),
+    _PipPos(0.76, 0.8, true),
   ],
   7: [
-    _PipPos(0.3, 0.2, false),
-    _PipPos(0.7, 0.2, false),
-    _PipPos(0.5, 0.35, false),
-    _PipPos(0.3, 0.5, false),
-    _PipPos(0.7, 0.5, false),
-    _PipPos(0.3, 0.8, true),
-    _PipPos(0.7, 0.8, true),
+    _PipPos(0.24, 0.18, false),
+    _PipPos(0.76, 0.18, false),
+    _PipPos(0.5, 0.33, false),
+    _PipPos(0.24, 0.5, false),
+    _PipPos(0.76, 0.5, false),
+    _PipPos(0.24, 0.82, true),
+    _PipPos(0.76, 0.82, true),
   ],
   8: [
-    _PipPos(0.3, 0.2, false),
-    _PipPos(0.7, 0.2, false),
-    _PipPos(0.5, 0.35, false),
-    _PipPos(0.3, 0.5, false),
-    _PipPos(0.7, 0.5, false),
-    _PipPos(0.5, 0.65, true),
-    _PipPos(0.3, 0.8, true),
-    _PipPos(0.7, 0.8, true),
+    _PipPos(0.24, 0.18, false),
+    _PipPos(0.76, 0.18, false),
+    _PipPos(0.5, 0.33, false),
+    _PipPos(0.24, 0.47, false),
+    _PipPos(0.76, 0.47, false),
+    _PipPos(0.5, 0.67, true),
+    _PipPos(0.24, 0.82, true),
+    _PipPos(0.76, 0.82, true),
   ],
   9: [
-    _PipPos(0.3, 0.18, false),
-    _PipPos(0.7, 0.18, false),
-    _PipPos(0.3, 0.39, false),
-    _PipPos(0.7, 0.39, false),
+    _PipPos(0.25, 0.19, false),
+    _PipPos(0.75, 0.19, false),
+    _PipPos(0.25, 0.39, false),
+    _PipPos(0.75, 0.39, false),
     _PipPos(0.5, 0.5, false),
-    _PipPos(0.3, 0.61, true),
-    _PipPos(0.7, 0.61, true),
-    _PipPos(0.3, 0.82, true),
-    _PipPos(0.7, 0.82, true),
+    _PipPos(0.25, 0.61, true),
+    _PipPos(0.75, 0.61, true),
+    _PipPos(0.25, 0.81, true),
+    _PipPos(0.75, 0.81, true),
   ],
   10: [
-    _PipPos(0.3, 0.15, false),
-    _PipPos(0.7, 0.15, false),
-    _PipPos(0.5, 0.28, false),
-    _PipPos(0.3, 0.38, false),
-    _PipPos(0.7, 0.38, false),
-    _PipPos(0.3, 0.62, true),
-    _PipPos(0.7, 0.62, true),
-    _PipPos(0.5, 0.72, true),
-    _PipPos(0.3, 0.85, true),
-    _PipPos(0.7, 0.85, true),
+    _PipPos(0.25, 0.18, false),
+    _PipPos(0.75, 0.18, false),
+    _PipPos(0.5, 0.31, false),
+    _PipPos(0.25, 0.41, false),
+    _PipPos(0.75, 0.41, false),
+    _PipPos(0.25, 0.59, true),
+    _PipPos(0.75, 0.59, true),
+    _PipPos(0.5, 0.69, true),
+    _PipPos(0.25, 0.82, true),
+    _PipPos(0.75, 0.82, true),
   ],
 };
 
@@ -147,6 +147,182 @@ bool _isFaceCard(String value) {
   return v == 'J' || v == 'Q' || v == 'K';
 }
 
+bool _isPhoneViewport(BuildContext context) {
+  return MediaQuery.sizeOf(context).shortestSide < 600;
+}
+
+EdgeInsets _centerContentPadding(
+  String value,
+  double width,
+  double height, {
+  required bool simplifiedMode,
+}) {
+  final pipCount = _rankToCount(value);
+  if (pipCount == null) {
+    final compactFaceCard = simplifiedMode && width < 52;
+    return EdgeInsets.symmetric(
+      horizontal: width * (compactFaceCard ? 0.24 : 0.2),
+      vertical: height * (compactFaceCard ? 0.19 : 0.16),
+    );
+  }
+
+  if (!simplifiedMode) {
+    final dense = pipCount >= 8;
+    final medium = pipCount >= 5;
+    return EdgeInsets.symmetric(
+      horizontal: width * (dense ? 0.12 : (medium ? 0.14 : 0.16)),
+      vertical: height * (dense ? 0.1 : (medium ? 0.12 : 0.14)),
+    );
+  }
+
+  final horizontalFactor = switch (pipCount) {
+    <= 3 => 0.21,
+    4 => 0.2,
+    5 || 6 => 0.19,
+    7 || 8 => 0.18,
+    _ => 0.18,
+  };
+  final verticalFactor = switch (pipCount) {
+    <= 3 => 0.2,
+    4 => 0.19,
+    5 || 6 => 0.18,
+    7 || 8 => 0.18,
+    _ => 0.19,
+  };
+
+  return EdgeInsets.symmetric(
+    horizontal: width * horizontalFactor,
+    vertical: height * verticalFactor,
+  );
+}
+
+Size _measureCornerIndex(
+  String rank,
+  String suit,
+  Color color,
+  double rankSize,
+  double suitSize,
+) {
+  final isWideRank = rank.length > 1;
+  final rankPainter = TextPainter(
+    text: TextSpan(
+      text: rank,
+      style: TextStyle(
+        color: color,
+        fontSize: isWideRank ? rankSize * 0.86 : rankSize,
+        fontWeight: FontWeight.w900,
+        height: 1.0,
+        letterSpacing: isWideRank ? -0.6 : 0.0,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+
+  final suitPainter = TextPainter(
+    text: TextSpan(
+      text: suit,
+      style: TextStyle(
+        color: color,
+        fontSize: suitSize,
+        fontWeight: FontWeight.w700,
+        height: 1.0,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+
+  final gap = suitSize * 0.02;
+  return Size(
+    math.max(rankPainter.width, suitPainter.width),
+    rankPainter.height + gap + suitPainter.height,
+  );
+}
+
+EdgeInsets _protectedCenterPadding(
+  String value,
+  double width,
+  double height,
+  Size cornerSize, {
+  required bool simplifiedMode,
+}) {
+  final base = _centerContentPadding(
+    value,
+    width,
+    height,
+    simplifiedMode: simplifiedMode,
+  );
+  if (!simplifiedMode) {
+    return base;
+  }
+  final cornerInsetX = width * 0.06;
+  final cornerInsetY = height * 0.04;
+  final bufferX = width * 0.05;
+  final bufferY = height * 0.05;
+
+  return EdgeInsets.fromLTRB(
+    math.max(base.left, cornerInsetX + cornerSize.width + bufferX),
+    math.max(base.top, cornerInsetY + cornerSize.height + bufferY),
+    math.max(base.right, cornerInsetX + cornerSize.width + bufferX),
+    math.max(base.bottom, cornerInsetY + cornerSize.height + bufferY),
+  );
+}
+
+double _resolvePipFontSize(
+    List<_PipPos> positions, double areaWidth, double areaHeight) {
+  final baseSize = math.min(areaWidth * 0.28, areaHeight * 0.2);
+  var maxAllowed = math.min(areaWidth, areaHeight);
+
+  for (var i = 0; i < positions.length; i++) {
+    for (var j = i + 1; j < positions.length; j++) {
+      final dx = (positions[i].x - positions[j].x).abs() * areaWidth;
+      final dy = (positions[i].y - positions[j].y).abs() * areaHeight;
+      final allowed = math.max(dx, dy);
+      if (allowed > 0) {
+        maxAllowed = math.min(maxAllowed, allowed);
+      }
+    }
+  }
+
+  final densityFactor = switch (positions.length) {
+    <= 3 => 1.0,
+    4 || 5 => 0.94,
+    6 || 7 => 0.88,
+    8 => 0.84,
+    9 => 0.8,
+    _ => 0.76,
+  };
+
+  return math
+      .min(baseSize, maxAllowed * densityFactor)
+      .clamp(4.0, 20.0)
+      .toDouble();
+}
+
+double _cornerIndexScale(double width, String value,
+    {required bool simplifiedMode}) {
+  if (!simplifiedMode) return 1.0;
+  final isLetterRank = _rankToCount(value) == null;
+  if (width < 34) return isLetterRank ? 0.78 : 0.84;
+  if (width < 42) return isLetterRank ? 0.84 : 0.9;
+  if (width < 52) return isLetterRank ? 0.9 : 0.95;
+  return 1.0;
+}
+
+bool _shouldShowCenterContent(
+  String value,
+  double width, {
+  required bool simplifiedMode,
+}) {
+  if (!simplifiedMode) {
+    return width >= 28;
+  }
+  final pipCount = _rankToCount(value);
+  if (pipCount == null) {
+    return width >= 44;
+  }
+  return width >= 36;
+}
+
 // ─────────────────────────────────────────────
 // CardFace Widget
 // ─────────────────────────────────────────────
@@ -169,11 +345,32 @@ class CardFace extends StatelessWidget {
         builder: (context, c) {
           final w = c.maxWidth.clamp(20.0, double.infinity);
           final h = c.maxHeight.clamp(28.0, double.infinity);
-          final isSmall = w < 36;
-          final rankFs = (w * 0.32).clamp(9.0, 24.0).toDouble();
-          final suitFs = (w * 0.27).clamp(8.0, 20.0).toDouble();
+          final simplifiedMode = _isPhoneViewport(context);
+          final showCenterContent = _shouldShowCenterContent(
+            value,
+            w,
+            simplifiedMode: simplifiedMode,
+          );
+          final cornerScale =
+              _cornerIndexScale(w, value, simplifiedMode: simplifiedMode);
+          final rankFs = (w * 0.32 * cornerScale).clamp(7.0, 24.0).toDouble();
+          final suitFs = (w * 0.27 * cornerScale).clamp(6.0, 20.0).toDouble();
           final isRedSuit = suitSymbol == '♥' || suitSymbol == '♦';
           final cornerSuitSize = suitFs * (isRedSuit ? 1.2 : 1.12);
+          final cornerSize = _measureCornerIndex(
+            value,
+            suitSymbol,
+            tint,
+            rankFs,
+            cornerSuitSize,
+          );
+          final contentPadding = _protectedCenterPadding(
+            value,
+            w,
+            h,
+            cornerSize,
+            simplifiedMode: simplifiedMode,
+          );
 
           return Container(
             decoration: BoxDecoration(
@@ -221,19 +418,17 @@ class CardFace extends StatelessWidget {
                     ),
                   ),
                   // Center content
-                  if (!isSmall)
+                  if (showCenterContent)
                     Positioned.fill(
                       child: Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: w * 0.18,
-                          vertical: h * 0.15,
-                        ),
+                        padding: contentPadding,
                         child: _CardCenter(
                           value: value,
                           suit: suitSymbol,
                           color: tint,
                           width: w,
                           height: h,
+                          simplifiedMode: simplifiedMode,
                         ),
                       ),
                     ),
@@ -261,6 +456,7 @@ class _CornerIndex extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isWideRank = rank.length > 1;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -268,10 +464,12 @@ class _CornerIndex extends StatelessWidget {
         Text(rank,
             style: TextStyle(
               color: color,
-              fontSize: rankSize,
+              fontSize: isWideRank ? rankSize * 0.86 : rankSize,
               fontWeight: FontWeight.w900,
-              height: 1.1,
+              height: 1.0,
+              letterSpacing: isWideRank ? -0.6 : 0.0,
             )),
+        SizedBox(height: suitSize * 0.02),
         Text(suit,
             style: TextStyle(
               color: color,
@@ -291,28 +489,32 @@ class _CardCenter extends StatelessWidget {
     required this.color,
     required this.width,
     required this.height,
+    required this.simplifiedMode,
   });
   final String value, suit;
   final Color color;
   final double width, height;
+  final bool simplifiedMode;
 
   @override
   Widget build(BuildContext context) {
     final pipCount = _rankToCount(value);
-    final pipSize = (math.min(width, height) * 0.18).clamp(8.0, 20.0);
 
     if (value.toUpperCase() == 'A') {
+      final compactAce = simplifiedMode && width < 52;
       return Center(
         child: Text(suit,
             style: TextStyle(
               color: color,
-              fontSize: (math.min(width, height) * 0.45).clamp(14.0, 44.0),
+              fontSize: (math.min(width, height) * (compactAce ? 0.32 : 0.4))
+                  .clamp(10.0, 44.0),
               fontWeight: FontWeight.w600,
             )),
       );
     }
 
     if (_isFaceCard(value)) {
+      final compactFace = simplifiedMode && width < 52;
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -320,13 +522,18 @@ class _CardCenter extends StatelessWidget {
             Text(value,
                 style: TextStyle(
                   color: color,
-                  fontSize: (math.min(width, height) * 0.32).clamp(12.0, 32.0),
+                  fontSize:
+                      (math.min(width, height) * (compactFace ? 0.24 : 0.3))
+                          .clamp(10.0, 32.0),
                   fontWeight: FontWeight.w800,
                 )),
+            SizedBox(height: height * (compactFace ? 0.01 : 0.015)),
             Text(suit,
                 style: TextStyle(
                   color: color,
-                  fontSize: (math.min(width, height) * 0.2).clamp(8.0, 22.0),
+                  fontSize:
+                      (math.min(width, height) * (compactFace ? 0.14 : 0.18))
+                          .clamp(7.0, 22.0),
                   fontWeight: FontWeight.w600,
                 )),
           ],
@@ -339,13 +546,23 @@ class _CardCenter extends StatelessWidget {
       return LayoutBuilder(builder: (context, c) {
         final areaW = c.maxWidth;
         final areaH = c.maxHeight;
+        final maxPipSize = math.max(0.0, math.min(areaW, areaH));
+        if (maxPipSize <= 0) {
+          return const SizedBox.shrink();
+        }
+        final pipSize = math.min(
+          _resolvePipFontSize(positions, areaW, areaH),
+          maxPipSize,
+        );
+        final maxLeft = math.max(0.0, areaW - pipSize);
+        final maxTop = math.max(0.0, areaH - pipSize);
         return Stack(
           children: positions.map((p) {
             final x = p.x * areaW - pipSize / 2;
             final y = p.y * areaH - pipSize / 2;
             return Positioned(
-              left: x.clamp(0.0, areaW - pipSize),
-              top: y.clamp(0.0, areaH - pipSize),
+              left: x.clamp(0.0, maxLeft),
+              top: y.clamp(0.0, maxTop),
               child: p.inverted
                   ? Transform.rotate(
                       angle: math.pi,
@@ -580,20 +797,45 @@ void drawCardFace(Canvas canvas, double x, double y, double width,
 
   final tint = getSuitColor(card.suit, cardTheme: cardTheme);
   final suitSym = getSuitSymbol(card.suit);
+  final isWideRank = card.value.length > 1;
+  final rankSize =
+      (width * (isWideRank ? 0.2 : 0.24)).clamp(7.0, 14.0).toDouble();
+  final suitSize = (rankSize * 0.84).clamp(6.0, 12.0).toDouble();
+  final left = x + width * 0.08;
+  final top = y + height * 0.06;
 
-  // Rank + suit text
-  final tp = TextPainter(
+  final rankPainter = TextPainter(
     text: TextSpan(
-      text: '${card.value}\n$suitSym',
+      text: card.value,
       style: TextStyle(
-          color: tint,
-          fontSize: (width * 0.24).clamp(7.0, 14.0),
-          fontWeight: FontWeight.w900,
-          height: 1.2),
+        color: tint,
+        fontSize: rankSize,
+        fontWeight: FontWeight.w900,
+        height: 1.0,
+        letterSpacing: isWideRank ? -0.5 : 0.0,
+      ),
     ),
     textDirection: TextDirection.ltr,
   )..layout();
-  tp.paint(canvas, Offset(x + width * 0.08, y + height * 0.06));
+  rankPainter.paint(canvas, Offset(left, top));
+
+  final suitPainter = TextPainter(
+    text: TextSpan(
+      text: suitSym,
+      style: TextStyle(
+        color: tint,
+        fontSize: suitSize,
+        fontWeight: FontWeight.w700,
+        height: 1.0,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  suitPainter.paint(
+    canvas,
+    Offset(left + (rankPainter.width - suitPainter.width) / 2,
+        top + rankPainter.height - height * 0.01),
+  );
 }
 
 void drawCardBack(

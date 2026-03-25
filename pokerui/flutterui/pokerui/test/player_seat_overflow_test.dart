@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pokerui/components/poker/cards.dart';
@@ -224,6 +226,272 @@ void main() {
 
     expect(find.byKey(const ValueKey('seat_cards_villain')), findsOneWidget);
     expect(find.byKey(const ValueKey('seat_cards_hero')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('smaller square layouts keep opponents fully on-screen',
+      (WidgetTester tester) async {
+    const viewport = Size(754, 767);
+    final gameState = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'left', name: 'Left'),
+        _player(id: 'top', name: 'Top'),
+        _player(id: 'right', name: 'Right'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 4,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: viewport.width,
+            height: viewport.height,
+            child: PlayerSeatsOverlay(
+              gameState: gameState,
+              heroId: 'hero',
+              theme: const PokerThemeConfig(
+                tableTheme: TableThemeConfig.classic,
+                cardTheme: CardColorTheme.standard,
+                cardSizeMultiplier: 1.0,
+                uiSizeMultiplier: 1.0,
+                showTableLogo: true,
+                logoPosition: 'center',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final leftRect =
+        tester.getRect(find.byKey(const ValueKey('seat_widget_left')));
+    final topRect =
+        tester.getRect(find.byKey(const ValueKey('seat_widget_top')));
+    final rightRect =
+        tester.getRect(find.byKey(const ValueKey('seat_widget_right')));
+    expect(leftRect.overlaps(topRect), isFalse);
+    expect(topRect.overlaps(rightRect), isFalse);
+    expect(leftRect.overlaps(rightRect), isFalse);
+    for (final rect in [leftRect, topRect, rightRect]) {
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(viewport.width));
+      expect(rect.bottom, lessThanOrEqualTo(viewport.height));
+    }
+    expect(leftRect.center.dx, lessThan(topRect.center.dx));
+    expect(rightRect.center.dx, greaterThan(topRect.center.dx));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('six-player layouts keep every seat on-screen',
+      (WidgetTester tester) async {
+    const viewport = Size(900, 700);
+    final gameState = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'p2', name: 'P2'),
+        _player(id: 'p3', name: 'P3'),
+        _player(id: 'p4', name: 'P4'),
+        _player(id: 'p5', name: 'P5'),
+        _player(id: 'p6', name: 'P6'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 6,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: viewport.width,
+            height: viewport.height,
+            child: PlayerSeatsOverlay(
+              gameState: gameState,
+              heroId: 'hero',
+              theme: const PokerThemeConfig(
+                tableTheme: TableThemeConfig.classic,
+                cardTheme: CardColorTheme.standard,
+                cardSizeMultiplier: 1.0,
+                uiSizeMultiplier: 1.0,
+                showTableLogo: true,
+                logoPosition: 'center',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    for (final id in ['hero', 'p2', 'p3', 'p4', 'p5', 'p6']) {
+      final rect = tester.getRect(find.byKey(ValueKey('seat_widget_$id')));
+      expect(rect.left, greaterThanOrEqualTo(0));
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.right, lessThanOrEqualTo(viewport.width));
+      expect(rect.bottom, lessThanOrEqualTo(viewport.height));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('six-player opponent cards stay attached above seat cores',
+      (WidgetTester tester) async {
+    const viewport = Size(900, 700);
+    final gameState = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'p2', name: 'P2'),
+        _player(id: 'p3', name: 'P3'),
+        _player(id: 'p4', name: 'P4'),
+        _player(id: 'p5', name: 'P5'),
+        _player(id: 'p6', name: 'P6'),
+      ],
+      communityCards: const [],
+      pot: 30,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 6,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: viewport.width,
+            height: viewport.height,
+            child: PlayerSeatsOverlay(
+              gameState: gameState,
+              heroId: 'hero',
+              theme: const PokerThemeConfig(
+                tableTheme: TableThemeConfig.classic,
+                cardTheme: CardColorTheme.standard,
+                cardSizeMultiplier: 1.0,
+                uiSizeMultiplier: 1.0,
+                showTableLogo: true,
+                logoPosition: 'center',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    for (final id in ['p2', 'p3', 'p4', 'p5', 'p6']) {
+      final cardsRect = tester.getRect(find.byKey(ValueKey('seat_cards_$id')));
+      final coreRect = tester.getRect(find.byKey(ValueKey('seat_core_$id')));
+      final horizontalOverlap = math.min(cardsRect.right, coreRect.right) -
+          math.max(cardsRect.left, coreRect.left);
+
+      expect(horizontalOverlap, greaterThan(12));
+      expect(cardsRect.center.dy, lessThan(coreRect.center.dy));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('opponent bet stacks do not overlap seat info plates',
+      (WidgetTester tester) async {
+    const viewport = Size(900, 700);
+    final gameState = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'left', name: 'Left', currentBet: 10),
+        _player(id: 'top', name: 'Top', currentBet: 20),
+        _player(id: 'right', name: 'Right', currentBet: 30),
+      ],
+      communityCards: const [],
+      pot: 60,
+      currentBet: 30,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 4,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: viewport.width,
+            height: viewport.height,
+            child: PlayerSeatsOverlay(
+              gameState: gameState,
+              heroId: 'hero',
+              theme: const PokerThemeConfig(
+                tableTheme: TableThemeConfig.classic,
+                cardTheme: CardColorTheme.standard,
+                cardSizeMultiplier: 1.0,
+                uiSizeMultiplier: 1.0,
+                showTableLogo: true,
+                logoPosition: 'center',
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    for (final id in ['left', 'top', 'right']) {
+      final plateRect = tester.getRect(find.byKey(ValueKey('seat_plate_$id')));
+      final betRect = tester.getRect(find.byKey(ValueKey('seat_bet_$id')));
+      expect(
+        betRect.overlaps(plateRect),
+        isFalse,
+        reason: 'bet stack for $id overlaps seat info plate',
+      );
+    }
     expect(tester.takeException(), isNull);
   });
 

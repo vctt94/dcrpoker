@@ -43,13 +43,9 @@ class DisconnectedBadgesOverlay extends StatelessWidget {
         if (pos == null) continue;
         final isHero = p.id == heroId;
         final preferredTop = pos.dy + (isHero ? 20.0 : 46.0);
-        final maxTop = isHero
-            ? scene.heroDockRect.top - 28.0
-            : scene.topSeatBandRect.bottom - 28.0;
+        final maxTop = scene.heroDockRect.top - 28.0;
         final top = preferredTop.clamp(
-          isHero
-              ? scene.tableRect.bottom - 36.0
-              : scene.topSeatBandRect.top + 6.0,
+          isHero ? scene.tableRect.bottom - 36.0 : scene.contentRect.top + 6.0,
           maxTop,
         );
         widgets.add(Positioned(

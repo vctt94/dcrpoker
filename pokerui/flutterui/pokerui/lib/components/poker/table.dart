@@ -786,7 +786,10 @@ Map<String, Offset> seatPositionsFor(
   if (sceneLayout != null) {
     final playerRadius = kPlayerRadius * uiSizeMultiplier;
     final opponents = ps.where((p) => p.id != heroId).toList(growable: false);
-    final opponentAnchors = sceneLayout.opponentAnchors(opponents.length);
+    final opponentAnchors = sceneLayout.opponentAnchors(
+      opponents.length,
+      uiScale: uiSizeMultiplier,
+    );
     for (int i = 0; i < opponents.length && i < opponentAnchors.length; i++) {
       final anchor = opponentAnchors[i];
       map[opponents[i].id] = Offset(anchor.dx, anchor.dy - playerRadius);
