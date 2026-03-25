@@ -225,10 +225,21 @@ _CardFaceLayout _computeCardFaceLayout(
 ) {
   final cornerInsetX = width * 0.06;
   final cornerInsetY = height * 0.04;
+  final availableWidth = math.max(0.0, width - (cornerInsetX * 2));
+  final availableHeight = math.max(0.0, height - (cornerInsetY * 2));
+  final maxCornerWidth = availableWidth * 0.34;
+  final maxCornerHeight = availableHeight * 0.24;
+  final cornerWidthScale = cornerSize.width <= 0
+      ? 1.0
+      : math.min(1.0, maxCornerWidth / cornerSize.width);
+  final cornerHeightScale = cornerSize.height <= 0
+      ? 1.0
+      : math.min(1.0, maxCornerHeight / cornerSize.height);
+  final cornerScale = math.min(cornerWidthScale, cornerHeightScale);
   final cornerWidth =
-      math.min(cornerSize.width, math.max(0.0, width - (cornerInsetX * 2)));
+      math.min(cornerSize.width * cornerScale, availableWidth).toDouble();
   final cornerHeight =
-      math.min(cornerSize.height, math.max(0.0, height - (cornerInsetY * 2)));
+      math.min(cornerSize.height * cornerScale, availableHeight).toDouble();
 
   final topLeftCorner =
       Rect.fromLTWH(cornerInsetX, cornerInsetY, cornerWidth, cornerHeight);
@@ -239,13 +250,24 @@ _CardFaceLayout _computeCardFaceLayout(
     cornerHeight,
   );
 
-  final pipLeft = width * 0.18;
-  final pipRight = width * 0.82;
-  final pipTop = height * 0.16;
-  final pipBottom = height * 0.84;
-
-  final pipRect = pipBottom > pipTop && pipRight > pipLeft
-      ? Rect.fromLTRB(pipLeft, pipTop, pipRight, pipBottom)
+  final contentBounds = Rect.fromLTRB(
+    cornerInsetX,
+    topLeftCorner.bottom,
+    width - cornerInsetX,
+    bottomRightCorner.top,
+  );
+  final pipRect = contentBounds.width > 0 && contentBounds.height > 0
+      ? () {
+          final padX = contentBounds.width * 0.04;
+          final padY = contentBounds.height * 0.04;
+          final rect = Rect.fromLTRB(
+            contentBounds.left + padX,
+            contentBounds.top + padY,
+            contentBounds.right - padX,
+            contentBounds.bottom - padY,
+          );
+          return rect.width > 0 && rect.height > 0 ? rect : contentBounds;
+        }()
       : Rect.zero;
 
   return _CardFaceLayout(
@@ -300,7 +322,7 @@ double _maxPipCellSize(
   // Cap so pips stay proportional on low-count cards.
   final baseCap = math.min(areaWidth * 0.42, areaHeight * 0.28);
 
-  return math.min(math.min(fromSpacing, fromEdges), baseCap).clamp(4.0, 24.0);
+  return math.min(math.min(fromSpacing, fromEdges), baseCap).clamp(0.0, 24.0);
 }
 
 double _cornerIndexScale(double width, String value,
@@ -404,7 +426,8 @@ class CardFace extends StatelessWidget {
                     rect: layout.topLeftCorner,
                     child: SizedBox.fromSize(
                       size: layout.topLeftCorner.size,
-                      child: Align(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
                         alignment: Alignment.topLeft,
                         child: _CornerIndex(
                           rank: value,
@@ -421,7 +444,8 @@ class CardFace extends StatelessWidget {
                     rect: layout.bottomRightCorner,
                     child: SizedBox.fromSize(
                       size: layout.bottomRightCorner.size,
-                      child: Align(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
                         alignment: Alignment.bottomRight,
                         child: Transform.rotate(
                           angle: math.pi,
@@ -438,14 +462,10 @@ class CardFace extends StatelessWidget {
                   ),
                   // Center content
                   if (showCenterContent && !layout.pipRect.isEmpty)
-                    Positioned.fill(
-                      child: Padding(
-                        padding: EdgeInsets.fromLTRB(
-                          layout.pipRect.left,
-                          layout.pipRect.top,
-                          w - layout.pipRect.right,
-                          h - layout.pipRect.bottom,
-                        ),
+                    Positioned.fromRect(
+                      rect: layout.pipRect,
+                      child: ClipRect(
+                        key: const ValueKey('card_center_content'),
                         child: _CardCenter(
                           value: value,
                           suit: suitSymbol,
@@ -543,27 +563,34 @@ class _CardCenter extends StatelessWidget {
     if (_isFaceCard(value)) {
       final compactFace = simplifiedMode && cardWidth < 52;
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(value,
-                style: TextStyle(
-                  color: color,
-                  fontSize:
-                      (math.min(width, height) * (compactFace ? 0.24 : 0.3))
-                          .clamp(10.0, 32.0),
-                  fontWeight: FontWeight.w800,
-                )),
-            SizedBox(height: height * (compactFace ? 0.01 : 0.015)),
-            Text(suit,
-                style: TextStyle(
-                  color: color,
-                  fontSize:
-                      (math.min(width, height) * (compactFace ? 0.14 : 0.18))
+        child: SizedBox(
+          width: width,
+          height: height,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(value,
+                    style: TextStyle(
+                      color: color,
+                      fontSize:
+                          (math.min(width, height) * (compactFace ? 0.24 : 0.3))
+                              .clamp(10.0, 32.0),
+                      fontWeight: FontWeight.w800,
+                    )),
+                SizedBox(height: height * (compactFace ? 0.01 : 0.015)),
+                Text(suit,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: (math.min(width, height) *
+                              (compactFace ? 0.14 : 0.18))
                           .clamp(7.0, 22.0),
-                  fontWeight: FontWeight.w600,
-                )),
-          ],
+                      fontWeight: FontWeight.w600,
+                    )),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -602,7 +629,7 @@ class _CardCenter extends StatelessWidget {
         }
         final maxLeft = math.max(0.0, areaW - cellSize);
         final maxTop = math.max(0.0, areaH - cellSize);
-        final pipFs = (cellSize * 0.92 * pipScale).clamp(4.0, cellSize * 1.2);
+        final pipFs = math.min(cellSize * 0.92 * pipScale, cellSize * 1.2);
 
         return Stack(
           clipBehavior: Clip.none,
