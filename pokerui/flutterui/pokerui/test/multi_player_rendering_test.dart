@@ -510,6 +510,63 @@ void main() {
       expect(find.text('BB'), findsOneWidget);
     });
 
+    testWidgets('visual snapshot: 3 players rendered on table',
+        (WidgetTester tester) async {
+      tester.binding.window.physicalSizeTestValue = const Size(800, 450);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
+      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+      addTearDown(tester.binding.window.clearDevicePixelRatioTestValue);
+
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isTurn: true),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isSmallBlind: true),
+          _createPlayer(
+              id: 'player3', name: 'Bob', tableSeat: 2, isBigBlind: true),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 3,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      await expectLater(
+        find.byType(Scaffold),
+        matchesGoldenFile('multi_player_rendering_3_players.png'),
+      );
+    });
+
     testWidgets('2-player table centers the opponent above the hero',
         (WidgetTester tester) async {
       const heroId = 'player1';
@@ -561,13 +618,68 @@ void main() {
       final opponentRect = _seatRect(tester, 'player2');
 
       expect((heroRect.center.dx - tableRect.center.dx).abs(), lessThan(24));
-      expect(
-          (opponentRect.center.dx - tableRect.center.dx).abs(), lessThan(50));
+      expect((opponentRect.center.dx - tableRect.center.dx).abs(), lessThan(8));
       expect(heroRect.center.dy, greaterThan(opponentRect.center.dy + 80));
       expect(find.text('Hero'), findsOneWidget);
       expect(find.text('Alice'), findsOneWidget);
       expect(find.text('SB'), findsOneWidget);
       expect(find.text('BB'), findsOneWidget);
+    });
+
+    testWidgets('visual snapshot: 2 players rendered on table',
+        (WidgetTester tester) async {
+      tester.binding.window.physicalSizeTestValue = const Size(800, 450);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
+      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+      addTearDown(tester.binding.window.clearDevicePixelRatioTestValue);
+
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isSmallBlind: true,
+              isTurn: true),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isBigBlind: true),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      await expectLater(
+        find.byType(Scaffold),
+        matchesGoldenFile('multi_player_rendering_2_players.png'),
+      );
     });
 
     testWidgets('Renders 6 players on the table', (WidgetTester tester) async {
@@ -743,6 +855,245 @@ void main() {
       for (final rect in opponentRects) {
         expect(rect.center.dy, lessThan(heroRect.center.dy - 20));
       }
+    });
+
+    testWidgets('visual snapshot: 6 players rendered on table',
+        (WidgetTester tester) async {
+      tester.binding.window.physicalSizeTestValue = const Size(800, 450);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
+      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+      addTearDown(tester.binding.window.clearDevicePixelRatioTestValue);
+
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isTurn: true),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isSmallBlind: true),
+          _createPlayer(
+              id: 'player3', name: 'Bob', tableSeat: 2, isBigBlind: true),
+          _createPlayer(id: 'player4', name: 'Charlie', tableSeat: 3),
+          _createPlayer(id: 'player5', name: 'Diana', tableSeat: 4),
+          _createPlayer(id: 'player6', name: 'Eve', tableSeat: 5),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 6,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      await expectLater(
+        find.byType(Scaffold),
+        matchesGoldenFile('multi_player_rendering_6_players.png'),
+      );
+    });
+
+    testWidgets('visual snapshot: 4 players rendered on table',
+        (WidgetTester tester) async {
+      tester.binding.window.physicalSizeTestValue = const Size(800, 450);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
+      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+      addTearDown(tester.binding.window.clearDevicePixelRatioTestValue);
+
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isTurn: true),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isSmallBlind: true),
+          _createPlayer(
+              id: 'player3', name: 'Bob', tableSeat: 2, isBigBlind: true),
+          _createPlayer(id: 'player4', name: 'Charlie', tableSeat: 3),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 4,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      await expectLater(
+        find.byType(Scaffold),
+        matchesGoldenFile('multi_player_rendering_4_players.png'),
+      );
+    });
+
+    testWidgets('4-player table centers the top opponent over the hero',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isTurn: true),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isSmallBlind: true),
+          _createPlayer(
+              id: 'player3', name: 'Bob', tableSeat: 2, isBigBlind: true),
+          _createPlayer(id: 'player4', name: 'Charlie', tableSeat: 3),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 4,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      final tableRect = tester.getRect(find.byType(PokerTableBackground));
+      final heroRect = _seatRect(tester, heroId);
+      final topOpponent = [
+        _seatRect(tester, 'player2'),
+        _seatRect(tester, 'player3'),
+        _seatRect(tester, 'player4'),
+      ].reduce(
+        (current, next) => next.center.dy < current.center.dy ? next : current,
+      );
+
+      expect((heroRect.center.dx - tableRect.center.dx).abs(), lessThan(24));
+      expect((topOpponent.center.dx - tableRect.center.dx).abs(), lessThan(8));
+      expect(topOpponent.center.dy, lessThan(heroRect.top - 20));
+    });
+
+    testWidgets('visual snapshot: 5 players rendered on table',
+        (WidgetTester tester) async {
+      tester.binding.window.physicalSizeTestValue = const Size(800, 450);
+      tester.binding.window.devicePixelRatioTestValue = 1.0;
+      addTearDown(tester.binding.window.clearPhysicalSizeTestValue);
+      addTearDown(tester.binding.window.clearDevicePixelRatioTestValue);
+
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isTurn: true),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isSmallBlind: true),
+          _createPlayer(
+              id: 'player3', name: 'Bob', tableSeat: 2, isBigBlind: true),
+          _createPlayer(id: 'player4', name: 'Charlie', tableSeat: 3),
+          _createPlayer(id: 'player5', name: 'Diana', tableSeat: 4),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 5,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      await expectLater(
+        find.byType(Scaffold),
+        matchesGoldenFile('multi_player_rendering_5_players.png'),
+      );
     });
   });
 }

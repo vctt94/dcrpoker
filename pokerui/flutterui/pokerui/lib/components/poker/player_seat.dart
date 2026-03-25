@@ -449,9 +449,13 @@ _ResolvedSeatLayout _resolveSeatLayout({
     _ => 0.0,
   };
   final sideRailClampFactor = scene.isPhonePortrait ? 0.4 : 1.0;
+  final centerAlignedSeat = !isHeroSeat &&
+      (seatCenter.dx - scene.tableCenter.dx).abs() <=
+          (scene.tableRect.width * 0.06);
 
-  var left =
-      isHeroSeat ? seatCenter.dx - width / 2 : seatCenter.dx - avatarCenterX;
+  var left = isHeroSeat || centerAlignedSeat
+      ? seatCenter.dx - width / 2
+      : seatCenter.dx - avatarCenterX;
   final minLeft =
       scene.contentRect.left + 6.0 + railOverflowLeft * sideRailClampFactor;
   final maxLeft = scene.contentRect.right -
