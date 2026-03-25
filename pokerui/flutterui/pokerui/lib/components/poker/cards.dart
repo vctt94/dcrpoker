@@ -33,87 +33,112 @@ Color suitColor(String suit, {CardColorTheme? cardTheme}) {
   return Colors.black;
 }
 
-// ── Pip layout positions for number cards ──
-// Normalized (x, y) positions where 0,0 is top-left and 1,1 is bottom-right
-// of the pip area. Some bottom-half pips are drawn upside-down.
-const Map<int, List<_PipPos>> _pipLayouts = {
-  1: [_PipPos(0.5, 0.5, false)],
-  2: [_PipPos(0.5, 0.2, false), _PipPos(0.5, 0.8, true)],
-  3: [
-    _PipPos(0.5, 0.2, false),
-    _PipPos(0.5, 0.5, false),
-    _PipPos(0.5, 0.8, true)
-  ],
-  4: [
-    _PipPos(0.24, 0.2, false),
-    _PipPos(0.76, 0.2, false),
-    _PipPos(0.24, 0.8, true),
-    _PipPos(0.76, 0.8, true),
-  ],
-  5: [
-    _PipPos(0.24, 0.2, false),
-    _PipPos(0.76, 0.2, false),
-    _PipPos(0.5, 0.5, false),
-    _PipPos(0.24, 0.8, true),
-    _PipPos(0.76, 0.8, true),
-  ],
-  6: [
-    _PipPos(0.24, 0.2, false),
-    _PipPos(0.76, 0.2, false),
-    _PipPos(0.24, 0.5, false),
-    _PipPos(0.76, 0.5, false),
-    _PipPos(0.24, 0.8, true),
-    _PipPos(0.76, 0.8, true),
-  ],
-  7: [
-    _PipPos(0.24, 0.18, false),
-    _PipPos(0.76, 0.18, false),
-    _PipPos(0.5, 0.33, false),
-    _PipPos(0.24, 0.5, false),
-    _PipPos(0.76, 0.5, false),
-    _PipPos(0.24, 0.82, true),
-    _PipPos(0.76, 0.82, true),
-  ],
-  8: [
-    _PipPos(0.24, 0.18, false),
-    _PipPos(0.76, 0.18, false),
-    _PipPos(0.5, 0.33, false),
-    _PipPos(0.24, 0.47, false),
-    _PipPos(0.76, 0.47, false),
-    _PipPos(0.5, 0.67, true),
-    _PipPos(0.24, 0.82, true),
-    _PipPos(0.76, 0.82, true),
-  ],
-  9: [
-    _PipPos(0.25, 0.16, false),
-    _PipPos(0.75, 0.16, false),
-    _PipPos(0.25, 0.35, false),
-    _PipPos(0.75, 0.35, false),
-    _PipPos(0.5, 0.5, false),
-    _PipPos(0.25, 0.65, true),
-    _PipPos(0.75, 0.65, true),
-    _PipPos(0.25, 0.84, true),
-    _PipPos(0.75, 0.84, true),
-  ],
-  10: [
-    _PipPos(0.25, 0.14, false),
-    _PipPos(0.75, 0.14, false),
-    _PipPos(0.5, 0.29, false),
-    _PipPos(0.25, 0.40, false),
-    _PipPos(0.75, 0.40, false),
-    _PipPos(0.25, 0.60, true),
-    _PipPos(0.75, 0.60, true),
-    _PipPos(0.5, 0.71, true),
-    _PipPos(0.25, 0.86, true),
-    _PipPos(0.75, 0.86, true),
-  ],
-};
+double _centerPipScale(String suit) {
+  final sym = suitSym(suit);
+  switch (sym) {
+    case '♥':
+      return 1.0;
+    case '♦':
+      return 1.35;
+    case '♣':
+      return 1.20;
+    case '♠':
+      return 1.25;
+    default:
+      return 1.0;
+  }
+}
 
 class _PipPos {
   final double x, y;
   final bool inverted;
   const _PipPos(this.x, this.y, this.inverted);
 }
+
+class _CardFaceLayout {
+  const _CardFaceLayout({
+    required this.topLeftCorner,
+    required this.bottomRightCorner,
+    required this.pipRect,
+  });
+
+  final Rect topLeftCorner;
+  final Rect bottomRightCorner;
+  final Rect pipRect;
+}
+
+const Map<int, List<_PipPos>> _pipLayouts = {
+  1: [_PipPos(0.5, 0.5, false)],
+  2: [_PipPos(0.5, 0.18, false), _PipPos(0.5, 0.82, true)],
+  3: [
+    _PipPos(0.5, 0.18, false),
+    _PipPos(0.5, 0.5, false),
+    _PipPos(0.5, 0.82, true),
+  ],
+  4: [
+    _PipPos(0.24, 0.18, false),
+    _PipPos(0.76, 0.18, false),
+    _PipPos(0.24, 0.82, true),
+    _PipPos(0.76, 0.82, true),
+  ],
+  5: [
+    _PipPos(0.24, 0.18, false),
+    _PipPos(0.76, 0.18, false),
+    _PipPos(0.5, 0.5, false),
+    _PipPos(0.24, 0.82, true),
+    _PipPos(0.76, 0.82, true),
+  ],
+  6: [
+    _PipPos(0.24, 0.18, false),
+    _PipPos(0.76, 0.18, false),
+    _PipPos(0.24, 0.5, false),
+    _PipPos(0.76, 0.5, false),
+    _PipPos(0.24, 0.82, true),
+    _PipPos(0.76, 0.82, true),
+  ],
+  7: [
+    _PipPos(0.24, 0.16, false),
+    _PipPos(0.76, 0.16, false),
+    _PipPos(0.5, 0.30, false),
+    _PipPos(0.24, 0.5, false),
+    _PipPos(0.76, 0.5, false),
+    _PipPos(0.24, 0.84, true),
+    _PipPos(0.76, 0.84, true),
+  ],
+  8: [
+    _PipPos(0.24, 0.16, false),
+    _PipPos(0.76, 0.16, false),
+    _PipPos(0.5, 0.30, false),
+    _PipPos(0.24, 0.44, false),
+    _PipPos(0.76, 0.44, false),
+    _PipPos(0.5, 0.70, true),
+    _PipPos(0.24, 0.84, true),
+    _PipPos(0.76, 0.84, true),
+  ],
+  9: [
+    _PipPos(0.25, 0.14, false),
+    _PipPos(0.75, 0.14, false),
+    _PipPos(0.25, 0.34, false),
+    _PipPos(0.75, 0.34, false),
+    _PipPos(0.5, 0.5, false),
+    _PipPos(0.25, 0.66, true),
+    _PipPos(0.75, 0.66, true),
+    _PipPos(0.25, 0.86, true),
+    _PipPos(0.75, 0.86, true),
+  ],
+  10: [
+    _PipPos(0.25, 0.12, false),
+    _PipPos(0.75, 0.12, false),
+    _PipPos(0.5, 0.26, false),
+    _PipPos(0.25, 0.40, false),
+    _PipPos(0.75, 0.40, false),
+    _PipPos(0.25, 0.60, true),
+    _PipPos(0.75, 0.60, true),
+    _PipPos(0.5, 0.74, true),
+    _PipPos(0.25, 0.88, true),
+    _PipPos(0.75, 0.88, true),
+  ],
+};
 
 int? _rankToCount(String value) {
   switch (value.toUpperCase()) {
@@ -149,51 +174,6 @@ bool _isFaceCard(String value) {
 
 bool _isPhoneViewport(BuildContext context) {
   return MediaQuery.sizeOf(context).shortestSide < 600;
-}
-
-EdgeInsets _centerContentPadding(
-  String value,
-  double width,
-  double height, {
-  required bool simplifiedMode,
-}) {
-  final pipCount = _rankToCount(value);
-  if (pipCount == null) {
-    final compactFaceCard = simplifiedMode && width < 52;
-    return EdgeInsets.symmetric(
-      horizontal: width * (compactFaceCard ? 0.24 : 0.2),
-      vertical: height * (compactFaceCard ? 0.19 : 0.16),
-    );
-  }
-
-  if (!simplifiedMode) {
-    final dense = pipCount >= 8;
-    final medium = pipCount >= 5;
-    return EdgeInsets.symmetric(
-      horizontal: width * (dense ? 0.12 : (medium ? 0.14 : 0.16)),
-      vertical: height * (dense ? 0.1 : (medium ? 0.12 : 0.14)),
-    );
-  }
-
-  final horizontalFactor = switch (pipCount) {
-    <= 3 => 0.21,
-    4 => 0.2,
-    5 || 6 => 0.19,
-    7 || 8 => 0.18,
-    _ => 0.18,
-  };
-  final verticalFactor = switch (pipCount) {
-    <= 3 => 0.2,
-    4 => 0.19,
-    5 || 6 => 0.18,
-    7 || 8 => 0.18,
-    _ => 0.19,
-  };
-
-  return EdgeInsets.symmetric(
-    horizontal: width * horizontalFactor,
-    vertical: height * verticalFactor,
-  );
 }
 
 Size _measureCornerIndex(
@@ -238,32 +218,40 @@ Size _measureCornerIndex(
   );
 }
 
-EdgeInsets _protectedCenterPadding(
-  String value,
+_CardFaceLayout _computeCardFaceLayout(
   double width,
   double height,
-  Size cornerSize, {
-  required bool simplifiedMode,
-}) {
-  final base = _centerContentPadding(
-    value,
-    width,
-    height,
-    simplifiedMode: simplifiedMode,
-  );
-  if (!simplifiedMode) {
-    return base;
-  }
+  Size cornerSize,
+) {
   final cornerInsetX = width * 0.06;
   final cornerInsetY = height * 0.04;
-  final bufferX = width * 0.05;
-  final bufferY = height * 0.05;
+  final cornerWidth =
+      math.min(cornerSize.width, math.max(0.0, width - (cornerInsetX * 2)));
+  final cornerHeight =
+      math.min(cornerSize.height, math.max(0.0, height - (cornerInsetY * 2)));
 
-  return EdgeInsets.fromLTRB(
-    math.max(base.left, cornerInsetX + cornerSize.width + bufferX),
-    math.max(base.top, cornerInsetY + cornerSize.height + bufferY),
-    math.max(base.right, cornerInsetX + cornerSize.width + bufferX),
-    math.max(base.bottom, cornerInsetY + cornerSize.height + bufferY),
+  final topLeftCorner =
+      Rect.fromLTWH(cornerInsetX, cornerInsetY, cornerWidth, cornerHeight);
+  final bottomRightCorner = Rect.fromLTWH(
+    math.max(cornerInsetX, width - cornerInsetX - cornerWidth),
+    math.max(cornerInsetY, height - cornerInsetY - cornerHeight),
+    cornerWidth,
+    cornerHeight,
+  );
+
+  final pipLeft = width * 0.18;
+  final pipRight = width * 0.82;
+  final pipTop = height * 0.16;
+  final pipBottom = height * 0.84;
+
+  final pipRect = pipBottom > pipTop && pipRight > pipLeft
+      ? Rect.fromLTRB(pipLeft, pipTop, pipRight, pipBottom)
+      : Rect.zero;
+
+  return _CardFaceLayout(
+    topLeftCorner: topLeftCorner,
+    bottomRightCorner: bottomRightCorner,
+    pipRect: pipRect,
   );
 }
 
@@ -274,8 +262,18 @@ EdgeInsets _protectedCenterPadding(
 double _maxPipCellSize(
     List<_PipPos> positions, double areaWidth, double areaHeight) {
   var minChebyshev = double.infinity;
+  var minEdgeClearance = double.infinity;
 
   for (var i = 0; i < positions.length; i++) {
+    final p = positions[i];
+    final edgeClearance = math.min(
+      math.min(p.x * areaWidth, (1 - p.x) * areaWidth),
+      math.min(p.y * areaHeight, (1 - p.y) * areaHeight),
+    );
+    if (edgeClearance < minEdgeClearance) {
+      minEdgeClearance = edgeClearance;
+    }
+
     for (var j = i + 1; j < positions.length; j++) {
       final dx = (positions[i].x - positions[j].x).abs() * areaWidth;
       final dy = (positions[i].y - positions[j].y).abs() * areaHeight;
@@ -289,14 +287,20 @@ double _maxPipCellSize(
   if (minChebyshev == double.infinity) {
     minChebyshev = math.min(areaWidth, areaHeight);
   }
+  if (minEdgeClearance == double.infinity) {
+    minEdgeClearance = math.min(areaWidth, areaHeight) / 2;
+  }
 
   // 90% of the minimum Chebyshev distance → guaranteed no overlap with a
   // 10% visual gap between adjacent cells.
   final fromSpacing = minChebyshev * 0.90;
+  // Keep the outermost pips inside the center rect instead of clamping them
+  // into the edges after layout.
+  final fromEdges = minEdgeClearance * 2 * 0.92;
   // Cap so pips stay proportional on low-count cards.
-  final baseCap = math.min(areaWidth * 0.32, areaHeight * 0.22);
+  final baseCap = math.min(areaWidth * 0.42, areaHeight * 0.28);
 
-  return math.min(fromSpacing, baseCap).clamp(4.0, 24.0);
+  return math.min(math.min(fromSpacing, fromEdges), baseCap).clamp(4.0, 24.0);
 }
 
 double _cornerIndexScale(double width, String value,
@@ -317,11 +321,21 @@ bool _shouldShowCenterContent(
   if (!simplifiedMode) {
     return width >= 28;
   }
-  final pipCount = _rankToCount(value);
-  if (pipCount == null) {
-    return width >= 44;
-  }
-  return width >= 36;
+  return _rankToCount(value) == null ? width >= 32 : width >= 30;
+}
+
+bool _useMiniNumberLayout(
+  int pipCount,
+  double width, {
+  required bool simplifiedMode,
+}) {
+  if (!simplifiedMode) return false;
+  final minFullWidth = switch (pipCount) {
+    >= 9 => 30.0,
+    >= 7 => 28.0,
+    _ => 24.0,
+  };
+  return width < minFullWidth;
 }
 
 // ─────────────────────────────────────────────
@@ -365,13 +379,7 @@ class CardFace extends StatelessWidget {
             rankFs,
             cornerSuitSize,
           );
-          final contentPadding = _protectedCenterPadding(
-            value,
-            w,
-            h,
-            cornerSize,
-            simplifiedMode: simplifiedMode,
-          );
+          final layout = _computeCardFaceLayout(w, h, cornerSize);
 
           return Container(
             decoration: BoxDecoration(
@@ -392,43 +400,59 @@ class CardFace extends StatelessWidget {
               child: Stack(
                 children: [
                   // Corner index: top-left
-                  Positioned(
-                    left: w * 0.06,
-                    top: h * 0.04,
-                    child: _CornerIndex(
-                      rank: value,
-                      suit: suitSymbol,
-                      color: tint,
-                      rankSize: rankFs,
-                      suitSize: cornerSuitSize,
+                  Positioned.fromRect(
+                    rect: layout.topLeftCorner,
+                    child: SizedBox.fromSize(
+                      size: layout.topLeftCorner.size,
+                      child: Align(
+                        alignment: Alignment.topLeft,
+                        child: _CornerIndex(
+                          rank: value,
+                          suit: suitSymbol,
+                          color: tint,
+                          rankSize: rankFs,
+                          suitSize: cornerSuitSize,
+                        ),
+                      ),
                     ),
                   ),
                   // Corner index: bottom-right (rotated 180)
-                  Positioned(
-                    right: w * 0.06,
-                    bottom: h * 0.04,
-                    child: Transform.rotate(
-                      angle: math.pi,
-                      child: _CornerIndex(
-                        rank: value,
-                        suit: suitSymbol,
-                        color: tint,
-                        rankSize: rankFs,
-                        suitSize: cornerSuitSize,
+                  Positioned.fromRect(
+                    rect: layout.bottomRightCorner,
+                    child: SizedBox.fromSize(
+                      size: layout.bottomRightCorner.size,
+                      child: Align(
+                        alignment: Alignment.bottomRight,
+                        child: Transform.rotate(
+                          angle: math.pi,
+                          child: _CornerIndex(
+                            rank: value,
+                            suit: suitSymbol,
+                            color: tint,
+                            rankSize: rankFs,
+                            suitSize: cornerSuitSize,
+                          ),
+                        ),
                       ),
                     ),
                   ),
                   // Center content
-                  if (showCenterContent)
+                  if (showCenterContent && !layout.pipRect.isEmpty)
                     Positioned.fill(
                       child: Padding(
-                        padding: contentPadding,
+                        padding: EdgeInsets.fromLTRB(
+                          layout.pipRect.left,
+                          layout.pipRect.top,
+                          w - layout.pipRect.right,
+                          h - layout.pipRect.bottom,
+                        ),
                         child: _CardCenter(
                           value: value,
                           suit: suitSymbol,
                           color: tint,
-                          width: w,
-                          height: h,
+                          cardWidth: w,
+                          width: layout.pipRect.width,
+                          height: layout.pipRect.height,
                           simplifiedMode: simplifiedMode,
                         ),
                       ),
@@ -488,12 +512,14 @@ class _CardCenter extends StatelessWidget {
     required this.value,
     required this.suit,
     required this.color,
+    required this.cardWidth,
     required this.width,
     required this.height,
     required this.simplifiedMode,
   });
   final String value, suit;
   final Color color;
+  final double cardWidth;
   final double width, height;
   final bool simplifiedMode;
 
@@ -502,7 +528,7 @@ class _CardCenter extends StatelessWidget {
     final pipCount = _rankToCount(value);
 
     if (value.toUpperCase() == 'A') {
-      final compactAce = simplifiedMode && width < 52;
+      final compactAce = simplifiedMode && cardWidth < 52;
       return Center(
         child: Text(suit,
             style: TextStyle(
@@ -515,7 +541,7 @@ class _CardCenter extends StatelessWidget {
     }
 
     if (_isFaceCard(value)) {
-      final compactFace = simplifiedMode && width < 52;
+      final compactFace = simplifiedMode && cardWidth < 52;
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -542,8 +568,28 @@ class _CardCenter extends StatelessWidget {
       );
     }
 
-    if (pipCount != null && _pipLayouts.containsKey(pipCount)) {
-      final positions = _pipLayouts[pipCount]!;
+    if (pipCount != null) {
+      if (_useMiniNumberLayout(
+        pipCount,
+        cardWidth,
+        simplifiedMode: simplifiedMode,
+      )) {
+        return Center(
+          child: Text(suit,
+              style: TextStyle(
+                color: color,
+                fontSize: (math.min(width, height) * 0.32).clamp(8.0, 18.0),
+                fontWeight: FontWeight.w600,
+              )),
+        );
+      }
+
+      final positions = _pipLayouts[pipCount] ?? const <_PipPos>[];
+      if (positions.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      final pipScale = _centerPipScale(suit);
+
       return LayoutBuilder(builder: (context, c) {
         final areaW = c.maxWidth;
         final areaH = c.maxHeight;
@@ -556,11 +602,10 @@ class _CardCenter extends StatelessWidget {
         }
         final maxLeft = math.max(0.0, areaW - cellSize);
         final maxTop = math.max(0.0, areaH - cellSize);
-        // Font size at 80% of cell leaves margin for glyph overpaint.
-        final pipFs = cellSize * 0.80;
+        final pipFs = (cellSize * 0.92 * pipScale).clamp(4.0, cellSize * 1.2);
 
         return Stack(
-          clipBehavior: Clip.hardEdge,
+          clipBehavior: Clip.none,
           children: positions.map((p) {
             final x = p.x * areaW - cellSize / 2;
             final y = p.y * areaH - cellSize / 2;
