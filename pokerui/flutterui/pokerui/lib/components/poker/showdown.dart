@@ -46,23 +46,11 @@ class _ShowdownViewState extends State<ShowdownView> {
         );
         final useMobileDock = scene.mode == PokerLayoutMode.compactPortrait;
         final showTableHeroCards = !useMobileDock;
-        final sidebarInset = 0.0;
-        final toggleInset = 4.0;
-        final sidebarWidth =
-            (scene.contentRect.width * 0.28).clamp(248.0, 320.0);
-        final sidebarLeft = (scene.contentRect.left + sidebarInset)
-            .clamp(0.0, scene.contentRect.right);
-        final sidebarTop = scene.contentRect.top + sidebarInset;
-        final sidebarBottom = scene.heroDockRect.top - sidebarInset;
-        final sidebarRect = Rect.fromLTRB(
-          sidebarLeft,
-          sidebarTop,
-          (sidebarLeft + sidebarWidth).clamp(
-            sidebarLeft,
-            scene.contentRect.right - sidebarInset,
-          ),
-          sidebarBottom > sidebarTop ? sidebarBottom : sidebarTop + 1,
-        );
+        const toggleInset = 4.0;
+        const sidebarGap = 24.0;
+        final sidebarWidth = useMobileDock
+            ? (constraints.maxWidth * 0.74).clamp(260.0, 320.0)
+            : (constraints.maxWidth * 0.32).clamp(280.0, 396.0);
         final Widget? showdownFooter = model.isGameEndPending
             ? Center(
                 child: Column(
@@ -113,13 +101,32 @@ class _ShowdownViewState extends State<ShowdownView> {
               model: model,
               layout: TableLayout.fromScene(scene),
             ),
-            if (_showSidebar)
-              Positioned.fromRect(
-                rect: sidebarRect,
-                child: ShowdownSidebar(
-                  model: model,
-                  visible: true,
-                  onClose: _closeSidebar,
+            if (model.hasLastShowdown)
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                left: _showSidebar ? 0 : -(sidebarWidth + sidebarGap),
+                top: 0,
+                bottom: 0,
+                width: sidebarWidth + sidebarGap,
+                child: IgnorePointer(
+                  ignoring: !_showSidebar,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: sidebarWidth,
+                        child: ShowdownSidebar(
+                          model: model,
+                          visible: true,
+                          onClose: _closeSidebar,
+                        ),
+                      ),
+                      const IgnorePointer(
+                        child: SizedBox(width: sidebarGap),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             if (model.hasLastShowdown && !_showSidebar)

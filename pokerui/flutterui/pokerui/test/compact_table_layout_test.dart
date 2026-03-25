@@ -7,6 +7,7 @@ import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/showdown.dart';
+import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
 import 'package:pokerui/config.dart';
@@ -368,7 +369,9 @@ void main() {
     expect(find.byKey(const Key('poker-right-rail')), findsNothing);
     expect(find.byKey(const Key('poker-hero-dock')), findsOneWidget);
     expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
-    expect(find.text('Showdown'), findsNothing);
+    final hiddenSidebarRect =
+        tester.getRect(find.byKey(const Key('showdown-sidebar')));
+    expect(hiddenSidebarRect.right, lessThanOrEqualTo(0));
     final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
     final boardPotRect =
         tester.getRect(find.byKey(const Key('poker-pot-display')));
@@ -376,7 +379,7 @@ void main() {
   });
 
   testWidgets(
-      'opening last hand hides the external toggle and shows a closable sidebar',
+      'active hand opens the last-hand sidebar from a clear top-left button',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');
     model.game = _gameState(pr.GamePhase.PRE_FLOP);
@@ -401,21 +404,93 @@ void main() {
     await tester.pump();
 
     expect(find.text('Last Hand'), findsOneWidget);
-    expect(find.byKey(const Key('showdown-sidebar')), findsNothing);
+    expect(find.byType(PokerLastHandButton), findsOneWidget);
 
-    await tester.tap(find.text('Last Hand'));
+    final buttonRect = tester.getRect(find.byType(PokerLastHandButton));
+    final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+    final tableRect = tester.getRect(find.byType(PokerTableBackground));
+
+    expect(buttonRect.left, lessThan(tableRect.left + 32));
+    expect(buttonRect.top, lessThan(tableRect.top + 32));
+    expect(buttonRect.bottom, lessThan(dockRect.top - 24));
+
+    await tester.tap(find.byType(PokerLastHandButton));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('showdown-sidebar')), findsOneWidget);
-    expect(find.text('Last Hand'), findsNothing);
+    expect(find.text('Showdown'), findsOneWidget);
+    expect(find.text('Pair (+30)'), findsOneWidget);
     expect(find.byTooltip('Close last hand details'), findsOneWidget);
-    expect(find.text('Pair'), findsOneWidget);
+    final sidebarRect =
+        tester.getRect(find.byKey(const Key('showdown-sidebar')));
+    final viewportSize = Size(
+      tester.view.physicalSize.width / tester.view.devicePixelRatio,
+      tester.view.physicalSize.height / tester.view.devicePixelRatio,
+    );
+    expect(sidebarRect.left, 0);
+    expect(sidebarRect.top, 0);
+    expect(sidebarRect.height, lessThan(viewportSize.height));
+    expect(sidebarRect.width, lessThan(viewportSize.width));
 
     await tester.tap(find.byTooltip('Close last hand details'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('showdown-sidebar')), findsNothing);
-    expect(find.text('Last Hand'), findsOneWidget);
+    final hiddenSidebarRect =
+        tester.getRect(find.byKey(const Key('showdown-sidebar')));
+    expect(hiddenSidebarRect.right, lessThanOrEqualTo(0));
+    expect(find.byType(PokerLastHandButton), findsOneWidget);
+  });
+
+  testWidgets('showdown sidebar scrolls when dragging from the header',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.setShowdownDataForTest(
+      players: List<UiPlayer>.generate(
+        12,
+        (index) => _player(
+          id: 'p$index',
+          name: 'Player ${index + 1}',
+          hand: index.isEven
+              ? [
+                  pr.Card()
+                    ..value = 'A'
+                    ..suit = 'spades',
+                  pr.Card()
+                    ..value = 'K'
+                    ..suit = 'hearts',
+                ]
+              : const [],
+        ),
+      ),
+      communityCards: const [],
+      pot: 120,
+      winners: const [
+        UiWinner(
+          playerId: 'p0',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 120,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_wrap(
+      child: ShowdownSidebar(
+        model: model,
+        visible: true,
+      ),
+      size: const Size(360, 420),
+    ));
+    await tester.pumpAndSettle();
+
+    final playerHands = find.text('Player Hands');
+    final initialTop = tester.getTopLeft(playerHands).dy;
+
+    await tester.drag(find.text('Showdown'), const Offset(0, -180));
+    await tester.pumpAndSettle();
+
+    final scrolledTop = tester.getTopLeft(playerHands).dy;
+    expect(scrolledTop, lessThan(initialTop));
   });
 
   testWidgets(

@@ -233,8 +233,7 @@ class MobileHeroActionPanel extends StatelessWidget {
     required VoidCallback onToggleBetInput,
     required VoidCallback onCloseBetInput,
     this.hasLastShowdown = false,
-    this.showSidebar = false,
-    this.onToggleSidebar,
+    this.onShowLastHand,
     this.reserveActionSpace = false,
     this.footer,
   })  : _actionControls = _ActionControls(
@@ -248,8 +247,7 @@ class MobileHeroActionPanel extends StatelessWidget {
     super.key,
     required this.model,
     this.hasLastShowdown = false,
-    this.showSidebar = false,
-    this.onToggleSidebar,
+    this.onShowLastHand,
     this.reserveActionSpace = false,
     this.footer,
   })  : showBetInput = false,
@@ -260,8 +258,7 @@ class MobileHeroActionPanel extends StatelessWidget {
   final bool showBetInput;
   final _ActionControls? _actionControls;
   final bool hasLastShowdown;
-  final bool showSidebar;
-  final VoidCallback? onToggleSidebar;
+  final VoidCallback? onShowLastHand;
   final bool showActions;
   final bool reserveActionSpace;
   final Widget? footer;
@@ -296,8 +293,7 @@ class MobileHeroActionPanel extends StatelessWidget {
         final topPadding = tightVertical ? 6.0 : PokerSpacing.sm;
         final headerSection = LayoutBuilder(
           builder: (context, constraints) {
-            final hasLastHandButton =
-                hasLastShowdown && onToggleSidebar != null;
+            final hasLastHandButton = hasLastShowdown && onShowLastHand != null;
             final cardScale = cardSizeMultiplierFromKey(context.cardSize);
             final cardWidth = (42.0 * cardScale).clamp(24.0, 60.0).toDouble();
             final cardGap = (cardWidth * 0.14).clamp(4.0, 8.0).toDouble();
@@ -327,8 +323,7 @@ class MobileHeroActionPanel extends StatelessWidget {
                       if (hasLastHandButton) ...[
                         if (hasCards) SizedBox(height: trailingSectionGap),
                         PokerLastHandButton(
-                          active: showSidebar,
-                          onTap: onToggleSidebar!,
+                          onTap: onShowLastHand!,
                           compact: true,
                         ),
                       ],
@@ -534,12 +529,12 @@ class _ShowCardsDockToggle extends StatelessWidget {
 class PokerLastHandButton extends StatelessWidget {
   const PokerLastHandButton(
       {super.key,
-      required this.active,
       required this.onTap,
-      this.compact = false});
-  final bool active;
+      this.compact = false,
+      this.active = false});
   final VoidCallback onTap;
   final bool compact;
+  final bool active;
 
   @override
   Widget build(BuildContext context) {

@@ -16,13 +16,13 @@ class LastShowdownDialog extends StatelessWidget {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(16),
       child: Container(
+        key: const Key('last-showdown-dialog'),
         constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
         decoration: BoxDecoration(
           color: const Color(0xFF1A1D2E),
@@ -46,4 +46,3 @@ class LastShowdownDialog extends StatelessWidget {
     );
   }
 }
-

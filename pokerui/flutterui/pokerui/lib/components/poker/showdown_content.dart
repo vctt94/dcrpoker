@@ -6,7 +6,7 @@ import 'package:pokerui/config.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 /// Reusable widget that displays showdown content (community cards, player hands, winners).
-/// Can be used in both dialogs and sidebars.
+/// Used by last-hand sidebars, dialogs, and related showdown surfaces.
 class ShowdownContent extends StatelessWidget {
   const ShowdownContent({
     super.key,
@@ -80,15 +80,15 @@ class ShowdownContent extends StatelessWidget {
     final pot = model.showdownPot;
 
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Header
         if (showHeader)
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.3),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(14)),
             ),
             child: Row(
               children: [
@@ -106,8 +106,8 @@ class ShowdownContent extends StatelessWidget {
                 ),
                 if (pot > 0)
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.amber.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(12),
@@ -133,8 +133,6 @@ class ShowdownContent extends StatelessWidget {
               ],
             ),
           ),
-
-        // Community Cards
         if (communityCards.isNotEmpty)
           Padding(
             padding: const EdgeInsets.all(16),
@@ -149,26 +147,22 @@ class ShowdownContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 6,
+                  runSpacing: 6,
                   children: communityCards.map((card) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: SizedBox(
-                        width: 50,
-                        height: 70,
-                        child: CardFace(card: card, cardTheme: cardTheme),
-                      ),
+                    return SizedBox(
+                      width: 50,
+                      height: 70,
+                      child: CardFace(card: card, cardTheme: cardTheme),
                     );
                   }).toList(),
                 ),
               ],
             ),
           ),
-
         const Divider(color: Colors.white24, height: 1),
-
-        // Winners Section
         if (winners.isNotEmpty)
           Container(
             padding: const EdgeInsets.all(12),
@@ -225,35 +219,27 @@ class ShowdownContent extends StatelessWidget {
               ],
             ),
           ),
-
         const Divider(color: Colors.white24, height: 1),
-
-        // Players and their hands
-        Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                const Text(
-                  'Player Hands',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              const Text(
+                'Player Hands',
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
                 ),
-                const SizedBox(height: 12),
-                for (final player in players)
-                  _buildPlayerHandRow(player),
-              ],
-            ),
+              ),
+              const SizedBox(height: 12),
+              for (final player in players) _buildPlayerHandRow(player),
+            ],
           ),
         ),
-
-        // Close button
         if (showCloseButton && onClose != null)
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
@@ -305,8 +291,8 @@ class ShowdownContent extends StatelessWidget {
                     if (isWinner)
                       const Padding(
                         padding: EdgeInsets.only(right: 4),
-                        child:
-                            Icon(Icons.emoji_events, color: Colors.amber, size: 16),
+                        child: Icon(Icons.emoji_events,
+                            color: Colors.amber, size: 16),
                       ),
                     Flexible(
                       child: Text(
@@ -383,12 +369,12 @@ class ShowdownContent extends StatelessWidget {
             Row(
               children: [
                 for (int i = 0; i < 2; i++)
-                  Padding(
+                  const Padding(
                     padding: const EdgeInsets.only(left: 4),
                     child: SizedBox(
                       width: 36,
                       height: 50,
-                      child: const CardBack(),
+                      child: CardBack(),
                     ),
                   ),
               ],

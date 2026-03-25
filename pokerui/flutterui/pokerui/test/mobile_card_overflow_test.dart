@@ -97,12 +97,12 @@ Widget _wrap({
                     onToggleBetInput: () {},
                     onCloseBetInput: () {},
                     hasLastShowdown: hasLastShowdown,
-                    onToggleSidebar: () {},
+                    onShowLastHand: () {},
                   )
                 : MobileHeroActionPanel.passive(
                     model: model,
                     hasLastShowdown: hasLastShowdown,
-                    onToggleSidebar: () {},
+                    onShowLastHand: () {},
                   ),
           ),
         ),
