@@ -1435,8 +1435,6 @@ class PokerModel extends ChangeNotifier {
     debugPrint(
         '[SHOWDOWN_CACHE_IN] players=${showdown.players.length} board=${showdown.board.length} pot=${showdown.pot}');
 
-    // Always reset cached showdown data so a fold-finish hand does not reuse
-    // community cards or players from a previous showdown.
     _showdownCommunityCards = List.unmodifiable(showdown.board);
     final merged = showdown.players.map(_uiPlayerFromShowdown).toList();
     _showdownPlayers = List.unmodifiable(_hydrateShowdownHands(merged));

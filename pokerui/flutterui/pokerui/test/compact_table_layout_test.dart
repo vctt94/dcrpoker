@@ -419,7 +419,9 @@ void main() {
 
     expect(find.byKey(const Key('showdown-sidebar')), findsOneWidget);
     expect(find.text('Showdown'), findsOneWidget);
-    expect(find.text('Pair (+30)'), findsOneWidget);
+    expect(find.textContaining('Winner', findRichText: true), findsWidgets);
+    expect(find.textContaining('Pair', findRichText: true), findsWidgets);
+    expect(find.textContaining('+30', findRichText: true), findsWidgets);
     expect(find.byTooltip('Close last hand details'), findsOneWidget);
     final sidebarRect =
         tester.getRect(find.byKey(const Key('showdown-sidebar')));
@@ -441,7 +443,7 @@ void main() {
     expect(find.byType(PokerLastHandButton), findsOneWidget);
   });
 
-  testWidgets('showdown sidebar scrolls when dragging from the header',
+  testWidgets('showdown sidebar content scrolls inside the panel',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');
     model.setShowdownDataForTest(
@@ -483,10 +485,13 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    final playerHands = find.text('Player Hands');
+    final playerHands = find.text('Hands');
     final initialTop = tester.getTopLeft(playerHands).dy;
 
-    await tester.drag(find.text('Showdown'), const Offset(0, -180));
+    await tester.drag(
+      find.byKey(const Key('showdown-sidebar-scroll')),
+      const Offset(0, -180),
+    );
     await tester.pumpAndSettle();
 
     final scrolledTop = tester.getTopLeft(playerHands).dy;

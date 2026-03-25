@@ -148,6 +148,8 @@ class BottomActionDock extends StatelessWidget {
           final tightDesktopHeight = constraints.maxHeight <= 124;
           final headerGap =
               tightDesktopHeight ? PokerSpacing.xs : PokerSpacing.sm;
+          final sectionTopMargin =
+              tightDesktopHeight ? PokerSpacing.sm : PokerSpacing.xl;
           final actionControls = _actionControls;
           final actions = Visibility(
             visible: showActions,
@@ -214,8 +216,13 @@ class BottomActionDock extends StatelessWidget {
                   alignment: Alignment.topRight,
                   child: headerPanel,
                 ),
-              if (hasBottomSection) const Spacer(),
-              if (hasBottomSection) bottomSection,
+              if (hasBottomSection)
+                Padding(
+                  padding: EdgeInsets.only(
+                    top: hasCards ? sectionTopMargin : sectionTopMargin + 2,
+                  ),
+                  child: bottomSection,
+                ),
             ],
           );
         },

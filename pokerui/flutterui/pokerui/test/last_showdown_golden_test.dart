@@ -237,6 +237,54 @@ void main() {
         matchesGoldenFile('goldens/last_showdown_sidebar.png'),
       );
     });
+
+    testWidgets('showdown sidebar renders board placeholders pre-flop',
+        (WidgetTester tester) async {
+      final model = _MockPokerModel(playerId: 'hero');
+      model.setShowdownDataForTest(
+        players: [
+          _player(
+            id: 'hero',
+            name: 'Hero',
+            hand: [_card('A', 'Spades'), _card('K', 'Spades')],
+          ),
+          _player(
+            id: 'villain',
+            name: 'Villain',
+          ),
+        ],
+        communityCards: const [],
+        pot: 30,
+        winners: const [
+          UiWinner(
+            playerId: 'hero',
+            handRank: pr.HandRank.HIGH_CARD,
+            bestHand: [],
+            winnings: 30,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          SizedBox(
+            width: 360,
+            height: 620,
+            child: ShowdownSidebar(
+              model: model,
+              visible: true,
+              onClose: _noop,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('showdown-board-strip')), findsOneWidget);
+      for (var i = 0; i < 5; i++) {
+        expect(find.byKey(Key('showdown-board-slot-$i')), findsOneWidget);
+      }
+    });
   });
 }
 

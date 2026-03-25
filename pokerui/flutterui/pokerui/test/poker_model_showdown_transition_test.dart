@@ -109,6 +109,13 @@ class _FakeGlobalAudioplayersPlatform
   Future<void> setGlobalAudioContext(AudioContext ctx) async {}
 }
 
+class _TestPokerModel extends PokerModel {
+  _TestPokerModel({required super.playerId}) : super(dataDir: '/tmp/test');
+
+  @override
+  Future<void> ensureGameStream() async {}
+}
+
 pr.Player _player({
   required String id,
   required String name,
@@ -170,13 +177,15 @@ pr.GameUpdate _gameUpdate({
   required pr.GamePhase phase,
   required List<pr.Player> players,
   required String currentPlayer,
+  List<pr.Card> communityCards = const [],
+  int pot = 0,
 }) {
   return pr.GameUpdate(
     tableId: tableId,
     phase: phase,
     players: players,
-    communityCards: const [],
-    pot: Int64(0),
+    communityCards: communityCards,
+    pot: Int64(pot),
     currentBet: Int64(20),
     currentPlayer: currentPlayer,
     minRaise: Int64(20),
@@ -206,7 +215,7 @@ void main() {
     const bustedId = 'busted';
     const winnerId = 'winner';
 
-    final model = PokerModel(playerId: heroId, dataDir: '/tmp/test');
+    final model = _TestPokerModel(playerId: heroId);
     model.currentTableId = tableId;
     model.game = UiGameState.fromUpdate(_gameUpdate(
       tableId: tableId,
@@ -314,7 +323,7 @@ void main() {
     const heroId = 'hero';
     const villainId = 'villain';
 
-    final model = PokerModel(playerId: heroId, dataDir: '/tmp/test');
+    final model = _TestPokerModel(playerId: heroId);
     model.currentTableId = tableId;
     model.game = UiGameState.fromUpdate(_gameUpdate(
       tableId: tableId,
@@ -378,7 +387,9 @@ void main() {
     );
   });
 
-  test('showdown hands remain visible when later showdown snapshots redact hand', () {
+  test(
+      'showdown hands remain visible when later showdown snapshots redact hand',
+      () {
     const tableId = 'table-1';
     const heroId = 'hero';
     const villainId = 'villain';
@@ -387,7 +398,7 @@ void main() {
       pr.Card(value: 'K', suit: 'Spades'),
     ];
 
-    final model = PokerModel(playerId: heroId, dataDir: '/tmp/test');
+    final model = _TestPokerModel(playerId: heroId);
     model.currentTableId = tableId;
     model.game = UiGameState.fromUpdate(_gameUpdate(
       tableId: tableId,
@@ -444,5 +455,156 @@ void main() {
     expect(villain.hand, hasLength(2));
     expect(villain.hand.first.value, equals('A'));
     expect(villain.hand.last.value, equals('K'));
+  });
+
+  test(
+      'showdown board does not fall back to live game update when payload board is empty',
+      () {
+    const tableId = 'table-1';
+    const heroId = 'hero';
+    const villainId = 'villain';
+    final board = [
+      pr.Card(value: 'A', suit: 'Spades'),
+      pr.Card(value: 'K', suit: 'Hearts'),
+      pr.Card(value: 'Q', suit: 'Clubs'),
+      pr.Card(value: 'J', suit: 'Diamonds'),
+      pr.Card(value: '10', suit: 'Spades'),
+    ];
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.SHOWDOWN,
+      players: [
+        _player(id: heroId, name: 'Hero', tableSeat: 0),
+        _player(id: villainId, name: 'Villain', tableSeat: 1),
+      ],
+      currentPlayer: '',
+      communityCards: board,
+      pot: 120,
+    ));
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.SHOWDOWN_RESULT,
+      tableId: tableId,
+      showdown: pr.Showdown(
+        winners: [
+          pr.Winner(
+            playerId: villainId,
+            handRank: pr.HandRank.STRAIGHT,
+            bestHand: const [],
+            winnings: Int64(120),
+          ),
+        ],
+        pot: Int64(120),
+        board: const [],
+        players: [
+          _showdownPlayer(
+            id: heroId,
+            name: 'Hero',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+          ),
+          _showdownPlayer(
+            id: villainId,
+            name: 'Villain',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+          ),
+        ],
+        handId: 'hand-4',
+        round: 4,
+      ),
+    ));
+
+    expect(model.showdownCommunityCards, isEmpty);
+    expect(model.showdownPot, equals(120));
+  });
+
+  test('new pre-flop showdown clears the previous hand board cache', () {
+    const tableId = 'table-1';
+    const heroId = 'hero';
+    const villainId = 'villain';
+    final firstBoard = [
+      pr.Card(value: 'A', suit: 'Spades'),
+      pr.Card(value: 'K', suit: 'Hearts'),
+      pr.Card(value: 'Q', suit: 'Clubs'),
+      pr.Card(value: 'J', suit: 'Diamonds'),
+      pr.Card(value: '10', suit: 'Spades'),
+    ];
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.SHOWDOWN_RESULT,
+      tableId: tableId,
+      showdown: pr.Showdown(
+        winners: [
+          pr.Winner(
+            playerId: villainId,
+            handRank: pr.HandRank.STRAIGHT,
+            bestHand: const [],
+            winnings: Int64(120),
+          ),
+        ],
+        pot: Int64(120),
+        board: firstBoard,
+        players: [
+          _showdownPlayer(
+            id: heroId,
+            name: 'Hero',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+          ),
+          _showdownPlayer(
+            id: villainId,
+            name: 'Villain',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+          ),
+        ],
+        handId: 'hand-4',
+        round: 4,
+      ),
+    ));
+
+    expect(model.showdownCommunityCards, hasLength(5));
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.NEW_HAND_STARTED,
+      tableId: tableId,
+    ));
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.SHOWDOWN_RESULT,
+      tableId: tableId,
+      showdown: pr.Showdown(
+        winners: [
+          pr.Winner(
+            playerId: heroId,
+            handRank: pr.HandRank.HIGH_CARD,
+            bestHand: const [],
+            winnings: Int64(30),
+          ),
+        ],
+        pot: Int64(30),
+        board: const [],
+        players: [
+          _showdownPlayer(
+            id: heroId,
+            name: 'Hero',
+            finalState: pr.PlayerState.PLAYER_STATE_IN_GAME,
+          ),
+          _showdownPlayer(
+            id: villainId,
+            name: 'Villain',
+            finalState: pr.PlayerState.PLAYER_STATE_FOLDED,
+          ),
+        ],
+        handId: 'hand-5',
+        round: 5,
+      ),
+    ));
+
+    expect(model.showdownCommunityCards, isEmpty);
   });
 }
