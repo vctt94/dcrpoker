@@ -37,7 +37,6 @@ class _ShowdownViewState extends State<ShowdownView> {
 
     final theme = PokerThemeConfig.fromContext(context);
     final pokerGame = PokerGame(model.playerId, model, theme: theme);
-    final tableAr = 1.3;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -107,10 +106,13 @@ class _ShowdownViewState extends State<ShowdownView> {
             pokerGame.buildWidget(
               game,
               FocusNode(),
-              aspectRatio: tableAr,
+              scene: scene,
               showHeroSeatCards: showTableHeroCards,
             ),
-            _ShowdownFxOverlay(model: model),
+            _ShowdownFxOverlay(
+              model: model,
+              layout: TableLayout.fromScene(scene),
+            ),
             if (_showSidebar)
               Positioned.fromRect(
                 rect: sidebarRect,
@@ -154,8 +156,12 @@ class _ShowdownViewState extends State<ShowdownView> {
 }
 
 class _ShowdownFxOverlay extends StatefulWidget {
-  const _ShowdownFxOverlay({required this.model});
+  const _ShowdownFxOverlay({
+    required this.model,
+    required this.layout,
+  });
   final PokerModel model;
+  final TableLayout layout;
 
   @override
   State<_ShowdownFxOverlay> createState() => _ShowdownFxOverlayState();
@@ -205,57 +211,53 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     final game = widget.model.game;
     if (game == null) return const SizedBox.shrink();
     final winners = widget.model.lastWinners;
+    final theme = PokerThemeConfig.fromContext(context);
+    final layout = widget.layout;
+    final scene = layout.scene;
+    final center = layout.center;
+    final hasCurrentBet = game.currentBet > 0;
+    final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
 
-    return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final theme = PokerThemeConfig.fromContext(context);
-      final layout = resolveTableLayout(size);
-      final scene = layout.scene;
-      final center = layout.center;
-      final hasCurrentBet = game.currentBet > 0;
-      final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
-
-      final payoutWidgets = <Widget>[];
-      if (winners.isNotEmpty && game.players.isNotEmpty) {
-        final targets = seatPositionsFor(
-          game.players,
-          widget.model.playerId,
-          center,
-          layout.ringRadiusX,
-          layout.ringRadiusY,
-          clampBounds: layout.canvasBounds,
-          minSeatTop: minSeatTop,
-          uiSizeMultiplier: theme.uiSizeMultiplier,
-          sceneLayout: scene,
-        );
-        final potOrigin = potStackAnchor(layout, theme);
-        final seatRadius = kPlayerRadius * theme.uiSizeMultiplier;
-        final originSpread =
-            20.0 * theme.uiSizeMultiplier * (winners.length > 1 ? 1.0 : 0.0);
-
-        for (int i = 0; i < winners.length; i++) {
-          final w = winners[i];
-          final targetTop = targets[w.playerId] ?? center;
-          final target = Offset(targetTop.dx, targetTop.dy + seatRadius * 0.95);
-          final startXOffset =
-              (i - ((winners.length - 1) / 2)) * originSpread.clamp(0, 28);
-          payoutWidgets.add(_AnimatedPotFlight(
-            key: ValueKey('showdown-payout-flight-$i'),
-            animation: _payoutCtrl,
-            amount: w.winnings,
-            from: potOrigin.translate(startXOffset, 0),
-            to: target,
-            theme: theme,
-            paletteIndex: i,
-            delay: i * 0.11,
-          ));
-        }
-      }
-
-      return IgnorePointer(
-        child: Stack(children: payoutWidgets),
+    final payoutWidgets = <Widget>[];
+    if (winners.isNotEmpty && game.players.isNotEmpty) {
+      final targets = seatPositionsFor(
+        game.players,
+        widget.model.playerId,
+        center,
+        layout.ringRadiusX,
+        layout.ringRadiusY,
+        clampBounds: layout.canvasBounds,
+        minSeatTop: minSeatTop,
+        uiSizeMultiplier: theme.uiSizeMultiplier,
+        sceneLayout: scene,
       );
-    });
+      final potOrigin = potStackAnchor(layout, theme);
+      final seatRadius = kPlayerRadius * theme.uiSizeMultiplier;
+      final originSpread =
+          20.0 * theme.uiSizeMultiplier * (winners.length > 1 ? 1.0 : 0.0);
+
+      for (int i = 0; i < winners.length; i++) {
+        final w = winners[i];
+        final targetTop = targets[w.playerId] ?? center;
+        final target = Offset(targetTop.dx, targetTop.dy + seatRadius * 0.95);
+        final startXOffset =
+            (i - ((winners.length - 1) / 2)) * originSpread.clamp(0, 28);
+        payoutWidgets.add(_AnimatedPotFlight(
+          key: ValueKey('showdown-payout-flight-$i'),
+          animation: _payoutCtrl,
+          amount: w.winnings,
+          from: potOrigin.translate(startXOffset, 0),
+          to: target,
+          theme: theme,
+          paletteIndex: i,
+          delay: i * 0.11,
+        ));
+      }
+    }
+
+    return IgnorePointer(
+      child: Stack(children: payoutWidgets),
+    );
   }
 }
 

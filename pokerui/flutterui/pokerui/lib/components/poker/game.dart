@@ -7,6 +7,7 @@ import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
 import 'package:pokerui/theme/spacing.dart';
+import 'scene_layout.dart';
 import 'table.dart';
 import 'table_theme.dart';
 import 'community_placeholders.dart';
@@ -16,14 +17,21 @@ import 'pot_display.dart';
 import 'player_seat.dart';
 
 class PokerTableBackground extends StatelessWidget {
-  const PokerTableBackground({super.key, this.aspectRatio = 16 / 9});
+  const PokerTableBackground({
+    super.key,
+    required this.layout,
+    this.aspectRatio = 16 / 9,
+  });
+  final TableLayout layout;
   final double aspectRatio;
 
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
       child: CustomPaint(
-        painter: _TableBackgroundPainter(aspectRatio: aspectRatio),
+        painter: _TableBackgroundPainter(
+          layout: layout,
+        ),
         size: Size.infinite,
       ),
     );
@@ -31,12 +39,13 @@ class PokerTableBackground extends StatelessWidget {
 }
 
 class _TableBackgroundPainter extends CustomPainter {
-  _TableBackgroundPainter({this.aspectRatio = 16 / 9});
-  final double aspectRatio;
+  _TableBackgroundPainter({
+    required this.layout,
+  });
+  final TableLayout layout;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
     final centerX = layout.center.dx;
     final centerY = layout.center.dy;
     final tableRadiusX = layout.tableRadiusX;
@@ -104,7 +113,7 @@ class _TableBackgroundPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TableBackgroundPainter old) =>
-      old.aspectRatio != aspectRatio;
+      old.layout != layout;
 }
 
 class PokerGame {
@@ -115,12 +124,80 @@ class PokerGame {
   PokerGame(this.playerId, this.pokerModel, {required this.theme});
 
   Widget buildWidget(UiGameState gameState, FocusNode focusNode,
-      {VoidCallback? onReadyHotkey,
+      {PokerSceneLayout? scene,
       double aspectRatio = 16 / 9,
+      VoidCallback? onReadyHotkey,
       bool? showHeroCardsOverlay,
       bool? showHeroSeatCards}) {
     final renderHeroSeatCards =
         showHeroSeatCards ?? showHeroCardsOverlay ?? true;
+    Widget buildTableScene(PokerSceneLayout resolvedScene) {
+      final tableLayout = TableLayout.fromScene(resolvedScene);
+      final liveStreetBets = gameState.players.fold<int>(
+        0,
+        (sum, player) => sum + player.currentBet,
+      );
+      final collectedPot = (gameState.pot - liveStreetBets).clamp(0, 1 << 30);
+
+      return SizedBox.expand(
+        child: RepaintBoundary(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              PokerTableBackground(
+                layout: tableLayout,
+                aspectRatio: aspectRatio,
+              ),
+              CustomPaint(
+                painter: _TableThemePainter(
+                  theme,
+                  layout: tableLayout,
+                ),
+                isComplex: false,
+                willChange: false,
+              ),
+              if (theme.showTableLogo)
+                TableLogoOverlay(
+                  layout: tableLayout,
+                  logoPosition: theme.logoPosition,
+                  uiSizeMultiplier: theme.uiSizeMultiplier,
+                ),
+              CommunityCardSlots(
+                layout: tableLayout,
+                cards: gameState.communityCards,
+                theme: theme,
+              ),
+              PlayerSeatsOverlay(
+                layout: tableLayout,
+                gameState: gameState,
+                heroId: playerId,
+                theme: theme,
+                heroCardsCache: pokerModel.myHoleCardsCache,
+                showHeroCardsInSeat: renderHeroSeatCards,
+                aspectRatio: aspectRatio,
+              ),
+              DisconnectedBadgesOverlay(
+                layout: tableLayout,
+                theme: theme,
+                players: gameState.players,
+                heroId: playerId,
+                hasCurrentBet: gameState.currentBet > 0,
+              ),
+              if (collectedPot > 0)
+                PotDisplay(
+                  layout: tableLayout,
+                  pot: collectedPot,
+                  theme: theme,
+                  settleFxMs: pokerModel.lastShowdownFxMs,
+                  hideForPayout: gameState.phase == pr.GamePhase.SHOWDOWN &&
+                      pokerModel.lastWinners.isNotEmpty,
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return GestureDetector(
       onTap: () => focusNode.requestFocus(),
       child: Focus(
@@ -141,73 +218,16 @@ class PokerGame {
               handleInput(playerId, keyLabel);
             }
           },
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              return SizedBox(
-                width: constraints.maxWidth,
-                height: constraints.maxHeight,
-                child: RepaintBoundary(
-                  child: Builder(
-                    builder: (context) {
-                      final liveStreetBets = gameState.players.fold<int>(
-                        0,
-                        (sum, player) => sum + player.currentBet,
-                      );
-                      final collectedPot =
-                          (gameState.pot - liveStreetBets).clamp(0, 1 << 30);
-
-                      return Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          // Table felt (canvas)
-                          PokerTableBackground(aspectRatio: aspectRatio),
-                          // Table theme overlay (draws themed border over default)
-                          CustomPaint(
-                            painter: _TableThemePainter(theme,
-                                aspectRatio: aspectRatio),
-                            isComplex: false,
-                            willChange: false,
-                          ),
-                          if (theme.showTableLogo)
-                            TableLogoOverlay(
-                              logoPosition: theme.logoPosition,
-                              uiSizeMultiplier: theme.uiSizeMultiplier,
-                            ),
-                          // Community card slots
-                          CommunityCardSlots(
-                              cards: gameState.communityCards,
-                              aspectRatio: aspectRatio),
-                          // Player seats as widgets
-                          PlayerSeatsOverlay(
-                            gameState: gameState,
-                            heroId: playerId,
-                            theme: theme,
-                            heroCardsCache: pokerModel.myHoleCardsCache,
-                            showHeroCardsInSeat: renderHeroSeatCards,
-                            aspectRatio: aspectRatio,
-                          ),
-                          DisconnectedBadgesOverlay(
-                            players: gameState.players,
-                            heroId: playerId,
-                            hasCurrentBet: gameState.currentBet > 0,
-                          ),
-                          if (collectedPot > 0)
-                            PotDisplay(
-                              pot: collectedPot,
-                              theme: theme,
-                              settleFxMs: pokerModel.lastShowdownFxMs,
-                              hideForPayout:
-                                  gameState.phase == pr.GamePhase.SHOWDOWN &&
-                                      pokerModel.lastWinners.isNotEmpty,
-                            ),
-                        ],
-                      );
-                    },
+          child: scene != null
+              ? buildTableScene(scene)
+              : LayoutBuilder(
+                  builder: (context, constraints) => buildTableScene(
+                    PokerSceneLayout.resolve(
+                      constraints.biggest,
+                      safePadding: MediaQuery.paddingOf(context),
+                    ),
                   ),
                 ),
-              );
-            },
-          ),
         ),
       ),
     );
@@ -419,17 +439,19 @@ class PokerGame {
 /// Draws the themed table border over the default background.
 class _TableThemePainter extends CustomPainter {
   final PokerThemeConfig theme;
-  final double aspectRatio;
-  _TableThemePainter(this.theme, {this.aspectRatio = 16 / 9});
+  final TableLayout layout;
+  _TableThemePainter(
+    this.theme, {
+    required this.layout,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
     drawPokerTable(canvas, layout.center.dx, layout.center.dy,
         layout.tableRadiusX, layout.tableRadiusY, theme.tableTheme);
   }
 
   @override
   bool shouldRepaint(covariant _TableThemePainter old) =>
-      old.theme != theme || old.aspectRatio != aspectRatio;
+      old.theme != theme || old.layout != layout;
 }

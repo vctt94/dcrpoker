@@ -3,7 +3,6 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/bottom_action_dock.dart';
 import 'package:pokerui/components/poker/game.dart';
-import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
@@ -51,7 +50,6 @@ class _HandInProgressViewState extends State<HandInProgressView> {
     final model = widget.model;
     final theme = PokerThemeConfig.fromContext(context);
     final pokerGame = PokerGame(model.playerId, model, theme: theme);
-    final tableAr = tableAspectRatio(PokerBreakpointQuery.of(context));
     final gameState = model.game ??
         UiGameState(
           tableId: '',
@@ -107,7 +105,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
             pokerGame.buildWidget(
               gameState,
               _gameFocusNode,
-              aspectRatio: tableAr,
+              scene: scene,
               showHeroSeatCards: showTableHeroCards,
               onReadyHotkey: isWaiting ? () => model.setReady() : null,
             ),

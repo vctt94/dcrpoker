@@ -85,27 +85,27 @@ const Map<int, List<_PipPos>> _pipLayouts = {
     _PipPos(0.76, 0.82, true),
   ],
   9: [
-    _PipPos(0.25, 0.19, false),
-    _PipPos(0.75, 0.19, false),
-    _PipPos(0.25, 0.39, false),
-    _PipPos(0.75, 0.39, false),
+    _PipPos(0.25, 0.16, false),
+    _PipPos(0.75, 0.16, false),
+    _PipPos(0.25, 0.35, false),
+    _PipPos(0.75, 0.35, false),
     _PipPos(0.5, 0.5, false),
-    _PipPos(0.25, 0.61, true),
-    _PipPos(0.75, 0.61, true),
-    _PipPos(0.25, 0.81, true),
-    _PipPos(0.75, 0.81, true),
+    _PipPos(0.25, 0.65, true),
+    _PipPos(0.75, 0.65, true),
+    _PipPos(0.25, 0.84, true),
+    _PipPos(0.75, 0.84, true),
   ],
   10: [
-    _PipPos(0.25, 0.18, false),
-    _PipPos(0.75, 0.18, false),
-    _PipPos(0.5, 0.31, false),
-    _PipPos(0.25, 0.41, false),
-    _PipPos(0.75, 0.41, false),
-    _PipPos(0.25, 0.59, true),
-    _PipPos(0.75, 0.59, true),
-    _PipPos(0.5, 0.69, true),
-    _PipPos(0.25, 0.82, true),
-    _PipPos(0.75, 0.82, true),
+    _PipPos(0.25, 0.14, false),
+    _PipPos(0.75, 0.14, false),
+    _PipPos(0.5, 0.29, false),
+    _PipPos(0.25, 0.40, false),
+    _PipPos(0.75, 0.40, false),
+    _PipPos(0.25, 0.60, true),
+    _PipPos(0.75, 0.60, true),
+    _PipPos(0.5, 0.71, true),
+    _PipPos(0.25, 0.86, true),
+    _PipPos(0.75, 0.86, true),
   ],
 };
 
@@ -267,35 +267,36 @@ EdgeInsets _protectedCenterPadding(
   );
 }
 
-double _resolvePipFontSize(
+/// Computes the largest square cell size that prevents any two pip bounding
+/// boxes from overlapping (Chebyshev / L∞ distance), with a padding factor
+/// for visual breathing room.  The result is the side length of the SizedBox
+/// each pip glyph will be rendered inside via FittedBox.
+double _maxPipCellSize(
     List<_PipPos> positions, double areaWidth, double areaHeight) {
-  final baseSize = math.min(areaWidth * 0.28, areaHeight * 0.2);
-  var maxAllowed = math.min(areaWidth, areaHeight);
+  var minChebyshev = double.infinity;
 
   for (var i = 0; i < positions.length; i++) {
     for (var j = i + 1; j < positions.length; j++) {
       final dx = (positions[i].x - positions[j].x).abs() * areaWidth;
       final dy = (positions[i].y - positions[j].y).abs() * areaHeight;
-      final allowed = math.max(dx, dy);
-      if (allowed > 0) {
-        maxAllowed = math.min(maxAllowed, allowed);
+      final dist = math.max(dx, dy);
+      if (dist > 0 && dist < minChebyshev) {
+        minChebyshev = dist;
       }
     }
   }
 
-  final densityFactor = switch (positions.length) {
-    <= 3 => 1.0,
-    4 || 5 => 0.94,
-    6 || 7 => 0.88,
-    8 => 0.84,
-    9 => 0.8,
-    _ => 0.76,
-  };
+  if (minChebyshev == double.infinity) {
+    minChebyshev = math.min(areaWidth, areaHeight);
+  }
 
-  return math
-      .min(baseSize, maxAllowed * densityFactor)
-      .clamp(4.0, 20.0)
-      .toDouble();
+  // 90% of the minimum Chebyshev distance → guaranteed no overlap with a
+  // 10% visual gap between adjacent cells.
+  final fromSpacing = minChebyshev * 0.90;
+  // Cap so pips stay proportional on low-count cards.
+  final baseCap = math.min(areaWidth * 0.32, areaHeight * 0.22);
+
+  return math.min(fromSpacing, baseCap).clamp(4.0, 24.0);
 }
 
 double _cornerIndexScale(double width, String value,
@@ -546,39 +547,44 @@ class _CardCenter extends StatelessWidget {
       return LayoutBuilder(builder: (context, c) {
         final areaW = c.maxWidth;
         final areaH = c.maxHeight;
-        final maxPipSize = math.max(0.0, math.min(areaW, areaH));
-        if (maxPipSize <= 0) {
+        if (areaW <= 0 || areaH <= 0) {
           return const SizedBox.shrink();
         }
-        final pipSize = math.min(
-          _resolvePipFontSize(positions, areaW, areaH),
-          maxPipSize,
-        );
-        final maxLeft = math.max(0.0, areaW - pipSize);
-        final maxTop = math.max(0.0, areaH - pipSize);
+        final cellSize = _maxPipCellSize(positions, areaW, areaH);
+        if (cellSize <= 0) {
+          return const SizedBox.shrink();
+        }
+        final maxLeft = math.max(0.0, areaW - cellSize);
+        final maxTop = math.max(0.0, areaH - cellSize);
+        // Font size at 80% of cell leaves margin for glyph overpaint.
+        final pipFs = cellSize * 0.80;
+
         return Stack(
+          clipBehavior: Clip.hardEdge,
           children: positions.map((p) {
-            final x = p.x * areaW - pipSize / 2;
-            final y = p.y * areaH - pipSize / 2;
+            final x = p.x * areaW - cellSize / 2;
+            final y = p.y * areaH - cellSize / 2;
+            Widget pip = ClipRect(
+              child: SizedBox(
+                width: cellSize,
+                height: cellSize,
+                child: Center(
+                  child: Text(suit,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: pipFs,
+                        height: 1.0,
+                      )),
+                ),
+              ),
+            );
+            if (p.inverted) {
+              pip = Transform.rotate(angle: math.pi, child: pip);
+            }
             return Positioned(
               left: x.clamp(0.0, maxLeft),
               top: y.clamp(0.0, maxTop),
-              child: p.inverted
-                  ? Transform.rotate(
-                      angle: math.pi,
-                      child: Text(suit,
-                          style: TextStyle(
-                            color: color,
-                            fontSize: pipSize,
-                            height: 1.0,
-                          )),
-                    )
-                  : Text(suit,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: pipSize,
-                        height: 1.0,
-                      )),
+              child: pip,
             );
           }).toList(),
         );

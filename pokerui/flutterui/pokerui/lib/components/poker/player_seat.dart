@@ -563,6 +563,7 @@ _ResolvedSeatLayout _resolveSeatLayout({
 class PlayerSeatsOverlay extends StatelessWidget {
   const PlayerSeatsOverlay({
     super.key,
+    this.layout,
     required this.gameState,
     required this.heroId,
     required this.theme,
@@ -571,6 +572,7 @@ class PlayerSeatsOverlay extends StatelessWidget {
     this.aspectRatio = 16 / 9,
   });
 
+  final TableLayout? layout;
   final UiGameState gameState;
   final String heroId;
   final PokerThemeConfig theme;
@@ -581,21 +583,18 @@ class PlayerSeatsOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (gameState.players.isEmpty) return const SizedBox.shrink();
-
-    return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
-      final scene = layout.scene;
+    Widget buildForLayout(TableLayout resolvedLayout) {
+      final scene = resolvedLayout.scene;
       final hasCurrentBet = gameState.currentBet > 0;
-      final minSeat = minSeatTopFor(layout.viewport, hasCurrentBet);
+      final minSeat = minSeatTopFor(resolvedLayout.viewport, hasCurrentBet);
 
       final seats = seatPositionsFor(
         gameState.players,
         heroId,
-        layout.center,
-        layout.ringRadiusX,
-        layout.ringRadiusY,
-        clampBounds: layout.canvasBounds,
+        resolvedLayout.center,
+        resolvedLayout.ringRadiusX,
+        resolvedLayout.ringRadiusY,
+        clampBounds: resolvedLayout.canvasBounds,
         minSeatTop: minSeat,
         uiSizeMultiplier: theme.uiSizeMultiplier,
         sceneLayout: scene,
@@ -641,7 +640,20 @@ class PlayerSeatsOverlay extends StatelessWidget {
       }
 
       return Stack(children: children);
-    });
+    }
+
+    if (layout != null) {
+      return buildForLayout(layout!);
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) => buildForLayout(
+        resolveTableLayout(
+          constraints.biggest,
+          safePadding: MediaQuery.paddingOf(context),
+        ),
+      ),
+    );
   }
 }
 

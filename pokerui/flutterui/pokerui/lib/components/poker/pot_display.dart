@@ -137,12 +137,14 @@ Offset potTotalAnchor(TableLayout layout, PokerThemeConfig theme) {
 class PotDisplay extends StatefulWidget {
   const PotDisplay({
     super.key,
+    required this.layout,
     required this.pot,
     required this.theme,
     this.settleFxMs = 0,
     this.hideForPayout = false,
   });
 
+  final TableLayout layout;
   final int pot;
   final PokerThemeConfig theme;
   final int settleFxMs;
@@ -206,11 +208,10 @@ class _PotDisplayState extends State<PotDisplay>
     final theme = widget.theme;
     return Positioned.fill(
       child: IgnorePointer(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final layout = resolveTableLayout(constraints.biggest);
-            final stackAnchor = potStackAnchor(layout, theme);
-            final totalAnchor = potTotalAnchor(layout, theme);
+        child: Builder(
+          builder: (context) {
+            final stackAnchor = potStackAnchor(widget.layout, theme);
+            final totalAnchor = potTotalAnchor(widget.layout, theme);
 
             return Stack(
               children: [

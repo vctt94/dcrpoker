@@ -59,6 +59,19 @@ class TableLayout {
     required this.playerOffset,
   });
 
+  factory TableLayout.fromScene(PokerSceneLayout scene) {
+    final viewport = scene.tableRect;
+    return TableLayout(
+      scene: scene,
+      viewport: viewport,
+      canvasBounds: scene.screenRect,
+      center: scene.tableCenter,
+      tableRadiusX: scene.tableRadiusX,
+      tableRadiusY: scene.tableRadiusY,
+      playerOffset: _playerOffsetForViewport(viewport),
+    );
+  }
+
   final PokerSceneLayout scene;
 
   /// 16:9 letterboxed rect — drives ellipse shape, community cards, pot.
@@ -164,9 +177,12 @@ double _angleForPlayerIndex(int idx, int heroIndex, int count) {
   return angle;
 }
 
-TableLayout resolveTableLayout(Size size, {double aspectRatio = 16 / 9}) {
+TableLayout resolveTableLayout(
+  Size size, {
+  EdgeInsets safePadding = EdgeInsets.zero,
+}) {
   final canvasBounds = Rect.fromLTWH(0, 0, size.width, size.height);
-  final scene = PokerSceneLayout.resolve(size);
+  final scene = PokerSceneLayout.resolve(size, safePadding: safePadding);
   final viewport = scene.tableRect;
   final center = scene.tableCenter;
   final playerOffset = _playerOffsetForViewport(viewport);

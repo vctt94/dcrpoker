@@ -7,50 +7,46 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 class CommunityCardSlots extends StatelessWidget {
   const CommunityCardSlots({
     super.key,
+    required this.layout,
     required this.cards,
-    this.aspectRatio = 16 / 9,
+    required this.theme,
   });
 
+  final TableLayout layout;
   final List<pr.Card> cards;
-  final double aspectRatio;
+  final PokerThemeConfig theme;
 
   static const int _totalSlots = 5;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, c) {
-      final size = c.biggest;
-      final theme = PokerThemeConfig.fromContext(context);
-      final layout = resolveTableLayout(size, aspectRatio: aspectRatio);
-      final communityRect = layout.scene.communityRect;
-      final baseCw = (communityRect.width / 5.4).clamp(28.0, 56.0).toDouble();
-      final cw =
-          (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
-      final ch = cw * 1.4;
-      final gap = cw * 0.10;
-      final totalW = (_totalSlots * cw) + ((_totalSlots - 1) * gap);
-      final startX = communityRect.center.dx - totalW / 2;
-      final y = communityRect.center.dy - ch / 2;
+    final communityRect = layout.scene.communityRect;
+    final baseCw = (communityRect.width / 5.4).clamp(28.0, 56.0).toDouble();
+    final cw = (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
+    final ch = cw * 1.4;
+    final gap = cw * 0.10;
+    final totalW = (_totalSlots * cw) + ((_totalSlots - 1) * gap);
+    final startX = communityRect.center.dx - totalW / 2;
+    final y = communityRect.center.dy - ch / 2;
 
-      final children = <Widget>[];
-      for (int i = 0; i < _totalSlots; i++) {
-        final x = startX + i * (cw + gap);
-        final hasCard = i < cards.length;
-        children.add(Positioned(
-          left: x,
-          top: y,
-          width: cw,
-          height: ch,
-          child: hasCard
-              ? CardFace(card: cards[i], cardTheme: theme.cardTheme)
-              : _PlaceholderSlot(
-                  key: ValueKey('community_slot_$i'),
-                  borderRadius: (cw * 0.1).clamp(4.0, 10.0),
-                ),
-        ));
-      }
-      return IgnorePointer(child: Stack(children: children));
-    });
+    final children = <Widget>[];
+    for (int i = 0; i < _totalSlots; i++) {
+      final x = startX + i * (cw + gap);
+      final hasCard = i < cards.length;
+      children.add(Positioned(
+        left: x,
+        top: y,
+        width: cw,
+        height: ch,
+        child: hasCard
+            ? CardFace(card: cards[i], cardTheme: theme.cardTheme)
+            : _PlaceholderSlot(
+                key: ValueKey('community_slot_$i'),
+                borderRadius: (cw * 0.1).clamp(4.0, 10.0),
+              ),
+      ));
+    }
+    return IgnorePointer(child: Stack(children: children));
   }
 }
 

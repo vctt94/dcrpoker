@@ -67,7 +67,11 @@ class TableThemeConfig {
     borderColor: PokerColors.feltDecred,
   );
 
-  static const List<TableThemeConfig> presets = [decred, decredInverse, classic];
+  static const List<TableThemeConfig> presets = [
+    decred,
+    decredInverse,
+    classic
+  ];
 
   static TableThemeConfig fromKey(String key) {
     final normalized = key.toLowerCase();

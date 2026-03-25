@@ -224,6 +224,57 @@ void main() {
     );
   });
 
+  test('maximized desktop layout caps the table footprint', () {
+    final layout = PokerSceneLayout.resolve(const Size(1920, 1080));
+
+    expect(layout.mode, PokerLayoutMode.wide);
+    expect(layout.tableAspectRatio, lessThanOrEqualTo(2.08));
+    expect(layout.tableRect.width, lessThanOrEqualTo(1380.0));
+    expect(layout.tableRect.left, greaterThan(layout.bodyRect.left + 120.0));
+    expect(
+      layout.bodyRect.right - layout.tableRect.right,
+      greaterThanOrEqualTo(120.0),
+    );
+  });
+
+  test('ultra-wide desktop keeps the same felt cap', () {
+    final maximized = PokerSceneLayout.resolve(const Size(1920, 1080));
+    final ultraWide = PokerSceneLayout.resolve(const Size(2560, 1440));
+
+    expect(maximized.mode, PokerLayoutMode.wide);
+    expect(ultraWide.mode, PokerLayoutMode.wide);
+    expect(maximized.tableRect.width, lessThanOrEqualTo(1380.0));
+    expect(ultraWide.tableRect.width, lessThanOrEqualTo(1380.0));
+    expect(ultraWide.tableRect.width,
+        greaterThanOrEqualTo(maximized.tableRect.width));
+  });
+
+  test('standard desktop layout leaves consistent play-area gutters', () {
+    final layout = PokerSceneLayout.resolve(const Size(1366, 768));
+
+    expect(layout.mode, PokerLayoutMode.standard);
+    expect(layout.tableAspectRatio, lessThanOrEqualTo(1.9201));
+    expect(layout.tableRect.width, lessThanOrEqualTo(1120.0));
+    expect(layout.tableRect.left, greaterThan(layout.bodyRect.left + 60.0));
+    expect(
+      layout.bodyRect.right - layout.tableRect.right,
+      greaterThanOrEqualTo(60.0),
+    );
+  });
+
+  test('short desktop compact layout still caps the table footprint', () {
+    final layout = PokerSceneLayout.resolve(const Size(1366, 695));
+
+    expect(layout.mode, PokerLayoutMode.compactLandscape);
+    expect(layout.tableAspectRatio, lessThanOrEqualTo(2.0));
+    expect(layout.tableRect.width, lessThan(layout.bodyRect.width * 0.7));
+    expect(layout.tableRect.left, greaterThan(layout.bodyRect.left + 200.0));
+    expect(
+      layout.bodyRect.right - layout.tableRect.right,
+      greaterThanOrEqualTo(200.0),
+    );
+  });
+
   testWidgets('live street bets do not also render in the center pot',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');

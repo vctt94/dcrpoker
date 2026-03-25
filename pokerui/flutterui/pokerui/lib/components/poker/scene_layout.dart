@@ -17,6 +17,103 @@ extension PokerLayoutModeX on PokerLayoutMode {
   bool get isWideDesktop => this == PokerLayoutMode.wide;
 }
 
+class _PokerTableFitPolicy {
+  const _PokerTableFitPolicy({
+    required this.maxWidth,
+    required this.maxWidthFraction,
+    required this.minHorizontalGutter,
+    required this.minAspectRatio,
+    required this.maxAspectRatio,
+  });
+
+  final double maxWidth;
+  final double maxWidthFraction;
+  final double minHorizontalGutter;
+  final double minAspectRatio;
+  final double maxAspectRatio;
+}
+
+const _standardTableFitPolicy = _PokerTableFitPolicy(
+  maxWidth: 1120.0,
+  maxWidthFraction: 0.92,
+  minHorizontalGutter: 64.0,
+  minAspectRatio: 1.48,
+  maxAspectRatio: 1.92,
+);
+
+const _shortDesktopTableFitPolicy = _PokerTableFitPolicy(
+  maxWidth: 1080.0,
+  maxWidthFraction: 0.84,
+  minHorizontalGutter: 96.0,
+  minAspectRatio: 1.72,
+  maxAspectRatio: 2.0,
+);
+
+const _wideTableFitPolicy = _PokerTableFitPolicy(
+  maxWidth: 1380.0,
+  maxWidthFraction: 0.84,
+  minHorizontalGutter: 120.0,
+  minAspectRatio: 1.68,
+  maxAspectRatio: 2.08,
+);
+
+Rect _fitCenteredRect(
+  Rect bounds, {
+  required double maxWidth,
+  required double preferredAspectRatio,
+}) {
+  final boundedWidth = math.min(bounds.width, maxWidth);
+  final boundedHeight = bounds.height;
+  if (boundedWidth <= 0 || boundedHeight <= 0) {
+    return Rect.fromCenter(
+      center: bounds.center,
+      width: math.max(0, boundedWidth),
+      height: math.max(0, boundedHeight),
+    );
+  }
+
+  final aspectRatio = preferredAspectRatio.clamp(1.0, 3.0);
+  var width = boundedWidth;
+  var height = width / aspectRatio;
+
+  if (height > boundedHeight) {
+    height = boundedHeight;
+    width = height * aspectRatio;
+  }
+
+  return Rect.fromCenter(
+    center: bounds.center,
+    width: width,
+    height: height,
+  );
+}
+
+Rect _fitTableRect(
+  Rect bounds,
+  _PokerTableFitPolicy policy,
+) {
+  final maxWidthByGutter =
+      math.max(0.0, bounds.width - (policy.minHorizontalGutter * 2));
+  final maxWidthByFraction = bounds.width * policy.maxWidthFraction;
+  final widthCap = math.min(
+    bounds.width,
+    math.min(
+      policy.maxWidth,
+      math.min(maxWidthByGutter, maxWidthByFraction),
+    ),
+  );
+  final rawAspectRatio =
+      bounds.height == 0 ? 1.0 : bounds.width / bounds.height;
+  final preferredAspectRatio = rawAspectRatio
+      .clamp(policy.minAspectRatio, policy.maxAspectRatio)
+      .toDouble();
+  return _fitCenteredRect(
+    bounds,
+    maxWidth: widthCap,
+    preferredAspectRatio: preferredAspectRatio,
+  );
+}
+
 class PokerSceneLayout {
   const PokerSceneLayout({
     required this.mode,
@@ -110,9 +207,9 @@ class PokerSceneLayout {
         railWidth = 0;
         break;
       case PokerLayoutMode.wide:
-        topBandHeight = (contentRect.height * 0.18).clamp(120.0, 164.0);
-        heroDockHeight = (contentRect.height * 0.2).clamp(164.0, 220.0);
-        railWidth = (contentRect.width * 0.19).clamp(220.0, 300.0);
+        topBandHeight = (contentRect.height * 0.16).clamp(108.0, 148.0);
+        heroDockHeight = (contentRect.height * 0.17).clamp(148.0, 196.0);
+        railWidth = (contentRect.width * 0.12).clamp(120.0, 220.0);
         break;
     }
 
@@ -151,7 +248,7 @@ class PokerSceneLayout {
           );
     final leftRailRect = Rect.fromLTWH(bodyRect.left, bodyRect.top, 0, 0);
     final tableWidthRight = math.max(bodyRect.left, rightRailRect.left - gap);
-    final tableRect = mode == PokerLayoutMode.compactPortrait
+    final tableBounds = mode == PokerLayoutMode.compactPortrait
         ? Rect.fromLTRB(
             bodyRect.left + gap * 0.25,
             bodyRect.top + bodyRect.height * 0.12,
@@ -164,6 +261,22 @@ class PokerSceneLayout {
             tableWidthRight,
             bodyRect.bottom,
           );
+    final tableRect = switch (mode) {
+      PokerLayoutMode.compactPortrait => tableBounds,
+      PokerLayoutMode.compactLandscape when size.width >= 1100 => _fitTableRect(
+          tableBounds,
+          _shortDesktopTableFitPolicy,
+        ),
+      PokerLayoutMode.compactLandscape => tableBounds,
+      PokerLayoutMode.standard => _fitTableRect(
+          tableBounds,
+          _standardTableFitPolicy,
+        ),
+      PokerLayoutMode.wide => _fitTableRect(
+          tableBounds,
+          _wideTableFitPolicy,
+        ),
+    };
     final topSeatBandRect = Rect.fromLTRB(
       contentRect.left,
       contentRect.top,

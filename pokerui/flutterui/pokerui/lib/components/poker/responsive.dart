@@ -42,36 +42,6 @@ extension PokerBreakpointQuery on PokerBreakpoint {
   bool get isNarrow => isCompact || isRegular;
 }
 
-/// Adaptive table aspect ratio per breakpoint.
-///
-/// Portrait phones use a taller ratio so the table occupies more vertical
-/// space; landscape / desktop keeps the standard 16:9.
-double tableAspectRatio(PokerBreakpoint bp) {
-  switch (bp) {
-    case PokerBreakpoint.compact:
-      return 0.95;
-    case PokerBreakpoint.regular:
-      return 1.05;
-    case PokerBreakpoint.expanded:
-      return 1.3;
-    case PokerBreakpoint.wide:
-      return 1.55;
-  }
-}
-
-/// Maximum pixel width for the table canvas on wide screens.
-double tableMaxWidth(PokerBreakpoint bp) {
-  switch (bp) {
-    case PokerBreakpoint.compact:
-    case PokerBreakpoint.regular:
-      return double.infinity;
-    case PokerBreakpoint.expanded:
-      return 900;
-    case PokerBreakpoint.wide:
-      return 1200;
-  }
-}
-
 /// Fixed width of the side-rail panel (only rendered on wide).
 const double kSideRailWidth = 280;
 
