@@ -107,6 +107,7 @@ class _ResolvedSeatLayout {
     required this.plateLeft,
     required this.plateWidth,
     required this.plateHeight,
+    required this.seatCenter,
     required this.betAnchor,
     this.railMetrics,
     this.cardLeft = 0,
@@ -142,6 +143,7 @@ class _ResolvedSeatLayout {
   final double plateLeft;
   final double plateWidth;
   final double plateHeight;
+  final Offset seatCenter;
   final double cardLeft;
   final double cardTop;
   final Offset? betAnchor;
@@ -506,6 +508,7 @@ _ResolvedSeatLayout _resolveSeatLayout({
     plateLeft: plateLeft,
     plateWidth: plateWidth,
     plateHeight: plateHeight,
+    seatCenter: actualSeatCenter,
     cardLeft: cardLeft,
     cardTop: cardTop,
     betAnchor: player.currentBet > 0
@@ -520,6 +523,54 @@ _ResolvedSeatLayout _resolveSeatLayout({
         : null,
     railMetrics: railMetrics,
   );
+}
+
+Map<String, Offset> seatAvatarCentersFor({
+  required UiGameState gameState,
+  required String heroId,
+  required PokerThemeConfig theme,
+  required TableLayout layout,
+  List<pr.Card> heroCardsCache = const [],
+  bool showHeroCardsInSeat = false,
+}) {
+  if (gameState.players.isEmpty) return const {};
+
+  final uiSpec = PokerUiSpec.fromTheme(
+    theme,
+    viewportSize: layout.scene.screenRect.size,
+  );
+  final hasCurrentBet = gameState.currentBet > 0;
+  final minSeat = minSeatTopFor(layout.viewport, hasCurrentBet);
+  final seats = seatPositionsFor(
+    gameState.players,
+    heroId,
+    layout.center,
+    layout.ringRadiusX,
+    layout.ringRadiusY,
+    clampBounds: layout.canvasBounds,
+    minSeatTop: minSeat,
+    uiSizeMultiplier: theme.uiSizeMultiplier,
+    sceneLayout: layout.scene,
+  );
+
+  final centers = <String, Offset>{};
+  for (final player in gameState.players) {
+    final pos = seats[player.id];
+    if (pos == null) continue;
+    final seatLayout = _resolveSeatLayout(
+      player: player,
+      heroId: heroId,
+      gameState: gameState,
+      theme: theme,
+      uiSpec: uiSpec,
+      scene: layout.scene,
+      seatPosition: pos,
+      heroCardsCache: heroCardsCache,
+      showHeroCardsInSeat: showHeroCardsInSeat,
+    );
+    centers[player.id] = seatLayout.seatCenter;
+  }
+  return centers;
 }
 
 /// Widget overlay that positions all player seats around the table.
@@ -652,6 +703,7 @@ class _PlayerSeatWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final avatar = _AvatarCircle(
+      key: ValueKey('seat_avatar_${layout.player.id}'),
       color: layout.seatColor,
       radius: layout.radius,
       isCurrent: layout.isCurrent,
@@ -992,6 +1044,7 @@ class _SeatInfoPlate extends StatelessWidget {
 
 class _AvatarCircle extends StatefulWidget {
   const _AvatarCircle({
+    super.key,
     required this.color,
     required this.radius,
     required this.isCurrent,

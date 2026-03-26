@@ -1037,6 +1037,64 @@ void main() {
       expect(topOpponent.center.dy, lessThan(heroRect.top - 20));
     });
 
+    testWidgets('4-player table preserves relative seat order with hero pinned',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModelForRendering(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.PRE_FLOP,
+        phaseName: 'Pre-Flop',
+        players: [
+          _createPlayer(
+              id: heroId,
+              name: 'Hero',
+              tableSeat: 0,
+              isDealer: true,
+              isTurn: true),
+          _createPlayer(id: 'player4', name: 'Charlie', tableSeat: 3),
+          _createPlayer(
+              id: 'player2', name: 'Alice', tableSeat: 1, isSmallBlind: true),
+          _createPlayer(
+              id: 'player3', name: 'Bob', tableSeat: 2, isBigBlind: true),
+        ],
+        communityCards: const [],
+        pot: 30,
+        currentBet: 20,
+        currentPlayerId: heroId,
+        minRaise: 20,
+        maxRaise: 1000,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 4,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      final pokerGame = PokerGame(heroId, model, theme: _defaultTheme);
+      final focusNode = FocusNode();
+
+      await _pumpTable(
+        tester,
+        pokerGame: pokerGame,
+        gameState: model.game!,
+        focusNode: focusNode,
+      );
+
+      final heroRect = _seatRect(tester, heroId);
+      final sbRect = _seatRect(tester, 'player2');
+      final bbRect = _seatRect(tester, 'player3');
+      final utgRect = _seatRect(tester, 'player4');
+
+      expect(sbRect.center.dx, lessThan(heroRect.center.dx));
+      expect(utgRect.center.dx, greaterThan(heroRect.center.dx));
+      expect(bbRect.center.dy, lessThan(sbRect.center.dy));
+      expect(bbRect.center.dy, lessThan(utgRect.center.dy));
+    });
+
     testWidgets('visual snapshot: 5 players rendered on table',
         (WidgetTester tester) async {
       tester.binding.window.physicalSizeTestValue = const Size(800, 450);

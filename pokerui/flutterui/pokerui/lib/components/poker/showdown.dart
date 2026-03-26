@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/components/poker/pot_display.dart';
+import 'package:pokerui/components/poker/player_seat.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/bottom_action_dock.dart';
@@ -184,7 +185,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     super.initState();
     _payoutCtrl = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1150),
+      duration: const Duration(milliseconds: 780),
     );
     _maybeRestartFx();
   }
@@ -220,33 +221,23 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     final winners = widget.model.lastWinners;
     final theme = PokerThemeConfig.fromContext(context);
     final layout = widget.layout;
-    final scene = layout.scene;
     final center = layout.center;
-    final hasCurrentBet = game.currentBet > 0;
-    final minSeatTop = minSeatTopFor(layout.viewport, hasCurrentBet);
 
     final payoutWidgets = <Widget>[];
     if (winners.isNotEmpty && game.players.isNotEmpty) {
-      final targets = seatPositionsFor(
-        game.players,
-        widget.model.playerId,
-        center,
-        layout.ringRadiusX,
-        layout.ringRadiusY,
-        clampBounds: layout.canvasBounds,
-        minSeatTop: minSeatTop,
-        uiSizeMultiplier: theme.uiSizeMultiplier,
-        sceneLayout: scene,
+      final targets = seatAvatarCentersFor(
+        gameState: game,
+        heroId: widget.model.playerId,
+        theme: theme,
+        layout: layout,
       );
       final potOrigin = potStackAnchor(layout, theme);
-      final seatRadius = kPlayerRadius * theme.uiSizeMultiplier;
       final originSpread =
           20.0 * theme.uiSizeMultiplier * (winners.length > 1 ? 1.0 : 0.0);
 
       for (int i = 0; i < winners.length; i++) {
         final w = winners[i];
-        final targetTop = targets[w.playerId] ?? center;
-        final target = Offset(targetTop.dx, targetTop.dy + seatRadius * 0.95);
+        final target = targets[w.playerId] ?? center;
         final startXOffset =
             (i - ((winners.length - 1) / 2)) * originSpread.clamp(0, 28);
         payoutWidgets.add(_AnimatedPotFlight(
@@ -257,7 +248,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
           to: target,
           theme: theme,
           paletteIndex: i,
-          delay: i * 0.11,
+          delay: i * 0.07,
         ));
       }
     }
@@ -302,7 +293,7 @@ class _AnimatedPotFlight extends StatelessWidget {
         final progress = raw.clamp(0.0, 1.0);
         final eased = Curves.easeOutCubic.transform(progress);
         final dx = from.dx + (to.dx - from.dx) * eased;
-        final arcHeight = 26.0 * theme.uiSizeMultiplier;
+        final arcHeight = 20.0 * theme.uiSizeMultiplier;
         final dy = from.dy +
             (to.dy - from.dy) * eased -
             (1 - ((progress * 2) - 1).abs()) * arcHeight;
@@ -313,17 +304,22 @@ class _AnimatedPotFlight extends StatelessWidget {
         final opacity = progress > 0.84
             ? (1 - ((progress - 0.84) / 0.16)).clamp(0.0, 1.0)
             : 1.0;
+        final anchorY = Tween<double>(
+          begin: -0.32,
+          end: -0.5,
+        ).transform(Curves.easeOut.transform(progress));
 
         return Positioned(
           left: dx,
           top: dy,
           child: FractionalTranslation(
-            translation: const Offset(-0.5, -0.32),
+            translation: Offset(-0.5, anchorY),
             child: Opacity(
               opacity: opacity,
               child: Transform.scale(
                 scale: scale,
                 child: PotPileVisual(
+                  key: ValueKey('showdown-payout-visual-$paletteIndex'),
                   amount: amount,
                   theme: theme,
                   paletteIndex: paletteIndex,

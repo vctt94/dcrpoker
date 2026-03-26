@@ -786,6 +786,43 @@ Rect pokerViewportRect(Size size, {double aspectRatio = 16 / 9}) {
   return Rect.fromLTWH(left, top, w, h);
 }
 
+List<UiPlayer> _playersInDisplayOrder(
+  List<UiPlayer> players,
+  String heroId,
+) {
+  if (players.isEmpty) return players;
+
+  final hero = players.cast<UiPlayer?>().firstWhere(
+        (player) => player?.id == heroId,
+        orElse: () => null,
+      );
+  if (hero == null) return players;
+
+  final opponents =
+      players.where((player) => player.id != heroId).toList(growable: false);
+  final validSeats = players.every((player) => player.tableSeat >= 0);
+  final uniqueSeats =
+      players.map((player) => player.tableSeat).toSet().length ==
+          players.length;
+
+  if (!validSeats || !uniqueSeats) {
+    return [hero, ...opponents];
+  }
+
+  final heroSeat = hero.tableSeat;
+  final orderedOpponents = opponents.toList()
+    ..sort((a, b) {
+      final aWraps = a.tableSeat <= heroSeat;
+      final bWraps = b.tableSeat <= heroSeat;
+      if (aWraps != bWraps) {
+        return aWraps ? 1 : -1;
+      }
+      return a.tableSeat.compareTo(b.tableSeat);
+    });
+
+  return [hero, ...orderedOpponents];
+}
+
 Map<String, Offset> seatPositionsFor(
   List<UiPlayer> ps,
   String heroId,
@@ -799,9 +836,13 @@ Map<String, Offset> seatPositionsFor(
 }) {
   final map = <String, Offset>{};
   if (ps.isEmpty) return map;
+  final orderedPlayers = _playersInDisplayOrder(ps, heroId);
+
   if (sceneLayout != null) {
     final playerRadius = kPlayerRadius * uiSizeMultiplier;
-    final opponents = ps.where((p) => p.id != heroId).toList(growable: false);
+    final opponents = orderedPlayers
+        .where((player) => player.id != heroId)
+        .toList(growable: false);
     final opponentAnchors = sceneLayout.opponentAnchors(
       opponents.length,
       uiScale: uiSizeMultiplier,
@@ -811,7 +852,7 @@ Map<String, Offset> seatPositionsFor(
       map[opponents[i].id] = Offset(anchor.dx, anchor.dy - playerRadius);
     }
 
-    final hero = ps.cast<UiPlayer?>().firstWhere(
+    final hero = orderedPlayers.cast<UiPlayer?>().firstWhere(
           (player) => player?.id == heroId,
           orElse: () => null,
         );
@@ -822,8 +863,8 @@ Map<String, Offset> seatPositionsFor(
     return map;
   }
 
-  final count = ps.length;
-  final heroIndex = ps.indexWhere((p) => p.id == heroId);
+  final count = orderedPlayers.length;
+  final heroIndex = orderedPlayers.indexWhere((p) => p.id == heroId);
   final playerRadius = kPlayerRadius * uiSizeMultiplier;
   final sizeAwareOffset = math.max(0, (playerRadius - kPlayerRadius) * 0.9);
   final ringX = ringRadiusX + sizeAwareOffset;
@@ -842,7 +883,7 @@ Map<String, Offset> seatPositionsFor(
       uiSizeMultiplier: uiSizeMultiplier,
       playerRadius: playerRadius,
     );
-    map[ps[i].id] = Offset(pos.dx, pos.dy - playerRadius);
+    map[orderedPlayers[i].id] = Offset(pos.dx, pos.dy - playerRadius);
   }
   return map;
 }

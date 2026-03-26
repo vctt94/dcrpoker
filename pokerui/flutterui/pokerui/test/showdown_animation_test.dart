@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/player_seat.dart';
+import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/showdown.dart';
+import 'package:pokerui/components/poker/table.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
@@ -76,8 +80,12 @@ final _defaultConfig = Config(
 
 /// Helper to wrap widget with necessary providers for tests
 Widget _wrapWithProviders(Widget child) {
+  return _wrapWithProvidersAndConfig(child, _defaultConfig);
+}
+
+Widget _wrapWithProvidersAndConfig(Widget child, Config config) {
   final configNotifier = ConfigNotifier();
-  configNotifier.updateConfig(_defaultConfig);
+  configNotifier.updateConfig(config);
   return ChangeNotifierProvider<ConfigNotifier>.value(
     value: configNotifier,
     child: child,
@@ -498,6 +506,99 @@ void main() {
       // The animation creates chips with staggered delays, so some should be visible
       final containers = find.byType(Container);
       expect(containers, findsWidgets);
+    });
+
+    testWidgets('Large UI payout target moves inward from the old seat anchor',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      const size = Size(1280, 720);
+      final largeConfig = _defaultConfig.copyWith(uiSize: 'xl');
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(id: 'player2', name: 'Player 2', tableSeat: 1),
+          _createPlayer(id: 'player3', name: 'Player 3', tableSeat: 2),
+        ],
+        communityCards: const [],
+        pot: 1500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 3,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+
+      model.lastWinners = [
+        _createWinner(playerId: 'player2', winnings: 1500),
+      ];
+
+      await tester.pumpWidget(
+        _wrapWithProvidersAndConfig(
+          MaterialApp(
+            home: MediaQuery(
+              data: const MediaQueryData(size: size),
+              child: Scaffold(
+                body: SizedBox(
+                  width: size.width,
+                  height: size.height,
+                  child: ShowdownView(model: model),
+                ),
+              ),
+            ),
+          ),
+          largeConfig,
+        ),
+      );
+
+      await tester.pump();
+
+      final scene = PokerSceneLayout.resolve(size);
+      final theme = PokerThemeConfig.fromSpec(
+        PokerUiSpec.fromSettings(
+          PokerUiSettings.fromConfig(largeConfig),
+          viewportSize: size,
+        ),
+      );
+      final centers = seatAvatarCentersFor(
+        gameState: model.game!,
+        heroId: heroId,
+        theme: theme,
+        layout: TableLayout.fromScene(scene),
+      );
+      final naiveTargets = seatPositionsFor(
+        model.game!.players,
+        heroId,
+        scene.tableCenter,
+        scene.tableRadiusX,
+        scene.tableRadiusY,
+        clampBounds: scene.screenRect,
+        minSeatTop: minSeatTopFor(scene.tableRect, false),
+        uiSizeMultiplier: theme.uiSizeMultiplier,
+        sceneLayout: scene,
+      );
+      final targetCenter = centers['player2'];
+      final oldTargetTop = naiveTargets['player2'];
+      final oldTarget = oldTargetTop == null
+          ? null
+          : Offset(
+              oldTargetTop.dx,
+              oldTargetTop.dy + (kPlayerRadius * theme.uiSizeMultiplier * 0.95),
+            );
+      expect(targetCenter, isNotNull);
+      expect(oldTarget, isNotNull);
+      expect(targetCenter!.dx, closeTo(oldTarget!.dx, 0.01));
+      expect(targetCenter.dy - oldTarget.dy, greaterThan(15.0));
     });
 
     testWidgets('Desktop showdown keeps the table canvas size stable',
