@@ -107,30 +107,26 @@ List<PokerChipToken> chipTokensForAmount(
 }
 
 Offset potStackAnchor(TableLayout layout, PokerThemeConfig theme) {
+  final potSpec = PokerPotSpec.resolve(
+    layoutMode: layout.scene.mode,
+    uiSizeMultiplier: theme.uiSizeMultiplier,
+  );
   final base = potChipCenter(
     layout,
     uiSizeMultiplier: theme.uiSizeMultiplier,
   );
-  final lift = switch (layout.scene.mode) {
-    PokerLayoutMode.compactPortrait => 6.0 * theme.uiSizeMultiplier,
-    PokerLayoutMode.compactLandscape => 4.0 * theme.uiSizeMultiplier,
-    PokerLayoutMode.standard => 3.0 * theme.uiSizeMultiplier,
-    PokerLayoutMode.wide => 3.0 * theme.uiSizeMultiplier,
-  };
-  return base.translate(0, -lift);
+  return base.translate(0, -potSpec.stackLift);
 }
 
 Offset potTotalAnchor(TableLayout layout, PokerThemeConfig theme) {
+  final potSpec = PokerPotSpec.resolve(
+    layoutMode: layout.scene.mode,
+    uiSizeMultiplier: theme.uiSizeMultiplier,
+  );
   final centerX = layout.scene.communityRect.center.dx;
-  final gap = switch (layout.scene.mode) {
-    PokerLayoutMode.compactPortrait => 18.0 * theme.uiSizeMultiplier,
-    PokerLayoutMode.compactLandscape => 16.0 * theme.uiSizeMultiplier,
-    PokerLayoutMode.standard => 14.0 * theme.uiSizeMultiplier,
-    PokerLayoutMode.wide => 14.0 * theme.uiSizeMultiplier,
-  };
   return Offset(
     centerX,
-    layout.scene.communityRect.top - gap,
+    layout.scene.communityRect.top - potSpec.totalGap,
   );
 }
 
@@ -206,6 +202,10 @@ class _PotDisplayState extends State<PotDisplay>
     if (widget.pot <= 0) return const SizedBox.shrink();
 
     final theme = widget.theme;
+    final potSpec = PokerPotSpec.resolve(
+      layoutMode: widget.layout.scene.mode,
+      uiSizeMultiplier: theme.uiSizeMultiplier,
+    );
     return Positioned.fill(
       child: IgnorePointer(
         child: Builder(
@@ -228,12 +228,12 @@ class _PotDisplayState extends State<PotDisplay>
                         'Pot: ${widget.pot}',
                         key: const Key('poker-pot-total'),
                         style: PokerTypography.potLabel.copyWith(
-                          fontSize: 13 * theme.uiSizeMultiplier,
+                          fontSize: potSpec.potLabelFontSize,
                           color: PokerColors.textPrimary,
                           shadows: [
                             Shadow(
                               color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 6 * theme.uiSizeMultiplier,
+                              blurRadius: potSpec.potLabelBlur,
                               offset: const Offset(0, 1),
                             ),
                           ],
@@ -287,9 +287,13 @@ class BetStackVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final potSpec = PokerPotSpec.resolve(
+      layoutMode: PokerLayoutMode.standard,
+      uiSizeMultiplier: theme.uiSizeMultiplier,
+    );
     final columns =
         chipTokensForAmount(amount, maxColumns: 3, maxChipsPerColumn: 5);
-    final chipSize = 18.0 * theme.uiSizeMultiplier;
+    final chipSize = potSpec.betStackChipSize;
     final columnGap = chipSize * 0.3;
     final totalWidth =
         (columns.length * chipSize) + ((columns.length - 1) * columnGap);
@@ -320,18 +324,18 @@ class BetStackVisual extends StatelessWidget {
             ],
           ),
         ),
-        SizedBox(height: 4 * theme.uiSizeMultiplier),
+        SizedBox(height: potSpec.betStackLabelGap),
         Text(
           '$amount',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: PokerTypography.potLabel.copyWith(
-            fontSize: 12 * theme.uiSizeMultiplier,
+            fontSize: potSpec.betStackLabelFontSize,
             color: PokerColors.textPrimary,
             shadows: [
               Shadow(
                 color: Colors.black.withValues(alpha: 0.35),
-                blurRadius: 4 * theme.uiSizeMultiplier,
+                blurRadius: potSpec.betStackLabelBlur,
                 offset: const Offset(0, 1),
               ),
             ],
@@ -356,9 +360,13 @@ class PotPileVisual extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final potSpec = PokerPotSpec.resolve(
+      layoutMode: PokerLayoutMode.standard,
+      uiSizeMultiplier: theme.uiSizeMultiplier,
+    );
     final tokens =
         chipTokensForAmount(amount, maxColumns: 5, maxChipsPerColumn: 3);
-    final chipSize = 20.0 * theme.uiSizeMultiplier;
+    final chipSize = potSpec.potPileChipSize;
     final baseOffsets = <Offset>[
       const Offset(0, 0),
       const Offset(-12, -2),

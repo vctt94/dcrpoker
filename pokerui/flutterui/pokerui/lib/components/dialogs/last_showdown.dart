@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/showdown_content.dart';
+import 'package:pokerui/models/poker.dart';
 
-/// Dialog to show the last showdown results during an active game.
-/// Displays community cards, player hands, and winner information.
 class LastShowdownDialog extends StatelessWidget {
   const LastShowdownDialog({super.key, required this.model});
+
   final PokerModel model;
 
   static Future<void> show(BuildContext context, PokerModel model) {
@@ -27,10 +26,13 @@ class LastShowdownDialog extends StatelessWidget {
         decoration: BoxDecoration(
           color: const Color(0xFF1A1D2E),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.amber.withOpacity(0.5), width: 2),
+          border: Border.all(
+            color: Colors.amber.withValues(alpha: 0.5),
+            width: 2,
+          ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.5),
+              color: Colors.black.withValues(alpha: 0.5),
               blurRadius: 20,
               spreadRadius: 5,
             ),

@@ -69,7 +69,9 @@ class GameEndedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uiSpec = PokerUiSpec.fromContext(context);
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
+    final previewCardSize = uiSpec.gameEndedPreviewCardSize(surfaceScale: 1.2);
     final message = _winnerSummary();
     final hasWinners = model.lastWinners.isNotEmpty;
     final iWon = model.lastWinners.any((w) => w.playerId == model.playerId);
@@ -192,25 +194,39 @@ class GameEndedView extends StatelessWidget {
                               spacing: 6,
                               runSpacing: 6,
                               children: model.showdownCommunityCards
-                                  .map((c) => SizedBox(
-                                        width: 40,
-                                        height: 56,
+                                  .asMap()
+                                  .entries
+                                  .map((entry) => SizedBox(
+                                        key: Key(
+                                            'game-ended-showdown-card-${entry.key}'),
+                                        width: previewCardSize.width,
+                                        height: previewCardSize.height,
                                         child: CardFace(
-                                            card: c, cardTheme: cardTheme),
+                                          card: entry.value,
+                                          cardTheme: cardTheme,
+                                        ),
                                       ))
                                   .toList(),
                             ),
                           ],
-                          const SizedBox(height: PokerSpacing.md),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton.icon(
-                              onPressed: () =>
-                                  LastShowdownDialog.show(context, model),
-                              icon: const Icon(Icons.remove_red_eye, size: 16),
-                              label: const Text('View showdown'),
+                          if (hasShowdown) ...[
+                            const SizedBox(height: PokerSpacing.md),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                key: const Key(
+                                  'game-ended-view-showdown-button',
+                                ),
+                                onPressed: () =>
+                                    LastShowdownDialog.show(context, model),
+                                icon: const Icon(
+                                  Icons.remove_red_eye,
+                                  size: 16,
+                                ),
+                                label: const Text('View showdown'),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),

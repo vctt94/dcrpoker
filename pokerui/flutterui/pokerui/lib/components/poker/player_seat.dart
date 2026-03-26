@@ -149,43 +149,24 @@ class _ResolvedSeatLayout {
 }
 
 _SeatCardMetrics _seatCardMetrics(
-  double radius,
-  double cardScale,
-  double uiScale, {
+  PokerSeatSpec seatSpec, {
   required bool isHero,
   required PokerLayoutMode mode,
 }) {
-  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
-  final baseMultiplier = isHero ? 1.3 : (compactOpponent ? 0.76 : 1.0);
-  final minWidth = isHero ? 42.0 : (compactOpponent ? 22.0 : 30.0);
-  final maxWidth = isHero ? 70.0 : (compactOpponent ? 40.0 : 58.0);
-  final cw = (radius * baseMultiplier * cardScale)
-      .clamp(minWidth, maxWidth)
-      .toDouble();
-  final gap = (cw * 0.12).clamp(3.0, isHero ? 8.0 : 6.0).toDouble();
-  final railSideInset =
-      (cw * (isHero ? 0.16 : 0.12)).clamp(4.0, 10.0).toDouble();
-  final ch = cw * 1.4;
-  final visibleHeight = ch * 0.5;
   return _SeatCardMetrics(
-    width: cw,
-    height: ch,
-    visibleHeight: visibleHeight,
-    gap: gap,
-    railWidth: (cw * 2) + gap + (railSideInset * 2) + 4.0,
+    width: seatSpec.railCardWidth,
+    height: seatSpec.railCardHeight,
+    visibleHeight: seatSpec.railVisibleHeight,
+    gap: seatSpec.railCardGap,
+    railWidth: seatSpec.railWidth,
   );
 }
 
 double _seatInfoPlateWidth({
-  required bool isHero,
-  required double uiScale,
+  required PokerSeatSpec seatSpec,
   required PokerLayoutMode mode,
 }) {
-  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
-  final base = isHero ? 122.0 : (compactOpponent ? 84.0 : 108.0);
-  return (base * uiScale)
-      .clamp(compactOpponent ? 72.0 : 90.0, 156.0)
-      .toDouble();
+  return seatSpec.plateWidth;
 }
 
 double _seatInfoPlateHeight(UiPlayer player,
@@ -212,25 +193,10 @@ double _seatInfoPlateHeight(UiPlayer player,
 }
 
 double _seatCorePlateLeft(
-  double radius,
-  double uiScale, {
-  required bool isHero,
+  PokerSeatSpec seatSpec, {
   required PokerLayoutMode mode,
 }) {
-  final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
-  return (radius + ((compactOpponent ? 14.0 : 22.0) * uiScale))
-      .clamp(compactOpponent ? 22.0 : 40.0, 68.0)
-      .toDouble();
-}
-
-double _heroSeatDockOverlap(PokerLayoutMode mode, double uiScale) {
-  final base = switch (mode) {
-    PokerLayoutMode.compactPortrait => 18.0,
-    PokerLayoutMode.compactLandscape => 22.0,
-    PokerLayoutMode.standard => 28.0,
-    PokerLayoutMode.wide => 34.0,
-  };
-  return (base * uiScale).clamp(12.0, 44.0).toDouble();
+  return seatSpec.plateBaseLeft;
 }
 
 _SeatRailPlacement _railPlacementForSeat({
@@ -319,6 +285,7 @@ _ResolvedSeatLayout _resolveSeatLayout({
   required String heroId,
   required UiGameState gameState,
   required PokerThemeConfig theme,
+  required PokerUiSpec uiSpec,
   required PokerSceneLayout scene,
   required Offset seatPosition,
   required List<pr.Card> heroCardsCache,
@@ -348,11 +315,10 @@ _ResolvedSeatLayout _resolveSeatLayout({
       showHeroCardsInSeat: renderHeroCardsInSeat);
   final showRailCards =
       isHeroSeat ? renderHeroCardsInSeat : (showFaceUpCards || showCardBacks);
-  final radius = kPlayerRadius *
-      theme.uiSizeMultiplier *
-      (!isHeroSeat && scene.isPhonePortrait ? 0.74 : 1.0);
-  final uiScale = theme.uiSizeMultiplier;
-  final cardScale = theme.cardSizeMultiplier;
+  final seatSpec = uiSpec.seatSpec(isHeroSeat: isHeroSeat);
+  final radius = seatSpec.radius;
+  final uiScale = seatSpec.uiScale;
+  final cardScale = seatSpec.cardScale;
   final isAutoAdvance = isAutoAdvanceAllIn(gameState);
   final avatarBox = radius * 2 + 8;
   final seatCenter = Offset(seatPosition.dx, seatPosition.dy + radius);
@@ -360,14 +326,11 @@ _ResolvedSeatLayout _resolveSeatLayout({
     isHeroSeat: isHeroSeat,
   );
   final basePlateLeft = _seatCorePlateLeft(
-    radius,
-    uiScale,
-    isHero: isHeroSeat,
+    seatSpec,
     mode: scene.mode,
   );
   final plateWidth = _seatInfoPlateWidth(
-    isHero: isHeroSeat,
-    uiScale: uiScale,
+    seatSpec: seatSpec,
     mode: scene.mode,
   );
   final plateHeight = _seatInfoPlateHeight(
@@ -384,9 +347,7 @@ _ResolvedSeatLayout _resolveSeatLayout({
   final coreHeight = math.max(avatarBox, plateHeight);
   final railMetrics = reserveRail
       ? _seatCardMetrics(
-          radius,
-          cardScale,
-          uiScale,
+          seatSpec,
           isHero: isHeroSeat,
           mode: scene.mode,
         )
@@ -471,9 +432,7 @@ _ResolvedSeatLayout _resolveSeatLayout({
     top = maxTop >= minTop ? top.clamp(minTop, maxTop).toDouble() : minTop;
   } else {
     final minTop = scene.potRect.bottom + 12.0;
-    final maxTop = scene.heroDockRect.top -
-        height +
-        _heroSeatDockOverlap(scene.mode, uiScale);
+    final maxTop = scene.heroDockRect.top - height + seatSpec.heroDockOverlap;
     top = maxTop >= minTop
         ? math.min(
             math.max(top, minTop),
@@ -589,6 +548,8 @@ class PlayerSeatsOverlay extends StatelessWidget {
     if (gameState.players.isEmpty) return const SizedBox.shrink();
     Widget buildForLayout(TableLayout resolvedLayout) {
       final scene = resolvedLayout.scene;
+      final uiSpec =
+          PokerUiSpec.fromTheme(theme, viewportSize: scene.screenRect.size);
       final hasCurrentBet = gameState.currentBet > 0;
       final minSeat = minSeatTopFor(resolvedLayout.viewport, hasCurrentBet);
 
@@ -613,6 +574,7 @@ class PlayerSeatsOverlay extends StatelessWidget {
           heroId: heroId,
           gameState: gameState,
           theme: theme,
+          uiSpec: uiSpec,
           scene: scene,
           seatPosition: pos,
           heroCardsCache: heroCardsCache,

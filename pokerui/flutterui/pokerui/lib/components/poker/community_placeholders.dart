@@ -21,8 +21,12 @@ class CommunityCardSlots extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final communityRect = layout.scene.communityRect;
+    final uiSpec = PokerUiSpec.fromTheme(
+      theme,
+      viewportSize: layout.scene.screenRect.size,
+    );
     final baseCw = (communityRect.width / 5.4).clamp(28.0, 56.0).toDouble();
-    final cw = (baseCw * theme.cardSizeMultiplier).clamp(20.0, 80.0).toDouble();
+    final cw = uiSpec.scaleCommunityCardWidth(baseCw);
     final ch = cw * 1.4;
     final gap = cw * 0.10;
     final totalW = (_totalSlots * cw) + ((_totalSlots - 1) * gap);

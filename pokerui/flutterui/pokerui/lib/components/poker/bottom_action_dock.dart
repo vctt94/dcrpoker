@@ -301,8 +301,8 @@ class MobileHeroActionPanel extends StatelessWidget {
         final headerSection = LayoutBuilder(
           builder: (context, constraints) {
             final hasLastHandButton = hasLastShowdown && onShowLastHand != null;
-            final cardScale = cardSizeMultiplierFromKey(context.cardSize);
-            final cardWidth = (42.0 * cardScale).clamp(24.0, 60.0).toDouble();
+            final uiSpec = PokerUiSpec.fromContext(context);
+            final cardWidth = uiSpec.heroDockCardSize.width;
             final cardGap = (cardWidth * 0.14).clamp(4.0, 8.0).toDouble();
             final cardsWidth = (cardWidth * 2) + cardGap;
             var trailingWidth = 0.0;
@@ -440,9 +440,10 @@ class _CompactHeroCards extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = PokerThemeConfig.fromContext(context);
-    final cw = (42.0 * theme.cardSizeMultiplier).clamp(24.0, 60.0).toDouble();
-    final ch = cw * 1.4;
+    final uiSpec = PokerUiSpec.fromContext(context);
+    final theme = PokerThemeConfig.fromSpec(uiSpec);
+    final cw = uiSpec.heroDockCardSize.width;
+    final ch = uiSpec.heroDockCardSize.height;
     final gap = (cw * 0.14).clamp(4.0, 8.0).toDouble();
 
     Widget buildCard(int index) {

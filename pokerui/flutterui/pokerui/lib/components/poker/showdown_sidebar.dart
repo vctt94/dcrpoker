@@ -152,6 +152,7 @@ class ShowdownSidebar extends StatelessWidget {
                         model: model,
                         showHeader: false,
                         showCloseButton: false,
+                        cardScale: 1.2,
                       ),
                     ),
                   ),

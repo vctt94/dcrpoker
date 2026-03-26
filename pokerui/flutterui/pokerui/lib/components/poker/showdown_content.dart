@@ -17,12 +17,14 @@ class ShowdownContent extends StatelessWidget {
     this.showHeader = true,
     this.showCloseButton = false,
     this.onClose,
+    this.cardScale = 1.0,
   });
 
   final PokerModel model;
   final bool showHeader;
   final bool showCloseButton;
   final VoidCallback? onClose;
+  final double cardScale;
 
   String _handRankName(pr.HandRank rank) {
     switch (rank) {
@@ -93,6 +95,7 @@ class ShowdownContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uiSpec = PokerUiSpec.fromContext(context);
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
     final communityCards = model.showdownCommunityCards;
     final players = model.showdownPlayers;
@@ -108,7 +111,7 @@ class ShowdownContent extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildBoardStrip(communityCards, cardTheme),
+              _buildBoardStrip(communityCards, cardTheme, uiSpec),
               if (players.isNotEmpty) const SizedBox(height: PokerSpacing.lg),
               if (players.isNotEmpty) ...[
                 Row(
@@ -137,7 +140,7 @@ class ShowdownContent extends StatelessWidget {
                   child: Column(
                     children: [
                       for (int i = 0; i < players.length; i++) ...[
-                        _buildPlayerHandRow(players[i], cardTheme),
+                        _buildPlayerHandRow(players[i], cardTheme, uiSpec),
                         if (i != players.length - 1)
                           Divider(
                             height: 1,
@@ -188,8 +191,10 @@ class ShowdownContent extends StatelessWidget {
   Widget _buildBoardStrip(
     List<pr.Card> communityCards,
     CardColorTheme cardTheme,
+    PokerUiSpec uiSpec,
   ) {
     const totalBoardSlots = 5;
+    final boardCardSize = uiSpec.showdownBoardCardSize(surfaceScale: cardScale);
     return Container(
       key: const Key('showdown-board-strip'),
       padding: const EdgeInsets.all(PokerSpacing.md),
@@ -214,8 +219,8 @@ class ShowdownContent extends StatelessWidget {
             children: List<Widget>.generate(totalBoardSlots, (index) {
               final hasCard = index < communityCards.length;
               return SizedBox(
-                width: 36,
-                height: 52,
+                width: boardCardSize.width,
+                height: boardCardSize.height,
                 child: hasCard
                     ? CardFace(
                         key: Key('showdown-board-card-$index'),
@@ -264,7 +269,11 @@ class ShowdownContent extends StatelessWidget {
     );
   }
 
-  Widget _buildPlayerHandRow(UiPlayer player, CardColorTheme cardTheme) {
+  Widget _buildPlayerHandRow(
+    UiPlayer player,
+    CardColorTheme cardTheme,
+    PokerUiSpec uiSpec,
+  ) {
     final winner = _getWinner(player.id);
     final isWinner = winner != null;
     final isMe = player.id == model.playerId;
@@ -331,6 +340,7 @@ class ShowdownContent extends StatelessWidget {
             player: player,
             showCards: showCards,
             cardTheme: cardTheme,
+            uiSpec: uiSpec,
           ),
         ],
       ),
@@ -341,22 +351,30 @@ class ShowdownContent extends StatelessWidget {
     required UiPlayer player,
     required bool showCards,
     required CardColorTheme cardTheme,
+    required PokerUiSpec uiSpec,
   }) {
+    final playerCardSize =
+        uiSpec.showdownPlayerCardSize(surfaceScale: cardScale);
+
     if (showCards) {
       return Row(
         mainAxisSize: MainAxisSize.min,
-        children: player.hand
-            .map(
-              (card) => Padding(
-                padding: const EdgeInsets.only(left: PokerSpacing.xs),
-                child: SizedBox(
-                  width: 34,
-                  height: 48,
-                  child: CardFace(card: card, cardTheme: cardTheme),
-                ),
+        children: player.hand.asMap().entries.map((entry) {
+          final index = entry.key;
+          final card = entry.value;
+          return Padding(
+            padding: const EdgeInsets.only(left: PokerSpacing.xs),
+            child: SizedBox(
+              width: playerCardSize.width,
+              height: playerCardSize.height,
+              child: CardFace(
+                key: Key('showdown-player-card-${player.id}-$index'),
+                card: card,
+                cardTheme: cardTheme,
               ),
-            )
-            .toList(),
+            ),
+          );
+        }).toList(),
       );
     }
 
@@ -368,8 +386,8 @@ class ShowdownContent extends StatelessWidget {
           (_) => Padding(
             padding: const EdgeInsets.only(left: PokerSpacing.xs),
             child: Container(
-              width: 34,
-              height: 48,
+              width: playerCardSize.width,
+              height: playerCardSize.height,
               decoration: BoxDecoration(
                 color: PokerColors.surfaceBright,
                 borderRadius: BorderRadius.circular(8),
@@ -386,16 +404,24 @@ class ShowdownContent extends StatelessWidget {
       );
     }
 
-    return const Row(
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Padding(
-          padding: EdgeInsets.only(left: PokerSpacing.xs),
-          child: SizedBox(width: 34, height: 48, child: CardBack()),
+          padding: const EdgeInsets.only(left: PokerSpacing.xs),
+          child: SizedBox(
+            width: playerCardSize.width,
+            height: playerCardSize.height,
+            child: CardBack(),
+          ),
         ),
         Padding(
-          padding: EdgeInsets.only(left: PokerSpacing.xs),
-          child: SizedBox(width: 34, height: 48, child: CardBack()),
+          padding: const EdgeInsets.only(left: PokerSpacing.xs),
+          child: SizedBox(
+            width: playerCardSize.width,
+            height: playerCardSize.height,
+            child: CardBack(),
+          ),
         ),
       ],
     );

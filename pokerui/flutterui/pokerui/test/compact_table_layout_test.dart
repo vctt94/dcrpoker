@@ -9,6 +9,7 @@ import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/showdown.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/components/views/game_ended.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
@@ -494,8 +495,95 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    final sidebarCardSize =
+        tester.getSize(find.byKey(const Key('showdown-player-card-p0-0')));
     final scrolledTop = tester.getTopLeft(playerHands).dy;
+    expect(sidebarCardSize.width, greaterThan(38));
+    expect(sidebarCardSize.height, greaterThan(55));
     expect(scrolledTop, lessThan(initialTop));
+  });
+
+  testWidgets('game ended preview enlarges last-hand community cards',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.setShowdownDataForTest(
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [
+            pr.Card()
+              ..value = 'Q'
+              ..suit = 'spades',
+            pr.Card()
+              ..value = 'Q'
+              ..suit = 'hearts',
+          ],
+        ),
+        _player(
+          id: 'villain',
+          name: 'Villain',
+          hand: [
+            pr.Card()
+              ..value = 'J'
+              ..suit = 'clubs',
+            pr.Card()
+              ..value = '10'
+              ..suit = 'clubs',
+          ],
+        ),
+      ],
+      communityCards: [
+        pr.Card()
+          ..value = 'A'
+          ..suit = 'spades',
+        pr.Card()
+          ..value = 'K'
+          ..suit = 'hearts',
+        pr.Card()
+          ..value = '10'
+          ..suit = 'diamonds',
+        pr.Card()
+          ..value = '7'
+          ..suit = 'clubs',
+        pr.Card()
+          ..value = '2'
+          ..suit = 'spades',
+      ],
+      pot: 180,
+      winners: const [
+        UiWinner(
+          playerId: 'hero',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 180,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        child: GameEndedView(model: model),
+        size: const Size(430, 900),
+      ),
+    );
+    await tester.pump();
+
+    final boardCardSize =
+        tester.getSize(find.byKey(const Key('game-ended-showdown-card-0')));
+
+    expect(boardCardSize.width, greaterThan(45));
+    expect(boardCardSize.height, greaterThan(65));
+    final viewShowdownButton =
+        find.byKey(const Key('game-ended-view-showdown-button'));
+    expect(viewShowdownButton, findsOneWidget);
+
+    await tester.ensureVisible(viewShowdownButton);
+    await tester.tap(viewShowdownButton);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('last-showdown-dialog')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

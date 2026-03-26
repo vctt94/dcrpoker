@@ -114,6 +114,13 @@ Rect _fitTableRect(
   );
 }
 
+double _clampToAvailable(double value, double min, double max) {
+  if (max <= min) {
+    return max;
+  }
+  return value.clamp(min, max).toDouble();
+}
+
 class PokerSceneLayout {
   const PokerSceneLayout({
     required this.mode,
@@ -290,8 +297,11 @@ class PokerSceneLayout {
       PokerLayoutMode.standard => 0.58,
       PokerLayoutMode.wide => 0.58,
     };
-    final boardWidth =
-        (tableRect.width * boardWidthFactor).clamp(148.0, tableRect.width);
+    final boardWidth = _clampToAvailable(
+      tableRect.width * boardWidthFactor,
+      148.0,
+      tableRect.width,
+    );
     final maxBoardHeight = (tableRect.height *
             (mode == PokerLayoutMode.compactPortrait
                 ? 0.145
@@ -314,8 +324,11 @@ class PokerSceneLayout {
     );
 
     final potHeight = (communityCardHeight * 0.72).clamp(28.0, 44.0);
-    final potWidth =
-        (communityWidth * 0.62).clamp(120.0, tableRect.width * 0.64);
+    final potWidth = _clampToAvailable(
+      communityWidth * 0.62,
+      120.0,
+      tableRect.width * 0.64,
+    );
     final potTop = math.min(
       communityRect.bottom + gap * 0.8,
       tableRect.bottom - potHeight - gap * 2.2,
