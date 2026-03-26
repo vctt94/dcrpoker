@@ -601,11 +601,13 @@ func TestStateShowdownForcesWinnerRevealViaFSM(t *testing.T) {
 	require.Equal(t, "p1", revealEvt.RevealInfo[0].PlayerID)
 	require.Len(t, revealEvt.RevealInfo[0].Cards, 2)
 
+	game.mu.RLock()
 	winner := game.getPlayerByID("p1")
 	require.NotNil(t, winner)
 	winner.mu.RLock()
 	revealed := winner.revealed
 	winner.mu.RUnlock()
+	game.mu.RUnlock()
 	require.True(t, revealed, "winner reveal state should be owned by the player FSM")
 
 	close(in)
@@ -687,11 +689,13 @@ func TestStateShowdownDoesNotForceRevealFoldWinner(t *testing.T) {
 	require.NotNil(t, showdownEvt)
 	require.Nil(t, revealEvt, "uncontested fold winner must not be auto-revealed")
 
+	game.mu.RLock()
 	winner := game.getPlayerByID("p1")
 	require.NotNil(t, winner)
 	winner.mu.RLock()
 	revealed := winner.revealed
 	winner.mu.RUnlock()
+	game.mu.RUnlock()
 	require.False(t, revealed, "fold winner should remain hidden unless explicitly revealed")
 
 	close(in)
