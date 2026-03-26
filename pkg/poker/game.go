@@ -888,6 +888,41 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 		for _, w := range result.WinnerInfo {
 			winnerInfoByID[w.PlayerId] = w
 		}
+		showdownContested := false
+		activeAtShowdown := 0
+		for _, p := range g.players {
+			if p == nil {
+				continue
+			}
+			if p.GetCurrentStateString() == FOLDED_STATE {
+				continue
+			}
+			activeAtShowdown++
+			if activeAtShowdown > 1 {
+				showdownContested = true
+				break
+			}
+		}
+		forcedReveals := make([]AutoRevealPlayer, 0, len(result.WinnerInfo))
+		if showdownContested {
+			for _, w := range result.WinnerInfo {
+				if len(w.BestHand) == 0 {
+					continue
+				}
+				cards, err := g.forceRevealShowdownWinner(w.PlayerId)
+				if err != nil {
+					g.log.Warnf("stateShowdown: failed to reveal showdown winner %s: %v", w.PlayerId, err)
+					continue
+				}
+				if len(cards) == 0 {
+					continue
+				}
+				forcedReveals = append(forcedReveals, AutoRevealPlayer{
+					PlayerID: w.PlayerId,
+					Cards:    cards,
+				})
+			}
+		}
 
 		result.Players = make([]ShowdownPlayerInfo, 0, len(g.players))
 		for idx, p := range g.players {
@@ -921,6 +956,9 @@ func stateShowdown(g *Game, in <-chan any) GameStateFn {
 
 		// Send the showdown result to the table
 		g.sendTableEvent(GameEvent{Type: GameEventShowdownComplete, ShowdownResult: result})
+		if len(forcedReveals) > 0 {
+			g.sendTableEvent(GameEvent{Type: GameEventAutoShowCards, RevealInfo: forcedReveals})
+		}
 	}
 
 	// Snapshot players slice for post-settlement notifications.
@@ -1786,10 +1824,51 @@ type ShowdownResult struct {
 	Players []ShowdownPlayerInfo
 }
 
-// AutoRevealPlayer captures the cards that should be auto-revealed when all players are all-in.
+// AutoRevealPlayer captures cards revealed automatically by the game FSM.
 type AutoRevealPlayer struct {
 	PlayerID string
 	Cards    []*pokerrpc.Card
+}
+
+// forceRevealShowdownWinner reveals an obligated showdown winner via the player FSM.
+// Requires: g.mu held.
+func (g *Game) forceRevealShowdownWinner(playerID string) ([]*pokerrpc.Card, error) {
+	mustHeld(&g.mu)
+
+	if g.currentHand == nil {
+		return nil, fmt.Errorf("no active hand")
+	}
+	player := g.getPlayerByID(playerID)
+	if player == nil {
+		return nil, fmt.Errorf("player %s not found", playerID)
+	}
+
+	player.mu.RLock()
+	if player.revealed {
+		player.mu.RUnlock()
+		return nil, nil
+	}
+	hp := player.handParticipation
+	player.mu.RUnlock()
+	if hp == nil {
+		return nil, fmt.Errorf("player %s hand participation not started", playerID)
+	}
+
+	reply := make(chan error, 1)
+	hp.Send(evRevealCards{Reply: reply})
+	if err := <-reply; err != nil {
+		return nil, err
+	}
+
+	cards := g.currentHand.GetPlayerCards(playerID)
+	if len(cards) == 0 {
+		return nil, nil
+	}
+	revealed := make([]*pokerrpc.Card, 0, len(cards))
+	for _, c := range cards {
+		revealed = append(revealed, toProtoCard(c))
+	}
+	return revealed, nil
 }
 
 // toProtoCard converts an internal Card to a pokerrpc.Card
