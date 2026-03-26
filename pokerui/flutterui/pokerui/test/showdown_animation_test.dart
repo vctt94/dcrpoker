@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:provider/provider.dart';
+import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/player_seat.dart';
+import 'package:pokerui/components/poker/pot_display.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/showdown.dart';
 import 'package:pokerui/components/poker/table.dart';
@@ -10,7 +13,6 @@ import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/views/hand_in_progress.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
-import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 /// Mock PokerModel for testing animations without server
 /// This extends PokerModel and provides minimal stubs for testing
@@ -124,12 +126,15 @@ UiPlayer _createPlayer({
   bool isSmallBlind = false,
   bool isBigBlind = false,
   int tableSeat = 0,
+  List<pr.Card> hand = const [],
+  bool cardsRevealed = false,
+  String handDesc = '',
 }) {
   return UiPlayer(
     id: id,
     name: name,
     balance: balance,
-    hand: const [],
+    hand: hand,
     currentBet: currentBet,
     folded: folded,
     isTurn: isTurn,
@@ -139,8 +144,9 @@ UiPlayer _createPlayer({
     isBigBlind: isBigBlind,
     isReady: true,
     isDisconnected: false,
-    handDesc: '',
+    handDesc: handDesc,
     tableSeat: tableSeat,
+    cardsRevealed: cardsRevealed,
   );
 }
 
@@ -291,6 +297,7 @@ void main() {
       model.lastWinners = [
         _createWinner(playerId: heroId, winnings: 500),
       ];
+      model.triggerShowdownAnimation();
 
       await tester.pumpWidget(
         _wrapWithProviders(
@@ -331,6 +338,509 @@ void main() {
 
       // After animation completes (900ms total), chips should eventually be hidden
       // when raw >= 1.0, but the test verifies the animation ran
+    });
+
+    testWidgets('Revealed showdown cards are visible immediately',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(
+            id: 'player2',
+            name: 'Player 2',
+            tableSeat: 1,
+            hand: [
+              pr.Card(value: 'A', suit: 'Spades'),
+              pr.Card(value: 'K', suit: 'Hearts'),
+            ],
+            cardsRevealed: true,
+          ),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: 'player2', winnings: 500),
+      ];
+      model.triggerShowdownAnimation();
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('seat-card-face-player2-0')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Pot stays visible before payout and hides once payout starts',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(
+            id: 'winner',
+            name: 'Winner',
+            tableSeat: 1,
+            hand: [
+              pr.Card(value: 'A', suit: 'Spades'),
+              pr.Card(value: 'K', suit: 'Hearts'),
+            ],
+            cardsRevealed: true,
+          ),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: 'winner', winnings: 500),
+      ];
+      model.triggerShowdownAnimation();
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      AnimatedOpacity potDisplay() =>
+          tester.widget(find.byKey(const Key('poker-pot-display')));
+
+      expect(potDisplay().opacity, equals(1.0));
+
+      await tester
+          .pump(kShowdownPayoutDelay - const Duration(milliseconds: 20));
+      expect(potDisplay().opacity, equals(1.0));
+
+      await tester.pump(const Duration(milliseconds: 40));
+      expect(potDisplay().opacity, equals(0.0));
+    });
+
+    testWidgets('Showdown keeps cached pot visible when live pot is zeroed',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      final players = [
+        _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+        _createPlayer(
+          id: 'winner',
+          name: 'Winner',
+          tableSeat: 1,
+          hand: [
+            pr.Card(value: 'A', suit: 'Spades'),
+            pr.Card(value: 'K', suit: 'Hearts'),
+          ],
+          cardsRevealed: true,
+        ),
+      ];
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: players,
+        communityCards: const [],
+        pot: 0,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.setShowdownDataForTest(
+        players: players,
+        communityCards: const [],
+        pot: 500,
+        winners: [
+          _createWinner(playerId: 'winner', winnings: 500),
+        ],
+      );
+      model.triggerShowdownAnimation();
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('poker-pot-display')), findsOneWidget);
+      expect(find.text('Pot: 500'), findsOneWidget);
+    });
+
+    testWidgets('Showdown hands stay hidden until cards are revealed',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(
+            id: 'winner',
+            name: 'Winner',
+            tableSeat: 1,
+            hand: [
+              pr.Card(value: 'A', suit: 'Spades'),
+              pr.Card(value: 'A', suit: 'Hearts'),
+            ],
+            cardsRevealed: false,
+          ),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: 'winner', winnings: 500),
+      ];
+      model.triggerShowdownAnimation();
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('seat-card-face-winner-0')),
+        findsNothing,
+      );
+      expect(find.byType(CardBack), findsNWidgets(2));
+    });
+
+    testWidgets('Triggering payout does not hide visible showdown cards',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(
+            id: 'winner',
+            name: 'Winner',
+            tableSeat: 1,
+            hand: [
+              pr.Card(value: 'A', suit: 'Spades'),
+              pr.Card(value: 'A', suit: 'Hearts'),
+            ],
+            cardsRevealed: true,
+          ),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: 'winner', winnings: 500),
+      ];
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('seat-card-face-winner-0')),
+        findsOneWidget,
+      );
+
+      model.triggerShowdownAnimation();
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('seat-card-face-winner-0')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('seat-card-back-winner-0')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('Hero showdown cards stay visible immediately',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(
+            id: heroId,
+            name: 'Hero',
+            tableSeat: 0,
+            hand: [
+              pr.Card(value: 'A', suit: 'Spades'),
+              pr.Card(value: 'Q', suit: 'Clubs'),
+            ],
+            cardsRevealed: true,
+          ),
+          _createPlayer(id: 'player2', name: 'Player 2', tableSeat: 1),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: heroId, winnings: 500),
+      ];
+      model.triggerShowdownAnimation();
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 390,
+                height: 844,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('seat-card-face-player1-0')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Showdown displays a compact board result label',
+        (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(
+            id: 'winner',
+            name: 'Winner',
+            tableSeat: 1,
+            handDesc: 'Two Pair, Sevens and Sixes',
+          ),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: 'winner', winnings: 500),
+      ];
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byKey(const Key('showdown-board-label')), findsOneWidget);
+      expect(find.text('Two Pair, Sevens and Sixes'), findsOneWidget);
+    });
+
+    testWidgets('Winner seat shows payout text', (WidgetTester tester) async {
+      const heroId = 'player1';
+      final model = MockPokerModel(playerId: heroId);
+
+      model.game = UiGameState(
+        tableId: 'test-table',
+        phase: pr.GamePhase.SHOWDOWN,
+        phaseName: 'Showdown',
+        players: [
+          _createPlayer(id: heroId, name: 'Hero', tableSeat: 0),
+          _createPlayer(id: 'winner', name: 'Winner', tableSeat: 1),
+        ],
+        communityCards: const [],
+        pot: 500,
+        currentBet: 0,
+        currentPlayerId: '',
+        minRaise: 0,
+        maxRaise: 0,
+        smallBlind: 10,
+        bigBlind: 20,
+        gameStarted: true,
+        playersRequired: 2,
+        playersJoined: 2,
+        timeBankSeconds: 30,
+        turnDeadlineUnixMs: 0,
+      );
+      model.lastWinners = [
+        _createWinner(playerId: 'winner', winnings: 500),
+      ];
+
+      await tester.pumpWidget(
+        _wrapWithProviders(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 800,
+                height: 450,
+                child: ShowdownView(model: model),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('showdown-seat-payout-winner')),
+        findsOneWidget,
+      );
+      expect(find.text('Won 500'), findsOneWidget);
     });
 
     testWidgets('Multiple winners receive chips', (WidgetTester tester) async {

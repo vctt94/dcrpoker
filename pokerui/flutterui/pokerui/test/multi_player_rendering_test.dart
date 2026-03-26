@@ -137,7 +137,7 @@ Future<void> _pumpTable(
   required UiGameState gameState,
   required FocusNode focusNode,
   Size size = const Size(800, 450),
-  bool showHeroCardsOverlay = true,
+  bool showHeroSeatCards = true,
 }) async {
   await tester.pumpWidget(
     _wrapWithProviders(
@@ -151,7 +151,7 @@ Future<void> _pumpTable(
               child: pokerGame.buildWidget(
                 gameState,
                 focusNode,
-                showHeroCardsOverlay: showHeroCardsOverlay,
+                showHeroSeatCards: showHeroSeatCards,
               ),
             ),
           ),
@@ -432,7 +432,7 @@ void main() {
                 child: pokerGame.buildWidget(
                   model.game!,
                   focusNode,
-                  showHeroCardsOverlay: false,
+                  showHeroSeatCards: false,
                 ),
               ),
             ),

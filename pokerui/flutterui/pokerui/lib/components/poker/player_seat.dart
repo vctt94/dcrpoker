@@ -26,17 +26,16 @@ bool _showCardsPhase(pr.GamePhase phase) {
 }
 
 bool _showSeatCards(UiPlayer player, bool isHero, UiGameState gameState) {
+  final hasShowdownHand =
+      gameState.phase == pr.GamePhase.SHOWDOWN && player.hand.isNotEmpty;
   return !isHero &&
       _showCardsPhase(gameState.phase) &&
-      !(player.folded && !player.cardsRevealed);
+      !(player.folded && !player.cardsRevealed && !hasShowdownHand);
 }
 
 bool _showSeatFaceUpCards(UiPlayer player, UiGameState gameState,
     {required bool showCards}) {
-  final isShowdown = gameState.phase == pr.GamePhase.SHOWDOWN;
-  return showCards &&
-      (!isShowdown || player.cardsRevealed) &&
-      player.hand.isNotEmpty;
+  return showCards && player.cardsRevealed && player.hand.isNotEmpty;
 }
 
 bool _showSeatCardBacks(UiPlayer player, UiGameState gameState,
@@ -82,6 +81,8 @@ class _ResolvedSeatLayout {
     required this.displayName,
     required this.isHero,
     required this.isCurrent,
+    required this.isShowdown,
+    required this.showdownWinnings,
     required this.seatColor,
     required this.cards,
     required this.showFaceUpCards,
@@ -118,6 +119,8 @@ class _ResolvedSeatLayout {
   final String displayName;
   final bool isHero;
   final bool isCurrent;
+  final bool isShowdown;
+  final int showdownWinnings;
   final Color seatColor;
   final List<pr.Card> cards;
   final bool showFaceUpCards;
@@ -148,6 +151,8 @@ class _ResolvedSeatLayout {
   final double cardTop;
   final Offset? betAnchor;
   final _SeatCardMetrics? railMetrics;
+
+  bool get isShowdownWinner => isShowdown && showdownWinnings > 0;
 }
 
 _SeatCardMetrics _seatCardMetrics(
@@ -174,7 +179,10 @@ double _seatInfoPlateWidth({
 double _seatInfoPlateHeight(UiPlayer player,
     {required bool isHero,
     required double uiScale,
-    required PokerLayoutMode mode}) {
+    required PokerLayoutMode mode,
+    required bool isShowdown,
+    required int showdownWinnings}) {
+  final isShowdownWinner = isShowdown && showdownWinnings > 0;
   final compactOpponent = !isHero && mode == PokerLayoutMode.compactPortrait;
   var height = (compactOpponent ? 34.0 : 38.0) * uiScale;
   final statusCount = [
@@ -185,7 +193,10 @@ double _seatInfoPlateHeight(UiPlayer player,
   if (statusCount > 0) {
     height += 16.0 * uiScale;
   }
-  if (player.isAllIn) {
+  if (!isShowdown && player.isAllIn) {
+    height += 18.0 * uiScale;
+  }
+  if (isShowdownWinner) {
     height += 18.0 * uiScale;
   }
   if (isHero) {
@@ -286,15 +297,17 @@ _ResolvedSeatLayout _resolveSeatLayout({
   required UiPlayer player,
   required String heroId,
   required UiGameState gameState,
-  required PokerThemeConfig theme,
   required PokerUiSpec uiSpec,
   required PokerSceneLayout scene,
   required Offset seatPosition,
   required List<pr.Card> heroCardsCache,
   required bool showHeroCardsInSeat,
+  Map<String, int> showdownWinningsByPlayer = const {},
 }) {
   final isHeroSeat = player.id == heroId;
   final isCurrent = player.id == gameState.currentPlayerId && !player.folded;
+  final isShowdown = gameState.phase == pr.GamePhase.SHOWDOWN;
+  final showdownWinnings = showdownWinningsByPlayer[player.id] ?? 0;
   final displayName = player.name.isNotEmpty ? player.name : 'Player';
   final seatColor = isHeroSeat
       ? PokerColors.heroSeat
@@ -340,6 +353,8 @@ _ResolvedSeatLayout _resolveSeatLayout({
     isHero: isHeroSeat,
     uiScale: uiScale,
     mode: scene.mode,
+    isShowdown: isShowdown,
+    showdownWinnings: showdownWinnings,
   );
   final coreWidth = basePlateLeft + plateWidth + 2.0;
   final shouldMirror = !isHeroSeat &&
@@ -483,6 +498,8 @@ _ResolvedSeatLayout _resolveSeatLayout({
     displayName: displayName,
     isHero: isHeroSeat,
     isCurrent: isCurrent,
+    isShowdown: isShowdown,
+    showdownWinnings: showdownWinnings,
     seatColor: seatColor,
     cards: cards,
     showFaceUpCards: showFaceUpCards,
@@ -532,6 +549,7 @@ Map<String, Offset> seatAvatarCentersFor({
   required TableLayout layout,
   List<pr.Card> heroCardsCache = const [],
   bool showHeroCardsInSeat = false,
+  List<UiWinner> showdownWinners = const [],
 }) {
   if (gameState.players.isEmpty) return const {};
 
@@ -554,6 +572,9 @@ Map<String, Offset> seatAvatarCentersFor({
   );
 
   final centers = <String, Offset>{};
+  final showdownWinningsByPlayer = {
+    for (final winner in showdownWinners) winner.playerId: winner.winnings,
+  };
   for (final player in gameState.players) {
     final pos = seats[player.id];
     if (pos == null) continue;
@@ -561,12 +582,12 @@ Map<String, Offset> seatAvatarCentersFor({
       player: player,
       heroId: heroId,
       gameState: gameState,
-      theme: theme,
       uiSpec: uiSpec,
       scene: layout.scene,
       seatPosition: pos,
       heroCardsCache: heroCardsCache,
       showHeroCardsInSeat: showHeroCardsInSeat,
+      showdownWinningsByPlayer: showdownWinningsByPlayer,
     );
     centers[player.id] = seatLayout.seatCenter;
   }
@@ -583,6 +604,7 @@ class PlayerSeatsOverlay extends StatelessWidget {
     required this.theme,
     this.heroCardsCache = const [],
     this.showHeroCardsInSeat = false,
+    this.showdownWinners = const [],
     this.aspectRatio = 16 / 9,
   });
 
@@ -592,6 +614,7 @@ class PlayerSeatsOverlay extends StatelessWidget {
   final PokerThemeConfig theme;
   final List<pr.Card> heroCardsCache;
   final bool showHeroCardsInSeat;
+  final List<UiWinner> showdownWinners;
   final double aspectRatio;
 
   @override
@@ -603,6 +626,9 @@ class PlayerSeatsOverlay extends StatelessWidget {
           PokerUiSpec.fromTheme(theme, viewportSize: scene.screenRect.size);
       final hasCurrentBet = gameState.currentBet > 0;
       final minSeat = minSeatTopFor(resolvedLayout.viewport, hasCurrentBet);
+      final showdownWinningsByPlayer = {
+        for (final winner in showdownWinners) winner.playerId: winner.winnings,
+      };
 
       final seats = seatPositionsFor(
         gameState.players,
@@ -624,12 +650,12 @@ class PlayerSeatsOverlay extends StatelessWidget {
           player: player,
           heroId: heroId,
           gameState: gameState,
-          theme: theme,
           uiSpec: uiSpec,
           scene: scene,
           seatPosition: pos,
           heroCardsCache: heroCardsCache,
           showHeroCardsInSeat: showHeroCardsInSeat,
+          showdownWinningsByPlayer: showdownWinningsByPlayer,
         );
 
         children.add(Positioned(
@@ -714,14 +740,20 @@ class _PlayerSeatWidget extends StatelessWidget {
       turnDeadlineMs: layout.turnDeadlineMs,
       timeBankSeconds: layout.timeBankSeconds,
       isAutoAdvance: layout.isAutoAdvance,
+      isShowdownWinner: layout.isShowdownWinner,
       holeCards: const [],
       showCardBacks: false,
       cardScale: layout.cardScale,
+    );
+    final infoPlate = _SeatInfoPlate(
+      key: ValueKey('seat_plate_${layout.player.id}'),
+      layout: layout,
     );
     final core = _SeatCore(
       key: ValueKey('seat_core_${layout.player.id}'),
       layout: layout,
       avatar: avatar,
+      infoPlate: infoPlate,
     );
 
     if (layout.reserveRail && layout.railMetrics != null) {
@@ -738,6 +770,7 @@ class _PlayerSeatWidget extends StatelessWidget {
                 left: layout.cardLeft,
                 child: _SeatCardsRail(
                   key: ValueKey('seat_cards_${layout.player.id}'),
+                  seatId: layout.player.id,
                   metrics: layout.railMetrics!,
                   cards: layout.showFaceUpCards || layout.isHero
                       ? layout.cards
@@ -772,27 +805,48 @@ class _PlayerSeatWidget extends StatelessWidget {
 class _SeatCardsRail extends StatelessWidget {
   const _SeatCardsRail({
     super.key,
+    required this.seatId,
     required this.metrics,
     required this.cards,
     required this.showCardBacks,
   });
 
+  final String seatId;
   final _SeatCardMetrics metrics;
   final List<pr.Card> cards;
   final bool showCardBacks;
 
-  @override
-  Widget build(BuildContext context) {
-    Widget buildCard(int index) {
-      if (cards.length > index) {
-        return FlipCard(faceUp: true, card: cards[index]);
-      }
+  Widget _buildCard(int index) {
+    if (cards.length <= index) {
       if (showCardBacks) {
         return const CardBack();
       }
       return const SizedBox.shrink();
     }
 
+    final faceUp = !showCardBacks;
+    final visualKey = ValueKey(
+      faceUp
+          ? 'seat-card-face-$seatId-$index'
+          : 'seat-card-back-$seatId-$index',
+    );
+
+    return KeyedSubtree(
+      key: visualKey,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: FlipCard(
+          faceUp: faceUp,
+          card: cards[index],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return SizedBox(
       width: metrics.railWidth,
       height: metrics.height,
@@ -805,14 +859,14 @@ class _SeatCardsRail extends StatelessWidget {
               width: metrics.width,
               height: metrics.height,
               angle: -0.05,
-              child: buildCard(0),
+              child: _buildCard(0),
             ),
             SizedBox(width: metrics.gap),
             _SeatRailCard(
               width: metrics.width,
               height: metrics.height,
               angle: 0.05,
-              child: buildCard(1),
+              child: _buildCard(1),
             ),
           ],
         ),
@@ -852,10 +906,12 @@ class _SeatCore extends StatelessWidget {
     super.key,
     required this.layout,
     required this.avatar,
+    required this.infoPlate,
   });
 
   final _ResolvedSeatLayout layout;
   final Widget avatar;
+  final Widget infoPlate;
 
   @override
   Widget build(BuildContext context) {
@@ -868,10 +924,7 @@ class _SeatCore extends StatelessWidget {
           Positioned(
             left: layout.plateLeft,
             top: (layout.coreHeight - layout.plateHeight) / 2,
-            child: _SeatInfoPlate(
-              key: ValueKey('seat_plate_${layout.player.id}'),
-              layout: layout,
-            ),
+            child: infoPlate,
           ),
           Positioned(
             left: layout.avatarLeft,
@@ -894,6 +947,9 @@ class _SeatInfoPlate extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isShowdownWinner = layout.isShowdownWinner;
+    final showAllInBadge = layout.player.isAllIn && !layout.isShowdown;
+
     final statusBadges = <Widget>[
       if (layout.player.isSmallBlind)
         _InlineSeatBadge(
@@ -944,9 +1000,11 @@ class _SeatInfoPlate extends StatelessWidget {
             : (layout.isHero ? PokerColors.surface : PokerColors.surfaceDim),
         borderRadius: BorderRadius.circular(12 * layout.uiScale),
         border: Border.all(
-          color: layout.isCurrent
-              ? PokerColors.turnHighlight.withValues(alpha: 0.5)
-              : PokerColors.borderSubtle.withValues(alpha: 0.8),
+          color: isShowdownWinner
+              ? const Color(0xFFE8C35A).withValues(alpha: 0.92)
+              : (layout.isCurrent
+                  ? PokerColors.turnHighlight.withValues(alpha: 0.5)
+                  : PokerColors.borderSubtle.withValues(alpha: 0.8)),
           width: 1,
         ),
         boxShadow: [
@@ -955,6 +1013,12 @@ class _SeatInfoPlate extends StatelessWidget {
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
+          if (isShowdownWinner)
+            BoxShadow(
+              color: const Color(0xFFE8C35A).withValues(alpha: 0.18),
+              blurRadius: 14 * layout.uiScale,
+              spreadRadius: 1.2 * layout.uiScale,
+            ),
         ],
       ),
       child: Column(
@@ -1013,8 +1077,28 @@ class _SeatInfoPlate extends StatelessWidget {
               if (statusColumn != null) statusColumn,
             ],
           ),
-          if (layout.player.isAllIn) SizedBox(height: 5 * layout.uiScale),
-          if (layout.player.isAllIn)
+          if (isShowdownWinner) SizedBox(height: 5 * layout.uiScale),
+          if (isShowdownWinner)
+            Container(
+              key: ValueKey('showdown-seat-payout-${layout.player.id}'),
+              padding: EdgeInsets.symmetric(
+                horizontal: 8 * layout.uiScale,
+                vertical: 3 * layout.uiScale,
+              ),
+              decoration: BoxDecoration(
+                color: const Color(0xFF3A2B0C),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                'Won ${layout.showdownWinnings}',
+                style: PokerTypography.badgeLabel.copyWith(
+                  fontSize: 10 * layout.uiScale,
+                  color: const Color(0xFFFFE39A),
+                ),
+              ),
+            ),
+          if (showAllInBadge) SizedBox(height: 5 * layout.uiScale),
+          if (showAllInBadge)
             Container(
               padding: EdgeInsets.symmetric(
                 horizontal: 8 * layout.uiScale,
@@ -1055,6 +1139,7 @@ class _AvatarCircle extends StatefulWidget {
     required this.turnDeadlineMs,
     required this.timeBankSeconds,
     required this.isAutoAdvance,
+    required this.isShowdownWinner,
     this.holeCards = const [],
     this.showCardBacks = false,
     this.cardScale = 1.0,
@@ -1062,7 +1147,12 @@ class _AvatarCircle extends StatefulWidget {
 
   final Color color;
   final double radius, uiScale, cardScale;
-  final bool isCurrent, isFolded, isDisconnected, isHero, isAutoAdvance;
+  final bool isCurrent,
+      isFolded,
+      isDisconnected,
+      isHero,
+      isAutoAdvance,
+      isShowdownWinner;
   final bool showCardBacks;
   final int turnDeadlineMs;
   final int timeBankSeconds;
@@ -1228,6 +1318,14 @@ class _AvatarCircleState extends State<_AvatarCircle>
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: widget.color,
+                boxShadow: [
+                  if (widget.isShowdownWinner)
+                    BoxShadow(
+                      color: const Color(0xFFE8C35A).withValues(alpha: 0.34),
+                      blurRadius: 18 * widget.uiScale,
+                      spreadRadius: 2 * widget.uiScale,
+                    ),
+                ],
                 border: Border.all(
                   color: widget.isDisconnected
                       ? Colors.orangeAccent
