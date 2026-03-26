@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:pokerui/models/poker.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/config.dart';
-import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/shadows.dart';
+import 'package:pokerui/theme/spacing.dart';
+import 'package:pokerui/theme/typography.dart';
 
-/// Reusable widget that displays showdown content (community cards, player hands, winners).
-/// Can be used in both dialogs and sidebars.
+/// Reusable widget that displays showdown content (player hands and winners).
 class ShowdownContent extends StatelessWidget {
   const ShowdownContent({
     super.key,
@@ -14,12 +17,14 @@ class ShowdownContent extends StatelessWidget {
     this.showHeader = true,
     this.showCloseButton = false,
     this.onClose,
+    this.cardScale = 1.0,
   });
 
   final PokerModel model;
   final bool showHeader;
   final bool showCloseButton;
   final VoidCallback? onClose;
+  final double cardScale;
 
   String _handRankName(pr.HandRank rank) {
     switch (rank) {
@@ -52,27 +57,45 @@ class ShowdownContent extends StatelessWidget {
     final players = model.showdownPlayers;
     final idx = players.indexWhere((p) => p.id == playerId);
     if (idx >= 0) {
-      final p = players[idx];
-      if (p.name.isNotEmpty) return p.name;
+      final player = players[idx];
+      if (player.name.isNotEmpty) return player.name;
       return 'Player ${idx + 1}';
     }
     return playerId.length > 8 ? '${playerId.substring(0, 8)}...' : playerId;
   }
 
   bool _isWinner(String playerId) {
-    return model.lastWinners.any((w) => w.playerId == playerId);
+    return model.lastWinners.any((winner) => winner.playerId == playerId);
   }
 
   UiWinner? _getWinner(String playerId) {
     try {
-      return model.lastWinners.firstWhere((w) => w.playerId == playerId);
+      return model.lastWinners
+          .firstWhere((winner) => winner.playerId == playerId);
     } catch (_) {
       return null;
     }
   }
 
+  String _playerSummary(UiPlayer player, UiWinner? winner) {
+    final parts = <String>[];
+    if (winner != null) {
+      parts.add(_handRankName(winner.handRank));
+      if (winner.winnings > 0) {
+        parts.add('+${winner.winnings}');
+      }
+    } else if (player.handDesc.trim().isNotEmpty) {
+      parts.add(player.handDesc.trim());
+    }
+    if (player.folded) {
+      parts.add('Folded');
+    }
+    return parts.join(' • ');
+  }
+
   @override
   Widget build(BuildContext context) {
+    final uiSpec = PokerUiSpec.fromContext(context);
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
     final communityCards = model.showdownCommunityCards;
     final players = model.showdownPlayers;
@@ -80,189 +103,84 @@ class ShowdownContent extends StatelessWidget {
     final pot = model.showdownPot;
 
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Header
-        if (showHeader)
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.black.withOpacity(0.3),
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.history, color: Colors.amber, size: 24),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    winners.isNotEmpty ? 'Showdown' : 'Last Showdown',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                if (pot > 0)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.amber.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.amber.withOpacity(0.5)),
-                    ),
-                    child: Text(
-                      'Pot: $pot',
-                      style: const TextStyle(
-                        color: Colors.amber,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                if (showCloseButton && onClose != null) ...[
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: onClose,
-                    icon: const Icon(Icons.close, color: Colors.white70),
-                    tooltip: 'Close',
-                  ),
-                ],
-              ],
-            ),
-          ),
-
-        // Community Cards
-        if (communityCards.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                const Text(
-                  'Community Cards',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 8),
+        if (showHeader) _buildHeader(winners.isNotEmpty, pot),
+        Padding(
+          padding: const EdgeInsets.all(PokerSpacing.lg),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildBoardStrip(communityCards, cardTheme, uiSpec),
+              if (players.isNotEmpty) const SizedBox(height: PokerSpacing.lg),
+              if (players.isNotEmpty) ...[
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: communityCards.map((card) {
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: SizedBox(
-                        width: 50,
-                        height: 70,
-                        child: CardFace(card: card, cardTheme: cardTheme),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
-          ),
-
-        const Divider(color: Colors.white24, height: 1),
-
-        // Winners Section
-        if (winners.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.all(12),
-            color: Colors.green.withOpacity(0.1),
-            child: Column(
-              children: [
-                const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.emoji_events, color: Colors.amber, size: 20),
-                    SizedBox(width: 6),
                     Text(
-                      'Winner',
-                      style: TextStyle(
-                        color: Colors.amber,
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
+                      'Hands',
+                      style: PokerTypography.labelLarge.copyWith(
+                        color: PokerColors.textSecondary,
                       ),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${players.length} players',
+                      style: PokerTypography.labelSmall,
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                for (final winner in winners)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          child: Text(
-                            _playerLabel(winner.playerId),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            '${_handRankName(winner.handRank)} (+${winner.winnings})',
-                            style: const TextStyle(
-                              color: Colors.greenAccent,
-                              fontSize: 13,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
+                const SizedBox(height: PokerSpacing.sm),
+                Container(
+                  decoration: BoxDecoration(
+                    color: PokerColors.surfaceDim,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: PokerColors.borderSubtle),
+                    boxShadow: PokerShadows.subtle,
                   ),
-              ],
-            ),
-          ),
-
-        const Divider(color: Colors.white24, height: 1),
-
-        // Players and their hands
-        Flexible(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              children: [
-                const Text(
-                  'Player Hands',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                  child: Column(
+                    children: [
+                      for (int i = 0; i < players.length; i++) ...[
+                        _buildPlayerHandRow(players[i], cardTheme, uiSpec),
+                        if (i != players.length - 1)
+                          Divider(
+                            height: 1,
+                            color: PokerColors.borderSubtle.withOpacity(0.8),
+                          ),
+                      ],
+                    ],
                   ),
                 ),
-                const SizedBox(height: 12),
-                for (final player in players)
-                  _buildPlayerHandRow(player),
               ],
-            ),
+            ],
           ),
         ),
-
-        // Close button
         if (showCloseButton && onClose != null)
           Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(
+              PokerSpacing.lg,
+              0,
+              PokerSpacing.lg,
+              PokerSpacing.lg,
+            ),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: onClose,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  backgroundColor: PokerColors.primary,
+                  foregroundColor: PokerColors.textPrimary,
+                  padding:
+                      const EdgeInsets.symmetric(vertical: PokerSpacing.md),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Close'),
+                child: Text(
+                  'Close',
+                  style: PokerTypography.titleSmall.copyWith(
+                    color: PokerColors.textPrimary,
+                  ),
+                ),
               ),
             ),
           ),
@@ -270,130 +188,258 @@ class ShowdownContent extends StatelessWidget {
     );
   }
 
-  Widget _buildPlayerHandRow(UiPlayer player) {
-    final isWinner = _isWinner(player.id);
-    final winner = _getWinner(player.id);
-    final isMe = player.id == model.playerId;
-    final showCards = player.hand.isNotEmpty &&
-        (!player.folded || player.cardsRevealed || isMe);
-
+  Widget _buildBoardStrip(
+    List<pr.Card> communityCards,
+    CardColorTheme cardTheme,
+    PokerUiSpec uiSpec,
+  ) {
+    const totalBoardSlots = 5;
+    final boardCardSize = uiSpec.showdownBoardCardSize(surfaceScale: cardScale);
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(10),
+      key: const Key('showdown-board-strip'),
+      padding: const EdgeInsets.all(PokerSpacing.md),
       decoration: BoxDecoration(
-        color: isWinner
-            ? Colors.green.withOpacity(0.15)
-            : Colors.white.withOpacity(0.05),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isWinner
-              ? Colors.greenAccent.withOpacity(0.5)
-              : (isMe ? Colors.blue.withOpacity(0.5) : Colors.white12),
-          width: isWinner ? 2 : 1,
+        color: PokerColors.surfaceDim,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: PokerColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Board',
+            style: PokerTypography.labelSmall.copyWith(
+              color: PokerColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: PokerSpacing.sm),
+          Wrap(
+            spacing: PokerSpacing.xs,
+            runSpacing: PokerSpacing.xs,
+            children: List<Widget>.generate(totalBoardSlots, (index) {
+              final hasCard = index < communityCards.length;
+              return SizedBox(
+                width: boardCardSize.width,
+                height: boardCardSize.height,
+                child: hasCard
+                    ? CardFace(
+                        key: Key('showdown-board-card-$index'),
+                        card: communityCards[index],
+                        cardTheme: cardTheme,
+                      )
+                    : _BoardPlaceholderSlot(
+                        key: Key('showdown-board-slot-$index'),
+                      ),
+              );
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader(bool hasWinners, int pot) {
+    return Container(
+      padding: const EdgeInsets.all(PokerSpacing.lg),
+      decoration: BoxDecoration(
+        color: PokerColors.surfaceBright,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+        border: Border(
+          bottom: BorderSide(
+            color: PokerColors.borderSubtle.withOpacity(0.9),
+          ),
         ),
       ),
       child: Row(
         children: [
-          // Player info
+          Text(
+            hasWinners ? 'Showdown' : 'Last Showdown',
+            style: PokerTypography.titleLarge,
+          ),
+          const Spacer(),
+          if (pot > 0)
+            Text(
+              'Pot $pot',
+              style: PokerTypography.labelSmall.copyWith(
+                color: PokerColors.warning,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPlayerHandRow(
+    UiPlayer player,
+    CardColorTheme cardTheme,
+    PokerUiSpec uiSpec,
+  ) {
+    final winner = _getWinner(player.id);
+    final isWinner = winner != null;
+    final isMe = player.id == model.playerId;
+    final showCards = player.hand.isNotEmpty &&
+        (!player.folded || player.cardsRevealed || isMe);
+    final summary = _playerSummary(player, winner);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: PokerSpacing.md,
+        vertical: 10,
+      ),
+      decoration: BoxDecoration(
+        color: isWinner
+            ? PokerColors.success.withOpacity(0.04)
+            : Colors.transparent,
+      ),
+      child: Row(
+        children: [
           Expanded(
-            flex: 2,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Row(
                   children: [
-                    if (isWinner)
-                      const Padding(
-                        padding: EdgeInsets.only(right: 4),
-                        child:
-                            Icon(Icons.emoji_events, color: Colors.amber, size: 16),
-                      ),
-                    Flexible(
+                    Expanded(
                       child: Text(
                         _playerLabel(player.id) + (isMe ? ' (you)' : ''),
-                        style: TextStyle(
-                          color: isMe ? Colors.lightBlueAccent : Colors.white,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
+                        style: PokerTypography.titleSmall.copyWith(
+                          color: isMe
+                              ? PokerColors.primary.withOpacity(0.96)
+                              : PokerColors.textPrimary,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
+                    if (isWinner)
+                      Text(
+                        'Winner',
+                        style: PokerTypography.labelSmall.copyWith(
+                          color: PokerColors.success,
+                        ),
+                      ),
                   ],
                 ),
-                if (player.handDesc.isNotEmpty || winner != null)
+                if (summary.isNotEmpty) ...[
+                  const SizedBox(height: 2),
                   Text(
-                    winner != null
-                        ? _handRankName(winner.handRank)
-                        : player.handDesc,
-                    style: TextStyle(
-                      color: isWinner ? Colors.greenAccent : Colors.white54,
-                      fontSize: 11,
-                      fontStyle: FontStyle.italic,
+                    summary,
+                    style: PokerTypography.bodySmall.copyWith(
+                      color: isWinner
+                          ? PokerColors.success.withOpacity(0.92)
+                          : PokerColors.textSecondary,
                     ),
+                    overflow: TextOverflow.ellipsis,
                   ),
-                if (player.folded)
-                  const Text(
-                    'Folded',
-                    style: TextStyle(
-                      color: Colors.redAccent,
-                      fontSize: 11,
-                    ),
-                  ),
+                ],
               ],
             ),
           ),
-
-          // Hole cards
-          if (showCards)
-            Row(
-              children: player.hand.map((card) {
-                return Padding(
-                  padding: const EdgeInsets.only(left: 4),
-                  child: SizedBox(
-                    width: 36,
-                    height: 50,
-                    child: CardFace(card: card),
-                  ),
-                );
-              }).toList(),
-            )
-          else if (player.folded)
-            Row(
-              children: [
-                for (int i = 0; i < 2; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Container(
-                      width: 36,
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade800,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: Colors.grey.shade600),
-                      ),
-                      child: const Center(
-                        child: Icon(Icons.block, color: Colors.grey, size: 20),
-                      ),
-                    ),
-                  ),
-              ],
-            )
-          else
-            Row(
-              children: [
-                for (int i = 0; i < 2; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: SizedBox(
-                      width: 36,
-                      height: 50,
-                      child: const CardBack(),
-                    ),
-                  ),
-              ],
-            ),
+          const SizedBox(width: PokerSpacing.md),
+          _buildCardsRow(
+            player: player,
+            showCards: showCards,
+            cardTheme: cardTheme,
+            uiSpec: uiSpec,
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildCardsRow({
+    required UiPlayer player,
+    required bool showCards,
+    required CardColorTheme cardTheme,
+    required PokerUiSpec uiSpec,
+  }) {
+    final playerCardSize =
+        uiSpec.showdownPlayerCardSize(surfaceScale: cardScale);
+
+    if (showCards) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: player.hand.asMap().entries.map((entry) {
+          final index = entry.key;
+          final card = entry.value;
+          return Padding(
+            padding: const EdgeInsets.only(left: PokerSpacing.xs),
+            child: SizedBox(
+              width: playerCardSize.width,
+              height: playerCardSize.height,
+              child: CardFace(
+                key: Key('showdown-player-card-${player.id}-$index'),
+                card: card,
+                cardTheme: cardTheme,
+              ),
+            ),
+          );
+        }).toList(),
+      );
+    }
+
+    if (player.folded) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: List.generate(
+          2,
+          (_) => Padding(
+            padding: const EdgeInsets.only(left: PokerSpacing.xs),
+            child: Container(
+              width: playerCardSize.width,
+              height: playerCardSize.height,
+              decoration: BoxDecoration(
+                color: PokerColors.surfaceBright,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: PokerColors.borderMedium),
+              ),
+              child: const Icon(
+                Icons.block,
+                color: PokerColors.textMuted,
+                size: 16,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: PokerSpacing.xs),
+          child: SizedBox(
+            width: playerCardSize.width,
+            height: playerCardSize.height,
+            child: CardBack(),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(left: PokerSpacing.xs),
+          child: SizedBox(
+            width: playerCardSize.width,
+            height: playerCardSize.height,
+            child: CardBack(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _BoardPlaceholderSlot extends StatelessWidget {
+  const _BoardPlaceholderSlot({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.04),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: PokerColors.borderSubtle.withOpacity(0.75),
+        ),
       ),
     );
   }

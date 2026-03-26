@@ -4,6 +4,9 @@ import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/config.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
+import 'package:pokerui/theme/spacing.dart';
 
 class GameEndedView extends StatelessWidget {
   const GameEndedView({super.key, required this.model});
@@ -66,7 +69,9 @@ class GameEndedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uiSpec = PokerUiSpec.fromContext(context);
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
+    final previewCardSize = uiSpec.gameEndedPreviewCardSize(surfaceScale: 1.2);
     final message = _winnerSummary();
     final hasWinners = model.lastWinners.isNotEmpty;
     final iWon = model.lastWinners.any((w) => w.playerId == model.playerId);
@@ -77,27 +82,29 @@ class GameEndedView extends StatelessWidget {
         model.lastWinners.isNotEmpty ||
         model.showdownPlayers.isNotEmpty;
 
+    final accentColor = isWin
+        ? PokerColors.success
+        : isDraw
+            ? PokerColors.warning
+            : PokerColors.danger;
+
     return Center(
       child: LayoutBuilder(
         builder: (context, constraints) {
           return Container(
-            padding: const EdgeInsets.all(32),
-            margin: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.all(PokerSpacing.xxl),
+            margin: const EdgeInsets.symmetric(horizontal: PokerSpacing.xl),
             constraints: BoxConstraints(
               maxHeight: constraints.maxHeight - 64,
-              maxWidth: (constraints.maxWidth - 48).clamp(0, 520),
+              maxWidth: (constraints.maxWidth - 48).clamp(0, 520).toDouble(),
             ),
             decoration: BoxDecoration(
-              color: const Color(0xFF1B1E2C).withAlpha(240),
+              color: PokerColors.surface.withAlpha(240),
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: accentColor.withOpacity(0.3)),
               boxShadow: [
                 BoxShadow(
-                  color: (isWin
-                          ? Colors.green
-                          : isDraw
-                              ? Colors.orange
-                              : Colors.red)
-                      .withAlpha(76),
+                  color: accentColor.withAlpha(50),
                   spreadRadius: 4,
                   blurRadius: 15,
                 ),
@@ -107,7 +114,6 @@ class GameEndedView extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Game over icon
                   Icon(
                     isWin
                         ? Icons.emoji_events
@@ -115,46 +121,31 @@ class GameEndedView extends StatelessWidget {
                             ? Icons.handshake
                             : Icons.sports_tennis,
                     size: constraints.maxWidth < 360 ? 56 : 80,
-                    color: isWin
-                        ? Colors.green
-                        : isDraw
-                            ? Colors.orange
-                            : Colors.red,
+                    color: accentColor,
                   ),
-                  const SizedBox(height: 24),
-                  // Game over title
+                  const SizedBox(height: PokerSpacing.xl),
                   Text(
                     "Game End!",
-                    style: TextStyle(
+                    style: PokerTypography.displayLarge.copyWith(
                       fontSize: constraints.maxWidth < 360 ? 24 : 32,
-                      fontWeight: FontWeight.bold,
-                      color: isWin
-                          ? Colors.green
-                          : isDraw
-                              ? Colors.orange
-                              : Colors.red,
+                      color: accentColor,
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  // Result message
+                  const SizedBox(height: PokerSpacing.lg),
                   Text(
                     message.isNotEmpty ? message : 'Game ended',
-                    style: TextStyle(
-                      fontSize: constraints.maxWidth < 360 ? 16 : 20,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w500,
-                    ),
+                    style: PokerTypography.titleMedium,
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: PokerSpacing.xxl),
                   if (hasShowdown) ...[
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(PokerSpacing.lg),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.04),
+                        color: PokerColors.surfaceDim,
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white24),
+                        border: Border.all(color: PokerColors.borderSubtle),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -194,75 +185,70 @@ class GameEndedView extends StatelessWidget {
                             ),
                           ],
                           if (model.showdownCommunityCards.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            const Text(
-                              'Community cards',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
+                            const SizedBox(height: PokerSpacing.md),
+                            Text('Community cards',
+                                style: PokerTypography.labelSmall),
+                            const SizedBox(height: PokerSpacing.sm),
                             Wrap(
                               alignment: WrapAlignment.center,
                               spacing: 6,
                               runSpacing: 6,
                               children: model.showdownCommunityCards
-                                  .map((c) => SizedBox(
-                                        width: 40,
-                                        height: 56,
+                                  .asMap()
+                                  .entries
+                                  .map((entry) => SizedBox(
+                                        key: Key(
+                                            'game-ended-showdown-card-${entry.key}'),
+                                        width: previewCardSize.width,
+                                        height: previewCardSize.height,
                                         child: CardFace(
-                                            card: c, cardTheme: cardTheme),
+                                          card: entry.value,
+                                          cardTheme: cardTheme,
+                                        ),
                                       ))
                                   .toList(),
                             ),
                           ],
-                          const SizedBox(height: 12),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton.icon(
-                              onPressed: () =>
-                                  LastShowdownDialog.show(context, model),
-                              icon: const Icon(Icons.remove_red_eye,
-                                  color: Colors.white70),
-                              label: const Text(
-                                'View showdown',
-                                style: TextStyle(color: Colors.white70),
+                          if (hasShowdown) ...[
+                            const SizedBox(height: PokerSpacing.md),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: TextButton.icon(
+                                key: const Key(
+                                  'game-ended-view-showdown-button',
+                                ),
+                                onPressed: () =>
+                                    LastShowdownDialog.show(context, model),
+                                icon: const Icon(
+                                  Icons.remove_red_eye,
+                                  size: 16,
+                                ),
+                                label: const Text('View showdown'),
                               ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: PokerSpacing.xl),
                   ],
-                  // Action buttons
                   Wrap(
                     alignment: WrapAlignment.spaceEvenly,
                     spacing: 12,
                     runSpacing: 12,
                     children: [
                       ElevatedButton.icon(
-                        onPressed: () => model.leaveTable(),
-                        icon: const Icon(Icons.home),
+                        onPressed: model.leaveTable,
+                        icon: const Icon(Icons.home, size: 18),
                         label: const Text("Main Menu"),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.blueAccent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
-                        ),
                       ),
                       ElevatedButton.icon(
-                        onPressed: () => model.leaveTable(),
-                        icon: const Icon(Icons.refresh),
+                        onPressed: model.leaveTable,
+                        icon: const Icon(Icons.refresh, size: 18),
                         label: const Text("Play Again"),
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 24, vertical: 12),
+                          backgroundColor: PokerColors.success,
+                          foregroundColor: Colors.black,
                         ),
                       ),
                     ],

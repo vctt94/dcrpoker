@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'cards.dart';
@@ -31,16 +32,17 @@ String _playerInitials(String name) {
 const double kPlayerRadius = 30.0;
 const double _minPlayerOffset = 32.0;
 const double _maxPlayerOffset = 50.0;
-const double _edgePadding = 12.0;
 // Top overlay sizing so we can reserve space for pot/current bet labels.
 const double kPotOverlayHeight = 42.0;
 const double kCurrentBetOverlayHeight = 28.0;
 const double kTopOverlayGap = 8.0;
 const double kTopOverlayMargin = 6.0;
 const double kOverlaySeatGap = 6.0;
+
 /// Fraction of ring-radius-Y the hero seat is pushed beyond the standard ring
 /// position, creating room for the hero card tray above the seat.
 const double kHeroSeatExtraFraction = 0.12;
+
 /// Fraction of tableRadiusY that community cards are shifted above the
 /// geometric table center.  This opens up the lower half of the felt for
 /// hero cards while keeping the upper half clear for opponent seats.
@@ -48,6 +50,7 @@ const double kCommunityCardsUpwardFraction = 0.20;
 
 class TableLayout {
   const TableLayout({
+    required this.scene,
     required this.viewport,
     required this.canvasBounds,
     required this.center,
@@ -55,6 +58,21 @@ class TableLayout {
     required this.tableRadiusY,
     required this.playerOffset,
   });
+
+  factory TableLayout.fromScene(PokerSceneLayout scene) {
+    final viewport = scene.tableRect;
+    return TableLayout(
+      scene: scene,
+      viewport: viewport,
+      canvasBounds: scene.screenRect,
+      center: scene.tableCenter,
+      tableRadiusX: scene.tableRadiusX,
+      tableRadiusY: scene.tableRadiusY,
+      playerOffset: _playerOffsetForViewport(viewport),
+    );
+  }
+
+  final PokerSceneLayout scene;
 
   /// 16:9 letterboxed rect — drives ellipse shape, community cards, pot.
   final Rect viewport;
@@ -77,7 +95,7 @@ class TableLayout {
 /// derive their vertical positions from this single value so they stay in
 /// sync regardless of viewport size.
 double communityCardsCenterY(TableLayout layout) {
-  return layout.center.dy - layout.tableRadiusY * kCommunityCardsUpwardFraction;
+  return layout.scene.communityRect.center.dy;
 }
 
 double _playerOffsetForViewport(Rect viewport) {
@@ -101,32 +119,7 @@ double minSeatTopFor(Rect viewport, bool hasCurrentBet) {
 }
 
 Offset potChipCenter(TableLayout layout, {double uiSizeMultiplier = 1.0}) {
-  final box = layout.viewport;
-
-  final padV = 6.0 * uiSizeMultiplier;
-  final labelGap = 10.0 * uiSizeMultiplier;
-  final labelStyle = TextStyle(
-    fontSize: 14 * uiSizeMultiplier,
-    fontWeight: FontWeight.bold,
-    letterSpacing: 0.4,
-    color: Colors.white,
-  );
-  final tp = TextPainter(
-    text: TextSpan(text: '0', style: labelStyle),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  final labelHeight = tp.height + padV * 2;
-
-  final commCenterY = communityCardsCenterY(layout);
-  final cw = (box.width * 0.05).clamp(32.0, 56.0);
-  final ch = cw * 1.4;
-  final communityBottom = commCenterY + ch / 2;
-  var potCenter = communityBottom + labelGap + labelHeight / 2;
-
-  final maxCenter = box.bottom - labelHeight / 2 - 6.0;
-  if (potCenter > maxCenter) potCenter = maxCenter;
-
-  return Offset(layout.center.dx, potCenter);
+  return layout.scene.potRect.center;
 }
 
 Offset _positionForSeat(
@@ -184,39 +177,23 @@ double _angleForPlayerIndex(int idx, int heroIndex, int count) {
   return angle;
 }
 
-TableLayout resolveTableLayout(Size size, {double aspectRatio = 16 / 9}) {
+TableLayout resolveTableLayout(
+  Size size, {
+  EdgeInsets safePadding = EdgeInsets.zero,
+}) {
   final canvasBounds = Rect.fromLTWH(0, 0, size.width, size.height);
-  final viewport = pokerViewportRect(size, aspectRatio: aspectRatio);
-  final center = Offset(
-      viewport.left + viewport.width / 2, viewport.top + viewport.height / 2);
+  final scene = PokerSceneLayout.resolve(size, safePadding: safePadding);
+  final viewport = scene.tableRect;
+  final center = scene.tableCenter;
   final playerOffset = _playerOffsetForViewport(viewport);
 
-  const desiredMinRadiusX = 180.0;
-  const desiredMinRadiusY = 130.0;
-
-  final availableX =
-      (viewport.width / 2) - (playerOffset + kPlayerRadius + _edgePadding);
-  final availableY =
-      (viewport.height / 2) - (playerOffset + kPlayerRadius + _edgePadding);
-
-  double clampRadius(double target, double available, double minDesired) {
-    final maxRadius = available.clamp(0.0, double.infinity);
-    if (maxRadius <= 0) return 0;
-    final minRadius = math.min(minDesired, maxRadius);
-    return target.clamp(minRadius, maxRadius);
-  }
-
-  final tableRadiusX =
-      clampRadius(viewport.width * 0.42, availableX, desiredMinRadiusX);
-  final tableRadiusY =
-      clampRadius(viewport.height * 0.34, availableY, desiredMinRadiusY);
-
   return TableLayout(
+    scene: scene,
     viewport: viewport,
     canvasBounds: canvasBounds,
     center: center,
-    tableRadiusX: tableRadiusX,
-    tableRadiusY: tableRadiusY,
+    tableRadiusX: scene.tableRadiusX,
+    tableRadiusY: scene.tableRadiusY,
     playerOffset: playerOffset,
   );
 }
@@ -809,6 +786,43 @@ Rect pokerViewportRect(Size size, {double aspectRatio = 16 / 9}) {
   return Rect.fromLTWH(left, top, w, h);
 }
 
+List<UiPlayer> _playersInDisplayOrder(
+  List<UiPlayer> players,
+  String heroId,
+) {
+  if (players.isEmpty) return players;
+
+  final hero = players.cast<UiPlayer?>().firstWhere(
+        (player) => player?.id == heroId,
+        orElse: () => null,
+      );
+  if (hero == null) return players;
+
+  final opponents =
+      players.where((player) => player.id != heroId).toList(growable: false);
+  final validSeats = players.every((player) => player.tableSeat >= 0);
+  final uniqueSeats =
+      players.map((player) => player.tableSeat).toSet().length ==
+          players.length;
+
+  if (!validSeats || !uniqueSeats) {
+    return [hero, ...opponents];
+  }
+
+  final heroSeat = hero.tableSeat;
+  final orderedOpponents = opponents.toList()
+    ..sort((a, b) {
+      final aWraps = a.tableSeat <= heroSeat;
+      final bWraps = b.tableSeat <= heroSeat;
+      if (aWraps != bWraps) {
+        return aWraps ? 1 : -1;
+      }
+      return a.tableSeat.compareTo(b.tableSeat);
+    });
+
+  return [hero, ...orderedOpponents];
+}
+
 Map<String, Offset> seatPositionsFor(
   List<UiPlayer> ps,
   String heroId,
@@ -818,11 +832,39 @@ Map<String, Offset> seatPositionsFor(
   Rect? clampBounds,
   double? minSeatTop,
   double uiSizeMultiplier = 1.0,
+  PokerSceneLayout? sceneLayout,
 }) {
   final map = <String, Offset>{};
   if (ps.isEmpty) return map;
-  final count = ps.length;
-  final heroIndex = ps.indexWhere((p) => p.id == heroId);
+  final orderedPlayers = _playersInDisplayOrder(ps, heroId);
+
+  if (sceneLayout != null) {
+    final playerRadius = kPlayerRadius * uiSizeMultiplier;
+    final opponents = orderedPlayers
+        .where((player) => player.id != heroId)
+        .toList(growable: false);
+    final opponentAnchors = sceneLayout.opponentAnchors(
+      opponents.length,
+      uiScale: uiSizeMultiplier,
+    );
+    for (int i = 0; i < opponents.length && i < opponentAnchors.length; i++) {
+      final anchor = opponentAnchors[i];
+      map[opponents[i].id] = Offset(anchor.dx, anchor.dy - playerRadius);
+    }
+
+    final hero = orderedPlayers.cast<UiPlayer?>().firstWhere(
+          (player) => player?.id == heroId,
+          orElse: () => null,
+        );
+    if (hero != null) {
+      final heroAnchor = sceneLayout.heroSeatAnchor(uiScale: uiSizeMultiplier);
+      map[hero.id] = Offset(heroAnchor.dx, heroAnchor.dy - playerRadius);
+    }
+    return map;
+  }
+
+  final count = orderedPlayers.length;
+  final heroIndex = orderedPlayers.indexWhere((p) => p.id == heroId);
   final playerRadius = kPlayerRadius * uiSizeMultiplier;
   final sizeAwareOffset = math.max(0, (playerRadius - kPlayerRadius) * 0.9);
   final ringX = ringRadiusX + sizeAwareOffset;
@@ -841,7 +883,7 @@ Map<String, Offset> seatPositionsFor(
       uiSizeMultiplier: uiSizeMultiplier,
       playerRadius: playerRadius,
     );
-    map[ps[i].id] = Offset(pos.dx, pos.dy - playerRadius);
+    map[orderedPlayers[i].id] = Offset(pos.dx, pos.dy - playerRadius);
   }
   return map;
 }

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
+import 'package:pokerui/theme/spacing.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
 class InLobbyView extends StatelessWidget {
@@ -20,14 +23,7 @@ class InLobbyView extends StatelessWidget {
   bool _escrowHasRequiredConfirmations(Map<String, dynamic> escrow) {
     final confs = _asInt(escrow['confs']);
     final required = _asInt(escrow['required_confirmations']);
-    final requiredOrDefault = required == 0 ? 1 : required;
-    return confs >= requiredOrDefault;
-  }
-
-  String _playerLabel(UiPlayer p) {
-    final name = p.name.trim();
-    if (name.isNotEmpty) return name;
-    return _short(p.id, 10);
+    return confs >= (required == 0 ? 1 : required);
   }
 
   Future<void> _showLeaveTableDialog(BuildContext ctx) async {
@@ -36,26 +32,21 @@ class InLobbyView extends StatelessWidget {
       context: ctx,
       builder: (dctx) => AlertDialog(
         title: const Text('Leave Table?'),
-        content: const Text(
-            'Are you sure you want to leave this table? You will need to rejoin if you want to play again.'),
+        content: const Text('You will need to rejoin to play again.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dctx, false),
-            child: const Text('Cancel'),
-          ),
+              onPressed: () => Navigator.pop(dctx, false),
+              child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () => Navigator.pop(dctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-            ),
-            child: const Text('Leave Table'),
+            style:
+                ElevatedButton.styleFrom(backgroundColor: PokerColors.danger),
+            child: const Text('Leave'),
           ),
         ],
       ),
     );
-    if (confirmed == true && ctx.mounted) {
-      await model.leaveTable();
-    }
+    if (confirmed == true && ctx.mounted) await model.leaveTable();
   }
 
   Future<void> _showBindDialog(BuildContext ctx, UiTable t) async {
@@ -65,19 +56,17 @@ class InLobbyView extends StatelessWidget {
         context: ctx,
         builder: (dctx) => AlertDialog(
           title: const Text('Sign Address Required'),
-          content: const Text(
-              'Bind escrow needs a verified payout address. Please sign an address before binding or opening a new escrow.'),
+          content: const Text('Please sign a payout address first.'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dctx),
-              child: const Text('Not now'),
-            ),
+                onPressed: () => Navigator.pop(dctx),
+                child: const Text('Later')),
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(dctx);
                 Navigator.pushNamed(ctx, '/sign-address');
               },
-              child: const Text('Go to Sign Address'),
+              child: const Text('Sign Address'),
             ),
           ],
         ),
@@ -86,7 +75,6 @@ class InLobbyView extends StatelessWidget {
     }
     final escrows = await model.listCachedEscrows();
     final escrowOptions = escrows.where((e) {
-      // Filter out invalid escrows
       final fundingState = (e['funding_state'] ?? '').toString().toUpperCase();
       return fundingState != 'ESCROW_STATE_INVALID';
     }).map((e) {
@@ -96,28 +84,25 @@ class InLobbyView extends StatelessWidget {
       final amount = amountRaw is num
           ? amountRaw.toDouble()
           : double.tryParse(amountRaw.toString()) ?? 0;
-      final outpoint = '$txid:$vout';
-      final confirmed = _escrowHasRequiredConfirmations(e);
       return {
-        'outpoint': outpoint,
+        'outpoint': '$txid:$vout',
         'label':
-            '${_short(txid)}:$vout • ${(amount / 1e8).toStringAsFixed(4)} DCR',
-        'confirmed': confirmed,
+            '${_short(txid)}:$vout - ${(amount / 1e8).toStringAsFixed(4)} DCR',
+        'confirmed': _escrowHasRequiredConfirmations(e),
       };
     }).toList();
+
     if (escrows.isEmpty) {
       if (!ctx.mounted) return;
       await showDialog(
         context: ctx,
         builder: (dctx) => AlertDialog(
-          title: const Text('No Escrows Available'),
-          content: const Text(
-              'You need to open and fund an escrow before you can bind it to this table.'),
+          title: const Text('No Escrows'),
+          content: const Text('Open and fund an escrow first.'),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dctx),
-              child: const Text('Not now'),
-            ),
+                onPressed: () => Navigator.pop(dctx),
+                child: const Text('Later')),
             ElevatedButton(
               onPressed: () {
                 Navigator.pop(dctx);
@@ -130,6 +115,7 @@ class InLobbyView extends StatelessWidget {
       );
       return;
     }
+
     final escrowCtrl = TextEditingController();
     String? selectedOutpoint;
     for (final opt in escrowOptions) {
@@ -141,79 +127,69 @@ class InLobbyView extends StatelessWidget {
     final formKey = GlobalKey<FormState>();
     await showDialog(
       context: ctx,
-      builder: (dctx) {
-        return AlertDialog(
-          title: const Text('Bind Escrow'),
-          content: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                    'Table ${_short(t.id)} • Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR'),
-                const SizedBox(height: 12),
-                if (escrows.isNotEmpty)
-                  DropdownButtonFormField<String>(
-                    value: selectedOutpoint,
-                    decoration: const InputDecoration(
-                        labelText: 'Choose funding outpoint'),
-                    items: escrowOptions
-                        .map(
-                          (opt) => DropdownMenuItem<String>(
+      builder: (dctx) => AlertDialog(
+        title: const Text('Bind Escrow'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
+                  style: PokerTypography.bodySmall),
+              const SizedBox(height: PokerSpacing.md),
+              if (escrows.isNotEmpty)
+                DropdownButtonFormField<String>(
+                  value: selectedOutpoint,
+                  decoration:
+                      const InputDecoration(labelText: 'Funding outpoint'),
+                  items: escrowOptions
+                      .map((opt) => DropdownMenuItem<String>(
                             value: opt['outpoint'] as String,
                             enabled: opt['confirmed'] == true,
-                            child: opt['confirmed'] == true
-                                ? Text(opt['label'] as String)
-                                : Tooltip(
-                                    message: 'waiting for confirmation',
-                                    child: Text(
-                                      '${opt['label']} (pending)',
-                                      style: const TextStyle(
-                                          color: Colors.white54),
-                                    ),
-                                  ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (v) => selectedOutpoint = v,
-                  ),
-                TextFormField(
-                  controller: escrowCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Outpoint txid:vout (override)'),
-                  validator: (v) {
-                    final chosen = (selectedOutpoint ?? '').trim().isNotEmpty
-                        ? selectedOutpoint
-                        : v?.trim();
-                    return (chosen == null || chosen.isEmpty)
-                        ? 'Outpoint required'
-                        : null;
-                  },
+                            child: Text(opt['label'] as String,
+                                style: TextStyle(
+                                  color: opt['confirmed'] == true
+                                      ? null
+                                      : PokerColors.textMuted,
+                                )),
+                          ))
+                      .toList(),
+                  onChanged: (v) => selectedOutpoint = v,
                 ),
-              ],
-            ),
+              TextFormField(
+                controller: escrowCtrl,
+                decoration:
+                    const InputDecoration(labelText: 'Override outpoint'),
+                validator: (v) {
+                  final chosen = (selectedOutpoint ?? '').trim().isNotEmpty
+                      ? selectedOutpoint
+                      : v?.trim();
+                  return (chosen == null || chosen.isEmpty) ? 'Required' : null;
+                },
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(dctx),
-                child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (!(formKey.currentState?.validate() ?? false)) return;
-                Navigator.pop(dctx);
-                await model.bindEscrow(
-                  tableId: t.id,
-                  outpoint: (escrowCtrl.text.trim().isNotEmpty
-                          ? escrowCtrl.text.trim()
-                          : selectedOutpoint) ??
-                      '',
-                );
-              },
-              child: const Text('Bind'),
-            ),
-          ],
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dctx),
+              child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              if (!(formKey.currentState?.validate() ?? false)) return;
+              Navigator.pop(dctx);
+              await model.bindEscrow(
+                tableId: t.id,
+                outpoint: (escrowCtrl.text.trim().isNotEmpty
+                        ? escrowCtrl.text.trim()
+                        : selectedOutpoint) ??
+                    '',
+              );
+            },
+            child: const Text('Bind'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -240,521 +216,374 @@ class InLobbyView extends StatelessWidget {
     final lobbyPlayers = table.players;
     final displayedPlayers =
         gamePlayers.isNotEmpty ? gamePlayers : lobbyPlayers;
+
+    // Compute progress steps
+    final hasEscrow = model.cachedEscrowId.isNotEmpty;
+    final escrowReady = model.cachedEscrowReady;
+    final presignDone = model.presignCompleted;
+    final allReady = displayedPlayers.every((p) => p.isReady);
+    final allEscrows =
+        displayedPlayers.every((p) => p.escrowId.isNotEmpty && p.escrowReady);
+    final allPresigned = displayedPlayers.every((p) => p.presignComplete);
+    final enoughPlayers = displayedPlayers.length >= 2;
+
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(PokerSpacing.lg),
       child: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 720),
-          child: Card(
-            color: const Color(0xFF1B1E2C),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.table_restaurant, color: Colors.blue),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text('Table ${_short(table.id)}',
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Table header
+              Container(
+                padding: const EdgeInsets.all(PokerSpacing.lg),
+                decoration: BoxDecoration(
+                  color: PokerColors.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: PokerColors.borderSubtle),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Table ${_short(table.id)}',
+                            style: PokerTypography.titleLarge,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white)),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed:
-                            model.iAmReady ? model.setUnready : model.setReady,
-                        child: Text(model.iAmReady ? 'Unready' : 'Ready'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Blinds ${table.smallBlind}/${table.bigBlind} • Buy-in ${(table.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
-                    style: const TextStyle(color: Colors.white70),
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(color: Colors.white24),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      const Text('Players',
-                          style: TextStyle(
-                              color: Colors.white70,
-                              fontWeight: FontWeight.bold)),
-                      Chip(
-                        label: Text(model.iAmReady ? 'Ready' : 'Not Ready'),
-                        backgroundColor: model.iAmReady
-                            ? Colors.green.shade700
-                            : Colors.orange.shade700,
-                        labelStyle: const TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  if (displayedPlayers.isEmpty)
-                    const Text('Waiting for players...',
-                        style: TextStyle(color: Colors.white54))
-                  else
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: displayedPlayers
-                          .map((p) => _buildPlayerPill(p, model.playerId))
-                          .toList(),
-                    ),
-                  // Error message if exists
-                  if (model.errorMessage.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Card(
-                      color: Colors.red.shade800,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Row(
-                          children: [
-                            const Icon(Icons.error, color: Colors.white),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: SelectableText(
-                                model.errorMessage,
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ),
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () async {
-                                  await Clipboard.setData(
-                                      ClipboardData(text: model.errorMessage));
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                          content: Text(
-                                              'Error copied to clipboard')));
-                                },
-                                borderRadius: BorderRadius.circular(20),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(8.0),
-                                  child: Icon(Icons.copy,
-                                      color: Colors.white, size: 20),
-                                ),
-                              ),
-                            ),
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () {
-                                  model.clearError();
-                                },
-                                borderRadius: BorderRadius.circular(20),
-                                child: const Padding(
-                                  padding: EdgeInsets.all(8.0),
-                                  child: Icon(Icons.close,
-                                      color: Colors.white, size: 20),
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+                        ElevatedButton(
+                          onPressed: model.iAmReady
+                              ? model.setUnready
+                              : model.setReady,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: model.iAmReady
+                                ? PokerColors.surfaceBright
+                                : PokerColors.success,
+                            foregroundColor: model.iAmReady
+                                ? PokerColors.textPrimary
+                                : Colors.black,
+                          ),
+                          child: Text(model.iAmReady ? 'Unready' : 'Ready'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: PokerSpacing.sm),
+                    Text(
+                      'Blinds ${table.smallBlind}/${table.bigBlind}  •  Buy-in ${(table.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
+                      style: PokerTypography.bodySmall,
                     ),
                   ],
-                  const SizedBox(height: 12),
-                  // Escrow state panel
-                  _buildEscrowStatePanel(context, table, model),
-                  const SizedBox(height: 12),
-                  // Game start status
-                  if (table.buyInAtoms > 0)
-                    _buildGameStartStatus(model, displayedPlayers),
-                  const SizedBox(height: 16),
-                  // Leave Table button at the bottom
-                  Row(
-                    children: [
-                      const Spacer(),
-                      TextButton(
-                        onPressed: () => _showLeaveTableDialog(context),
-                        style: TextButton.styleFrom(
-                            foregroundColor: Colors.redAccent),
-                        child: const Text('Leave Table'),
-                      ),
-                    ],
+                ),
+              ),
+
+              const SizedBox(height: PokerSpacing.lg),
+
+              // Progress stepper
+              _ProgressStepper(
+                steps: [
+                  _Step(
+                    label: 'Fund',
+                    detail: hasEscrow
+                        ? (escrowReady ? 'Escrow funded' : 'Confirming...')
+                        : 'Bind escrow',
+                    done: hasEscrow && escrowReady,
+                    active: !hasEscrow || !escrowReady,
+                    action: (!hasEscrow || !escrowReady)
+                        ? () => _showBindDialog(context, table)
+                        : null,
+                    actionLabel: hasEscrow ? null : 'Bind Escrow',
+                  ),
+                  _Step(
+                    label: 'Ready',
+                    detail: allReady
+                        ? 'All players ready'
+                        : '${displayedPlayers.where((p) => p.isReady).length}/${displayedPlayers.length} ready',
+                    done: allReady && allEscrows && enoughPlayers,
+                    active: hasEscrow && escrowReady,
+                  ),
+                  _Step(
+                    label: 'Go',
+                    detail: allPresigned
+                        ? 'Starting!'
+                        : (model.presignInProgress
+                            ? 'Presigning...'
+                            : 'Waiting'),
+                    done: allPresigned,
+                    active: allReady && allEscrows,
+                    showSpinner: model.presignInProgress,
                   ),
                 ],
               ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 
-  Widget _buildPlayerPill(UiPlayer p, String myPlayerId) {
-    final isMe = p.id == myPlayerId;
-    final escrowColor = p.escrowId.isEmpty
-        ? Colors.white30
-        : (p.escrowReady ? Colors.greenAccent : Colors.amberAccent);
-    final presignColor = p.presignComplete ? Colors.cyanAccent : Colors.white30;
+              const SizedBox(height: PokerSpacing.lg),
 
-    return Tooltip(
-      message: _getPlayerTooltip(p),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: Colors.white10,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: p.isReady
-                ? Colors.greenAccent
-                : Colors.orangeAccent.withOpacity(0.6),
-            width: isMe ? 2 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Ready status icon
-            Icon(
-              p.isReady ? Icons.check_circle : Icons.hourglass_empty,
-              size: 14,
-              color: p.isReady ? Colors.greenAccent : Colors.orangeAccent,
-            ),
-            const SizedBox(width: 6),
-            Text(_playerLabel(p), style: const TextStyle(color: Colors.white)),
-            if (isMe) ...[
-              const SizedBox(width: 6),
-              const Text('(you)',
-                  style:
-                      TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
-            ],
-            // Status indicators
-            const SizedBox(width: 8),
-            // Escrow indicator
-            _buildMiniIndicator(
-              icon: Icons.account_balance,
-              color: escrowColor,
-              filled: p.escrowId.isNotEmpty && p.escrowReady,
-            ),
-            const SizedBox(width: 4),
-            // Presign indicator
-            _buildMiniIndicator(
-              icon: Icons.draw,
-              color: presignColor,
-              filled: p.presignComplete,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMiniIndicator(
-      {required IconData icon, required Color color, required bool filled}) {
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        color: filled ? color.withOpacity(0.2) : Colors.transparent,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: color.withOpacity(0.5), width: 1),
-      ),
-      child: Icon(icon, size: 12, color: color),
-    );
-  }
-
-  String _getPlayerTooltip(UiPlayer p) {
-    final parts = <String>[];
-    parts.add(p.isReady ? '✓ Ready' : '○ Not ready');
-    if (p.escrowId.isEmpty) {
-      parts.add('○ No escrow');
-    } else if (p.escrowReady) {
-      parts.add('✓ Escrow funded');
-    } else {
-      parts.add('⏳ Escrow pending');
-    }
-    if (p.escrowState.isNotEmpty) {
-      parts.add('State: ${_friendlyEscrowState(p.escrowState)}');
-    }
-    parts.add(p.presignComplete ? '✓ Presigned' : '○ Not presigned');
-    return parts.join('\n');
-  }
-
-  Widget _buildEscrowStatePanel(
-      BuildContext context, UiTable table, PokerModel model) {
-    final myEscrowId = model.cachedEscrowId;
-    final myEscrowReady = model.cachedEscrowReady;
-    final myEscrowState = model.cachedEscrowState;
-    final presignCompleted = model.presignCompleted;
-    final canChangeEscrow =
-        !table.gameStarted && !presignCompleted && !model.presignInProgress;
-
-    if (myEscrowId.isEmpty) {
-      // No escrow bound
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.grey.shade900,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.grey.shade700),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.warning_amber,
-                    size: 20, color: Colors.orange.shade400),
-                const SizedBox(width: 8),
-                Text('Escrow Required',
-                    style: TextStyle(
-                        color: Colors.orange.shade400,
-                        fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            const Text('Bind an escrow to participate in this table.',
-                style: TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => _showBindDialog(context, table),
-              icon: const Icon(Icons.link, size: 16),
-              label: const Text('Bind Escrow'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.lightBlueAccent,
-                side: const BorderSide(color: Colors.lightBlueAccent),
+              // Players
+              Container(
+                padding: const EdgeInsets.all(PokerSpacing.lg),
+                decoration: BoxDecoration(
+                  color: PokerColors.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: PokerColors.borderSubtle),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Players',
+                        style: PokerTypography.titleSmall.copyWith(
+                          color: PokerColors.textSecondary,
+                        )),
+                    const SizedBox(height: PokerSpacing.md),
+                    if (displayedPlayers.isEmpty)
+                      Text('Waiting for players...',
+                          style: PokerTypography.bodySmall)
+                    else
+                      Wrap(
+                        spacing: PokerSpacing.sm,
+                        runSpacing: PokerSpacing.sm,
+                        children: displayedPlayers
+                            .map(
+                              (p) => _PlayerChip(
+                                  player: p, isMe: p.id == model.playerId),
+                            )
+                            .toList(),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
-        ),
-      );
-    }
 
-    // Escrow is bound - show detailed status
-    final escrowShort = myEscrowId.length > 12
-        ? '${myEscrowId.substring(0, 8)}...'
-        : myEscrowId;
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade900,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey.shade700),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Settlement Status',
-              style: TextStyle(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13)),
-          const SizedBox(height: 12),
-          // Escrow status row
-          _buildStatusRow(
-            icon: Icons.account_balance,
-            label: 'Escrow',
-            value: escrowShort,
-            status: myEscrowReady ? 'Funded' : 'Pending',
-            statusColor:
-                myEscrowReady ? Colors.greenAccent : Colors.amberAccent,
-          ),
-          if (myEscrowState.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(Icons.timeline, size: 16, color: Colors.white54),
-                const SizedBox(width: 8),
-                const Text('State: ',
-                    style: TextStyle(color: Colors.white54, fontSize: 13)),
-                Text(
-                  _friendlyEscrowState(myEscrowState),
-                  style: TextStyle(
-                    color: _escrowStateColor(myEscrowState),
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
+              // Error
+              if (model.errorMessage.isNotEmpty) ...[
+                const SizedBox(height: PokerSpacing.md),
+                Container(
+                  padding: const EdgeInsets.all(PokerSpacing.md),
+                  decoration: BoxDecoration(
+                    color: PokerColors.danger.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border:
+                        Border.all(color: PokerColors.danger.withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline,
+                          color: PokerColors.danger, size: 18),
+                      const SizedBox(width: PokerSpacing.sm),
+                      Expanded(
+                          child: SelectableText(model.errorMessage,
+                              style: PokerTypography.bodySmall
+                                  .copyWith(color: PokerColors.danger))),
+                      IconButton(
+                        icon: Icon(Icons.copy,
+                            color: PokerColors.danger, size: 14),
+                        onPressed: () async {
+                          await Clipboard.setData(
+                              ClipboardData(text: model.errorMessage));
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Copied')));
+                        },
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close,
+                            color: PokerColors.danger, size: 14),
+                        onPressed: model.clearError,
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                    ],
                   ),
                 ),
               ],
-            ),
-          ],
-          const SizedBox(height: 8),
-          // Presign status row (handled automatically by golib)
-          _buildStatusRow(
-            icon: Icons.draw,
-            label: 'Presign',
-            value: presignCompleted ? 'Complete' : 'Waiting',
-            status: presignCompleted ? '✓' : '○',
-            statusColor: presignCompleted ? Colors.greenAccent : Colors.white54,
-          ),
-          if (canChangeEscrow) ...[
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => _showBindDialog(context, table),
-              icon: const Icon(Icons.swap_horiz, size: 16),
-              label: const Text('Change Escrow'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.lightBlueAccent,
-                side: const BorderSide(color: Colors.lightBlueAccent),
+
+              const SizedBox(height: PokerSpacing.xl),
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () => _showLeaveTableDialog(context),
+                  style:
+                      TextButton.styleFrom(foregroundColor: PokerColors.danger),
+                  child: const Text('Leave Table'),
+                ),
               ),
-            ),
-          ],
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
+}
 
-  Widget _buildStatusRow({
-    required IconData icon,
-    required String label,
-    required String value,
-    required String status,
-    required Color statusColor,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, size: 16, color: Colors.white54),
-        const SizedBox(width: 8),
-        Text('$label: ',
-            style: const TextStyle(color: Colors.white54, fontSize: 13)),
-        Expanded(
-          child: Text(value,
-              style: const TextStyle(color: Colors.white, fontSize: 13)),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: statusColor.withOpacity(0.15),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Text(status,
-              style: TextStyle(
-                  color: statusColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold)),
-        ),
-      ],
-    );
-  }
+// ── Progress Stepper ──
 
-  Widget _buildGameStartStatus(PokerModel model, List<UiPlayer> players) {
-    // Calculate what's blocking game start
-    final minPlayers = 2;
-    final hasEnoughPlayers = players.length >= minPlayers;
-    final allReady = players.every((p) => p.isReady);
-    final allEscrowsFunded =
-        players.every((p) => p.escrowId.isNotEmpty && p.escrowReady);
-    final allPresigned = players.every((p) => p.presignComplete);
+class _Step {
+  final String label, detail;
+  final bool done, active;
+  final VoidCallback? action;
+  final String? actionLabel;
+  final bool showSpinner;
+  const _Step({
+    required this.label,
+    required this.detail,
+    this.done = false,
+    this.active = false,
+    this.action,
+    this.actionLabel,
+    this.showSpinner = false,
+  });
+}
 
-    final readyCount = players.where((p) => p.isReady).length;
-    final escrowCount =
-        players.where((p) => p.escrowId.isNotEmpty && p.escrowReady).length;
-    final presignCount = players.where((p) => p.presignComplete).length;
-    final totalPlayers = players.length;
+class _ProgressStepper extends StatelessWidget {
+  const _ProgressStepper({required this.steps});
+  final List<_Step> steps;
 
-    // Determine overall status
-    String statusMessage;
-    Color statusColor;
-    IconData statusIcon;
-
-    if (!hasEnoughPlayers) {
-      statusMessage = 'Waiting for players ($totalPlayers/$minPlayers)';
-      statusColor = Colors.grey;
-      statusIcon = Icons.people_outline;
-    } else if (!allEscrowsFunded) {
-      statusMessage = 'Waiting for escrows ($escrowCount/$totalPlayers funded)';
-      statusColor = Colors.amber;
-      statusIcon = Icons.account_balance_outlined;
-    } else if (!allReady) {
-      statusMessage = 'Waiting for ready ($readyCount/$totalPlayers ready)';
-      statusColor = Colors.orange;
-      statusIcon = Icons.hourglass_empty;
-    } else if (!allPresigned) {
-      statusMessage = 'Presigning in progress ($presignCount/$totalPlayers)';
-      statusColor = Colors.lightBlue;
-      statusIcon = Icons.sync;
-    } else {
-      statusMessage = 'Ready to start!';
-      statusColor = Colors.greenAccent;
-      statusIcon = Icons.check_circle;
-    }
-
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.all(PokerSpacing.lg),
       decoration: BoxDecoration(
-        color: statusColor.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: statusColor.withOpacity(0.5)),
+        color: PokerColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PokerColors.borderSubtle),
       ),
       child: Row(
         children: [
-          Icon(statusIcon, size: 18, color: statusColor),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(statusMessage,
-                style: TextStyle(color: statusColor, fontSize: 13)),
-          ),
-          // Progress indicator
-          if (!allPresigned && allReady && allEscrowsFunded)
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation<Color>(statusColor),
+          for (int i = 0; i < steps.length; i++) ...[
+            Expanded(child: _StepTile(step: steps[i], index: i + 1)),
+            if (i < steps.length - 1)
+              Container(
+                width: 32,
+                height: 2,
+                color: steps[i].done
+                    ? PokerColors.success
+                    : PokerColors.borderSubtle,
               ),
-            ),
+          ],
         ],
       ),
     );
   }
+}
 
-  String _friendlyEscrowState(String state) {
-    switch (state) {
-      case 'ESCROW_STATE_READY':
-        return 'Ready';
-      case 'ESCROW_STATE_MEMPOOL':
-        return 'Mempool';
-      case 'ESCROW_STATE_CONFIRMING':
-        return 'Confirming';
-      case 'ESCROW_STATE_CSV_MATURED':
-        return 'CSV matured';
-      case 'ESCROW_STATE_SPENT':
-        return 'Spent';
-      case 'ESCROW_STATE_INVALID':
-        return 'Invalid';
-      case 'ESCROW_STATE_UNFUNDED':
-        return 'Unfunded';
-      default:
-        return state;
-    }
+class _StepTile extends StatelessWidget {
+  const _StepTile({required this.step, required this.index});
+  final _Step step;
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = step.done
+        ? PokerColors.success
+        : (step.active ? PokerColors.primary : PokerColors.textMuted);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: step.done
+                ? PokerColors.success.withOpacity(0.15)
+                : PokerColors.surfaceBright,
+            border: Border.all(color: color, width: 2),
+          ),
+          child: Center(
+            child: step.done
+                ? Icon(Icons.check, color: color, size: 18)
+                : (step.showSpinner
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: color))
+                    : Text('$index',
+                        style:
+                            PokerTypography.labelLarge.copyWith(color: color))),
+          ),
+        ),
+        const SizedBox(height: PokerSpacing.sm),
+        Text(step.label,
+            style: PokerTypography.labelSmall.copyWith(color: color)),
+        const SizedBox(height: PokerSpacing.xxs),
+        Text(
+          step.detail,
+          style: PokerTypography.bodySmall
+              .copyWith(fontSize: 10, color: PokerColors.textMuted),
+          textAlign: TextAlign.center,
+        ),
+        if (step.action != null && step.actionLabel != null) ...[
+          const SizedBox(height: PokerSpacing.sm),
+          OutlinedButton(
+            onPressed: step.action,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child:
+                Text(step.actionLabel!, style: const TextStyle(fontSize: 11)),
+          ),
+        ],
+      ],
+    );
   }
+}
 
-  Color _escrowStateColor(String state) {
-    switch (state) {
-      case 'ESCROW_STATE_READY':
-        return Colors.greenAccent;
-      case 'ESCROW_STATE_MEMPOOL':
-      case 'ESCROW_STATE_CONFIRMING':
-        return Colors.amberAccent;
-      case 'ESCROW_STATE_CSV_MATURED':
-      case 'ESCROW_STATE_SPENT':
-      case 'ESCROW_STATE_INVALID':
-        return Colors.redAccent;
-      default:
-        return Colors.white54;
-    }
+// ── Player Chip ──
+
+class _PlayerChip extends StatelessWidget {
+  const _PlayerChip({required this.player, required this.isMe});
+  final UiPlayer player;
+  final bool isMe;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = player.name.trim().isNotEmpty
+        ? player.name.trim()
+        : player.id.substring(0, 8);
+    final ready = player.isReady;
+    final color = ready ? PokerColors.success : PokerColors.warning;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: color.withOpacity(isMe ? 0.6 : 0.3),
+          width: isMe ? 1.5 : 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            ready ? Icons.check_circle : Icons.hourglass_empty,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            name.length > 14 ? '${name.substring(0, 14)}...' : name,
+            style: PokerTypography.labelSmall
+                .copyWith(color: PokerColors.textPrimary),
+          ),
+          if (isMe) ...[
+            const SizedBox(width: 4),
+            Text('(you)',
+                style: PokerTypography.bodySmall.copyWith(
+                  fontSize: 10,
+                  color: PokerColors.primary,
+                )),
+          ],
+        ],
+      ),
+    );
   }
 }

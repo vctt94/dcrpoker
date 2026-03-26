@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pokerui/components/poker/scene_layout.dart';
 
 /// Screen-width breakpoints for adaptive poker layout.
 enum PokerBreakpoint {
@@ -39,35 +40,6 @@ extension PokerBreakpointQuery on PokerBreakpoint {
   bool get isWide => this == PokerBreakpoint.wide;
 
   bool get isNarrow => isCompact || isRegular;
-}
-
-/// Adaptive table aspect ratio per breakpoint.
-///
-/// Portrait phones use a taller ratio so the table occupies more vertical
-/// space; landscape / desktop keeps the standard 16:9.
-double tableAspectRatio(PokerBreakpoint bp) {
-  switch (bp) {
-    case PokerBreakpoint.compact:
-      return 1.0;
-    case PokerBreakpoint.regular:
-      return 1.15;
-    case PokerBreakpoint.expanded:
-    case PokerBreakpoint.wide:
-      return 16 / 9;
-  }
-}
-
-/// Maximum pixel width for the table canvas on wide screens.
-double tableMaxWidth(PokerBreakpoint bp) {
-  switch (bp) {
-    case PokerBreakpoint.compact:
-    case PokerBreakpoint.regular:
-      return double.infinity;
-    case PokerBreakpoint.expanded:
-      return 900;
-    case PokerBreakpoint.wide:
-      return 1200;
-  }
 }
 
 /// Fixed width of the side-rail panel (only rendered on wide).
@@ -115,6 +87,20 @@ double fontScale(PokerBreakpoint bp) {
 
 /// Whether a side rail should be rendered at this breakpoint.
 bool showSideRail(PokerBreakpoint bp) => bp == PokerBreakpoint.wide;
+
+/// Whether the current viewport should use the compact table layout that keeps
+/// hero cards and actions in a bottom panel instead of on-table overlays.
+///
+/// This applies to phones, tablets/smaller laptops (`expanded`), and short
+/// desktop windows where the standard overlay stack becomes visually cramped.
+bool useCompactTableLayoutForSize(PokerBreakpoint bp, Size size) {
+  return PokerSceneLayout.resolveMode(size).isCompact;
+}
+
+bool useCompactTableLayout(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  return useCompactTableLayoutForSize(PokerBreakpointQuery.of(context), size);
+}
 
 /// Vertical share used by the table canvas in the phone layout.
 double mobileTableHeightFraction(PokerBreakpoint bp) {
