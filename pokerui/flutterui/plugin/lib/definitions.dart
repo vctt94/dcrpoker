@@ -1653,6 +1653,11 @@ abstract class PluginPlatform {
     return _asJsonMap(res);
   }
 
+  Future<Map<String, dynamic>> watchPokerTable(JoinPokerTableArgs args) async {
+    final res = await asyncCall(CTWatchPokerTable, args.toJson());
+    return _asJsonMap(res);
+  }
+
   Future<Map<String, dynamic>> createPokerTable(
     CreatePokerTableArgs args,
   ) async {
@@ -1662,6 +1667,11 @@ abstract class PluginPlatform {
 
   Future<Map<String, dynamic>> leavePokerTable() async {
     final res = await asyncCall(CTLeavePokerTable, "");
+    return _asJsonMap(res);
+  }
+
+  Future<Map<String, dynamic>> unwatchPokerTable() async {
+    final res = await asyncCall(CTUnwatchPokerTable, "");
     return _asJsonMap(res);
   }
 
@@ -1761,6 +1771,7 @@ const int CTGetPokerTables = 0x12;
 const int CTJoinPokerTable = 0x13;
 const int CTCreatePokerTable = 0x14;
 const int CTLeavePokerTable = 0x15;
+const int CTWatchPokerTable = 0x16;
 const int CTCreateDefaultConfig = 0x17;
 const int CTCreateDefaultServerCert = 0x18;
 const int CTUpdateConfig = 0x20;
@@ -1776,6 +1787,7 @@ const int CTEvaluateHand = 0x21;
 const int CTSetPlayerReady = 0x22;
 const int CTSetPlayerUnready = 0x23;
 const int CTStartGameStream = 0x27;
+const int CTUnwatchPokerTable = 0x2d;
 
 const int CTCloseLockFile = 0x60;
 // Auth commands

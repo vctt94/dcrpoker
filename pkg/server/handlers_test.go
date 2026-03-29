@@ -312,7 +312,7 @@ func TestGameStateHandlerBuildGameStates(t *testing.T) {
 	}
 
 	gsh := NewGameStateHandler(newBareServer())
-	updates := gsh.buildGameStatesFromSnapshot(tsnap)
+	updates := gsh.buildGameStatesFromSnapshot(tsnap, []string{"p1", "p2"})
 
 	if len(updates) != 2 {
 		t.Fatalf("expected 2 game updates, got %d", len(updates))
@@ -340,6 +340,38 @@ func TestGameStateHandlerBuildGameStates(t *testing.T) {
 	}
 	if p2HandVisible {
 		t.Errorf("p1 should NOT see p2 hand in preflop phase")
+	}
+}
+
+func TestGameStateHandlerBuildGameStatesForWatcher(t *testing.T) {
+	cardA := poker.NewCardFromSuitValue(poker.Spades, poker.Ace)
+	cardK := poker.NewCardFromSuitValue(poker.Hearts, poker.King)
+
+	tsnap := &TableSnapshot{
+		ID: "tid",
+		Players: []*PlayerSnapshot{
+			{ID: "p1", Balance: 1000, IsReady: true, Hand: []poker.Card{cardA, cardK}},
+			{ID: "p2", Balance: 1000, IsReady: true, Hand: []poker.Card{cardA, cardK}},
+		},
+		GameSnapshot: &poker.GameStateSnapshot{
+			Phase:         pokerrpc.GamePhase_PRE_FLOP,
+			Pot:           30,
+			CurrentBet:    20,
+			CurrentPlayer: "p1",
+		},
+		Config: poker.TableConfig{MinPlayers: 2},
+		State:  TableState{GameStarted: true, PlayerCount: 2},
+	}
+
+	gsh := NewGameStateHandler(newBareServer())
+	updates := gsh.buildGameStatesFromSnapshot(tsnap, []string{"watcher"})
+	require.Len(t, updates, 1)
+
+	upd := updates["watcher"]
+	require.NotNil(t, upd)
+	require.Len(t, upd.Players, 2)
+	for _, pl := range upd.Players {
+		require.Empty(t, pl.Hand, "watchers should not see unrevealed hole cards")
 	}
 }
 
@@ -378,7 +410,7 @@ func TestGameStateHandlerShowsOwnCardsDuringNewHandDealing(t *testing.T) {
 	}
 
 	gsh := NewGameStateHandler(newBareServer())
-	updates := gsh.buildGameStatesFromSnapshot(tsnap)
+	updates := gsh.buildGameStatesFromSnapshot(tsnap, []string{"p1", "p2"})
 	if len(updates) != 2 {
 		t.Fatalf("expected updates for 2 players, got %d", len(updates))
 	}
@@ -424,4 +456,47 @@ func TestGameStateHandlerShowsOwnCardsDuringNewHandDealing(t *testing.T) {
 	if p1HandCnt != 0 {
 		t.Errorf("p2 should NOT see p1's hand during NEW_HAND_DEALING; got %d", p1HandCnt)
 	}
+}
+
+func TestNotificationHandlerBetMadeNotifiesWatcher(t *testing.T) {
+	s := newBareServer()
+	cfg := poker.TableConfig{
+		ID:         "tid",
+		Log:        slog.Disabled,
+		GameLog:    slog.Disabled,
+		MinPlayers: 2,
+		MaxPlayers: 2,
+	}
+	table := poker.NewTable(cfg)
+	_, err := table.AddNewUser("p1", &poker.AddUserOptions{DisplayName: "P1", Seat: 0})
+	require.NoError(t, err)
+	_, err = table.AddNewUser("p2", &poker.AddUserOptions{DisplayName: "P2", Seat: 1})
+	require.NoError(t, err)
+	s.tables.Store(cfg.ID, table)
+
+	added := s.addTableWatcher(cfg.ID, "watcher")
+	require.True(t, added)
+
+	mockStream := &mockNotificationStream{}
+	s.notificationStreams.Store("watcher", &NotificationStream{
+		playerID: "watcher",
+		stream:   mockStream,
+		done:     make(chan struct{}),
+	})
+
+	evt, err := s.buildGameEvent(
+		pokerrpc.NotificationType_BET_MADE,
+		cfg.ID,
+		BetMadePayload{PlayerID: "p1", Amount: 25},
+	)
+	require.NoError(t, err)
+
+	nh := NewNotificationHandler(s)
+	nh.handleBetMade(evt)
+
+	mockStream.mu.RLock()
+	defer mockStream.mu.RUnlock()
+	require.Len(t, mockStream.sent, 1)
+	require.Equal(t, pokerrpc.NotificationType_BET_MADE, mockStream.sent[0].Type)
+	require.Equal(t, int64(25), mockStream.sent[0].Amount)
 }

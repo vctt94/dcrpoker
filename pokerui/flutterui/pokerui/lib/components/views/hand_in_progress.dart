@@ -7,6 +7,7 @@ import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
 
 class HandInProgressView extends StatefulWidget {
   final PokerModel model;
@@ -44,6 +45,18 @@ class _HandInProgressViewState extends State<HandInProgressView> {
   }
 
   bool get _hasLastShowdown => widget.model.hasLastShowdown;
+
+  static Widget _stopWatchingFooter(PokerModel model) {
+    return Align(
+      alignment: Alignment.centerRight,
+      child: TextButton.icon(
+        onPressed: model.leaveTable,
+        icon: const Icon(Icons.exit_to_app, size: 16),
+        label: const Text('Stop Watching'),
+        style: TextButton.styleFrom(foregroundColor: PokerColors.danger),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -158,6 +171,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               setState(() => _showBetInput = !_showBetInput),
                           onCloseBetInput: () =>
                               setState(() => _showBetInput = false),
+                          footer: model.isWatching
+                              ? _stopWatchingFooter(model)
+                              : null,
                         )
                       : BottomActionDock(
                           model: model,
@@ -167,6 +183,9 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                               setState(() => _showBetInput = !_showBetInput),
                           onCloseBetInput: () =>
                               setState(() => _showBetInput = false),
+                          footer: model.isWatching
+                              ? _stopWatchingFooter(model)
+                              : null,
                         ),
                 ),
               ),

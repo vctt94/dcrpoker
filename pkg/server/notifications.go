@@ -63,9 +63,13 @@ func (s *Server) broadcastNotificationToTable(tableID string, notification *poke
 		return
 	}
 
+	audience := make([]string, 0, len(table.GetUsers()))
 	users := table.GetUsers()
 	for _, user := range users {
-		s.sendNotificationToPlayer(user.ID, notification)
+		audience = append(audience, user.ID)
+	}
+	for _, playerID := range s.tableAudience(tableID, audience) {
+		s.sendNotificationToPlayer(playerID, notification)
 	}
 }
 

@@ -97,6 +97,10 @@ type Server struct {
 	// Notification streaming
 	notificationStreams sync.Map // key: playerID string -> *NotificationStream
 
+	// Table watchers that receive notifications and spectator-safe state
+	// updates without taking a seat in the game.
+	watchers watcherRegistry
+
 	// Game streaming
 	// Maps tableID to bucket containing all active player streams for that table
 	// Each bucket manages streams for players connected to a specific table

@@ -56,6 +56,18 @@ class _ShowdownViewState extends State<ShowdownView> {
             ? (constraints.maxWidth * 0.74).clamp(260.0, 320.0)
             : (constraints.maxWidth * 0.32).clamp(280.0, 396.0);
         final pendingGameEndMessage = model.pendingGameEndMessage;
+        final stopWatchingBtn = model.isWatching
+            ? Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: model.leaveTable,
+                  icon: const Icon(Icons.exit_to_app, size: 16),
+                  label: const Text('Stop Watching'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: PokerColors.danger),
+                ),
+              )
+            : null;
         final Widget? showdownFooter = model.isGameEndPending
             ? Center(
                 child: Column(
@@ -92,10 +104,14 @@ class _ShowdownViewState extends State<ShowdownView> {
                         ),
                       ),
                     ),
+                    if (stopWatchingBtn != null) ...[
+                      const SizedBox(height: 8),
+                      stopWatchingBtn,
+                    ],
                   ],
                 ),
               )
-            : null;
+            : stopWatchingBtn;
         return Stack(
           fit: StackFit.expand,
           children: [

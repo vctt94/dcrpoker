@@ -584,6 +584,9 @@ class _WaitingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final label = model.isWatching
+        ? 'Watching only'
+        : (model.autoAdvanceAllIn ? 'All-in' : 'Waiting...');
     return Container(
       padding: const EdgeInsets.symmetric(
           horizontal: PokerSpacing.lg, vertical: PokerSpacing.sm),
@@ -592,7 +595,7 @@ class _WaitingIndicator extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(
-        model.autoAdvanceAllIn ? 'All-in' : 'Waiting...',
+        label,
         style: PokerTypography.bodyMedium,
       ),
     );

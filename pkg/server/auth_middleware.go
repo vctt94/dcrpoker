@@ -17,9 +17,11 @@ import (
 // Currently it protects the following LobbyService methods:
 //   - CreateTable
 //   - JoinTable
+//   - WatchTable
 //   - SetPlayerReady
 //   - SetPlayerUnready
 //   - LeaveTable
+//   - UnwatchTable
 //
 // Only NewServer wires this middleware into the production gRPC server; direct
 // method calls in unit tests and NewTestServer instances are unaffected.
@@ -56,9 +58,11 @@ func methodRequiresToken(fullMethod string) bool {
 	switch fullMethod {
 	case pokerrpc.LobbyService_CreateTable_FullMethodName,
 		pokerrpc.LobbyService_JoinTable_FullMethodName,
+		pokerrpc.LobbyService_WatchTable_FullMethodName,
 		pokerrpc.LobbyService_SetPlayerReady_FullMethodName,
 		pokerrpc.LobbyService_SetPlayerUnready_FullMethodName,
-		pokerrpc.LobbyService_LeaveTable_FullMethodName:
+		pokerrpc.LobbyService_LeaveTable_FullMethodName,
+		pokerrpc.LobbyService_UnwatchTable_FullMethodName:
 		return true
 	default:
 		return false
@@ -101,9 +105,19 @@ func enforcePlayerBinding(sess sessionInfo, fullMethod string, req any) error {
 				return status.Error(codes.PermissionDenied, "token user ID does not match requested player ID")
 			}
 		}
+	case pokerrpc.LobbyService_WatchTable_FullMethodName:
+		if r, ok := req.(*pokerrpc.WatchTableRequest); ok {
+			if strings.TrimSpace(r.PlayerId) == "" {
+				return status.Error(codes.InvalidArgument, "player_id required")
+			}
+			if sess.userID.String() != strings.TrimSpace(r.PlayerId) {
+				return status.Error(codes.PermissionDenied, "token user ID does not match requested player ID")
+			}
+		}
 	case pokerrpc.LobbyService_SetPlayerReady_FullMethodName,
 		pokerrpc.LobbyService_SetPlayerUnready_FullMethodName,
-		pokerrpc.LobbyService_LeaveTable_FullMethodName:
+		pokerrpc.LobbyService_LeaveTable_FullMethodName,
+		pokerrpc.LobbyService_UnwatchTable_FullMethodName:
 		// For these calls we only enforce that the session belongs to the
 		// declared PlayerId when a PlayerId is provided.
 		type hasPlayerID interface {

@@ -180,7 +180,7 @@ func TestCollectTableSnapshotIncludesLastAction(t *testing.T) {
 	require.NotNil(t, snap)
 
 	gsh := NewGameStateHandler(s)
-	updates := gsh.buildGameStatesFromSnapshot(snap)
+	updates := gsh.buildGameStatesFromSnapshot(snap, []string{snap.GameSnapshot.CurrentPlayer})
 
 	curID := snap.GameSnapshot.CurrentPlayer
 	upd := updates[curID]

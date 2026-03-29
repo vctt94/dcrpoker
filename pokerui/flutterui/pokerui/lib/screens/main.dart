@@ -177,7 +177,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                                             color: Colors.white),
                                       ),
                                       Text(
-                                        "State: ${pokerModel.state.name}",
+                                        "State: ${pokerModel.state.name} • ${pokerModel.tableRoleLabel}",
                                         style: const TextStyle(
                                             color: Colors.white),
                                       ),
@@ -200,7 +200,11 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                                           style: ElevatedButton.styleFrom(
                                             backgroundColor: Colors.redAccent,
                                           ),
-                                          child: const Text("Leave Table"),
+                                          child: Text(
+                                            pokerModel.isSeated
+                                                ? "Leave Table"
+                                                : "Stop Watching",
+                                          ),
                                         )
                                       else
                                         const Padding(

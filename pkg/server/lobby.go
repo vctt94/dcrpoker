@@ -142,10 +142,37 @@ func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) 
 		s.log.Errorf("Failed to publish PLAYER_JOINED event: %v", err)
 		return nil, err
 	}
+	s.removeTableWatcher(req.TableId, req.PlayerId)
 
 	return &pokerrpc.JoinTableResponse{
 		Success: true,
 		Message: "Successfully joined table",
+	}, nil
+}
+
+func (s *Server) WatchTable(ctx context.Context, req *pokerrpc.WatchTableRequest) (*pokerrpc.WatchTableResponse, error) {
+	table, ok := s.getTable(req.TableId)
+	if !ok {
+		return &pokerrpc.WatchTableResponse{Success: false, Message: "Table not found"}, nil
+	}
+
+	if table.GetUser(req.PlayerId) != nil {
+		return &pokerrpc.WatchTableResponse{
+			Success: true,
+			Message: "Already seated at table",
+		}, nil
+	}
+
+	if !s.addTableWatcher(req.TableId, req.PlayerId) {
+		return &pokerrpc.WatchTableResponse{
+			Success: true,
+			Message: "Already watching table",
+		}, nil
+	}
+
+	return &pokerrpc.WatchTableResponse{
+		Success: true,
+		Message: "Watching table",
 	}, nil
 }
 
@@ -369,6 +396,24 @@ func (s *Server) LeaveTable(ctx context.Context, req *pokerrpc.LeaveTableRequest
 	}, nil
 }
 
+func (s *Server) UnwatchTable(ctx context.Context, req *pokerrpc.UnwatchTableRequest) (*pokerrpc.UnwatchTableResponse, error) {
+	if req.TableId == "" {
+		return &pokerrpc.UnwatchTableResponse{Success: false, Message: "Table ID is required"}, nil
+	}
+
+	if s.removeTableWatcher(req.TableId, req.PlayerId) {
+		return &pokerrpc.UnwatchTableResponse{
+			Success: true,
+			Message: "Stopped watching table",
+		}, nil
+	}
+
+	return &pokerrpc.UnwatchTableResponse{
+		Success: true,
+		Message: "Was not watching table",
+	}, nil
+}
+
 func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) (*pokerrpc.GetTablesResponse, error) {
 	// Snapshot current tables from concurrent registry
 	tableRefs := s.getAllTables()
@@ -427,10 +472,20 @@ func (s *Server) GetPlayerCurrentTable(ctx context.Context, req *pokerrpc.GetPla
 	// Get table references with server lock
 	tableRefs := s.getAllTables()
 
-	// Search through tables using regular methods (no server lock held)
+	// Search through tables using regular methods (no server lock held).
+	// Prefer seated tables, but fall back to spectator/watcher tables so
+	// reconnect logic can restore watcher streams as well.
 	for _, table := range tableRefs {
 		if table.GetUser(req.PlayerId) != nil {
 			config := table.GetConfig()
+			return &pokerrpc.GetPlayerCurrentTableResponse{
+				TableId: config.ID,
+			}, nil
+		}
+	}
+	for _, table := range tableRefs {
+		config := table.GetConfig()
+		if s.isTableWatcher(config.ID, req.PlayerId) {
 			return &pokerrpc.GetPlayerCurrentTableResponse{
 				TableId: config.ID,
 			}, nil
@@ -702,6 +757,7 @@ func (s *Server) processTableEvents(eventChan <-chan poker.TableEvent) {
 // already been closed. This is triggered when a TABLE_REMOVED event is
 // received, mirroring the explicit handling of TABLE_CREATED.
 func (s *Server) removeTableFromRegistry(tableID string) {
+	s.removeAllWatchersForTable(tableID)
 	s.tables.Delete(tableID)
 	s.saveMutexes.Delete(tableID)
 	s.broadcastMutexes.Delete(tableID)
