@@ -4,6 +4,7 @@ import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/bottom_action_dock.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
+import 'package:pokerui/components/poker/showdown_content.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/poker.dart';
@@ -96,10 +97,18 @@ class _HandInProgressViewState extends State<HandInProgressView> {
         final useMobileDock = scene.mode == PokerLayoutMode.compactPortrait;
         final showTableHeroCards = !useMobileDock;
         const toggleInset = 4.0;
-        const sidebarGap = 24.0;
+        final uiSpec = PokerUiSpec.fromContext(context);
+        final minBoardRowWidth =
+            ShowdownContent.minPanelWidthForBoardRowSingleLine(
+          uiSpec,
+          cardScale: ShowdownSidebar.sidebarCardScale,
+        );
+        final partialSidebarWidth = constraints.maxWidth * 0.48;
         final sidebarWidth = useMobileDock
-            ? (constraints.maxWidth * 0.80)
-            : (constraints.maxWidth * 0.40);
+            ? constraints.maxWidth
+            : (partialSidebarWidth >= minBoardRowWidth
+                ? partialSidebarWidth
+                : constraints.maxWidth);
         return Stack(
           fit: StackFit.expand,
           children: [
@@ -123,26 +132,22 @@ class _HandInProgressViewState extends State<HandInProgressView> {
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 260),
                 curve: Curves.easeOutCubic,
-                left: _showSidebar ? 0 : -(sidebarWidth + sidebarGap),
+                left: _showSidebar ? 0 : -(sidebarWidth),
                 top: 0,
                 bottom: 0,
-                width: sidebarWidth + sidebarGap,
+                width: sidebarWidth,
                 child: IgnorePointer(
                   ignoring: !_showSidebar,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: sidebarWidth,
+                      Expanded(
                         child: ShowdownSidebar(
                           showdown: lastShowdown,
                           heroId: model.playerId,
                           visible: true,
                           onClose: () => setState(() => _showSidebar = false),
                         ),
-                      ),
-                      const IgnorePointer(
-                        child: SizedBox(width: sidebarGap),
                       ),
                     ],
                   ),

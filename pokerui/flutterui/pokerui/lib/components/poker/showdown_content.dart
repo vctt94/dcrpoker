@@ -11,6 +11,24 @@ import 'package:pokerui/theme/typography.dart';
 
 /// Reusable widget that displays showdown content (player hands and winners).
 class ShowdownContent extends StatelessWidget {
+  /// Horizontal width needed for the board strip to keep five slots on one row.
+  static double minPanelWidthForBoardRowSingleLine(
+    PokerUiSpec spec, {
+    required double cardScale,
+  }) {
+    final w = spec.showdownBoardCardSize(surfaceScale: cardScale).width;
+    final s = spec.spacingScale;
+    return
+        // Outer content padding: `Padding(..., lg * s)` left + right.
+        2 * PokerSpacing.lg * s +
+            // Board container padding: `EdgeInsets.all(md * s)` left + right.
+            2 * PokerSpacing.md * s +
+            // Five fixed card slots (see `Wrap` children).
+            5 * w +
+            // `Wrap.spacing` between adjacent slots (four gaps).
+            4 * PokerSpacing.xs * s;
+  }
+
   const ShowdownContent({
     super.key,
     required this.showdown,
@@ -99,18 +117,19 @@ class ShowdownContent extends StatelessWidget {
     final players = showdown.players;
     final winners = showdown.winners;
     final pot = showdown.pot;
+    final ss = uiSpec.spacingScale;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (showHeader) _buildHeader(winners.isNotEmpty, pot),
+        if (showHeader) _buildHeader(winners.isNotEmpty, pot, uiSpec),
         Padding(
-          padding: const EdgeInsets.all(PokerSpacing.lg),
+          padding: EdgeInsets.all(PokerSpacing.lg * ss),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _buildBoardStrip(communityCards, cardTheme, uiSpec),
-              if (players.isNotEmpty) const SizedBox(height: PokerSpacing.lg),
+              if (players.isNotEmpty) SizedBox(height: PokerSpacing.lg * ss),
               if (players.isNotEmpty) ...[
                 Row(
                   children: [
@@ -127,7 +146,7 @@ class ShowdownContent extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: PokerSpacing.sm),
+                SizedBox(height: PokerSpacing.sm * ss),
                 Container(
                   decoration: BoxDecoration(
                     color: PokerColors.surfaceDim,
@@ -154,11 +173,11 @@ class ShowdownContent extends StatelessWidget {
         ),
         if (showCloseButton && onClose != null)
           Padding(
-            padding: const EdgeInsets.fromLTRB(
-              PokerSpacing.lg,
+            padding: EdgeInsets.fromLTRB(
+              PokerSpacing.lg * ss,
               0,
-              PokerSpacing.lg,
-              PokerSpacing.lg,
+              PokerSpacing.lg * ss,
+              PokerSpacing.lg * ss,
             ),
             child: SizedBox(
               width: double.infinity,
@@ -193,9 +212,10 @@ class ShowdownContent extends StatelessWidget {
   ) {
     const totalBoardSlots = 5;
     final boardCardSize = uiSpec.showdownBoardCardSize(surfaceScale: cardScale);
+    final ss = uiSpec.spacingScale;
     return Container(
       key: const Key('showdown-board-strip'),
-      padding: const EdgeInsets.all(PokerSpacing.md),
+      padding: EdgeInsets.all(PokerSpacing.md * ss),
       decoration: BoxDecoration(
         color: PokerColors.surfaceDim,
         borderRadius: BorderRadius.circular(16),
@@ -210,10 +230,10 @@ class ShowdownContent extends StatelessWidget {
               color: PokerColors.textSecondary,
             ),
           ),
-          const SizedBox(height: PokerSpacing.sm),
+          SizedBox(height: PokerSpacing.sm * ss),
           Wrap(
-            spacing: PokerSpacing.xs,
-            runSpacing: PokerSpacing.xs,
+            spacing: PokerSpacing.xs * ss,
+            runSpacing: PokerSpacing.xs * ss,
             children: List<Widget>.generate(totalBoardSlots, (index) {
               final hasCard = index < communityCards.length;
               return SizedBox(
@@ -236,9 +256,10 @@ class ShowdownContent extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(bool hasWinners, int pot) {
+  Widget _buildHeader(bool hasWinners, int pot, PokerUiSpec uiSpec) {
+    final ss = uiSpec.spacingScale;
     return Container(
-      padding: const EdgeInsets.all(PokerSpacing.lg),
+      padding: EdgeInsets.all(PokerSpacing.lg * ss),
       decoration: BoxDecoration(
         color: PokerColors.surfaceBright,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),

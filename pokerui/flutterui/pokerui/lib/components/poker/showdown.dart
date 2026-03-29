@@ -1,7 +1,7 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pokerui/components/poker/pot_display.dart';
 import 'package:pokerui/components/poker/player_seat.dart';
+import 'package:pokerui/components/poker/showdown_content.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/components/poker/bottom_action_dock.dart';
@@ -51,10 +51,18 @@ class _ShowdownViewState extends State<ShowdownView> {
         );
         final useMobileDock = scene.mode == PokerLayoutMode.compactPortrait;
         const toggleInset = 4.0;
-        const sidebarGap = 24.0;
+        final uiSpec = PokerUiSpec.fromContext(context);
+        final minBoardRowWidth =
+            ShowdownContent.minPanelWidthForBoardRowSingleLine(
+          uiSpec,
+          cardScale: ShowdownSidebar.sidebarCardScale,
+        );
+        final partialSidebarWidth = constraints.maxWidth * 0.48;
         final sidebarWidth = useMobileDock
-            ? (constraints.maxWidth * 0.74)
-            : (constraints.maxWidth * 0.48);
+            ? constraints.maxWidth
+            : (partialSidebarWidth >= minBoardRowWidth
+                ? partialSidebarWidth
+                : constraints.maxWidth);
 
         final pendingGameEndMessage = model.pendingGameEndMessage;
         final stopWatchingBtn = model.isWatching
@@ -136,26 +144,22 @@ class _ShowdownViewState extends State<ShowdownView> {
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 260),
                 curve: Curves.easeOutCubic,
-                left: _showSidebar ? 0 : -(sidebarWidth + sidebarGap),
+                left: _showSidebar ? 0 : -(sidebarWidth),
                 top: 0,
                 bottom: 0,
-                width: sidebarWidth + sidebarGap,
+                width: sidebarWidth,
                 child: IgnorePointer(
                   ignoring: !_showSidebar,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(
-                        width: sidebarWidth,
+                      Expanded(
                         child: ShowdownSidebar(
                           showdown: showdown,
                           heroId: model.playerId,
                           visible: true,
                           onClose: _closeSidebar,
                         ),
-                      ),
-                      const IgnorePointer(
-                        child: SizedBox(width: sidebarGap),
                       ),
                     ],
                   ),
@@ -329,8 +333,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
         showdownWinners: winners,
       );
       final potOrigin = potStackAnchor(layout, theme);
-      final totalWinnings =
-          winners.fold<int>(0, (sum, w) => sum + w.winnings);
+      final totalWinnings = winners.fold<int>(0, (sum, w) => sum + w.winnings);
 
       // Phase 1: pot fades in at center, fades out when payout begins
       allWidgets.add(_FadeInPot(
