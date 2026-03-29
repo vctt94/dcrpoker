@@ -103,3 +103,135 @@ func TestStartGameStream_DisconnectRemovesBucket(t *testing.T) {
 		t.Fatal("expected bucket removed after last disconnect")
 	}
 }
+
+func TestStartGameStream_AllowsWatcherAndHidesHands(t *testing.T) {
+	s := newBareServer()
+	tbl := buildActiveHeadsUpTable(t, "watch-stream-tbl")
+	s.tables.Store(tbl.GetConfig().ID, tbl)
+
+	resp, err := s.WatchTable(context.Background(), &pokerrpc.WatchTableRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+	})
+	if err != nil {
+		t.Fatalf("watch table: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("watch table failed: %s", resp.Message)
+	}
+
+	ms := newMockGameStream()
+	done := make(chan error, 1)
+	go func() {
+		done <- s.StartGameStream(&pokerrpc.StartGameStreamRequest{
+			TableId:  tbl.GetConfig().ID,
+			PlayerId: "watcher",
+		}, ms)
+	}()
+
+	var upd *pokerrpc.GameUpdate
+	select {
+	case upd = <-ms.sentCh:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting initial update for watcher")
+	}
+
+	if upd == nil {
+		t.Fatal("expected initial update for watcher")
+	}
+	if len(upd.Players) != 2 {
+		t.Fatalf("expected 2 players, got %d", len(upd.Players))
+	}
+	for _, pl := range upd.Players {
+		if len(pl.Hand) != 0 {
+			t.Fatalf("watcher should not see hole cards for %s", pl.Id)
+		}
+	}
+
+	ms.cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("stream returned error: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timeout waiting watcher stream shutdown")
+	}
+}
+
+func TestGetPlayerCurrentTable_ReturnsWatcherTable(t *testing.T) {
+	s := newBareServer()
+	tbl := buildActiveHeadsUpTable(t, "watch-current-table")
+	s.tables.Store(tbl.GetConfig().ID, tbl)
+
+	resp, err := s.WatchTable(context.Background(), &pokerrpc.WatchTableRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+	})
+	if err != nil {
+		t.Fatalf("watch table: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("watch table failed: %s", resp.Message)
+	}
+
+	current, err := s.GetPlayerCurrentTable(context.Background(), &pokerrpc.GetPlayerCurrentTableRequest{
+		PlayerId: "watcher",
+	})
+	if err != nil {
+		t.Fatalf("get current table: %v", err)
+	}
+	if current.TableId != tbl.GetConfig().ID {
+		t.Fatalf("expected watcher current table %q, got %q", tbl.GetConfig().ID, current.TableId)
+	}
+}
+
+func TestActionRPCsRejectWatcher(t *testing.T) {
+	s := newBareServer()
+	tbl := buildActiveHeadsUpTable(t, "watcher-actions")
+	s.tables.Store(tbl.GetConfig().ID, tbl)
+
+	resp, err := s.WatchTable(context.Background(), &pokerrpc.WatchTableRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+	})
+	if err != nil {
+		t.Fatalf("watch table: %v", err)
+	}
+	if !resp.Success {
+		t.Fatalf("watch table failed: %s", resp.Message)
+	}
+
+	_, err = s.CheckBet(context.Background(), &pokerrpc.CheckBetRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+	})
+	if err == nil {
+		t.Fatal("expected CheckBet to reject watcher")
+	}
+
+	_, err = s.CallBet(context.Background(), &pokerrpc.CallBetRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+	})
+	if err == nil {
+		t.Fatal("expected CallBet to reject watcher")
+	}
+
+	_, err = s.FoldBet(context.Background(), &pokerrpc.FoldBetRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+	})
+	if err == nil {
+		t.Fatal("expected FoldBet to reject watcher")
+	}
+
+	_, err = s.MakeBet(context.Background(), &pokerrpc.MakeBetRequest{
+		PlayerId: "watcher",
+		TableId:  tbl.GetConfig().ID,
+		Amount:   50,
+	})
+	if err == nil {
+		t.Fatal("expected MakeBet to reject watcher")
+	}
+}

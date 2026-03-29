@@ -468,6 +468,7 @@ class PokerModel extends ChangeNotifier {
   // Cached readiness
   bool _iAmReady = false;
   bool _seated = false; // track whether user is seated at any table
+  bool _watching = false; // track whether user is watching without a seat
   bool _restoring = false; // guard against repeated restore/join loops
   bool _showTableView =
       true; // controls whether UI should render the active table or lobby
@@ -878,6 +879,18 @@ class PokerModel extends ChangeNotifier {
     );
   }
 
+  void _syncTableRoleFromCurrentGame() {
+    final tid = currentTableId;
+    final g = game;
+    if (tid == null || g == null) {
+      return;
+    }
+
+    final amSeatedAtTable = g.players.any((player) => player.id == playerId);
+    _seated = amSeatedAtTable;
+    _watching = !amSeatedAtTable;
+  }
+
   /// Queue game end and complete it once the model has actually reached showdown.
   void _queueGameEnd(String message) {
     _pendingGameEndMessage = message;
@@ -1046,6 +1059,7 @@ class PokerModel extends ChangeNotifier {
       _showdown = null;
       game = nextGame;
     }
+    _syncTableRoleFromCurrentGame();
     final mePlayer = me;
     if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
       _lastBoundEscrowId = mePlayer.escrowId;
@@ -1244,6 +1258,7 @@ class PokerModel extends ChangeNotifier {
         // stop presenting the removed table as interactive.
         if (_state == PokerState.showdown || _state == PokerState.gameEnded) {
           _seated = false;
+          _watching = false;
           if (_state == PokerState.showdown) {
             _pendingGameEndMessage ??= 'Game ended';
             notifyListeners();
@@ -1257,6 +1272,7 @@ class PokerModel extends ChangeNotifier {
         game = null;
         _iAmReady = false;
         _seated = false;
+        _watching = false;
         _state = PokerState.browsingTables;
       }
       notifyListeners();
@@ -1346,16 +1362,54 @@ class PokerModel extends ChangeNotifier {
       currentTableId = tableId;
       _iAmReady = false;
       _seated = true;
+      _watching = false;
       _showTableView = true;
       _clearShowdownState(); // New table: drop any pending game-end or showdown cache
       // PLAYER_JOINED notification will update table state
       // Refresh game state and winners via golib instead of a direct gRPC stream.
       await refreshGameState();
+      _syncTableRoleFromCurrentGame();
       await ensureGameStream();
       notifyListeners();
       return true;
     } catch (e) {
       errorMessage = 'Join failed: $e';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> watchTable(String tableId) async {
+    try {
+      if (_watching && !_seated && currentTableId == tableId) {
+        _clearShowdownState();
+        await refreshGameState();
+        await ensureGameStream();
+        notifyListeners();
+        return true;
+      }
+
+      final res = await Golib.watchPokerTable(JoinPokerTableArgs(tableId));
+      if ((res['status'] as String?) != 'watching') {
+        final msg = res['message'] ?? 'unknown error';
+        errorMessage = 'Watch failed: $msg';
+        notifyListeners();
+        return false;
+      }
+
+      currentTableId = tableId;
+      _iAmReady = false;
+      _seated = false;
+      _watching = true;
+      _showTableView = true;
+      _clearShowdownState();
+      await refreshGameState();
+      _syncTableRoleFromCurrentGame();
+      await ensureGameStream();
+      notifyListeners();
+      return true;
+    } catch (e) {
+      errorMessage = 'Watch failed: $e';
       notifyListeners();
       return false;
     }
@@ -1550,7 +1604,11 @@ class PokerModel extends ChangeNotifier {
     final tid = currentTableId;
     if (tid == null) return;
     try {
-      await Golib.leavePokerTable();
+      if (_seated) {
+        await Golib.leavePokerTable();
+      } else if (_watching) {
+        await Golib.unwatchPokerTable();
+      }
     } catch (_) {
       // ignore; try to clean local state anyway
     } finally {
@@ -1558,6 +1616,7 @@ class PokerModel extends ChangeNotifier {
       game = null;
       _iAmReady = false;
       _seated = false;
+      _watching = false;
       _showTableView = false;
       _lastBoundEscrowId = null;
       _lastBoundEscrowReady = false;
@@ -1617,29 +1676,38 @@ class PokerModel extends ChangeNotifier {
 
   Future<void> _restoreCurrentTable() async {
     try {
-      // Use golib to discover any existing table and keep Go client in sync
+      // Use golib to discover any existing table and keep Go client in sync.
+      // Do not blindly re-join here: the embedded Go client may already know
+      // whether we are seated or merely watching.
       if (_restoring) return;
       _restoring = true;
       final tid = await Golib.getPokerCurrentTable();
-      if (tid.isEmpty) return;
-
-      // If we're already seated on this table, avoid re-joining; ensure stream/state.
-      if (_seated && currentTableId == tid) {
-        await refreshGameState();
-        // If game is already started, ensure game stream is active
-        if (game != null &&
-            (game!.gameStarted || game!.phase != pr.GamePhase.WAITING)) {
-          try {
-            await Golib.startGameStream();
-          } catch (e) {
-            rethrow;
-          }
+      if (tid.isEmpty) {
+        if (currentTableId != null || _seated || _watching) {
+          currentTableId = null;
+          game = null;
+          _iAmReady = false;
+          _seated = false;
+          _watching = false;
+          _showTableView = false;
+          _state = PokerState.browsingTables;
+          notifyListeners();
         }
         return;
       }
 
-      // Re-join via golib to reconcile client-side state and attach streams
-      await joinTable(tid);
+      final switchingTables = currentTableId != null && currentTableId != tid;
+      currentTableId = tid;
+      _showTableView = true;
+      if (switchingTables) {
+        _iAmReady = false;
+        _clearShowdownState();
+      }
+
+      await refreshGameState();
+      _syncTableRoleFromCurrentGame();
+      await ensureGameStream();
+      notifyListeners();
     } catch (_) {
       // ignore
     } finally {
@@ -1650,7 +1718,7 @@ class PokerModel extends ChangeNotifier {
   // -------- Ready / Unready & show/hide cards ----------
   Future<void> setReady() async {
     final tid = currentTableId;
-    if (tid == null) return;
+    if (tid == null || !_seated) return;
     try {
       await Golib.setPlayerReady();
       _iAmReady = true;
@@ -1665,7 +1733,7 @@ class PokerModel extends ChangeNotifier {
 
   Future<void> setUnready() async {
     final tid = currentTableId;
-    if (tid == null) return;
+    if (tid == null || !_seated) return;
     try {
       await Golib.setPlayerUnready();
       _iAmReady = false;
@@ -1809,7 +1877,7 @@ class PokerModel extends ChangeNotifier {
   // -------- Actions (bet/call/check/fold) ----------
   Future<bool> makeBet(int amountChips) async {
     final tid = currentTableId;
-    if (tid == null) return false;
+    if (tid == null || !_seated) return false;
     try {
       await Golib.makeBet(MakeBetArgs(amountChips));
       _soundService.playBet();
@@ -1823,7 +1891,7 @@ class PokerModel extends ChangeNotifier {
 
   Future<bool> callBet() async {
     final tid = currentTableId;
-    if (tid == null) return false;
+    if (tid == null || !_seated) return false;
     try {
       await Golib.callBet();
       _soundService.playCall();
@@ -1837,7 +1905,7 @@ class PokerModel extends ChangeNotifier {
 
   Future<bool> check() async {
     final tid = currentTableId;
-    if (tid == null) return false;
+    if (tid == null || !_seated) return false;
     try {
       await Golib.checkBet();
       _soundService.playCheck();
@@ -1851,7 +1919,7 @@ class PokerModel extends ChangeNotifier {
 
   Future<bool> fold() async {
     final tid = currentTableId;
-    if (tid == null) return false;
+    if (tid == null || !_seated) return false;
     try {
       await Golib.foldBet();
       return true;
@@ -1880,6 +1948,7 @@ class PokerModel extends ChangeNotifier {
         _showdown = null;
         game = nextGame;
       }
+      _syncTableRoleFromCurrentGame();
       final mePlayer = me;
       if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
         _lastBoundEscrowId = mePlayer.escrowId;
@@ -2067,6 +2136,12 @@ class PokerModel extends ChangeNotifier {
   }
 
   bool get iAmReady => _iAmReady;
+  bool get isSeated => _seated;
+  bool get isWatching => _watching;
+  bool get hasTableContext => currentTableId != null;
+  bool get isCurrentTableInteractive => _seated;
+  String get tableRoleLabel =>
+      _seated ? 'Seated' : (_watching ? 'Watching' : 'Browsing');
 
   /// Returns true when the current player is already all-in and the hand is
   /// auto-advancing, meaning no manual decisions remain.
@@ -2077,6 +2152,7 @@ class PokerModel extends ChangeNotifier {
   bool get canAct {
     final g = game;
     if (g == null) return false;
+    if (!_seated) return false;
     final actionablePhase = g.phase == pr.GamePhase.PRE_FLOP ||
         g.phase == pr.GamePhase.FLOP ||
         g.phase == pr.GamePhase.TURN ||

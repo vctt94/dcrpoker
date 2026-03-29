@@ -23,8 +23,11 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 	if !ok {
 		return status.Error(codes.NotFound, "table not found")
 	}
-	if table.GetUser(playerID) == nil {
-		return status.Error(codes.NotFound, "player not at table (join first)")
+	user := table.GetUser(playerID)
+	isSeated := user != nil
+	isSpectator := s.isTableWatcher(tableID, playerID)
+	if !isSeated && !isSpectator {
+		return status.Error(codes.NotFound, "player not at table (join or watch first)")
 	}
 
 	// Get or create the table bucket (single step).
@@ -43,13 +46,15 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 	// Unregister on exit only if this goroutine still owns the stored stream.
 	// This prevents a replaced (older) stream from deleting the newer mapping.
 	defer func() {
-		// Inform table peers this player's game stream disconnected.
-		s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
-			Type:     pokerrpc.NotificationType_GAME_STREAM_DISCONNECTED,
-			Message:  "game stream disconnected",
-			TableId:  tableID,
-			PlayerId: playerID,
-		})
+		if isSeated {
+			// Inform table peers this player's game stream disconnected.
+			s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
+				Type:     pokerrpc.NotificationType_GAME_STREAM_DISCONNECTED,
+				Message:  "game stream disconnected",
+				TableId:  tableID,
+				PlayerId: playerID,
+			})
+		}
 
 		if v, present := b.streams.Load(playerID); present && v == stream {
 			b.streams.Delete(playerID)
@@ -58,24 +63,24 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 				s.gameStreams.CompareAndDelete(tableID, b)
 			}
 
-			// Handle player disconnect when stream closes (safe to call - checks conditions internally)
-			s.handlePlayerDisconnect(tableID, playerID)
+			if isSeated {
+				// Handle player disconnect when stream closes (safe to call - checks conditions internally)
+				s.handlePlayerDisconnect(tableID, playerID)
+			}
 		}
 	}()
 
-	user := table.GetUser(playerID)
-	if user == nil {
-		return status.Error(codes.NotFound, "player not at table")
-	}
-	user.SendReconnection()
+	if isSeated {
+		user.SendReconnection()
 
-	// Inform table peers this player's game stream is connected (reconnected).
-	s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
-		Type:     pokerrpc.NotificationType_GAME_STREAM_CONNECTED,
-		Message:  "game stream connected",
-		TableId:  tableID,
-		PlayerId: playerID,
-	})
+		// Inform table peers this player's game stream is connected (reconnected).
+		s.broadcastNotificationToTable(tableID, &pokerrpc.Notification{
+			Type:     pokerrpc.NotificationType_GAME_STREAM_CONNECTED,
+			Message:  "game stream connected",
+			TableId:  tableID,
+			PlayerId: playerID,
+		})
+	}
 
 	// Build a fresh snapshot to broadcast the reconnection and seed this stream.
 	gsh := NewGameStateHandler(s)
@@ -84,8 +89,10 @@ func (s *Server) StartGameStream(req *pokerrpc.StartGameStreamRequest, stream po
 		return err
 	}
 
-	// Broadcast connection state to other players via event pipeline
-	s.publishTableSnapshotEvent(tableID, tableSnapshot)
+	if isSeated {
+		// Broadcast connection state to other players via event pipeline
+		s.publishTableSnapshotEvent(tableID, tableSnapshot)
+	}
 
 	upd, err := gsh.buildGameUpdateFromSnapshot(tableSnapshot, playerID)
 	if err != nil {
@@ -132,16 +139,26 @@ func (s *Server) publishTableSnapshotEvent(tableID string, snapshot *TableSnapsh
 	s.eventProcessor.PublishEvent(&GameEvent{
 		Type:          pokerrpc.NotificationType_GAME_STATE_UPDATED,
 		TableID:       tableID,
-		PlayerIDs:     snapshot.playerIDs(),
+		PlayerIDs:     s.tableAudience(tableID, snapshot.playerIDs()),
 		Timestamp:     time.Now(),
 		TableSnapshot: snapshot,
 	})
+}
+
+func (s *Server) requireSeatedPlayer(table *poker.Table, playerID string) error {
+	if table.GetUser(playerID) == nil {
+		return status.Error(codes.FailedPrecondition, "player not at table")
+	}
+	return nil
 }
 
 func (s *Server) MakeBet(ctx context.Context, req *pokerrpc.MakeBetRequest) (*pokerrpc.MakeBetResponse, error) {
 	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
+	}
+	if err := s.requireSeatedPlayer(table, req.PlayerId); err != nil {
+		return nil, err
 	}
 
 	if !table.IsGameStarted() {
@@ -226,6 +243,9 @@ func (s *Server) FoldBet(ctx context.Context, req *pokerrpc.FoldBetRequest) (*po
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
 	}
+	if err := s.requireSeatedPlayer(table, req.PlayerId); err != nil {
+		return nil, err
+	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
 	}
@@ -258,6 +278,9 @@ func (s *Server) CallBet(ctx context.Context, req *pokerrpc.CallBetRequest) (*po
 	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
+	}
+	if err := s.requireSeatedPlayer(table, req.PlayerId); err != nil {
+		return nil, err
 	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")
@@ -341,6 +364,9 @@ func (s *Server) CheckBet(ctx context.Context, req *pokerrpc.CheckBetRequest) (*
 	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return nil, status.Error(codes.NotFound, "table not found")
+	}
+	if err := s.requireSeatedPlayer(table, req.PlayerId); err != nil {
+		return nil, err
 	}
 	if !table.IsGameStarted() {
 		return nil, status.Error(codes.FailedPrecondition, "game not started")

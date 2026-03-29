@@ -10,7 +10,8 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
-// StartGameStream starts receiving real-time game updates for the current table
+// StartGameStream starts receiving real-time game updates for the current table,
+// whether the client is seated there or watching as a spectator.
 func (pc *PokerClient) StartGameStream(ctx context.Context) error {
 	if ctx.Err() != nil {
 		if ctx.Err() == context.Canceled {
@@ -177,6 +178,28 @@ func (pc *PokerClient) JoinTable(ctx context.Context, tableID string) error {
 	return nil
 }
 
+// WatchTable starts watching a table without taking a seat.
+func (pc *PokerClient) WatchTable(ctx context.Context, tableID string) error {
+	ctx = pc.withSessionToken(ctx)
+	resp, err := pc.LobbyService.WatchTable(ctx, &pokerrpc.WatchTableRequest{
+		PlayerId: pc.ID.String(),
+		TableId:  tableID,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		msg := resp.GetMessage()
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return fmt.Errorf("failed to watch table: %s", msg)
+	}
+
+	pc.SetCurrentTableID(tableID)
+	return nil
+}
+
 // LeaveTable leaves the current table and clears the table ID
 func (pc *PokerClient) LeaveTable(ctx context.Context) error {
 	tableID := pc.GetCurrentTableID()
@@ -204,6 +227,35 @@ func (pc *PokerClient) LeaveTable(ctx context.Context) error {
 
 	pc.SetCurrentTableID("")
 
+	return nil
+}
+
+// UnwatchTable stops watching a table without affecting seated players.
+func (pc *PokerClient) UnwatchTable(ctx context.Context) error {
+	tableID := pc.GetCurrentTableID()
+	if tableID == "" {
+		return fmt.Errorf("not currently watching a table")
+	}
+
+	pc.stopGameStream()
+
+	ctx = pc.withSessionToken(ctx)
+	resp, err := pc.LobbyService.UnwatchTable(ctx, &pokerrpc.UnwatchTableRequest{
+		PlayerId: pc.ID.String(),
+		TableId:  tableID,
+	})
+	if err != nil {
+		return err
+	}
+	if !resp.Success {
+		msg := resp.GetMessage()
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return fmt.Errorf("failed to unwatch table: %s", msg)
+	}
+
+	pc.SetCurrentTableID("")
 	return nil
 }
 

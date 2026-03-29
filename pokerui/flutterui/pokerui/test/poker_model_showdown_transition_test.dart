@@ -1182,4 +1182,33 @@ void main() {
     expect(lastHero.hand.first.value, 'Q');
     expect(model.lastWinners.single.playerId, heroId);
   });
+
+  test('game update infers watching role when hero is not seated', () {
+    const tableId = 'table-watch';
+    const heroId = 'hero';
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.FLOP,
+      players: [
+        _player(id: 'p1', name: 'Player 1', tableSeat: 0),
+        _player(id: 'p2', name: 'Player 2', tableSeat: 1),
+      ],
+      currentPlayer: 'p1',
+      communityCards: [
+        pr.Card(value: 'A', suit: 'Spades'),
+        pr.Card(value: 'K', suit: 'Hearts'),
+        pr.Card(value: 'Q', suit: 'Clubs'),
+      ],
+      pot: 60,
+    ));
+
+    expect(model.isSeated, isFalse);
+    expect(model.isWatching, isTrue);
+    expect(model.game, isNotNull);
+    expect(model.game!.communityCards, hasLength(3));
+  });
 }

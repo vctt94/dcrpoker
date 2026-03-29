@@ -145,6 +145,7 @@ func (s *Server) buildGameEvent(
 	for _, u := range users {
 		playerIDs = append(playerIDs, u.ID)
 	}
+	playerIDs = s.tableAudience(tableID, playerIDs)
 
 	// Convert poker package payloads to server payloads
 	var serverPayload EventPayload

@@ -27,12 +27,16 @@ class InLobbyView extends StatelessWidget {
   }
 
   Future<void> _showLeaveTableDialog(BuildContext ctx) async {
+    final actionLabel = model.isSeated ? 'Leave Table' : 'Stop Watching';
+    final actionMessage = model.isSeated
+        ? 'You will need to rejoin to play again.'
+        : 'You will stop receiving live updates for this table.';
     if (!ctx.mounted) return;
     final confirmed = await showDialog<bool>(
       context: ctx,
       builder: (dctx) => AlertDialog(
-        title: const Text('Leave Table?'),
-        content: const Text('You will need to rejoin to play again.'),
+        title: Text('$actionLabel?'),
+        content: Text(actionMessage),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dctx, false),
@@ -41,7 +45,7 @@ class InLobbyView extends StatelessWidget {
             onPressed: () => Navigator.pop(dctx, true),
             style:
                 ElevatedButton.styleFrom(backgroundColor: PokerColors.danger),
-            child: const Text('Leave'),
+            child: Text(model.isSeated ? 'Leave' : 'Stop'),
           ),
         ],
       ),
@@ -216,6 +220,7 @@ class InLobbyView extends StatelessWidget {
     final lobbyPlayers = table.players;
     final displayedPlayers =
         gamePlayers.isNotEmpty ? gamePlayers : lobbyPlayers;
+    final watchingOnly = !model.isSeated && model.isWatching;
 
     // Compute progress steps
     final hasEscrow = model.cachedEscrowId.isNotEmpty;
@@ -255,20 +260,40 @@ class InLobbyView extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        ElevatedButton(
-                          onPressed: model.iAmReady
-                              ? model.setUnready
-                              : model.setReady,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: model.iAmReady
-                                ? PokerColors.surfaceBright
-                                : PokerColors.success,
-                            foregroundColor: model.iAmReady
-                                ? PokerColors.textPrimary
-                                : Colors.black,
+                        if (watchingOnly)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: PokerSpacing.md,
+                              vertical: PokerSpacing.sm,
+                            ),
+                            decoration: BoxDecoration(
+                              color: PokerColors.primary.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(
+                                color: PokerColors.primary.withOpacity(0.35),
+                              ),
+                            ),
+                            child: Text(
+                              'Watching',
+                              style: PokerTypography.labelSmall
+                                  .copyWith(color: PokerColors.primary),
+                            ),
+                          )
+                        else
+                          ElevatedButton(
+                            onPressed: model.iAmReady
+                                ? model.setUnready
+                                : model.setReady,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: model.iAmReady
+                                  ? PokerColors.surfaceBright
+                                  : PokerColors.success,
+                              foregroundColor: model.iAmReady
+                                  ? PokerColors.textPrimary
+                                  : Colors.black,
+                            ),
+                            child: Text(model.iAmReady ? 'Unready' : 'Ready'),
                           ),
-                          child: Text(model.iAmReady ? 'Unready' : 'Ready'),
-                        ),
                       ],
                     ),
                     const SizedBox(height: PokerSpacing.sm),
@@ -276,48 +301,56 @@ class InLobbyView extends StatelessWidget {
                       'Blinds ${table.smallBlind}/${table.bigBlind}  •  Buy-in ${(table.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
                       style: PokerTypography.bodySmall,
                     ),
+                    if (watchingOnly) ...[
+                      const SizedBox(height: PokerSpacing.sm),
+                      Text(
+                        'Watchers receive table and hand updates but cannot bind escrow, ready up, or act in the hand.',
+                        style: PokerTypography.bodySmall
+                            .copyWith(color: PokerColors.textMuted),
+                      ),
+                    ],
                   ],
                 ),
               ),
 
               const SizedBox(height: PokerSpacing.lg),
 
-              // Progress stepper
-              _ProgressStepper(
-                steps: [
-                  _Step(
-                    label: 'Fund',
-                    detail: hasEscrow
-                        ? (escrowReady ? 'Escrow funded' : 'Confirming...')
-                        : 'Bind escrow',
-                    done: hasEscrow && escrowReady,
-                    active: !hasEscrow || !escrowReady,
-                    action: (!hasEscrow || !escrowReady)
-                        ? () => _showBindDialog(context, table)
-                        : null,
-                    actionLabel: hasEscrow ? null : 'Bind Escrow',
-                  ),
-                  _Step(
-                    label: 'Ready',
-                    detail: allReady
-                        ? 'All players ready'
-                        : '${displayedPlayers.where((p) => p.isReady).length}/${displayedPlayers.length} ready',
-                    done: allReady && allEscrows && enoughPlayers,
-                    active: hasEscrow && escrowReady,
-                  ),
-                  _Step(
-                    label: 'Go',
-                    detail: allPresigned
-                        ? 'Starting!'
-                        : (model.presignInProgress
-                            ? 'Presigning...'
-                            : 'Waiting'),
-                    done: allPresigned,
-                    active: allReady && allEscrows,
-                    showSpinner: model.presignInProgress,
-                  ),
-                ],
-              ),
+              if (!watchingOnly)
+                _ProgressStepper(
+                  steps: [
+                    _Step(
+                      label: 'Fund',
+                      detail: hasEscrow
+                          ? (escrowReady ? 'Escrow funded' : 'Confirming...')
+                          : 'Bind escrow',
+                      done: hasEscrow && escrowReady,
+                      active: !hasEscrow || !escrowReady,
+                      action: (!hasEscrow || !escrowReady)
+                          ? () => _showBindDialog(context, table)
+                          : null,
+                      actionLabel: hasEscrow ? null : 'Bind Escrow',
+                    ),
+                    _Step(
+                      label: 'Ready',
+                      detail: allReady
+                          ? 'All players ready'
+                          : '${displayedPlayers.where((p) => p.isReady).length}/${displayedPlayers.length} ready',
+                      done: allReady && allEscrows && enoughPlayers,
+                      active: hasEscrow && escrowReady,
+                    ),
+                    _Step(
+                      label: 'Go',
+                      detail: allPresigned
+                          ? 'Starting!'
+                          : (model.presignInProgress
+                              ? 'Presigning...'
+                              : 'Waiting'),
+                      done: allPresigned,
+                      active: allReady && allEscrows,
+                      showSpinner: model.presignInProgress,
+                    ),
+                  ],
+                ),
 
               const SizedBox(height: PokerSpacing.lg),
 
@@ -407,7 +440,7 @@ class InLobbyView extends StatelessWidget {
                   onPressed: () => _showLeaveTableDialog(context),
                   style:
                       TextButton.styleFrom(foregroundColor: PokerColors.danger),
-                  child: const Text('Leave Table'),
+                  child: Text(model.isSeated ? 'Leave Table' : 'Stop Watching'),
                 ),
               ),
             ],

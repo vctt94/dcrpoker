@@ -743,6 +743,21 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 
 		return map[string]string{"status": "joined", "table_id": req.TableID}, nil
 
+	case CTWatchPokerTable:
+		var req joinPokerTable
+		if err := decodeStrict(cmd.Payload, &req); err != nil {
+			return nil, fmt.Errorf("watch table payload: %w", err)
+		}
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.WatchTable(cc.ctx, req.TableID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to watch table: %v", err)
+		}
+
+		return map[string]string{"status": "watching", "table_id": req.TableID}, nil
+
 	case CTCreatePokerTable:
 		var req createPokerTable
 		if err := decodeStrict(cmd.Payload, &req); err != nil {
@@ -780,6 +795,16 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 			return nil, fmt.Errorf("failed to leave table: %v", err)
 		}
 		return map[string]string{"status": "left"}, nil
+
+	case CTUnwatchPokerTable:
+		if cc.c == nil {
+			return nil, fmt.Errorf("poker client not initialized")
+		}
+		err := cc.c.UnwatchTable(cc.ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unwatch table: %v", err)
+		}
+		return map[string]string{"status": "unwatched"}, nil
 
 	case CTGetPlayerCurrentTable:
 		if cc.c == nil {

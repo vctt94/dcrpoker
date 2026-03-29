@@ -26,17 +26,20 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
 
   List<UiTable> get _filteredSortedTables {
     var list = widget.model.tables;
-    if (_hideFull) list = list.where((t) => t.currentPlayers < t.maxPlayers).toList();
+    if (_hideFull)
+      list = list.where((t) => t.currentPlayers < t.maxPlayers).toList();
     if (_showWaitingOnly) list = list.where((t) => !t.gameStarted).toList();
     switch (_sort) {
       case _SortBy.players:
-        list = List.of(list)..sort((a, b) => b.currentPlayers.compareTo(a.currentPlayers));
+        list = List.of(list)
+          ..sort((a, b) => b.currentPlayers.compareTo(a.currentPlayers));
         break;
       case _SortBy.blinds:
         list = List.of(list)..sort((a, b) => b.bigBlind.compareTo(a.bigBlind));
         break;
       case _SortBy.buyIn:
-        list = List.of(list)..sort((a, b) => a.buyInAtoms.compareTo(b.buyInAtoms));
+        list = List.of(list)
+          ..sort((a, b) => a.buyInAtoms.compareTo(b.buyInAtoms));
         break;
     }
     return list;
@@ -55,7 +58,8 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
             const SizedBox(height: PokerSpacing.lg),
             Text('No Tables', style: PokerTypography.headlineMedium),
             const SizedBox(height: PokerSpacing.sm),
-            Text('Create one to start playing', style: PokerTypography.bodySmall),
+            Text('Create one to start playing',
+                style: PokerTypography.bodySmall),
             const SizedBox(height: PokerSpacing.xl),
             ElevatedButton.icon(
               onPressed: () => CreateTableDialog.open(context, model),
@@ -98,7 +102,8 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                     IconButton(
                       tooltip: 'Refresh',
                       onPressed: model.browseTables,
-                      icon: const Icon(Icons.refresh, color: PokerColors.textSecondary, size: 20),
+                      icon: const Icon(Icons.refresh,
+                          color: PokerColors.textSecondary, size: 20),
                     ),
                   ],
                 ),
@@ -159,7 +164,8 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
 }
 
 class _FilterChip extends StatelessWidget {
-  const _FilterChip({required this.label, required this.selected, required this.onSelected});
+  const _FilterChip(
+      {required this.label, required this.selected, required this.onSelected});
   final String label;
   final bool selected;
   final ValueChanged<bool> onSelected;
@@ -167,16 +173,19 @@ class _FilterChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FilterChip(
-      label: Text(label, style: PokerTypography.labelSmall.copyWith(
-        color: selected ? PokerColors.primary : PokerColors.textSecondary,
-      )),
+      label: Text(label,
+          style: PokerTypography.labelSmall.copyWith(
+            color: selected ? PokerColors.primary : PokerColors.textSecondary,
+          )),
       selected: selected,
       onSelected: onSelected,
       selectedColor: PokerColors.primary.withOpacity(0.15),
       checkmarkColor: PokerColors.primary,
       backgroundColor: PokerColors.surface,
       side: BorderSide(
-        color: selected ? PokerColors.primary.withOpacity(0.5) : PokerColors.borderSubtle,
+        color: selected
+            ? PokerColors.primary.withOpacity(0.5)
+            : PokerColors.borderSubtle,
       ),
     );
   }
@@ -199,9 +208,14 @@ class _TableCard extends StatelessWidget {
     final t = table;
     final full = t.currentPlayers >= t.maxPlayers;
     final started = t.gameStarted;
-    final alreadySeated = model.currentTableId == t.id ||
+    final alreadyAtTable = model.currentTableId == t.id ||
         t.players.any((p) => p.id == model.playerId);
-    final canJoin = alreadySeated || (!started && !full);
+    final hasOtherActiveTable =
+        model.currentTableId != null && model.currentTableId != t.id;
+    final canWatch = !hasOtherActiveTable && !alreadyAtTable;
+    final canJoin = !hasOtherActiveTable && !alreadyAtTable && !started && !full;
+    final showPrimary = alreadyAtTable || canJoin;
+    final primaryLabel = alreadyAtTable ? 'Open' : 'Join';
 
     return Container(
       padding: const EdgeInsets.all(PokerSpacing.lg),
@@ -236,9 +250,13 @@ class _TableCard extends StatelessWidget {
                 spacing: PokerSpacing.md,
                 runSpacing: PokerSpacing.xs,
                 children: [
-                  _Stat(icon: Icons.people_outline, text: '${t.currentPlayers}/${t.maxPlayers}'),
-                  _Stat(icon: Icons.toll, text: '${t.smallBlind}/${t.bigBlind}'),
-                  _Stat(icon: Icons.account_balance_wallet_outlined,
+                  _Stat(
+                      icon: Icons.people_outline,
+                      text: '${t.currentPlayers}/${t.maxPlayers}'),
+                  _Stat(
+                      icon: Icons.toll, text: '${t.smallBlind}/${t.bigBlind}'),
+                  _Stat(
+                      icon: Icons.account_balance_wallet_outlined,
                       text: '${toDcr(t.buyInAtoms).toStringAsFixed(2)} DCR'),
                 ],
               ),
@@ -262,29 +280,36 @@ class _TableCard extends StatelessWidget {
               else
                 const SizedBox(height: PokerSpacing.md),
 
-              // Join button
               Align(
                 alignment: Alignment.centerRight,
-                child: ElevatedButton(
-                  onPressed: canJoin
-                      ? () {
-                          if (alreadySeated) {
+                child: Wrap(
+                  spacing: PokerSpacing.sm,
+                  runSpacing: PokerSpacing.sm,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    if (canWatch)
+                      OutlinedButton(
+                        onPressed: () => model.watchTable(t.id),
+                        child: const Text('Watch'),
+                      ),
+                    if (showPrimary)
+                      ElevatedButton(
+                        onPressed: () {
+                          if (alreadyAtTable) {
                             model.openTableView();
                           } else {
                             model.joinTable(t.id);
                           }
-                        }
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: canJoin ? PokerColors.success : PokerColors.surfaceBright,
-                    foregroundColor: canJoin ? Colors.black : PokerColors.textMuted,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                  ),
-                  child: Text(alreadySeated
-                      ? 'Open'
-                      : started
-                          ? 'Started'
-                          : 'Join'),
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: PokerColors.success,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 20, vertical: 10),
+                        ),
+                        child: Text(primaryLabel),
+                      ),
+                  ],
                 ),
               ),
             ],

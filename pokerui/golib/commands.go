@@ -53,6 +53,7 @@ const (
 	CTJoinPokerTable          CmdType = 0x13
 	CTCreatePokerTable        CmdType = 0x14
 	CTLeavePokerTable         CmdType = 0x15
+	CTWatchPokerTable         CmdType = 0x16
 	CTCreateDefaultConfig     CmdType = 0x17
 	CTCreateDefaultServerCert CmdType = 0x18
 	CTUpdateConfig            CmdType = 0x20
@@ -68,6 +69,7 @@ const (
 	CTSetPlayerReady          CmdType = 0x22
 	CTSetPlayerUnready        CmdType = 0x23
 	CTStartGameStream         CmdType = 0x27
+	CTUnwatchPokerTable       CmdType = 0x2d
 
 	// Auth commands
 	CTRegister         CmdType = 0x24

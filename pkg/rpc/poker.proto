@@ -33,7 +33,9 @@ service LobbyService {
   // Table management
   rpc CreateTable(CreateTableRequest) returns (CreateTableResponse) {}
   rpc JoinTable(JoinTableRequest) returns (JoinTableResponse) {}
+  rpc WatchTable(WatchTableRequest) returns (WatchTableResponse) {}
   rpc LeaveTable(LeaveTableRequest) returns (LeaveTableResponse) {}
+  rpc UnwatchTable(UnwatchTableRequest) returns (UnwatchTableResponse) {}
   rpc GetTables(GetTablesRequest) returns (GetTablesResponse) {}
   rpc GetPlayerCurrentTable(GetPlayerCurrentTableRequest) returns (GetPlayerCurrentTableResponse) {}
   
@@ -260,12 +262,32 @@ message JoinTableResponse {
   string message = 2;
 }
 
+message WatchTableRequest {
+  string player_id = 1;
+  string table_id = 2;
+}
+
+message WatchTableResponse {
+  bool success = 1;
+  string message = 2;
+}
+
 message LeaveTableRequest {
   string player_id = 1;
   string table_id = 2;
 }
 
 message LeaveTableResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message UnwatchTableRequest {
+  string player_id = 1;
+  string table_id = 2;
+}
+
+message UnwatchTableResponse {
   bool success = 1;
   string message = 2;
 }

@@ -389,29 +389,32 @@ func (gsh *GameStateHandler) HandleEvent(event *GameEvent) {
 	}
 
 	// Build game states from the event snapshot
-	gameStates := gsh.buildGameStatesFromSnapshot(event.TableSnapshot)
+	gameStates := gsh.buildGameStatesFromSnapshot(event.TableSnapshot, event.PlayerIDs)
 	if len(gameStates) > 0 {
 		gsh.server.sendGameStateUpdates(event.TableID, gameStates)
 	}
 }
 
-func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot) map[string]*pokerrpc.GameUpdate {
+func (gsh *GameStateHandler) buildGameStatesFromSnapshot(snapshot *TableSnapshot, recipientIDs []string) map[string]*pokerrpc.GameUpdate {
 	if snapshot == nil {
 		return nil
 	}
+	if len(recipientIDs) == 0 {
+		recipientIDs = snapshot.playerIDs()
+	}
 	gameStates := make(map[string]*pokerrpc.GameUpdate)
-	for _, playerSnapshot := range snapshot.Players {
-		if playerSnapshot == nil {
+	for _, playerID := range recipientIDs {
+		if playerID == "" {
 			continue
 		}
-		// Build per-player updates from the provided table snapshot.
-		gameUpdate, err := gsh.buildGameUpdateFromTableSnapshot(snapshot, playerSnapshot.ID)
+		// Build per-recipient updates from the provided table snapshot.
+		gameUpdate, err := gsh.buildGameUpdateFromTableSnapshot(snapshot, playerID)
 		if err != nil {
-			gsh.server.log.Errorf("Error building game update for player %s: %v", playerSnapshot.ID, err)
+			gsh.server.log.Errorf("Error building game update for player %s: %v", playerID, err)
 			continue
 		}
 		if gameUpdate != nil {
-			gameStates[playerSnapshot.ID] = gameUpdate
+			gameStates[playerID] = gameUpdate
 		}
 	}
 	return gameStates

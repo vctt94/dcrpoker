@@ -34,7 +34,7 @@ func TestShowCardsRejectedDuringBetting(t *testing.T) {
 	snap, snapErr := s.collectTableSnapshot(table.GetConfig().ID)
 	require.NoError(t, snapErr)
 	gsh := NewGameStateHandler(s)
-	updates := gsh.buildGameStatesFromSnapshot(snap)
+	updates := gsh.buildGameStatesFromSnapshot(snap, []string{"p2"})
 	upd := updates["p2"]
 	require.NotNil(t, upd, "p2 should receive a game update")
 
@@ -95,7 +95,7 @@ func TestAutoRevealHiddenBeforeShowdown(t *testing.T) {
 	require.NoError(t, err)
 
 	gsh := NewGameStateHandler(s)
-	updates := gsh.buildGameStatesFromSnapshot(snap)
+	updates := gsh.buildGameStatesFromSnapshot(snap, []string{"p1"})
 	upd := updates["p1"]
 	require.NotNil(t, upd, "p1 should receive a game update")
 
