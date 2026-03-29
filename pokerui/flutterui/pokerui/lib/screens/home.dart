@@ -3,11 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:pokerui/components/shared_layout.dart';
 import 'package:pokerui/models/poker.dart';
-import 'package:pokerui/components/poker/showdown.dart';
 import 'package:pokerui/components/views/idle.dart';
 import 'package:pokerui/components/views/browsing_tables.dart';
 import 'package:pokerui/components/views/in_lobby.dart';
-import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/table_session_view.dart';
 import 'package:pokerui/components/views/game_ended.dart';
 import 'package:pokerui/components/views/tournament_over.dart';
 import 'package:pokerui/theme/colors.dart';
@@ -34,9 +33,8 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
       case PokerState.inLobby:
         return InLobbyView(model: model);
       case PokerState.handInProgress:
-        return HandInProgressView(model: model);
       case PokerState.showdown:
-        return ShowdownView(model: model);
+        return TableSessionView(model: model);
       case PokerState.gameEnded:
         return GameEndedView(model: model);
       case PokerState.tournamentOver:

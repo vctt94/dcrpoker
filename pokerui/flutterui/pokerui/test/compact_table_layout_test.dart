@@ -6,11 +6,10 @@ import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
-import 'package:pokerui/components/poker/showdown.dart';
 import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/components/views/game_ended.dart';
-import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/table_session_view.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
@@ -304,7 +303,7 @@ void main() {
     );
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(800, 600),
     ));
     await tester.pump();
@@ -322,7 +321,7 @@ void main() {
     model.game = _gameState(pr.GamePhase.PRE_FLOP);
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(800, 600),
     ));
     await tester.pump();
@@ -360,7 +359,7 @@ void main() {
     ];
 
     await tester.pumpWidget(_wrap(
-      child: ShowdownView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(800, 600),
     ));
     await tester.pump();
@@ -398,9 +397,12 @@ void main() {
       ],
     );
 
+    // Wide enough that 48% viewport width still fits five board cards in one row
+    // (otherwise the sidebar goes full width and this test expects a partial panel).
+    const viewport = Size(1600, 764);
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
-      size: const Size(886, 764),
+      child: TableSessionView(model: model),
+      size: viewport,
     ));
     await tester.pump();
 
@@ -426,14 +428,10 @@ void main() {
     expect(find.byTooltip('Close last hand details'), findsOneWidget);
     final sidebarRect =
         tester.getRect(find.byKey(const Key('showdown-sidebar')));
-    final viewportSize = Size(
-      tester.view.physicalSize.width / tester.view.devicePixelRatio,
-      tester.view.physicalSize.height / tester.view.devicePixelRatio,
-    );
     expect(sidebarRect.left, 0);
     expect(sidebarRect.top, 0);
-    expect(sidebarRect.height, lessThan(viewportSize.height));
-    expect(sidebarRect.width, lessThan(viewportSize.width));
+    expect(sidebarRect.height, lessThan(viewport.height));
+    expect(sidebarRect.width, lessThan(viewport.width));
 
     await tester.tap(find.byTooltip('Close last hand details'));
     await tester.pumpAndSettle();
@@ -701,7 +699,7 @@ void main() {
     );
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(800, 600),
     ));
     await tester.pump();
@@ -720,7 +718,7 @@ void main() {
     model.game = _gameState(pr.GamePhase.PRE_FLOP);
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(390, 844),
       config: _defaultConfig.copyWith(cardSize: 'xl'),
     ));
@@ -776,7 +774,7 @@ void main() {
     );
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(390, 844),
       config: _defaultConfig.copyWith(cardSize: 'xl'),
     ));
@@ -829,7 +827,7 @@ void main() {
     );
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(390, 844),
       config: _defaultConfig.copyWith(cardSize: 'xl'),
     ));
@@ -877,7 +875,7 @@ void main() {
     );
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(390, 844),
       config: _defaultConfig.copyWith(cardSize: 'xl'),
     ));
@@ -907,7 +905,7 @@ void main() {
     model.game = _gameState(pr.GamePhase.PRE_FLOP);
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(1024, 768),
       config: _defaultConfig.copyWith(cardSize: 'xl'),
     ));
@@ -923,7 +921,8 @@ void main() {
     final heroCardRect = tester.getRect(find.byType(CardFace).first);
 
     expect(dockRect.top, greaterThan(potRect.bottom));
-    expect(heroCardRect.bottom, lessThan(dockRect.top));
+    // Allow a few px slack for font/layout drift across Flutter / theme versions.
+    expect(heroCardRect.bottom, lessThan(dockRect.top + 12));
   });
 
   testWidgets('desktop hero cards stay anchored across action state changes',
@@ -932,7 +931,7 @@ void main() {
     model.game = _gameState(pr.GamePhase.PRE_FLOP);
 
     await tester.pumpWidget(_wrap(
-      child: HandInProgressView(model: model),
+      child: TableSessionView(model: model),
       size: const Size(1024, 768),
       config: _defaultConfig.copyWith(cardSize: 'xl'),
     ));

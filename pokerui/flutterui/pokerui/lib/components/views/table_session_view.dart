@@ -1,0 +1,285 @@
+import 'package:flutter/material.dart';
+import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'package:pokerui/components/poker/bet_amounts.dart';
+import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/game.dart';
+import 'package:pokerui/components/poker/scene_layout.dart';
+import 'package:pokerui/components/poker/showdown_board_label.dart';
+import 'package:pokerui/components/poker/showdown_content.dart';
+import 'package:pokerui/components/poker/showdown_fx_overlay.dart';
+import 'package:pokerui/components/poker/showdown_sidebar.dart';
+import 'package:pokerui/components/poker/table.dart';
+import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/models/poker.dart';
+
+class TableSessionView extends StatefulWidget {
+  const TableSessionView({super.key, required this.model});
+
+  final PokerModel model;
+
+  @override
+  State<TableSessionView> createState() => _TableSessionViewState();
+
+  static int calculateTotalBet(
+    int amt,
+    int currentBet,
+    int myBet,
+    int bb, {
+    int myBalance = 0,
+  }) {
+    return normalizeBetInputToTotal(
+      entered: amt,
+      myBet: myBet,
+      myBalance: myBalance,
+    );
+  }
+}
+
+class _TableSessionViewState extends State<TableSessionView> {
+  final FocusNode _gameFocusNode = FocusNode();
+  final TextEditingController _betCtrl = TextEditingController();
+  bool _showBetInput = false;
+  bool _showSidebar = false;
+
+  bool get _isShowdown => widget.model.state == PokerState.showdown;
+  bool get _hasLastShowdown => widget.model.hasLastShowdown;
+
+  @override
+  void dispose() {
+    _gameFocusNode.dispose();
+    _betCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(TableSessionView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.model.state != widget.model.state) {
+      _showSidebar = false;
+    }
+  }
+
+  void _closeSidebar() {
+    if (!mounted) return;
+    setState(() => _showSidebar = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final model = widget.model;
+
+    if (_isShowdown && model.game == null) {
+      return const Center(child: Text('No game data available'));
+    }
+
+    final theme = PokerThemeConfig.fromContext(context);
+    final pokerGame = PokerGame(model.playerId, model, theme: theme);
+
+    final gameState = model.game ??
+        const UiGameState(
+          tableId: '',
+          phase: pr.GamePhase.PRE_FLOP,
+          phaseName: 'hand',
+          players: [],
+          communityCards: [],
+          pot: 0,
+          currentBet: 0,
+          currentPlayerId: '',
+          minRaise: 0,
+          maxRaise: 0,
+          bigBlind: 0,
+          smallBlind: 0,
+          gameStarted: true,
+          playersRequired: 0,
+          playersJoined: 0,
+          timeBankSeconds: 0,
+          turnDeadlineUnixMs: 0,
+        );
+
+    final isReady = model.iAmReady;
+    final isWaiting = gameState.phase == pr.GamePhase.WAITING;
+
+    final showdown = model.showdown;
+    final lastShowdown = model.lastShowdown;
+
+    final UiShowdownState? sidebarShowdown =
+        _isShowdown ? showdown : lastShowdown;
+    final bool showShowdownChrome = _isShowdown
+        ? (showdown != null)
+        : (!isWaiting && _hasLastShowdown && lastShowdown != null);
+
+    final pendingGameEndMessage = model.pendingGameEndMessage;
+    final Widget? showdownFooter = _isShowdown && model.isGameEndPending
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  pendingGameEndMessage.isNotEmpty
+                      ? pendingGameEndMessage
+                      : 'Game ended. Press Continue.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    _closeSidebar();
+                    model.skipShowdown();
+                  },
+                  icon: const Icon(Icons.skip_next, size: 18),
+                  label: const Text('Continue'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          )
+        : null;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scene = PokerSceneLayout.resolve(
+          constraints.biggest,
+          safePadding: MediaQuery.paddingOf(context),
+        );
+        final useMobileDock = scene.mode == PokerLayoutMode.compactPortrait;
+        // Match hand-in-progress: on phone portrait, hero hole cards live in the dock
+        // only — not also at the seat (showdown used to force seat cards and caused
+        // duplicates with the dock).
+        final showTableHeroCards = !useMobileDock;
+        const toggleInset = 4.0;
+        final uiSpec = PokerUiSpec.fromContext(context);
+        final minBoardRowWidth =
+            ShowdownContent.minPanelWidthForBoardRowSingleLine(
+          uiSpec,
+          cardScale: ShowdownSidebar.sidebarCardScale,
+        );
+        final partialSidebarWidth = constraints.maxWidth * 0.48;
+        final sidebarWidth = useMobileDock
+            ? constraints.maxWidth
+            : (partialSidebarWidth >= minBoardRowWidth
+                ? partialSidebarWidth
+                : constraints.maxWidth);
+
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            pokerGame.buildWidget(
+              gameState,
+              _gameFocusNode,
+              scene: scene,
+              showHeroSeatCards: showTableHeroCards,
+              onReadyHotkey:
+                  !_isShowdown && isWaiting ? () => model.setReady() : null,
+            ),
+            if (_isShowdown && (model.showdownResultLabel ?? '').isNotEmpty)
+              ShowdownBoardLabel(
+                text: model.showdownResultLabel!,
+                scene: scene,
+                compact: useMobileDock,
+              ),
+            if (_isShowdown)
+              ShowdownFxOverlay(
+                model: model,
+                layout: TableLayout.fromScene(scene),
+              ),
+            if (!_isShowdown && isWaiting)
+              pokerGame.buildReadyToPlayOverlay(
+                context,
+                isReady,
+                false,
+                '',
+                () => model.setReady(),
+                gameState,
+              ),
+            if (showShowdownChrome && sidebarShowdown != null)
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                left: _showSidebar ? 0 : -(sidebarWidth),
+                top: 0,
+                bottom: 0,
+                width: sidebarWidth,
+                child: IgnorePointer(
+                  ignoring: !_showSidebar,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: ShowdownSidebar(
+                          showdown: sidebarShowdown,
+                          heroId: model.playerId,
+                          visible: true,
+                          onClose: _closeSidebar,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            if (showShowdownChrome && !_showSidebar)
+              Positioned(
+                left: scene.contentRect.left + toggleInset,
+                top: scene.contentRect.top + toggleInset,
+                child: PokerLastHandButton(
+                  active: _showSidebar,
+                  onTap: () => setState(() => _showSidebar = !_showSidebar),
+                ),
+              ),
+            Positioned.fromRect(
+              rect: scene.heroDockRect,
+              child: Container(
+                key: const Key('poker-hero-dock'),
+                child: useMobileDock
+                    ? (_isShowdown
+                        ? MobileHeroActionPanel.passive(
+                            model: model,
+                            reserveActionSpace: false,
+                            footer: showdownFooter,
+                          )
+                        : MobileHeroActionPanel(
+                            model: model,
+                            showBetInput: _showBetInput,
+                            betCtrl: _betCtrl,
+                            onToggleBetInput: () =>
+                                setState(() => _showBetInput = !_showBetInput),
+                            onCloseBetInput: () =>
+                                setState(() => _showBetInput = false),
+                          ))
+                    : (_isShowdown
+                        ? BottomActionDock.passive(
+                            model: model,
+                            reserveActionSpace: false,
+                            footer: showdownFooter,
+                          )
+                        : BottomActionDock(
+                            model: model,
+                            showBetInput: _showBetInput,
+                            betCtrl: _betCtrl,
+                            onToggleBetInput: () =>
+                                setState(() => _showBetInput = !_showBetInput),
+                            onCloseBetInput: () =>
+                                setState(() => _showBetInput = false),
+                          )),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}

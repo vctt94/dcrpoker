@@ -7,19 +7,33 @@ import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/player_seat.dart';
 import 'package:pokerui/components/poker/pot_display.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
-import 'package:pokerui/components/poker/showdown.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/table_session_view.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 
 /// Mock PokerModel for testing animations without server
 /// This extends PokerModel and provides minimal stubs for testing
 class MockPokerModel extends PokerModel {
-  MockPokerModel({required super.playerId, UiGameState? game})
-      : super(dataDir: '/tmp/test') {
+  MockPokerModel({
+    required super.playerId,
+    UiGameState? game,
+    PokerState state = PokerState.showdown,
+  })  : _testState = state,
+        super(dataDir: '/tmp/test') {
     this.game = game;
+  }
+
+  PokerState _testState;
+
+  @override
+  PokerState get state => _testState;
+
+  void setTestState(PokerState value) {
+    if (_testState == value) return;
+    _testState = value;
+    notifyListeners();
   }
 
   void triggerShowdownAnimation() {
@@ -230,7 +244,7 @@ void main() {
         _createWinner(playerId: heroId, winnings: 500),
       ];
 
-      // Build the widget using ShowdownView (which contains the private _ShowdownFxOverlay)
+      // Build the widget using TableSessionView (contains [ShowdownFxOverlay])
       await tester.pumpWidget(
         _wrapWithProviders(
           MaterialApp(
@@ -238,7 +252,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -260,7 +274,7 @@ void main() {
       // The animation creates chip widgets that move from pot to winners
       // We verify this by ensuring the widget tree is valid and the animation controller
       // is set up correctly
-      expect(find.byType(ShowdownView), findsOneWidget);
+      expect(find.byType(TableSessionView), findsOneWidget);
 
       // The animation should be triggered (lastShowdownFxMs changed)
       expect(model.lastShowdownFxMs, greaterThan(0));
@@ -306,7 +320,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -388,7 +402,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -438,9 +452,16 @@ void main() {
         timeBankSeconds: 30,
         turnDeadlineUnixMs: 0,
       );
-      model.lastWinners = [
+      final winners = [
         _createWinner(playerId: 'winner', winnings: 500),
       ];
+      model.lastWinners = winners;
+      model.setShowdownDataForTest(
+        players: model.game!.players,
+        communityCards: const [],
+        pot: 500,
+        winners: winners,
+      );
       model.triggerShowdownAnimation();
 
       await tester.pumpWidget(
@@ -450,7 +471,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -467,7 +488,10 @@ void main() {
           .pump(kShowdownPayoutDelay - const Duration(milliseconds: 20));
       expect(potDisplay().opacity, equals(1.0));
 
-      await tester.pump(const Duration(milliseconds: 40));
+      // Timer fires at kShowdownPayoutDelay; [AnimatedOpacity] then eases to 0
+      // over 180ms — pump past that fade.
+      await tester.pump(kShowdownPayoutDelay + const Duration(milliseconds: 20));
+      await tester.pump(const Duration(milliseconds: 200));
       expect(potDisplay().opacity, equals(0.0));
     });
 
@@ -526,7 +550,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -586,7 +610,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -648,7 +672,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -722,7 +746,7 @@ void main() {
               body: SizedBox(
                 width: 390,
                 height: 844,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -771,6 +795,12 @@ void main() {
       model.lastWinners = [
         _createWinner(playerId: 'winner', winnings: 500),
       ];
+      model.setShowdownDataForTest(
+        players: model.game!.players,
+        communityCards: const [],
+        pot: 500,
+        winners: model.lastWinners,
+      );
 
       await tester.pumpWidget(
         _wrapWithProviders(
@@ -779,7 +809,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -820,6 +850,12 @@ void main() {
       model.lastWinners = [
         _createWinner(playerId: 'winner', winnings: 500),
       ];
+      model.setShowdownDataForTest(
+        players: model.game!.players,
+        communityCards: const [],
+        pot: 500,
+        winners: model.lastWinners,
+      );
 
       await tester.pumpWidget(
         _wrapWithProviders(
@@ -828,7 +864,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -884,7 +920,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -940,7 +976,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -952,8 +988,8 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       // No animation chips should be created when there are no winners
-      // Note: ShowdownView still has other UI elements (banner, leave button, etc.)
-      // but the _ShowdownFxOverlay should return SizedBox.shrink when winners.isEmpty
+      // Note: TableSessionView still has other UI elements (banner, leave button, etc.)
+      // but [ShowdownFxOverlay] should return SizedBox.shrink when winners.isEmpty
       // We verify this by checking that the animation doesn't create chip widgets
       // The test passes if no exception is thrown and the widget builds successfully
     });
@@ -996,7 +1032,7 @@ void main() {
               body: SizedBox(
                 width: 800,
                 height: 450,
-                child: ShowdownView(model: model),
+                child: TableSessionView(model: model),
               ),
             ),
           ),
@@ -1062,7 +1098,7 @@ void main() {
                 body: SizedBox(
                   width: size.width,
                   height: size.height,
-                  child: ShowdownView(model: model),
+                  child: TableSessionView(model: model),
                 ),
               ),
             ),
@@ -1115,7 +1151,10 @@ void main() {
         (WidgetTester tester) async {
       const heroId = 'player1';
       const size = Size(1280, 720);
-      final model = MockPokerModel(playerId: heroId);
+      final model = MockPokerModel(
+        playerId: heroId,
+        state: PokerState.handInProgress,
+      );
 
       model.game = _createGameState(
         heroId: heroId,
@@ -1126,7 +1165,7 @@ void main() {
 
       await tester.pumpWidget(_wrapSizedTestView(
         size: size,
-        child: HandInProgressView(model: model),
+        child: TableSessionView(model: model),
       ));
       await tester.pump();
 
@@ -1140,7 +1179,7 @@ void main() {
 
       await tester.pumpWidget(_wrapSizedTestView(
         size: size,
-        child: ShowdownView(model: model),
+        child: TableSessionView(model: model),
       ));
       await tester.pump();
 
@@ -1152,7 +1191,10 @@ void main() {
         (WidgetTester tester) async {
       const heroId = 'player1';
       const size = Size(390, 844);
-      final model = MockPokerModel(playerId: heroId);
+      final model = MockPokerModel(
+        playerId: heroId,
+        state: PokerState.handInProgress,
+      );
 
       model.game = _createGameState(
         heroId: heroId,
@@ -1163,7 +1205,7 @@ void main() {
 
       await tester.pumpWidget(_wrapSizedTestView(
         size: size,
-        child: HandInProgressView(model: model),
+        child: TableSessionView(model: model),
       ));
       await tester.pump();
 
@@ -1177,7 +1219,7 @@ void main() {
 
       await tester.pumpWidget(_wrapSizedTestView(
         size: size,
-        child: ShowdownView(model: model),
+        child: TableSessionView(model: model),
       ));
       await tester.pump();
 
