@@ -249,12 +249,16 @@ class PokerUiSpec {
     return Size(width, width * 1.4);
   }
 
-  PokerSeatSpec seatSpec({required bool isHeroSeat}) {
+  PokerSeatSpec seatSpec({
+    required bool isHeroSeat,
+    bool emphasizeOpponentCards = false,
+  }) {
     return PokerSeatSpec.resolve(
       layoutMode: layoutMode,
       uiSizeMultiplier: uiSizeMultiplier,
       cardSizeMultiplier: cardSizeMultiplier,
       isHeroSeat: isHeroSeat,
+      emphasizeOpponentCards: emphasizeOpponentCards,
     );
   }
 
@@ -354,14 +358,32 @@ class PokerSeatSpec {
     required double uiSizeMultiplier,
     required double cardSizeMultiplier,
     required bool isHeroSeat,
+    bool emphasizeOpponentCards = false,
   }) {
     final compactOpponent =
         !isHeroSeat && layoutMode == PokerLayoutMode.compactPortrait;
-    final radius = 28.0 * uiSizeMultiplier * (compactOpponent ? 0.74 : 1.0);
-    final baseCardMultiplier =
-        isHeroSeat ? 1.8 : (compactOpponent ? 1.05 : 1.4);
-    final minCardWidth = isHeroSeat ? 58.0 : (compactOpponent ? 32.0 : 44.0);
-    final maxCardWidth = isHeroSeat ? 96.0 : (compactOpponent ? 56.0 : 80.0);
+    final emphasizeRail =
+        compactOpponent && emphasizeOpponentCards;
+    // Phone portrait opponents default to a tiny rail; enlarge when all-in or
+    // hole cards are face-up so backs/reveals stay readable.
+    final radius = 28.0 *
+        uiSizeMultiplier *
+        (compactOpponent ? (emphasizeRail ? 0.88 : 0.74) : 1.0);
+    final baseCardMultiplier = isHeroSeat
+        ? 1.8
+        : compactOpponent
+            ? (emphasizeRail ? 1.3 : 1.05)
+            : 1.4;
+    final minCardWidth = isHeroSeat
+        ? 58.0
+        : compactOpponent
+            ? (emphasizeRail ? 40.0 : 32.0)
+            : 44.0;
+    final maxCardWidth = isHeroSeat
+        ? 96.0
+        : compactOpponent
+            ? (emphasizeRail ? 72.0 : 56.0)
+            : 80.0;
     final cardWidth = (radius * baseCardMultiplier * cardSizeMultiplier)
         .clamp(minCardWidth, maxCardWidth)
         .toDouble();
@@ -370,8 +392,11 @@ class PokerSeatSpec {
         (cardWidth * 0.12).clamp(3.0, isHeroSeat ? 8.0 : 6.0).toDouble();
     final railSideInset =
         (cardWidth * (isHeroSeat ? 0.16 : 0.12)).clamp(4.0, 10.0).toDouble();
-    final plateWidthBase =
-        isHeroSeat ? 122.0 : (compactOpponent ? 84.0 : 108.0);
+    final plateWidthBase = isHeroSeat
+        ? 122.0
+        : compactOpponent
+            ? (emphasizeRail ? 94.0 : 84.0)
+            : 108.0;
     final heroDockOverlapBase = switch (layoutMode) {
       PokerLayoutMode.compactPortrait => 18.0,
       PokerLayoutMode.compactLandscape => 22.0,

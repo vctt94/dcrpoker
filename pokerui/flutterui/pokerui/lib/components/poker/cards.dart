@@ -344,20 +344,6 @@ bool _shouldShowCenterContent(
   return _rankToCount(value) == null ? width >= 32 : width >= 30;
 }
 
-bool _useMiniNumberLayout(
-  int pipCount,
-  double width, {
-  required bool simplifiedMode,
-}) {
-  if (!simplifiedMode) return false;
-  final minFullWidth = switch (pipCount) {
-    >= 9 => 30.0,
-    >= 7 => 28.0,
-    _ => 24.0,
-  };
-  return width < minFullWidth;
-}
-
 // ─────────────────────────────────────────────
 // CardFace Widget
 // ─────────────────────────────────────────────
@@ -588,17 +574,35 @@ class _CardCenter extends StatelessWidget {
     }
 
     if (pipCount != null) {
-      if (_useMiniNumberLayout(
-        pipCount,
-        cardWidth,
-        simplifiedMode: simplifiedMode,
-      )) {
+      if (simplifiedMode) {
+        // Phone / narrow UI: rank + suit in the center instead of multi-pip layout.
+        final compact = cardWidth < 52;
         return Center(
-          child: Text(suit,
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.w600,
-              )),
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(value,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w800,
+                      )),
+                  SizedBox(height: height * (compact ? 0.01 : 0.015)),
+                  Text(suit,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: math.max(7.0,
+                            math.min(width, height) * (compact ? 0.17 : 0.22)),
+                        fontWeight: FontWeight.w600,
+                      )),
+                ],
+              ),
+            ),
+          ),
         );
       }
 

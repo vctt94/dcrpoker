@@ -413,19 +413,37 @@ class MobileHeroActionPanel extends StatelessWidget {
             bottom: safeBottomPadding(context, minPadding: 6),
           ),
           decoration: const BoxDecoration(color: PokerColors.screenBg),
-          child: Column(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: hasBottomSection
-                ? MainAxisAlignment.spaceBetween
-                : MainAxisAlignment.start,
-            children: [
-              headerSection,
-              if (hasBottomSection)
-                Padding(
-                  padding: EdgeInsets.only(top: sectionGap),
-                  child: bottomSection,
+          child: LayoutBuilder(
+            builder: (context, innerConstraints) {
+              final body = Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: hasBottomSection
+                    ? MainAxisAlignment.spaceBetween
+                    : MainAxisAlignment.start,
+                children: [
+                  headerSection,
+                  if (hasBottomSection)
+                    Padding(
+                      padding: EdgeInsets.only(top: sectionGap),
+                      child: bottomSection,
+                    ),
+                ],
+              );
+              final maxH = innerConstraints.maxHeight;
+              if (!maxH.isFinite) {
+                return body;
+              }
+              return SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: innerConstraints.maxWidth,
+                    minHeight: maxH,
+                  ),
+                  child: body,
                 ),
-            ],
+              );
+            },
           ),
         );
       },

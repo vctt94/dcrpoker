@@ -330,7 +330,14 @@ _ResolvedSeatLayout _resolveSeatLayout({
       showHeroCardsInSeat: renderHeroCardsInSeat);
   final showRailCards =
       isHeroSeat ? renderHeroCardsInSeat : (showFaceUpCards || showCardBacks);
-  final seatSpec = uiSpec.seatSpec(isHeroSeat: isHeroSeat);
+  final emphasizeOpponentCards = !isHeroSeat &&
+      uiSpec.layoutMode == PokerLayoutMode.compactPortrait &&
+      !player.folded &&
+      (player.isAllIn || showFaceUpCards);
+  final seatSpec = uiSpec.seatSpec(
+    isHeroSeat: isHeroSeat,
+    emphasizeOpponentCards: emphasizeOpponentCards,
+  );
   final radius = seatSpec.radius;
   final uiScale = seatSpec.uiScale;
   final cardScale = seatSpec.cardScale;
