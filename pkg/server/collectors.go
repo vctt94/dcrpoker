@@ -181,8 +181,9 @@ func (s *Server) buildGameEvent(
 				TotalPot:   p.TotalPot,
 			}
 		case poker.PlayerLostPayload:
-			// Convert poker.PlayerLostPayload to server PlayerLostPayload
 			serverPayload = PlayerLostPayload{PlayerID: p.PlayerID}
+		case poker.MessagePayload:
+			serverPayload = MessagePayload{Message: p.Message}
 		default:
 			s.log.Warnf("Unknown payload type %T for event %s on table %s", payload, eventType, tableID)
 			serverPayload = nil

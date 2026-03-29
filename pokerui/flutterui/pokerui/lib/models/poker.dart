@@ -231,6 +231,7 @@ class UiTable {
   final pr.GamePhase phase;
   final bool gameStarted;
   final bool allReady;
+  final int blindIncreaseIntervalSec;
 
   const UiTable({
     required this.id,
@@ -244,6 +245,7 @@ class UiTable {
     required this.phase,
     required this.gameStarted,
     required this.allReady,
+    this.blindIncreaseIntervalSec = 0,
   });
 
   factory UiTable.fromProto(pr.Table t) => UiTable(
@@ -258,6 +260,7 @@ class UiTable {
         phase: t.phase,
         gameStarted: t.gameStarted,
         allReady: t.allPlayersReady,
+        blindIncreaseIntervalSec: t.blindIncreaseIntervalSec,
       );
 }
 
@@ -281,6 +284,9 @@ class UiGameState {
   final int timeBankSeconds; // configured per-turn timebank (seconds)
   final int
       turnDeadlineUnixMs; // absolute ms deadline for current player (0 if N/A)
+  final int blindLevel; // current blind level index (0-based)
+  final int
+      nextBlindIncreaseUnixMs; // Unix ms timestamp of next blind increase (0 if disabled/max)
 
   const UiGameState({
     required this.tableId,
@@ -300,6 +306,8 @@ class UiGameState {
     required this.playersJoined,
     required this.timeBankSeconds,
     required this.turnDeadlineUnixMs,
+    this.blindLevel = 0,
+    this.nextBlindIncreaseUnixMs = 0,
   });
 
   factory UiGameState.fromUpdate(pr.GameUpdate u) => UiGameState(
@@ -321,6 +329,10 @@ class UiGameState {
         timeBankSeconds: u.hasTimeBankSeconds() ? u.timeBankSeconds : 0,
         turnDeadlineUnixMs:
             u.hasTurnDeadlineUnixMs() ? u.turnDeadlineUnixMs.toInt() : 0,
+        blindLevel: u.hasBlindLevel() ? u.blindLevel : 0,
+        nextBlindIncreaseUnixMs: u.hasNextBlindIncreaseUnixMs()
+            ? u.nextBlindIncreaseUnixMs.toInt()
+            : 0,
       );
 
   UiGameState copyWith({
@@ -346,6 +358,8 @@ class UiGameState {
       playersJoined: playersJoined,
       timeBankSeconds: timeBankSeconds,
       turnDeadlineUnixMs: turnDeadlineUnixMs,
+      blindLevel: blindLevel,
+      nextBlindIncreaseUnixMs: nextBlindIncreaseUnixMs,
     );
   }
 }
@@ -415,6 +429,7 @@ class PokerModel extends ChangeNotifier {
   String errorMessage = '';
   String successMessage = '';
   String gameEndingMessage = ''; // message shown when game ends
+  String tableMessage = ''; // transient table-wide notification (e.g., blind increase)
 
   // Active showdown for the current hand.
   UiShowdownState? _showdown;
@@ -757,6 +772,20 @@ class PokerModel extends ChangeNotifier {
             (player) => player.clearHandState(),
           );
           notifyListeners();
+        }
+        break;
+
+      case pr.NotificationType.MESSAGE:
+        if (n.tableId == currentTableId && n.message.isNotEmpty) {
+          tableMessage = n.message;
+          notifyListeners();
+          // Auto-clear after 10 seconds.
+          Future.delayed(const Duration(seconds: 8), () {
+            if (tableMessage == n.message) {
+              tableMessage = '';
+              notifyListeners();
+            }
+          });
         }
         break;
 
@@ -1296,15 +1325,16 @@ class PokerModel extends ChangeNotifier {
   }
 
   Future<String?> createTable({
-    required int smallBlindChips,
-    required int bigBlindChips,
+    int smallBlindChips = 0, // 0 = server default (10)
+    int bigBlindChips = 0, // 0 = server default (20)
     required int maxPlayers,
     required int minPlayers,
     required int buyInAtoms,
     required int startingChips,
-    int timeBankSeconds = 30,
-    int autoStartMs = 0, // Default set on server (3 seconds)
-    int autoAdvanceMs = 0, // Default set on server (1 second)
+    int timeBankSeconds = 0, // 0 = server default (30s)
+    int autoStartMs = 0, // 0 = server default (3s)
+    int autoAdvanceMs = 0, // 0 = server default (3s)
+    int blindIncreaseIntervalSec = 0, // 0 = server default (5min)
   }) async {
     try {
       final res = await Golib.createPokerTable(CreatePokerTableArgs(
@@ -1317,6 +1347,7 @@ class PokerModel extends ChangeNotifier {
         timeBankSeconds,
         autoStartMs,
         autoAdvanceMs,
+        blindIncreaseIntervalSec: blindIncreaseIntervalSec,
       ));
       // Cache timebank seconds locally for countdowns in this session
       this.timeBankSeconds = timeBankSeconds;

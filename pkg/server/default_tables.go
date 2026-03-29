@@ -21,9 +21,16 @@ const (
 	managedTableSourceUser    = "user"
 	managedTableSourceDefault = "default"
 	defaultTablesFilename     = "default_tables.json"
-	defaultTableTimeBank      = 30 * time.Second
-	defaultTableAutoStart     = 2 * time.Second
-	defaultTableAutoAdvance   = 2 * time.Second
+	// TimeBank: how long a player has to act before being auto-folded/checked.
+	defaultTableTimeBank = 30 * time.Second
+	// AutoStart: delay after showdown before the next hand begins automatically.
+	defaultTableAutoStart = 3 * time.Second
+	// AutoAdvance: delay before the next street is dealt when all players are all-in.
+	defaultTableAutoAdvance      = 3 * time.Second
+	defaultSmallBlind            = int64(10)
+	defaultBigBlind              = int64(20)
+	defaultBlindIncreaseInterval = 5 * time.Minute
+	defaultStartingChips         = int64(2000)
 )
 
 type defaultTablesFile struct {
@@ -31,22 +38,24 @@ type defaultTablesFile struct {
 }
 
 type DefaultTableProfile struct {
-	Name            string `json:"name"`
-	BuyInDCR        string `json:"buy_in_dcr"`
-	MinPlayers      int    `json:"min_players"`
-	MaxPlayers      int    `json:"max_players"`
-	SmallBlind      int64  `json:"small_blind"`
-	BigBlind        int64  `json:"big_blind"`
-	StartingChips   int64  `json:"starting_chips"`
-	TimeBankSeconds int    `json:"time_bank_seconds"`
-	AutoStartMS     int    `json:"auto_start_ms"`
-	AutoAdvanceMS   int    `json:"auto_advance_ms"`
+	Name                     string `json:"name"`
+	BuyInDCR                 string `json:"buy_in_dcr"`
+	MinPlayers               int    `json:"min_players"`
+	MaxPlayers               int    `json:"max_players"`
+	SmallBlind               int64  `json:"small_blind"`
+	BigBlind                 int64  `json:"big_blind"`
+	StartingChips            int64  `json:"starting_chips"`
+	TimeBankSeconds          int    `json:"time_bank_seconds"`
+	AutoStartMS              int    `json:"auto_start_ms"`
+	AutoAdvanceMS            int    `json:"auto_advance_ms"`
+	BlindIncreaseIntervalSec int    `json:"blind_increase_interval_sec,omitempty"`
 
-	BuyIn            int64         `json:"-"`
-	TimeBank         time.Duration `json:"-"`
-	AutoStartDelay   time.Duration `json:"-"`
-	AutoAdvanceDelay time.Duration `json:"-"`
-	Count            int           `json:"-"`
+	BuyIn                 int64         `json:"-"`
+	TimeBank              time.Duration `json:"-"`
+	AutoStartDelay        time.Duration `json:"-"`
+	AutoAdvanceDelay      time.Duration `json:"-"`
+	BlindIncreaseInterval time.Duration `json:"-"`
+	Count                 int           `json:"-"`
 }
 
 //go:embed default_tables_template.json
@@ -121,6 +130,12 @@ func (p *DefaultTableProfile) normalizeAndValidate() error {
 	if p.MinPlayers > p.MaxPlayers {
 		return fmt.Errorf("min_players must be <= max_players")
 	}
+	if p.SmallBlind == 0 {
+		p.SmallBlind = defaultSmallBlind
+	}
+	if p.BigBlind == 0 {
+		p.BigBlind = defaultBigBlind
+	}
 	if p.SmallBlind <= 0 {
 		return fmt.Errorf("small_blind must be > 0")
 	}
@@ -130,7 +145,10 @@ func (p *DefaultTableProfile) normalizeAndValidate() error {
 	if p.SmallBlind >= p.BigBlind {
 		return fmt.Errorf("small_blind must be < big_blind")
 	}
-	if p.StartingChips <= 0 {
+	if p.StartingChips == 0 {
+		p.StartingChips = defaultStartingChips
+	}
+	if p.StartingChips < 0 {
 		return fmt.Errorf("starting_chips must be > 0")
 	}
 
@@ -152,6 +170,7 @@ func (p *DefaultTableProfile) normalizeAndValidate() error {
 	p.TimeBank = time.Duration(p.TimeBankSeconds) * time.Second
 	p.AutoStartDelay = time.Duration(p.AutoStartMS) * time.Millisecond
 	p.AutoAdvanceDelay = time.Duration(p.AutoAdvanceMS) * time.Millisecond
+	p.BlindIncreaseInterval = time.Duration(p.BlindIncreaseIntervalSec) * time.Second
 	if p.TimeBank == 0 {
 		p.TimeBank = defaultTableTimeBank
 	}
@@ -350,20 +369,21 @@ func (m *defaultTableManager) trackManagedTable(cfg poker.TableConfig) {
 
 func defaultTableConfigFromProfile(profile DefaultTableProfile, tblLog, gameLog slog.Logger) poker.TableConfig {
 	cfg := poker.TableConfig{
-		ID:               newTableID(),
-		Name:             profile.Name,
-		Log:              tblLog,
-		GameLog:          gameLog,
-		Source:           managedTableSourceDefault,
-		BuyIn:            profile.BuyIn,
-		MinPlayers:       profile.MinPlayers,
-		MaxPlayers:       profile.MaxPlayers,
-		SmallBlind:       profile.SmallBlind,
-		BigBlind:         profile.BigBlind,
-		StartingChips:    profile.StartingChips,
-		TimeBank:         profile.TimeBank,
-		AutoStartDelay:   profile.AutoStartDelay,
-		AutoAdvanceDelay: profile.AutoAdvanceDelay,
+		ID:                    newTableID(),
+		Name:                  profile.Name,
+		Log:                   tblLog,
+		GameLog:               gameLog,
+		Source:                managedTableSourceDefault,
+		BuyIn:                 profile.BuyIn,
+		MinPlayers:            profile.MinPlayers,
+		MaxPlayers:            profile.MaxPlayers,
+		SmallBlind:            profile.SmallBlind,
+		BigBlind:              profile.BigBlind,
+		StartingChips:         profile.StartingChips,
+		TimeBank:              profile.TimeBank,
+		AutoStartDelay:        profile.AutoStartDelay,
+		AutoAdvanceDelay:      profile.AutoAdvanceDelay,
+		BlindIncreaseInterval: profile.BlindIncreaseInterval,
 	}
 	normalizeTableConfig(&cfg)
 	return cfg
@@ -409,16 +429,27 @@ func normalizeTableConfig(cfg *poker.TableConfig) {
 	if strings.TrimSpace(cfg.Name) == "" {
 		cfg.Name = fmt.Sprintf("Table %s", cfg.ID[:8])
 	}
+	if cfg.SmallBlind == 0 {
+		cfg.SmallBlind = defaultSmallBlind
+	}
+	if cfg.BigBlind == 0 {
+		cfg.BigBlind = defaultBigBlind
+	}
 	if cfg.TimeBank == 0 {
 		cfg.TimeBank = defaultTableTimeBank
 	}
 	if cfg.StartingChips == 0 {
-		cfg.StartingChips = 1000
+		cfg.StartingChips = defaultStartingChips
 	}
 	if cfg.AutoStartDelay == 0 {
 		cfg.AutoStartDelay = defaultTableAutoStart
 	}
 	if cfg.AutoAdvanceDelay == 0 {
 		cfg.AutoAdvanceDelay = defaultTableAutoAdvance
+	}
+	if cfg.BlindIncreaseInterval == 0 &&
+		cfg.SmallBlind == defaultSmallBlind &&
+		cfg.BigBlind == defaultBigBlind {
+		cfg.BlindIncreaseInterval = defaultBlindIncreaseInterval
 	}
 }

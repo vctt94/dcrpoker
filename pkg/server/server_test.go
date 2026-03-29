@@ -107,19 +107,20 @@ func (m *InMemoryDB) UpsertTable(_ context.Context, t *poker.TableConfig) error 
 	cp := *t // store by value to avoid external mutation
 	// set CreatedAt if zero-ish
 	m.tables[cp.ID] = &db.Table{
-		ID:            cp.ID,
-		Name:          cp.Name,
-		Source:        cp.Source,
-		BuyIn:         cp.BuyIn,
-		MinPlayers:    cp.MinPlayers,
-		MaxPlayers:    cp.MaxPlayers,
-		SmallBlind:    cp.SmallBlind,
-		BigBlind:      cp.BigBlind,
-		StartingChips: cp.StartingChips,
-		TimebankMS:    cp.TimeBank.Milliseconds(),
-		AutoStartMS:   cp.AutoStartDelay.Milliseconds(),
-		AutoAdvanceMS: cp.AutoAdvanceDelay.Milliseconds(),
-		CreatedAt:     time.Now(),
+		ID:                       cp.ID,
+		Name:                     cp.Name,
+		Source:                   cp.Source,
+		BuyIn:                    cp.BuyIn,
+		MinPlayers:               cp.MinPlayers,
+		MaxPlayers:               cp.MaxPlayers,
+		SmallBlind:               cp.SmallBlind,
+		BigBlind:                 cp.BigBlind,
+		StartingChips:            cp.StartingChips,
+		TimebankMS:               cp.TimeBank.Milliseconds(),
+		AutoStartMS:              cp.AutoStartDelay.Milliseconds(),
+		AutoAdvanceMS:            cp.AutoAdvanceDelay.Milliseconds(),
+		BlindIncreaseIntervalSec: int64(cp.BlindIncreaseInterval.Seconds()),
+		CreatedAt:                time.Now(),
 	}
 	if m.tables[cp.ID].Name == "" {
 		m.tables[cp.ID].Name = cp.ID

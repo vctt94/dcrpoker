@@ -121,17 +121,18 @@ func (pc *PokerClient) CreateTable(ctx context.Context, config poker.TableConfig
 	timeBankSeconds := int32(config.TimeBank.Seconds())
 	ctx = pc.withSessionToken(ctx)
 	resp, err := pc.LobbyService.CreateTable(ctx, &pokerrpc.CreateTableRequest{
-		PlayerId:        pc.ID.String(),
-		Name:            config.Name,
-		SmallBlind:      config.SmallBlind,
-		BigBlind:        config.BigBlind,
-		MaxPlayers:      int32(config.MaxPlayers),
-		MinPlayers:      int32(config.MinPlayers),
-		BuyIn:           config.BuyIn,
-		StartingChips:   config.StartingChips,
-		TimeBankSeconds: timeBankSeconds,
-		AutoStartMs:     int32(config.AutoStartDelay.Milliseconds()),
-		AutoAdvanceMs:   int32(config.AutoAdvanceDelay.Milliseconds()),
+		PlayerId:                 pc.ID.String(),
+		Name:                     config.Name,
+		SmallBlind:               config.SmallBlind,
+		BigBlind:                 config.BigBlind,
+		MaxPlayers:               int32(config.MaxPlayers),
+		MinPlayers:               int32(config.MinPlayers),
+		BuyIn:                    config.BuyIn,
+		StartingChips:            config.StartingChips,
+		TimeBankSeconds:          timeBankSeconds,
+		AutoStartMs:              int32(config.AutoStartDelay.Milliseconds()),
+		AutoAdvanceMs:            int32(config.AutoAdvanceDelay.Milliseconds()),
+		BlindIncreaseIntervalSec: int32(config.BlindIncreaseInterval.Seconds()),
 	})
 	if err != nil {
 		return "", err

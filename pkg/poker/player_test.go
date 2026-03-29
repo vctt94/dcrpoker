@@ -117,10 +117,10 @@ func TestPlayerStateMachine_FoldFromDifferentStates(t *testing.T) {
 		{
 			name: "Fold from ALL_IN (ignored)",
 			setup: func(p *Player) {
-				// Prepare all-in BEFORE starting the hand so the loop sees it quickly.
-				p.balance = 0
-				p.currentBet = 100
-				p.HandleStartHand() // Use HandleStartHand to check all-in condition
+				// Start hand, then go all-in via DeductBlind (mirrors real flow).
+				p.balance = 100
+				p.HandleStartHand()
+				p.DeductBlind(100) // goes all-in: balance=0, currentBet=100
 			},
 			expectPreFoldState:   ALL_IN_STATE,
 			expectStateAfterFold: ALL_IN_STATE,

@@ -204,6 +204,14 @@ const GameUpdate$json = {
     },
     {'1': 'small_blind', '3': 16, '4': 1, '5': 3, '10': 'smallBlind'},
     {'1': 'big_blind', '3': 17, '4': 1, '5': 3, '10': 'bigBlind'},
+    {'1': 'blind_level', '3': 18, '4': 1, '5': 5, '10': 'blindLevel'},
+    {
+      '1': 'next_blind_increase_unix_ms',
+      '3': 19,
+      '4': 1,
+      '5': 3,
+      '10': 'nextBlindIncreaseUnixMs'
+    },
   ],
 };
 
@@ -220,7 +228,9 @@ final $typed_data.Uint8List gameUpdateDescriptor = $convert.base64Decode(
     'aGFzZV9uYW1lGA0gASgJUglwaGFzZU5hbWUSKgoRdGltZV9iYW5rX3NlY29uZHMYDiABKAVSD3'
     'RpbWVCYW5rU2Vjb25kcxIxChV0dXJuX2RlYWRsaW5lX3VuaXhfbXMYDyABKANSEnR1cm5EZWFk'
     'bGluZVVuaXhNcxIfCgtzbWFsbF9ibGluZBgQIAEoA1IKc21hbGxCbGluZBIbCgliaWdfYmxpbm'
-    'QYESABKANSCGJpZ0JsaW5k');
+    'QYESABKANSCGJpZ0JsaW5kEh8KC2JsaW5kX2xldmVsGBIgASgFUgpibGluZExldmVsEjwKG25l'
+    'eHRfYmxpbmRfaW5jcmVhc2VfdW5peF9tcxgTIAEoA1IXbmV4dEJsaW5kSW5jcmVhc2VVbml4TX'
+    'M=');
 
 @$core.Deprecated('Use makeBetRequestDescriptor instead')
 const MakeBetRequest$json = {
@@ -493,6 +503,13 @@ const CreateTableRequest$json = {
     {'1': 'auto_start_ms', '3': 9, '4': 1, '5': 5, '10': 'autoStartMs'},
     {'1': 'auto_advance_ms', '3': 10, '4': 1, '5': 5, '10': 'autoAdvanceMs'},
     {'1': 'name', '3': 11, '4': 1, '5': 9, '10': 'name'},
+    {
+      '1': 'blind_increase_interval_sec',
+      '3': 12,
+      '4': 1,
+      '5': 5,
+      '10': 'blindIncreaseIntervalSec'
+    },
   ],
 };
 
@@ -504,7 +521,8 @@ final $typed_data.Uint8List createTableRequestDescriptor = $convert.base64Decode
     'ptaW5QbGF5ZXJzEhUKBmJ1eV9pbhgGIAEoA1IFYnV5SW4SJQoOc3RhcnRpbmdfY2hpcHMYByAB'
     'KANSDXN0YXJ0aW5nQ2hpcHMSKgoRdGltZV9iYW5rX3NlY29uZHMYCCABKAVSD3RpbWVCYW5rU2'
     'Vjb25kcxIiCg1hdXRvX3N0YXJ0X21zGAkgASgFUgthdXRvU3RhcnRNcxImCg9hdXRvX2FkdmFu'
-    'Y2VfbXMYCiABKAVSDWF1dG9BZHZhbmNlTXMSEgoEbmFtZRgLIAEoCVIEbmFtZQ==');
+    'Y2VfbXMYCiABKAVSDWF1dG9BZHZhbmNlTXMSEgoEbmFtZRgLIAEoCVIEbmFtZRI9ChtibGluZF'
+    '9pbmNyZWFzZV9pbnRlcnZhbF9zZWMYDCABKAVSGGJsaW5kSW5jcmVhc2VJbnRlcnZhbFNlYw==');
 
 @$core.Deprecated('Use createTableResponseDescriptor instead')
 const CreateTableResponse$json = {
@@ -641,6 +659,13 @@ const Table$json = {
       '10': 'allPlayersReady'
     },
     {'1': 'game_started', '3': 12, '4': 1, '5': 8, '10': 'gameStarted'},
+    {
+      '1': 'blind_increase_interval_sec',
+      '3': 13,
+      '4': 1,
+      '5': 5,
+      '10': 'blindIncreaseIntervalSec'
+    },
   ],
 };
 
@@ -653,7 +678,8 @@ final $typed_data.Uint8List tableDescriptor = $convert.base64Decode(
     'dF9wbGF5ZXJzGAggASgFUg5jdXJyZW50UGxheWVycxIVCgZidXlfaW4YCSABKANSBWJ1eUluEi'
     'YKBXBoYXNlGAogASgOMhAucG9rZXIuR2FtZVBoYXNlUgVwaGFzZRIqChFhbGxfcGxheWVyc19y'
     'ZWFkeRgLIAEoCFIPYWxsUGxheWVyc1JlYWR5EiEKDGdhbWVfc3RhcnRlZBgMIAEoCFILZ2FtZV'
-    'N0YXJ0ZWQ=');
+    'N0YXJ0ZWQSPQobYmxpbmRfaW5jcmVhc2VfaW50ZXJ2YWxfc2VjGA0gASgFUhhibGluZEluY3Jl'
+    'YXNlSW50ZXJ2YWxTZWM=');
 
 @$core.Deprecated('Use getBalanceRequestDescriptor instead')
 const GetBalanceRequest$json = {

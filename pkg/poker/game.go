@@ -21,13 +21,16 @@ type GameStateFn = statemachine.StateFn[Game]
 type GameConfig struct {
 	NumPlayers       int
 	StartingChips    int64         // Fixed number of chips each player starts with
-	SmallBlind       int64         // Small blind amount
-	BigBlind         int64         // Big blind amount
+	SmallBlind       int64         // Small blind amount (initial level)
+	BigBlind         int64         // Big blind amount (initial level)
 	Seed             int64         // Optional seed for deterministic games
 	AutoStartDelay   time.Duration // Delay before automatically starting next hand after showdown
 	AutoAdvanceDelay time.Duration // Delay between streets when all players are all-in (0 = immediate, no sleep)
 	TimeBank         time.Duration // Time bank for each player
 	Log              slog.Logger   // Logger for game events
+
+	BlindIncreaseInterval time.Duration  // Interval between blind level increases (0 = disabled)
+	BlindSchedule         []BlindLevel   // Custom schedule; nil uses DefaultBlindSchedule
 }
 
 // GameEventType represents different types of game events sent to Table
@@ -41,6 +44,8 @@ const (
 	GameEventStateUpdated                              // Generic state update (e.g., turn changed)
 	GameEventPlayerLost                                // Informational: player has 0 chips after showdown
 	GameEventAutoShowCards                             // All players all-in -> reveal cards notification
+	GameEventBlindsIncreased                           // Blind level increased (applied at hand boundary)
+	GameEventBlindsPending                             // Blind increase is due; will apply next hand
 )
 
 // GameEvent represents an event sent from Game FSM to Table
@@ -52,6 +57,7 @@ type GameEvent struct {
 	ActorID        string          // Optional: actor who triggered the update (e.g., timebank auto-action)
 	Action         string          // Optional: "check" or "fold" for auto-actions
 	RevealInfo     []AutoRevealPlayer
+	NextBlind      *BlindLevel // Only set for GameEventBlindsPending — the upcoming level
 }
 
 // Game holds the context and data for our poker game
@@ -83,6 +89,15 @@ type Game struct {
 
 	// Configuration
 	config GameConfig
+
+	// Blind increase management — nil when blind increases are disabled.
+	// The BlindManager is a separate FSM; the Game caches the current
+	// level at hand boundaries and uses the cached values during play.
+	blindManager   *BlindManager
+	liveSmallBlind int64 // cached from BlindManager FSM
+	liveBigBlind   int64 // cached from BlindManager FSM
+	liveBlindLevel int   // cached level index
+	liveNextBlindMs int64 // cached next-increase unix ms
 
 	// Auto-start management
 	autoStartTimer    *time.Timer
@@ -121,11 +136,16 @@ type Game struct {
 	playerEventChan chan PlayerEvent
 }
 
-// SetTableEventChannel sets the channel for sending events to the Table
+// SetTableEventChannel sets the channel for sending events to the Table.
+// Also wires the BlindManager FSM so pending-increase notifications
+// flow through the same channel.
 func (g *Game) SetTableEventChannel(ch chan<- GameEvent) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.tableEventChan = ch
+	if g.blindManager != nil {
+		g.blindManager.SetGameEventChannel(ch)
+	}
 }
 
 // sendTableEvent sends an event to the Table (non-blocking)
@@ -140,13 +160,35 @@ func (g *Game) sendTableEvent(event GameEvent) {
 	}
 }
 
+// currentBigBlind returns the active big blind amount. Uses the cached value
+// from the BlindManager FSM (updated at hand boundaries in statePreDeal).
+// Falls back to config value when blind increases are disabled.
+// Requires: g.mu held.
+func (g *Game) currentBigBlind() int64 {
+	if g.liveBigBlind > 0 {
+		return g.liveBigBlind
+	}
+	return g.config.BigBlind
+}
+
+// currentSmallBlind returns the active small blind amount. Uses the cached value
+// from the BlindManager FSM (updated at hand boundaries in statePreDeal).
+// Falls back to config value when blind increases are disabled.
+// Requires: g.mu held.
+func (g *Game) currentSmallBlind() int64 {
+	if g.liveSmallBlind > 0 {
+		return g.liveSmallBlind
+	}
+	return g.config.SmallBlind
+}
+
 // resetBettingRound resets per-street betting bookkeeping.
 // Requires: g.mu held.
 func (g *Game) resetBettingRound() {
 	mustHeld(&g.mu)
 	g.currentBet = 0
 	g.lastAggressor = -1
-	g.lastRaiseAmount = g.config.BigBlind
+	g.lastRaiseAmount = g.currentBigBlind()
 }
 
 // NewGame creates a new poker game with the given configuration
@@ -188,8 +230,17 @@ func NewGame(cfg GameConfig) (*Game, error) {
 		config:          cfg,
 		log:             cfg.Log,
 		phase:           pokerrpc.GamePhase_NEW_HAND_DEALING,
-		lastRaiseAmount: cfg.BigBlind,
+		lastRaiseAmount: cfg.BigBlind, // will be updated after blindManager is created
 		lastAggressor:   -1,
+	}
+
+	// Initialize blind manager if blind increases are configured
+	if cfg.BlindIncreaseInterval > 0 {
+		schedule := cfg.BlindSchedule
+		if schedule == nil {
+			schedule = DefaultBlindSchedule
+		}
+		g.blindManager = NewBlindManager(schedule, cfg.BlindIncreaseInterval, cfg.Log)
 	}
 
 	// Initialize state machine with first state function
@@ -213,7 +264,12 @@ func NewGame(cfg GameConfig) (*Game, error) {
 	return g, nil
 }
 
-func (g *Game) Start(ctx context.Context) { g.sm.Start(ctx) }
+func (g *Game) Start(ctx context.Context) {
+	if g.blindManager != nil {
+		g.blindManager.Start(ctx)
+	}
+	g.sm.Start(ctx)
+}
 
 // StartFromRestoredSnapshot starts the FSM in the correct state based on the
 // restored phase. This allows the game to continue from where it was saved.
@@ -384,6 +440,29 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 			}
 		}
 
+		// Apply any pending blind increase from the BlindManager FSM.
+		// The timer fires between hands but the FSM defers the actual
+		// mutation until we call Apply() here at the hand boundary.
+		if g.blindManager != nil {
+			if g.round == 1 {
+				g.mu.Unlock()
+				g.blindManager.SendStart(time.Time{})
+				g.mu.Lock()
+			}
+			g.mu.Unlock()
+			result := g.blindManager.Apply()
+			info := g.blindManager.GetInfo()
+			g.mu.Lock()
+			g.liveSmallBlind = result.Level.SmallBlind
+			g.liveBigBlind = result.Level.BigBlind
+			g.liveBlindLevel = result.Index
+			g.liveNextBlindMs = info.NextIncreaseUnixMs
+			if result.Changed {
+				g.log.Infof("statePreDeal: %s", result.Message)
+				g.sendTableEvent(GameEvent{Type: GameEventBlindsIncreased})
+			}
+		}
+
 		// Post blinds through player FSMs so short stacks become ALL_IN immediately
 		postBlind := func(pos int, amount int64) {
 			p := g.players[pos]
@@ -422,8 +501,8 @@ func statePreDeal(g *Game, in <-chan any) GameStateFn {
 			}
 		}
 
-		postBlind(sbPos, g.config.SmallBlind)
-		postBlind(bbPos, g.config.BigBlind)
+		postBlind(sbPos, g.currentSmallBlind())
+		postBlind(bbPos, g.currentBigBlind())
 
 	}
 
@@ -1133,9 +1212,9 @@ func (g *Game) refundUncalledBets() error {
 			isBigBlind := p.isBigBlind
 			p.mu.RUnlock()
 			if isSmallBlind {
-				forced[i] = g.config.SmallBlind
+				forced[i] = g.currentSmallBlind()
 			} else if isBigBlind {
-				forced[i] = g.config.BigBlind
+				forced[i] = g.currentBigBlind()
 			}
 		}
 	}
@@ -1320,6 +1399,11 @@ func (g *Game) Close() {
 		if p != nil {
 			p.Close()
 		}
+	}
+
+	// Stop the blind manager FSM first (it may send events to the game)
+	if g.blindManager != nil {
+		g.blindManager.Stop()
 	}
 
 	// Stop the game state machine without holding lock to avoid deadlock
@@ -2509,7 +2593,7 @@ func (g *Game) SetGameState(dealer, round int, currentBet, pot, lastRaiseAmount 
 	if lastRaiseAmount > 0 {
 		g.lastRaiseAmount = lastRaiseAmount
 	} else {
-		g.lastRaiseAmount = g.config.BigBlind
+		g.lastRaiseAmount = g.currentBigBlind()
 	}
 	g.phase = phase
 	// Note: Pot will be restored through the potManager when restoring player bets
@@ -2771,6 +2855,11 @@ type GameStateSnapshot struct {
 	Players         []PlayerSnapshot
 	CurrentPlayer   string
 	Winners         []PlayerSnapshot
+
+	SmallBlind              int64 // Current small blind (may differ from config if blind increases are active)
+	BigBlind                int64 // Current big blind (may differ from config if blind increases are active)
+	BlindLevel              int   // Current blind level index (0-based)
+	NextBlindIncreaseUnixMs int64 // Unix ms timestamp of next blind increase (0 if disabled/max)
 }
 
 // GetStateSnapshot returns an atomic snapshot of the game state for safe concurrent access
@@ -2928,18 +3017,22 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 	}
 
 	return GameStateSnapshot{
-		Dealer:          g.dealer,
-		CurrentBet:      g.currentBet,
-		LastRaiseAmount: g.lastRaiseAmount,
-		Pot:             potAmount,
-		Round:           g.round,
-		BetRound:        br,
-		Phase:           g.phase,
-		CommunityCards:  communityCardsCopy,
-		DeckState:       g.deck.GetState(),
-		Players:         playersCopy,
-		CurrentPlayer:   curID,
-		Winners:         winners,
+		Dealer:                  g.dealer,
+		CurrentBet:              g.currentBet,
+		LastRaiseAmount:         g.lastRaiseAmount,
+		Pot:                     potAmount,
+		Round:                   g.round,
+		BetRound:                br,
+		Phase:                   g.phase,
+		CommunityCards:          communityCardsCopy,
+		DeckState:               g.deck.GetState(),
+		Players:                 playersCopy,
+		CurrentPlayer:           curID,
+		Winners:                 winners,
+		SmallBlind:              g.currentSmallBlind(),
+		BigBlind:                g.currentBigBlind(),
+		BlindLevel:              g.liveBlindLevel,
+		NextBlindIncreaseUnixMs: g.liveNextBlindMs,
 	}
 }
 

@@ -108,6 +108,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     $fixnum.Int64? turnDeadlineUnixMs,
     $fixnum.Int64? smallBlind,
     $fixnum.Int64? bigBlind,
+    $core.int? blindLevel,
+    $fixnum.Int64? nextBlindIncreaseUnixMs,
   }) {
     final result = create();
     if (tableId != null) result.tableId = tableId;
@@ -128,6 +130,9 @@ class GameUpdate extends $pb.GeneratedMessage {
       result.turnDeadlineUnixMs = turnDeadlineUnixMs;
     if (smallBlind != null) result.smallBlind = smallBlind;
     if (bigBlind != null) result.bigBlind = bigBlind;
+    if (blindLevel != null) result.blindLevel = blindLevel;
+    if (nextBlindIncreaseUnixMs != null)
+      result.nextBlindIncreaseUnixMs = nextBlindIncreaseUnixMs;
     return result;
   }
 
@@ -164,6 +169,8 @@ class GameUpdate extends $pb.GeneratedMessage {
     ..aInt64(15, _omitFieldNames ? '' : 'turnDeadlineUnixMs')
     ..aInt64(16, _omitFieldNames ? '' : 'smallBlind')
     ..aInt64(17, _omitFieldNames ? '' : 'bigBlind')
+    ..aI(18, _omitFieldNames ? '' : 'blindLevel')
+    ..aInt64(19, _omitFieldNames ? '' : 'nextBlindIncreaseUnixMs')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -324,6 +331,24 @@ class GameUpdate extends $pb.GeneratedMessage {
   $core.bool hasBigBlind() => $_has(16);
   @$pb.TagNumber(17)
   void clearBigBlind() => $_clearField(17);
+
+  @$pb.TagNumber(18)
+  $core.int get blindLevel => $_getIZ(17);
+  @$pb.TagNumber(18)
+  set blindLevel($core.int value) => $_setSignedInt32(17, value);
+  @$pb.TagNumber(18)
+  $core.bool hasBlindLevel() => $_has(17);
+  @$pb.TagNumber(18)
+  void clearBlindLevel() => $_clearField(18);
+
+  @$pb.TagNumber(19)
+  $fixnum.Int64 get nextBlindIncreaseUnixMs => $_getI64(18);
+  @$pb.TagNumber(19)
+  set nextBlindIncreaseUnixMs($fixnum.Int64 value) => $_setInt64(18, value);
+  @$pb.TagNumber(19)
+  $core.bool hasNextBlindIncreaseUnixMs() => $_has(18);
+  @$pb.TagNumber(19)
+  void clearNextBlindIncreaseUnixMs() => $_clearField(19);
 }
 
 class MakeBetRequest extends $pb.GeneratedMessage {
@@ -1325,6 +1350,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     $core.int? autoStartMs,
     $core.int? autoAdvanceMs,
     $core.String? name,
+    $core.int? blindIncreaseIntervalSec,
   }) {
     final result = create();
     if (playerId != null) result.playerId = playerId;
@@ -1338,6 +1364,8 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     if (autoStartMs != null) result.autoStartMs = autoStartMs;
     if (autoAdvanceMs != null) result.autoAdvanceMs = autoAdvanceMs;
     if (name != null) result.name = name;
+    if (blindIncreaseIntervalSec != null)
+      result.blindIncreaseIntervalSec = blindIncreaseIntervalSec;
     return result;
   }
 
@@ -1365,6 +1393,7 @@ class CreateTableRequest extends $pb.GeneratedMessage {
     ..aI(9, _omitFieldNames ? '' : 'autoStartMs')
     ..aI(10, _omitFieldNames ? '' : 'autoAdvanceMs')
     ..aOS(11, _omitFieldNames ? '' : 'name')
+    ..aI(12, _omitFieldNames ? '' : 'blindIncreaseIntervalSec')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -1484,6 +1513,15 @@ class CreateTableRequest extends $pb.GeneratedMessage {
   $core.bool hasName() => $_has(10);
   @$pb.TagNumber(11)
   void clearName() => $_clearField(11);
+
+  @$pb.TagNumber(12)
+  $core.int get blindIncreaseIntervalSec => $_getIZ(11);
+  @$pb.TagNumber(12)
+  set blindIncreaseIntervalSec($core.int value) => $_setSignedInt32(11, value);
+  @$pb.TagNumber(12)
+  $core.bool hasBlindIncreaseIntervalSec() => $_has(11);
+  @$pb.TagNumber(12)
+  void clearBlindIncreaseIntervalSec() => $_clearField(12);
 }
 
 class CreateTableResponse extends $pb.GeneratedMessage {
@@ -1916,6 +1954,7 @@ class Table extends $pb.GeneratedMessage {
     GamePhase? phase,
     $core.bool? allPlayersReady,
     $core.bool? gameStarted,
+    $core.int? blindIncreaseIntervalSec,
   }) {
     final result = create();
     if (id != null) result.id = id;
@@ -1930,6 +1969,8 @@ class Table extends $pb.GeneratedMessage {
     if (phase != null) result.phase = phase;
     if (allPlayersReady != null) result.allPlayersReady = allPlayersReady;
     if (gameStarted != null) result.gameStarted = gameStarted;
+    if (blindIncreaseIntervalSec != null)
+      result.blindIncreaseIntervalSec = blindIncreaseIntervalSec;
     return result;
   }
 
@@ -1960,6 +2001,7 @@ class Table extends $pb.GeneratedMessage {
         enumValues: GamePhase.values)
     ..aOB(11, _omitFieldNames ? '' : 'allPlayersReady')
     ..aOB(12, _omitFieldNames ? '' : 'gameStarted')
+    ..aI(13, _omitFieldNames ? '' : 'blindIncreaseIntervalSec')
     ..hasRequiredFields = false;
 
   @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
@@ -2081,6 +2123,15 @@ class Table extends $pb.GeneratedMessage {
   $core.bool hasGameStarted() => $_has(11);
   @$pb.TagNumber(12)
   void clearGameStarted() => $_clearField(12);
+
+  @$pb.TagNumber(13)
+  $core.int get blindIncreaseIntervalSec => $_getIZ(12);
+  @$pb.TagNumber(13)
+  set blindIncreaseIntervalSec($core.int value) => $_setSignedInt32(12, value);
+  @$pb.TagNumber(13)
+  $core.bool hasBlindIncreaseIntervalSec() => $_has(12);
+  @$pb.TagNumber(13)
+  void clearBlindIncreaseIntervalSec() => $_clearField(13);
 }
 
 class GetBalanceRequest extends $pb.GeneratedMessage {

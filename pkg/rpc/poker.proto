@@ -154,6 +154,8 @@ message GameUpdate {
   int64 turn_deadline_unix_ms = 15;   // Absolute deadline for current turn (Unix ms). 0 if N/A
   int64 small_blind = 16;   // Current table small blind (chips)
   int64 big_blind = 17;     // Current table big blind (chips)
+  int32 blind_level = 18;   // Current blind level index (0-based)
+  int64 next_blind_increase_unix_ms = 19; // Unix ms timestamp of next blind increase (0 if disabled/max)
 }
 
 message MakeBetRequest {
@@ -245,6 +247,7 @@ message CreateTableRequest {
   int32 auto_start_ms = 9; // Auto-start delay between hands in ms (0 = disabled)
   int32 auto_advance_ms = 10; // Auto-advance delay between streets when all-in in ms (must be > 0)
   string name = 11;
+  int32 blind_increase_interval_sec = 12; // Blind increase interval in seconds (0 = disabled)
 }
 
 message CreateTableResponse {
@@ -311,6 +314,7 @@ message Table {
   GamePhase phase = 10;
   bool all_players_ready = 11;
   bool game_started = 12;
+  int32 blind_increase_interval_sec = 13; // Blind increase interval in seconds (0 = disabled)
 }
 
 message GetBalanceRequest {

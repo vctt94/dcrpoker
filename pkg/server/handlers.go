@@ -59,6 +59,8 @@ func (nh *NotificationHandler) HandleEvent(event *GameEvent) {
 		nh.handlePlayerAllIn(event)
 	case pokerrpc.NotificationType_CARDS_SHOWN:
 		nh.handleCardsShown(event)
+	case pokerrpc.NotificationType_MESSAGE:
+		nh.handleMessage(event)
 	}
 }
 
@@ -353,6 +355,21 @@ func (nh *NotificationHandler) handleCardsShown(event *GameEvent) {
 	nh.server.notifyPlayers(event.PlayerIDs, notification)
 }
 
+func (nh *NotificationHandler) handleMessage(event *GameEvent) {
+	pl, ok := event.Payload.(MessagePayload)
+	if !ok {
+		nh.server.log.Warnf("MESSAGE without MessagePayload; skipping (table=%s)", event.TableID)
+		return
+	}
+
+	notification := &pokerrpc.Notification{
+		Type:    pokerrpc.NotificationType_MESSAGE,
+		TableId: event.TableID,
+		Message: pl.Message,
+	}
+	nh.server.notifyPlayers(event.PlayerIDs, notification)
+}
+
 // tableFromSnapshot converts the event snapshot (or a fresh snapshot) into a
 // proto Table for lobby updates.
 func (nh *NotificationHandler) tableFromSnapshot(event *GameEvent) *pokerrpc.Table {
@@ -622,8 +639,10 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		PlayersJoined:      int32(len(players)),
 		TimeBankSeconds:    tbSec,
 		TurnDeadlineUnixMs: deadlineMs,
-		SmallBlind:         tableSnapshot.Config.SmallBlind,
-		BigBlind:           tableSnapshot.Config.BigBlind,
+		SmallBlind:                tableSnapshot.GameSnapshot.SmallBlind,
+		BigBlind:                  tableSnapshot.GameSnapshot.BigBlind,
+		BlindLevel:                int32(tableSnapshot.GameSnapshot.BlindLevel),
+		NextBlindIncreaseUnixMs:   tableSnapshot.GameSnapshot.NextBlindIncreaseUnixMs,
 	}, nil
 }
 
@@ -651,17 +670,18 @@ func tableSnapshotToProtoTable(snapshot *TableSnapshot) *pokerrpc.Table {
 		return nil
 	}
 	table := &pokerrpc.Table{
-		Id:              snapshot.ID,
-		Name:            snapshot.Config.Name,
-		SmallBlind:      snapshot.Config.SmallBlind,
-		BigBlind:        snapshot.Config.BigBlind,
-		MaxPlayers:      int32(snapshot.Config.MaxPlayers),
-		MinPlayers:      int32(snapshot.Config.MinPlayers),
-		CurrentPlayers:  int32(snapshot.State.PlayerCount),
-		BuyIn:           snapshot.Config.BuyIn,
-		GameStarted:     snapshot.State.GameStarted,
-		AllPlayersReady: snapshot.State.AllPlayersReady,
-		Phase:           pokerrpc.GamePhase_WAITING,
+		Id:                       snapshot.ID,
+		Name:                     snapshot.Config.Name,
+		SmallBlind:               snapshot.Config.SmallBlind,
+		BigBlind:                 snapshot.Config.BigBlind,
+		MaxPlayers:               int32(snapshot.Config.MaxPlayers),
+		MinPlayers:               int32(snapshot.Config.MinPlayers),
+		CurrentPlayers:           int32(snapshot.State.PlayerCount),
+		BuyIn:                    snapshot.Config.BuyIn,
+		GameStarted:              snapshot.State.GameStarted,
+		AllPlayersReady:          snapshot.State.AllPlayersReady,
+		Phase:                    pokerrpc.GamePhase_WAITING,
+		BlindIncreaseIntervalSec: int32(snapshot.Config.BlindIncreaseInterval.Seconds()),
 	}
 
 	if snapshot.GameSnapshot != nil {

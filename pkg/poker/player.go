@@ -122,16 +122,24 @@ func (p *Player) StartHandParticipation() error {
 	return nil
 }
 
-// EndHandParticipation signals the per-hand FSM that the hand has ended so it
-// can reset per-hand flags and transition back to the baseline state.
+// EndHandParticipation stops the per-hand FSM synchronously.
+// Stop() closes the inbox and waits for the goroutine to exit, preventing
+// the old FSM from asynchronously clearing flags that the next hand may
+// have already set (e.g., isAllIn from blind posting).
 func (p *Player) EndHandParticipation() {
 	p.mu.Lock()
 	hp := p.handParticipation
-	// Clear the pointer so a subsequent hand can start a fresh FSM instance.
 	p.handParticipation = nil
+	// Clear per-hand flags directly since we Stop() the FSM rather than
+	// sending evEndHand (which would clear them asynchronously).
+	p.currentBet = 0
+	p.isTurn = false
+	p.hasFolded = false
+	p.isAllIn = false
+	p.handDescription = ""
 	p.mu.Unlock()
 	if hp != nil {
-		hp.Send(evEndHand{})
+		hp.Stop()
 	}
 }
 
@@ -144,16 +152,21 @@ func (p *Player) HandleStartHand() error {
 		return fmt.Errorf("hand participation already active")
 	}
 
+	// Reset per-hand flags synchronously. EndHandParticipation sends
+	// evEndHand asynchronously, so the old FSM goroutine may not have
+	// cleared these yet. Resetting here prevents the old handler from
+	// clobbering flags set by the new hand's blind posting.
+	p.isAllIn = false
+	p.hasFolded = false
+	p.currentBet = 0
+	p.revealed = false
+	p.isTurn = false
+	p.handValue = nil
+	p.handDescription = ""
+
 	p.startingBalance = p.balance
-	isAllIn := (p.balance == 0 && p.currentBet > 0)
 
-	// If player is already all-in from posting blinds, go directly to ALL_IN state
-	if isAllIn {
-		p.handParticipation = statemachine.New(p, stateHandAllIn, 32)
-	} else {
-		p.handParticipation = statemachine.New(p, stateHandActive, 32)
-	}
-
+	p.handParticipation = statemachine.New(p, stateHandActive, 32)
 	p.handParticipation.Start(context.Background())
 	return nil
 }

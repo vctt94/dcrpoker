@@ -4,121 +4,61 @@
       "name": "Free Table 2 Players",
       "buy_in_dcr": "0.00",
       "min_players": 2,
-      "max_players": 2,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 2
     },
     {
       "name": "Micro Table 2 Players",
       "buy_in_dcr": "0.01",
       "min_players": 2,
-      "max_players": 2,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 2
     },
     {
       "name": "Micro Table 3 Players",
       "buy_in_dcr": "0.01",
       "min_players": 2,
-      "max_players": 3,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 3
     },
     {
       "name": "Micro Table",
       "buy_in_dcr": "0.01",
       "min_players": 2,
-      "max_players": 6,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 6
     },
     {
       "name": "Medium Table 2 Players",
       "buy_in_dcr": "0.1",
       "min_players": 2,
-      "max_players": 2,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 2
     },
     {
       "name": "Medium Table 3 Players",
       "buy_in_dcr": "0.1",
       "min_players": 2,
-      "max_players": 3,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 3
     },
     {
       "name": "Medium Table",
       "buy_in_dcr": "0.1",
       "min_players": 2,
-      "max_players": 6,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 6
     },
     {
       "name": "Big Table 2 Players",
       "buy_in_dcr": "1",
       "min_players": 2,
-      "max_players": 2,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 2
     },
     {
       "name": "Big Table 3 Players",
       "buy_in_dcr": "1",
       "min_players": 2,
-      "max_players": 3,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 3
     },
     {
       "name": "Big Table",
       "buy_in_dcr": "1",
       "min_players": 2,
-      "max_players": 6,
-      "small_blind": 10,
-      "big_blind": 20,
-      "starting_chips": 1000,
-      "time_bank_seconds": 30,
-      "auto_start_ms": 2000,
-      "auto_advance_ms": 2000
+      "max_players": 6
     }
   ]
 }

@@ -38,20 +38,21 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 	gameLog := s.logBackend.Logger("GAME")
 
 	cfg := poker.TableConfig{
-		ID:               newTableID(),
-		Name:             strings.TrimSpace(req.GetName()),
-		Log:              tblLog,
-		GameLog:          gameLog,
-		Source:           managedTableSourceUser,
-		BuyIn:            req.BuyIn,
-		MinPlayers:       int(req.MinPlayers),
-		MaxPlayers:       int(req.MaxPlayers),
-		SmallBlind:       req.SmallBlind,
-		BigBlind:         req.BigBlind,
-		StartingChips:    req.StartingChips,
-		TimeBank:         time.Duration(req.TimeBankSeconds) * time.Second,
-		AutoStartDelay:   time.Duration(req.AutoStartMs) * time.Millisecond,
-		AutoAdvanceDelay: time.Duration(req.AutoAdvanceMs) * time.Millisecond,
+		ID:                    newTableID(),
+		Name:                  strings.TrimSpace(req.GetName()),
+		Log:                   tblLog,
+		GameLog:               gameLog,
+		Source:                managedTableSourceUser,
+		BuyIn:                 req.BuyIn,
+		MinPlayers:            int(req.MinPlayers),
+		MaxPlayers:            int(req.MaxPlayers),
+		SmallBlind:            req.SmallBlind,
+		BigBlind:              req.BigBlind,
+		StartingChips:         req.StartingChips,
+		TimeBank:              time.Duration(req.TimeBankSeconds) * time.Second,
+		AutoStartDelay:        time.Duration(req.AutoStartMs) * time.Millisecond,
+		AutoAdvanceDelay:      time.Duration(req.AutoAdvanceMs) * time.Millisecond,
+		BlindIncreaseInterval: time.Duration(req.BlindIncreaseIntervalSec) * time.Second,
 	}
 	if _, err := s.createTable(ctx, cfg, req.PlayerId); err != nil {
 		s.log.Errorf("CreateTable failed: %v", err)
@@ -434,17 +435,18 @@ func (s *Server) GetTables(ctx context.Context, req *pokerrpc.GetTablesRequest) 
 		users := table.GetUsers()
 
 		protoTable := &pokerrpc.Table{
-			Id:              config.ID,
-			Name:            config.Name,
-			SmallBlind:      config.SmallBlind,
-			BigBlind:        config.BigBlind,
-			MaxPlayers:      int32(table.GetMaxPlayers()),
-			MinPlayers:      int32(table.GetMinPlayers()),
-			CurrentPlayers:  int32(len(users)),
-			BuyIn:           config.BuyIn,
-			GameStarted:     table.IsGameStarted(),
-			AllPlayersReady: table.AreAllPlayersReady(),
-			Phase:           pokerrpc.GamePhase_WAITING,
+			Id:                       config.ID,
+			Name:                     config.Name,
+			SmallBlind:               config.SmallBlind,
+			BigBlind:                 config.BigBlind,
+			MaxPlayers:               int32(table.GetMaxPlayers()),
+			MinPlayers:               int32(table.GetMinPlayers()),
+			CurrentPlayers:           int32(len(users)),
+			BuyIn:                    config.BuyIn,
+			GameStarted:              table.IsGameStarted(),
+			AllPlayersReady:          table.AreAllPlayersReady(),
+			Phase:                    pokerrpc.GamePhase_WAITING,
+			BlindIncreaseIntervalSec: int32(config.BlindIncreaseInterval.Seconds()),
 		}
 		for _, user := range users {
 			if user == nil {

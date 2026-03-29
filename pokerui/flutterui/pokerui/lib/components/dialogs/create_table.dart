@@ -27,9 +27,6 @@ class CreateTableDialog extends StatefulWidget {
 class _CreateTableDialogState extends State<CreateTableDialog> {
   final _form = GlobalKey<FormState>();
 
-  // Defaults
-  int _smallBlind = 10;
-  int _bigBlind = 20;
   int _maxPlayers = 2;
   String _buyInDcr = '0.0';
   int _startingChips = 1000;
@@ -67,16 +64,6 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                _numberField(
-                  label: 'Small Blind (chips)',
-                  initial: _smallBlind.toString(),
-                  onSaved: (v) => _smallBlind = int.parse(v!),
-                ),
-                _numberField(
-                  label: 'Big Blind (chips)',
-                  initial: _bigBlind.toString(),
-                  onSaved: (v) => _bigBlind = int.parse(v!),
-                ),
                 _numberField(
                   label: 'Number of Players',
                   initial: _maxPlayers.toString(),
@@ -180,15 +167,11 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
     final buyInAtoms = _toAtoms(_buyInDcr);
 
     final tid = await widget.model.createTable(
-      smallBlindChips: _smallBlind,
-      bigBlindChips: _bigBlind,
       maxPlayers: _maxPlayers,
-      // WTA uses a fixed minimum; keep it hidden from the UI.
       minPlayers: 2,
       buyInAtoms: buyInAtoms,
       startingChips: _startingChips,
       timeBankSeconds: _timeBankSeconds,
-      autoAdvanceMs: 0,
     );
 
     if (tid != null) {
