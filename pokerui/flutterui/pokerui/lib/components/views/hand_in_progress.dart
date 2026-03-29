@@ -98,8 +98,8 @@ class _HandInProgressViewState extends State<HandInProgressView> {
         const toggleInset = 4.0;
         const sidebarGap = 24.0;
         final sidebarWidth = useMobileDock
-            ? (constraints.maxWidth * 0.74).clamp(260.0, 320.0)
-            : (constraints.maxWidth * 0.32).clamp(280.0, 396.0);
+            ? (constraints.maxWidth * 0.80)
+            : (constraints.maxWidth * 0.40);
         return Stack(
           fit: StackFit.expand,
           children: [

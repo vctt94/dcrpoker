@@ -53,8 +53,9 @@ class _ShowdownViewState extends State<ShowdownView> {
         const toggleInset = 4.0;
         const sidebarGap = 24.0;
         final sidebarWidth = useMobileDock
-            ? (constraints.maxWidth * 0.74).clamp(260.0, 320.0)
-            : (constraints.maxWidth * 0.32).clamp(280.0, 396.0);
+            ? (constraints.maxWidth * 0.74)
+            : (constraints.maxWidth * 0.48);
+
         final pendingGameEndMessage = model.pendingGameEndMessage;
         final stopWatchingBtn = model.isWatching
             ? Align(
@@ -258,17 +259,28 @@ class _ShowdownFxOverlay extends StatefulWidget {
 
 class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     with TickerProviderStateMixin {
+  late final AnimationController _collectCtrl;
   late final AnimationController _payoutCtrl;
-  Timer? _payoutDelayTimer;
   int _lastFxMs = 0;
 
   @override
   void initState() {
     super.initState();
+    _collectCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+    );
     _payoutCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 780),
     );
+    _collectCtrl.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _payoutCtrl
+          ..reset()
+          ..forward();
+      }
+    });
     _maybeRestartFx();
   }
 
@@ -284,18 +296,16 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     if (winners.isEmpty || fxMs == 0) return;
     if (fxMs != _lastFxMs) {
       _lastFxMs = fxMs;
-      _payoutDelayTimer?.cancel();
       _payoutCtrl.reset();
-      _payoutDelayTimer = Timer(kShowdownPayoutDelay, () {
-        if (!mounted || widget.model.lastShowdownFxMs != fxMs) return;
-        _payoutCtrl.forward(from: 0);
-      });
+      _collectCtrl
+        ..reset()
+        ..forward();
     }
   }
 
   @override
   void dispose() {
-    _payoutDelayTimer?.cancel();
+    _collectCtrl.dispose();
     _payoutCtrl.dispose();
     super.dispose();
   }
@@ -309,9 +319,9 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     final layout = widget.layout;
     final center = layout.center;
 
-    final payoutWidgets = <Widget>[];
+    final allWidgets = <Widget>[];
     if (winners.isNotEmpty && game.players.isNotEmpty) {
-      final targets = seatAvatarCentersFor(
+      final seatCenters = seatAvatarCentersFor(
         gameState: game,
         heroId: widget.model.playerId,
         theme: theme,
@@ -319,15 +329,28 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
         showdownWinners: winners,
       );
       final potOrigin = potStackAnchor(layout, theme);
+      final totalWinnings =
+          winners.fold<int>(0, (sum, w) => sum + w.winnings);
+
+      // Phase 1: pot fades in at center, fades out when payout begins
+      allWidgets.add(_FadeInPot(
+        key: const ValueKey('showdown-collect-fade'),
+        fadeIn: _collectCtrl,
+        fadeOut: _payoutCtrl,
+        position: potOrigin,
+        amount: totalWinnings,
+        theme: theme,
+      ));
+
+      // Phase 2: payout flights (pot center → winners)
       final originSpread =
           20.0 * theme.uiSizeMultiplier * (winners.length > 1 ? 1.0 : 0.0);
-
       for (int i = 0; i < winners.length; i++) {
         final w = winners[i];
-        final target = targets[w.playerId] ?? center;
+        final target = seatCenters[w.playerId] ?? center;
         final startXOffset =
             (i - ((winners.length - 1) / 2)) * originSpread.clamp(0, 28);
-        payoutWidgets.add(_AnimatedPotFlight(
+        allWidgets.add(_AnimatedPotFlight(
           key: ValueKey('showdown-payout-flight-$i'),
           animation: _payoutCtrl,
           amount: w.winnings,
@@ -341,7 +364,62 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
     }
 
     return IgnorePointer(
-      child: Stack(children: payoutWidgets),
+      child: Stack(children: allWidgets),
+    );
+  }
+}
+
+class _FadeInPot extends StatelessWidget {
+  const _FadeInPot({
+    super.key,
+    required this.fadeIn,
+    required this.fadeOut,
+    required this.position,
+    required this.amount,
+    required this.theme,
+  });
+
+  final Animation<double> fadeIn;
+  final Animation<double> fadeOut;
+  final Offset position;
+  final int amount;
+  final PokerThemeConfig theme;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([fadeIn, fadeOut]),
+      builder: (context, child) {
+        final inT = fadeIn.value;
+        if (inT <= 0.0) return const SizedBox.shrink();
+        final fadeOutT = fadeOut.value;
+        if (fadeOutT > 0.0) return const SizedBox.shrink();
+
+        final opacity = Curves.easeOut.transform(inT.clamp(0.0, 1.0));
+        if (opacity <= 0.0) return const SizedBox.shrink();
+
+        final scale =
+            0.85 + 0.15 * Curves.easeOut.transform(inT.clamp(0.0, 1.0));
+
+        return Positioned(
+          left: position.dx,
+          top: position.dy,
+          child: FractionalTranslation(
+            translation: const Offset(-0.5, -0.1),
+            child: Opacity(
+              opacity: opacity,
+              child: Transform.scale(
+                scale: scale,
+                child: child,
+              ),
+            ),
+          ),
+        );
+      },
+      child: PotPileVisual(
+        amount: amount,
+        theme: theme,
+      ),
     );
   }
 }

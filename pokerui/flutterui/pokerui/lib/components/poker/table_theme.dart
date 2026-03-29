@@ -245,7 +245,7 @@ class PokerUiSpec {
   }
 
   Size get heroDockCardSize {
-    final width = (42.0 * cardSizeMultiplier).clamp(24.0, 60.0).toDouble();
+    final width = (42.0 * cardSizeMultiplier);
     return Size(width, width * 1.4);
   }
 
@@ -267,9 +267,9 @@ class PokerUiSpec {
 
   Size showdownBoardCardSize({double surfaceScale = 1.0}) {
     final width = _scaledCardWidth(
-      36.0,
-      min: 28.0,
-      max: 80.0,
+      54.0,
+      min: 50.0,
+      max: 110.0,
       surfaceScale: surfaceScale,
     );
     return Size(width, width * (52.0 / 36.0));
@@ -277,9 +277,9 @@ class PokerUiSpec {
 
   Size showdownPlayerCardSize({double surfaceScale = 1.0}) {
     final width = _scaledCardWidth(
-      34.0,
-      min: 26.0,
-      max: 76.0,
+      52.0,
+      min: 50.0,
+      max: 104.0,
       surfaceScale: surfaceScale,
     );
     return Size(width, width * (48.0 / 34.0));
@@ -287,9 +287,9 @@ class PokerUiSpec {
 
   Size gameEndedPreviewCardSize({double surfaceScale = 1.0}) {
     final width = _scaledCardWidth(
-      40.0,
-      min: 32.0,
-      max: 72.0,
+      58.0,
+      min: 50.0,
+      max: 100.0,
       surfaceScale: surfaceScale,
     );
     return Size(width, width * 1.4);
@@ -297,12 +297,12 @@ class PokerUiSpec {
 
   double scaleCommunityCardWidth(double baseWidth) {
     final maxWidth = switch (layoutMode) {
-      PokerLayoutMode.compactPortrait => 72.0,
-      PokerLayoutMode.compactLandscape => 76.0,
-      PokerLayoutMode.standard => 80.0,
-      PokerLayoutMode.wide => 84.0,
+      PokerLayoutMode.compactPortrait => 96.0,
+      PokerLayoutMode.compactLandscape => 102.0,
+      PokerLayoutMode.standard => 110.0,
+      PokerLayoutMode.wide => 116.0,
     };
-    return (baseWidth * cardSizeMultiplier).clamp(20.0, maxWidth).toDouble();
+    return (baseWidth * cardSizeMultiplier).clamp(28.0, maxWidth).toDouble();
   }
 
   double _scaledCardWidth(
@@ -359,9 +359,9 @@ class PokerSeatSpec {
         !isHeroSeat && layoutMode == PokerLayoutMode.compactPortrait;
     final radius = 28.0 * uiSizeMultiplier * (compactOpponent ? 0.74 : 1.0);
     final baseCardMultiplier =
-        isHeroSeat ? 1.3 : (compactOpponent ? 0.76 : 1.0);
-    final minCardWidth = isHeroSeat ? 42.0 : (compactOpponent ? 22.0 : 30.0);
-    final maxCardWidth = isHeroSeat ? 70.0 : (compactOpponent ? 40.0 : 58.0);
+        isHeroSeat ? 1.8 : (compactOpponent ? 1.05 : 1.4);
+    final minCardWidth = isHeroSeat ? 58.0 : (compactOpponent ? 32.0 : 44.0);
+    final maxCardWidth = isHeroSeat ? 96.0 : (compactOpponent ? 56.0 : 80.0);
     final cardWidth = (radius * baseCardMultiplier * cardSizeMultiplier)
         .clamp(minCardWidth, maxCardWidth)
         .toDouble();
