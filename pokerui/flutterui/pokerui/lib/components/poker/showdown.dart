@@ -35,6 +35,7 @@ class _ShowdownViewState extends State<ShowdownView> {
   Widget build(BuildContext context) {
     final model = widget.model;
     final game = model.game;
+    final showdown = model.showdown;
     if (game == null) {
       return const Center(child: Text('No game data available'));
     }
@@ -114,7 +115,7 @@ class _ShowdownViewState extends State<ShowdownView> {
               model: model,
               layout: TableLayout.fromScene(scene),
             ),
-            if (model.hasLastShowdown)
+            if (showdown != null)
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 260),
                 curve: Curves.easeOutCubic,
@@ -130,7 +131,8 @@ class _ShowdownViewState extends State<ShowdownView> {
                       SizedBox(
                         width: sidebarWidth,
                         child: ShowdownSidebar(
-                          model: model,
+                          showdown: showdown,
+                          heroId: model.playerId,
                           visible: true,
                           onClose: _closeSidebar,
                         ),
@@ -142,7 +144,7 @@ class _ShowdownViewState extends State<ShowdownView> {
                   ),
                 ),
               ),
-            if (model.hasLastShowdown && !_showSidebar)
+            if (showdown != null && !_showSidebar)
               Positioned(
                 left: scene.contentRect.left + toggleInset,
                 top: scene.contentRect.top + toggleInset,
@@ -261,7 +263,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
   }
 
   void _maybeRestartFx() {
-    final winners = widget.model.lastWinners;
+    final winners = widget.model.showdownWinners;
     final fxMs = widget.model.lastShowdownFxMs;
     if (winners.isEmpty || fxMs == 0) return;
     if (fxMs != _lastFxMs) {
@@ -286,7 +288,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
   Widget build(BuildContext context) {
     final game = widget.model.game;
     if (game == null) return const SizedBox.shrink();
-    final winners = widget.model.lastWinners;
+    final winners = widget.model.showdownWinners;
     final theme = PokerThemeConfig.fromContext(context);
     final layout = widget.layout;
     final center = layout.center;

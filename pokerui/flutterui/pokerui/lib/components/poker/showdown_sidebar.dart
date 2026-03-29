@@ -9,14 +9,16 @@ import 'package:pokerui/theme/typography.dart';
 class ShowdownSidebar extends StatelessWidget {
   const ShowdownSidebar({
     super.key,
-    required this.model,
+    required this.showdown,
+    required this.heroId,
     this.visible = true,
     this.onClose,
     @Deprecated('use visible') bool? isVisible,
     dynamic result,
   });
 
-  final PokerModel model;
+  final UiShowdownState showdown;
+  final String heroId;
   final bool visible;
   final VoidCallback? onClose;
 
@@ -24,8 +26,8 @@ class ShowdownSidebar extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!visible) return const SizedBox.shrink();
 
-    final winners = model.lastWinners;
-    final pot = model.showdownPot;
+    final winners = showdown.winners;
+    final pot = showdown.pot;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -149,7 +151,8 @@ class ShowdownSidebar extends StatelessWidget {
                       key: const Key('showdown-sidebar-scroll'),
                       physics: const ClampingScrollPhysics(),
                       child: ShowdownContent(
-                        model: model,
+                        showdown: showdown,
+                        heroId: heroId,
                         showHeader: false,
                         showCloseButton: false,
                         cardScale: 1.2,

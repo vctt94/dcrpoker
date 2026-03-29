@@ -48,6 +48,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
   @override
   Widget build(BuildContext context) {
     final model = widget.model;
+    final lastShowdown = model.lastShowdown;
     final theme = PokerThemeConfig.fromContext(context);
     final pokerGame = PokerGame(model.playerId, model, theme: theme);
     final gameState = model.game ??
@@ -105,7 +106,7 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                 () => model.setReady(),
                 gameState,
               ),
-            if (!isWaiting && _hasLastShowdown)
+            if (!isWaiting && _hasLastShowdown && lastShowdown != null)
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 260),
                 curve: Curves.easeOutCubic,
@@ -121,7 +122,8 @@ class _HandInProgressViewState extends State<HandInProgressView> {
                       SizedBox(
                         width: sidebarWidth,
                         child: ShowdownSidebar(
-                          model: model,
+                          showdown: lastShowdown,
+                          heroId: model.playerId,
                           visible: true,
                           onClose: () => setState(() => _showSidebar = false),
                         ),

@@ -13,14 +13,16 @@ import 'package:pokerui/theme/typography.dart';
 class ShowdownContent extends StatelessWidget {
   const ShowdownContent({
     super.key,
-    required this.model,
+    required this.showdown,
+    this.heroId = '',
     this.showHeader = true,
     this.showCloseButton = false,
     this.onClose,
     this.cardScale = 1.0,
   });
 
-  final PokerModel model;
+  final UiShowdownState showdown;
+  final String heroId;
   final bool showHeader;
   final bool showCloseButton;
   final VoidCallback? onClose;
@@ -54,7 +56,7 @@ class ShowdownContent extends StatelessWidget {
   }
 
   String _playerLabel(String playerId) {
-    final players = model.showdownPlayers;
+    final players = showdown.players;
     final idx = players.indexWhere((p) => p.id == playerId);
     if (idx >= 0) {
       final player = players[idx];
@@ -64,13 +66,9 @@ class ShowdownContent extends StatelessWidget {
     return playerId.length > 8 ? '${playerId.substring(0, 8)}...' : playerId;
   }
 
-  bool _isWinner(String playerId) {
-    return model.lastWinners.any((winner) => winner.playerId == playerId);
-  }
-
   UiWinner? _getWinner(String playerId) {
     try {
-      return model.lastWinners
+      return showdown.winners
           .firstWhere((winner) => winner.playerId == playerId);
     } catch (_) {
       return null;
@@ -97,10 +95,10 @@ class ShowdownContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final uiSpec = PokerUiSpec.fromContext(context);
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
-    final communityCards = model.showdownCommunityCards;
-    final players = model.showdownPlayers;
-    final winners = model.lastWinners;
-    final pot = model.showdownPot;
+    final communityCards = showdown.communityCards;
+    final players = showdown.players;
+    final winners = showdown.winners;
+    final pot = showdown.pot;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -276,7 +274,7 @@ class ShowdownContent extends StatelessWidget {
   ) {
     final winner = _getWinner(player.id);
     final isWinner = winner != null;
-    final isMe = player.id == model.playerId;
+    final isMe = player.id == heroId;
     final showCards = player.hand.isNotEmpty &&
         (!player.folded || player.cardsRevealed || isMe);
     final summary = _playerSummary(player, winner);

@@ -172,10 +172,10 @@ class PokerGame {
                 gameState: gameState,
                 heroId: playerId,
                 theme: theme,
-                heroCardsCache: pokerModel.myHoleCardsCache,
+                heroCardsCache: pokerModel.heroShowdownHand,
                 showHeroCardsInSeat: showHeroSeatCards,
                 showdownWinners: gameState.phase == pr.GamePhase.SHOWDOWN
-                    ? pokerModel.lastWinners
+                    ? pokerModel.showdownWinners
                     : const [],
                 aspectRatio: aspectRatio,
               ),
@@ -192,7 +192,7 @@ class PokerGame {
                   pot: collectedPot,
                   theme: theme,
                   payoutFxMs: gameState.phase == pr.GamePhase.SHOWDOWN &&
-                          pokerModel.lastWinners.isNotEmpty
+                          pokerModel.showdownWinners.isNotEmpty
                       ? pokerModel.lastShowdownFxMs
                       : 0,
                 ),
