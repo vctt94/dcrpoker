@@ -13,23 +13,25 @@ class GameEndedView extends StatelessWidget {
   final PokerModel model;
 
   String _winnerLabel(UiWinner w) {
-    final player = model.showdownPlayers.firstWhere((p) => p.id == w.playerId,
-        orElse: () => UiPlayer(
-              id: w.playerId,
-              name: '',
-              balance: 0,
-              hand: const [],
-              currentBet: 0,
-              folded: false,
-              isTurn: false,
-              isAllIn: false,
-              isDealer: false,
-              isSmallBlind: false,
-              isBigBlind: false,
-              isReady: false,
-              isDisconnected: false,
-              handDesc: '',
-            ));
+    final showdown = model.showdown;
+    final player = (showdown?.players ?? const <UiPlayer>[])
+        .firstWhere((p) => p.id == w.playerId,
+            orElse: () => UiPlayer(
+                  id: w.playerId,
+                  name: '',
+                  balance: 0,
+                  hand: const [],
+                  currentBet: 0,
+                  folded: false,
+                  isTurn: false,
+                  isAllIn: false,
+                  isDealer: false,
+                  isSmallBlind: false,
+                  isBigBlind: false,
+                  isReady: false,
+                  isDisconnected: false,
+                  handDesc: '',
+                ));
     if (player.name.isNotEmpty) return player.name;
     final pid = w.playerId;
     return pid.length > 8 ? '${pid.substring(0, 8)}...' : pid;
@@ -43,7 +45,7 @@ class GameEndedView extends StatelessWidget {
   }
 
   String _winnerSummary() {
-    final winners = model.lastWinners;
+    final winners = model.showdownWinners;
     if (winners.isEmpty) {
       return model.gameEndingMessage.isNotEmpty
           ? model.gameEndingMessage
@@ -72,15 +74,14 @@ class GameEndedView extends StatelessWidget {
     final uiSpec = PokerUiSpec.fromContext(context);
     final cardTheme = cardColorThemeFromKey(context.cardTheme);
     final previewCardSize = uiSpec.gameEndedPreviewCardSize(surfaceScale: 1.2);
+    final showdown = model.showdown;
     final message = _winnerSummary();
-    final hasWinners = model.lastWinners.isNotEmpty;
-    final iWon = model.lastWinners.any((w) => w.playerId == model.playerId);
-    final isDraw = model.lastWinners.length > 1;
+    final hasWinners = model.showdownWinners.isNotEmpty;
+    final iWon = model.showdownWinners.any((w) => w.playerId == model.playerId);
+    final isDraw = model.showdownWinners.length > 1;
     final isWin = hasWinners && iWon;
     final showWinnerSummary = hasWinners && (iWon || isDraw);
-    final hasShowdown = model.hasLastShowdown ||
-        model.lastWinners.isNotEmpty ||
-        model.showdownPlayers.isNotEmpty;
+    final hasShowdown = showdown != null;
 
     final accentColor = isWin
         ? PokerColors.success
@@ -154,7 +155,7 @@ class GameEndedView extends StatelessWidget {
                             children: [
                               Text(
                                 showWinnerSummary
-                                    ? (model.lastWinners.length > 1
+                                    ? (model.showdownWinners.length > 1
                                         ? 'Winners'
                                         : 'Winner')
                                     : 'Last hand',
@@ -171,7 +172,7 @@ class GameEndedView extends StatelessWidget {
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: model.lastWinners
+                              children: model.showdownWinners
                                   .map((w) => Chip(
                                         backgroundColor:
                                             Colors.green.withOpacity(0.15),
@@ -184,7 +185,8 @@ class GameEndedView extends StatelessWidget {
                                   .toList(),
                             ),
                           ],
-                          if (model.showdownCommunityCards.isNotEmpty) ...[
+                          if ((showdown?.communityCards ?? const [])
+                              .isNotEmpty) ...[
                             const SizedBox(height: PokerSpacing.md),
                             Text('Community cards',
                                 style: PokerTypography.labelSmall),
@@ -193,7 +195,7 @@ class GameEndedView extends StatelessWidget {
                               alignment: WrapAlignment.center,
                               spacing: 6,
                               runSpacing: 6,
-                              children: model.showdownCommunityCards
+                              children: showdown!.communityCards
                                   .asMap()
                                   .entries
                                   .map((entry) => SizedBox(

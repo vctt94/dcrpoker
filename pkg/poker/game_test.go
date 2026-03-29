@@ -525,6 +525,183 @@ func TestFoldWinDoesNotReveal(t *testing.T) {
 	}
 }
 
+func TestStateShowdownForcesWinnerRevealViaFSM(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             99,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
+	}
+	game.SetPlayers(users)
+
+	game.currentHand = NewHand([]string{"p1", "p2"})
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Spades, value: Ace}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Hearts, value: Ace}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Clubs, value: King}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Diamonds, value: King}))
+
+	game.communityCards = []Card{
+		{suit: Clubs, value: Two},
+		{suit: Diamonds, value: Three},
+		{suit: Hearts, value: Four},
+		{suit: Spades, value: Five},
+		{suit: Clubs, value: Nine},
+	}
+	game.phase = pokerrpc.GamePhase_RIVER
+
+	game.potManager = NewPotManager(2)
+	game.potManager.addBet(0, 40, game.players)
+	game.potManager.addBet(1, 40, game.players)
+
+	startHandParticipationIfNeeded(t, game.players)
+
+	eventCh := make(chan GameEvent, 8)
+	game.SetTableEventChannel(eventCh)
+
+	in := make(chan any)
+	done := make(chan struct{})
+	go func() {
+		stateShowdown(game, in)
+		close(done)
+	}()
+
+	var showdownEvt *GameEvent
+	var revealEvt *GameEvent
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case evt := <-eventCh:
+				switch evt.Type {
+				case GameEventShowdownComplete:
+					tmp := evt
+					showdownEvt = &tmp
+				case GameEventAutoShowCards:
+					tmp := evt
+					revealEvt = &tmp
+				}
+			default:
+				return showdownEvt != nil && revealEvt != nil
+			}
+		}
+	}, time.Second, 10*time.Millisecond, "showdown should emit result and forced reveal events")
+
+	require.NotNil(t, showdownEvt)
+	require.NotNil(t, revealEvt)
+	require.Len(t, revealEvt.RevealInfo, 1, "expected only the showdown winner to be auto-revealed")
+	require.Equal(t, "p1", revealEvt.RevealInfo[0].PlayerID)
+	require.Len(t, revealEvt.RevealInfo[0].Cards, 2)
+
+	game.mu.RLock()
+	winner := game.getPlayerByID("p1")
+	require.NotNil(t, winner)
+	winner.mu.RLock()
+	revealed := winner.revealed
+	winner.mu.RUnlock()
+	game.mu.RUnlock()
+	require.True(t, revealed, "winner reveal state should be owned by the player FSM")
+
+	close(in)
+	<-done
+}
+
+func TestStateShowdownDoesNotForceRevealFoldWinner(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:       2,
+		SmallBlind:       10,
+		BigBlind:         20,
+		Seed:             99,
+		Log:              createTestLogger(),
+		AutoAdvanceDelay: 1 * time.Second,
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	users := []*User{
+		NewUser("p1", nil, nil),
+		NewUser("p2", nil, nil),
+	}
+	game.SetPlayers(users)
+
+	game.currentHand = NewHand([]string{"p1", "p2"})
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Spades, value: Ace}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p1", Card{suit: Hearts, value: Ace}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Clubs, value: King}))
+	require.NoError(t, game.currentHand.DealCardToPlayer("p2", Card{suit: Diamonds, value: King}))
+
+	game.communityCards = []Card{
+		{suit: Clubs, value: Two},
+		{suit: Diamonds, value: Three},
+		{suit: Hearts, value: Four},
+	}
+	game.phase = pokerrpc.GamePhase_FLOP
+
+	game.potManager = NewPotManager(2)
+	game.potManager.addBet(0, 40, game.players)
+	game.potManager.addBet(1, 40, game.players)
+
+	startHandParticipationIfNeeded(t, game.players)
+
+	reply := make(chan error, 1)
+	game.players[1].handParticipation.Send(evFoldReq{Reply: reply})
+	require.NoError(t, <-reply)
+
+	eventCh := make(chan GameEvent, 8)
+	game.SetTableEventChannel(eventCh)
+
+	in := make(chan any)
+	done := make(chan struct{})
+	go func() {
+		stateShowdown(game, in)
+		close(done)
+	}()
+
+	var showdownEvt *GameEvent
+	var revealEvt *GameEvent
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case evt := <-eventCh:
+				switch evt.Type {
+				case GameEventShowdownComplete:
+					tmp := evt
+					showdownEvt = &tmp
+				case GameEventAutoShowCards:
+					tmp := evt
+					revealEvt = &tmp
+				}
+			default:
+				return showdownEvt != nil
+			}
+		}
+	}, time.Second, 10*time.Millisecond, "fold win should still emit showdown result")
+
+	require.NotNil(t, showdownEvt)
+	require.Nil(t, revealEvt, "uncontested fold winner must not be auto-revealed")
+
+	game.mu.RLock()
+	winner := game.getPlayerByID("p1")
+	require.NotNil(t, winner)
+	winner.mu.RLock()
+	revealed := winner.revealed
+	winner.mu.RUnlock()
+	game.mu.RUnlock()
+	require.False(t, revealed, "fold winner should remain hidden unless explicitly revealed")
+
+	close(in)
+	<-done
+}
+
 func TestTieBreakerShowdown(t *testing.T) {
 	// Create a game with 3 players
 	cfg := GameConfig{

@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
+
+const Duration kShowdownPayoutDelay = Duration(milliseconds: 180);
 
 class PokerChipDenomination {
   const PokerChipDenomination({
@@ -136,15 +140,13 @@ class PotDisplay extends StatefulWidget {
     required this.layout,
     required this.pot,
     required this.theme,
-    this.settleFxMs = 0,
-    this.hideForPayout = false,
+    this.payoutFxMs = 0,
   });
 
   final TableLayout layout;
   final int pot;
   final PokerThemeConfig theme;
-  final int settleFxMs;
-  final bool hideForPayout;
+  final int payoutFxMs;
 
   @override
   State<PotDisplay> createState() => _PotDisplayState();
@@ -154,8 +156,9 @@ class _PotDisplayState extends State<PotDisplay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseCtrl;
   late final Animation<double> _scale;
+  Timer? _hideTimer;
   int _prevPot = 0;
-  int _lastSettleFxMs = 0;
+  int _lastPayoutFxMs = 0;
   bool _hiddenForPayout = false;
 
   @override
@@ -170,6 +173,7 @@ class _PotDisplayState extends State<PotDisplay>
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.12), weight: 40),
       TweenSequenceItem(tween: Tween(begin: 1.12, end: 1.0), weight: 60),
     ]).animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeOut));
+    _syncPayoutVisibility();
   }
 
   @override
@@ -180,19 +184,34 @@ class _PotDisplayState extends State<PotDisplay>
         ..reset()
         ..forward();
     }
-    if (widget.hideForPayout &&
-        widget.settleFxMs != 0 &&
-        widget.settleFxMs != _lastSettleFxMs) {
-      _lastSettleFxMs = widget.settleFxMs;
-      _hiddenForPayout = true;
-    } else if (!widget.hideForPayout && _hiddenForPayout) {
-      _hiddenForPayout = false;
-    }
+    _syncPayoutVisibility();
     _prevPot = widget.pot;
+  }
+
+  void _syncPayoutVisibility() {
+    if (widget.payoutFxMs != 0 && widget.payoutFxMs != _lastPayoutFxMs) {
+      _lastPayoutFxMs = widget.payoutFxMs;
+      _hideTimer?.cancel();
+      _hiddenForPayout = false;
+      _hideTimer = Timer(kShowdownPayoutDelay, () {
+        if (!mounted || widget.payoutFxMs != _lastPayoutFxMs) {
+          return;
+        }
+        setState(() {
+          _hiddenForPayout = true;
+        });
+      });
+      return;
+    }
+    if (widget.payoutFxMs == 0 && _hiddenForPayout) {
+      _hiddenForPayout = false;
+      _hideTimer?.cancel();
+    }
   }
 
   @override
   void dispose() {
+    _hideTimer?.cancel();
     _pulseCtrl.dispose();
     super.dispose();
   }

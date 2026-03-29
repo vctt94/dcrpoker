@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:pokerui/components/poker/pot_display.dart';
 import 'package:pokerui/components/poker/player_seat.dart';
@@ -8,6 +9,8 @@ import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/scene_layout.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/typography.dart';
 
 class ShowdownView extends StatefulWidget {
   final PokerModel model;
@@ -32,6 +35,7 @@ class _ShowdownViewState extends State<ShowdownView> {
   Widget build(BuildContext context) {
     final model = widget.model;
     final game = model.game;
+    final showdown = model.showdown;
     if (game == null) {
       return const Center(child: Text('No game data available'));
     }
@@ -46,20 +50,23 @@ class _ShowdownViewState extends State<ShowdownView> {
           safePadding: MediaQuery.paddingOf(context),
         );
         final useMobileDock = scene.mode == PokerLayoutMode.compactPortrait;
-        final showTableHeroCards = !useMobileDock;
         const toggleInset = 4.0;
         const sidebarGap = 24.0;
         final sidebarWidth = useMobileDock
             ? (constraints.maxWidth * 0.74).clamp(260.0, 320.0)
             : (constraints.maxWidth * 0.32).clamp(280.0, 396.0);
+        final pendingGameEndMessage = model.pendingGameEndMessage;
         final Widget? showdownFooter = model.isGameEndPending
             ? Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
-                      'Game ended. Press Continue.',
-                      style: TextStyle(
+                    Text(
+                      pendingGameEndMessage.isNotEmpty
+                          ? pendingGameEndMessage
+                          : 'Game ended. Press Continue.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -96,13 +103,19 @@ class _ShowdownViewState extends State<ShowdownView> {
               game,
               FocusNode(),
               scene: scene,
-              showHeroSeatCards: showTableHeroCards,
+              showHeroSeatCards: true,
             ),
+            if ((model.showdownResultLabel ?? '').isNotEmpty)
+              _ShowdownBoardLabel(
+                text: model.showdownResultLabel!,
+                scene: scene,
+                compact: useMobileDock,
+              ),
             _ShowdownFxOverlay(
               model: model,
               layout: TableLayout.fromScene(scene),
             ),
-            if (model.hasLastShowdown)
+            if (showdown != null)
               AnimatedPositioned(
                 duration: const Duration(milliseconds: 260),
                 curve: Curves.easeOutCubic,
@@ -118,7 +131,8 @@ class _ShowdownViewState extends State<ShowdownView> {
                       SizedBox(
                         width: sidebarWidth,
                         child: ShowdownSidebar(
-                          model: model,
+                          showdown: showdown,
+                          heroId: model.playerId,
                           visible: true,
                           onClose: _closeSidebar,
                         ),
@@ -130,7 +144,7 @@ class _ShowdownViewState extends State<ShowdownView> {
                   ),
                 ),
               ),
-            if (model.hasLastShowdown && !_showSidebar)
+            if (showdown != null && !_showSidebar)
               Positioned(
                 left: scene.contentRect.left + toggleInset,
                 top: scene.contentRect.top + toggleInset,
@@ -163,6 +177,57 @@ class _ShowdownViewState extends State<ShowdownView> {
   }
 }
 
+class _ShowdownBoardLabel extends StatelessWidget {
+  const _ShowdownBoardLabel({
+    required this.text,
+    required this.scene,
+    required this.compact,
+  });
+
+  final String text;
+  final PokerSceneLayout scene;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final maxWidth = compact ? scene.contentRect.width * 0.64 : 360.0;
+    return Positioned(
+      left: scene.communityRect.center.dx,
+      top: scene.communityRect.top - (compact ? 6.0 : 10.0),
+      child: FractionalTranslation(
+        translation: const Offset(-0.5, -1.0),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: Container(
+            key: const Key('showdown-board-label'),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 12.0 : 14.0,
+              vertical: compact ? 7.0 : 8.0,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.76),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: PokerColors.borderSubtle.withValues(alpha: 0.9),
+              ),
+            ),
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: PokerTypography.labelLarge.copyWith(
+                color: PokerColors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ShowdownFxOverlay extends StatefulWidget {
   const _ShowdownFxOverlay({
     required this.model,
@@ -176,8 +241,9 @@ class _ShowdownFxOverlay extends StatefulWidget {
 }
 
 class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _payoutCtrl;
+  Timer? _payoutDelayTimer;
   int _lastFxMs = 0;
 
   @override
@@ -197,19 +263,23 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
   }
 
   void _maybeRestartFx() {
-    final winners = widget.model.lastWinners;
+    final winners = widget.model.showdownWinners;
     final fxMs = widget.model.lastShowdownFxMs;
     if (winners.isEmpty || fxMs == 0) return;
     if (fxMs != _lastFxMs) {
       _lastFxMs = fxMs;
-      _payoutCtrl
-        ..reset()
-        ..forward();
+      _payoutDelayTimer?.cancel();
+      _payoutCtrl.reset();
+      _payoutDelayTimer = Timer(kShowdownPayoutDelay, () {
+        if (!mounted || widget.model.lastShowdownFxMs != fxMs) return;
+        _payoutCtrl.forward(from: 0);
+      });
     }
   }
 
   @override
   void dispose() {
+    _payoutDelayTimer?.cancel();
     _payoutCtrl.dispose();
     super.dispose();
   }
@@ -218,7 +288,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
   Widget build(BuildContext context) {
     final game = widget.model.game;
     if (game == null) return const SizedBox.shrink();
-    final winners = widget.model.lastWinners;
+    final winners = widget.model.showdownWinners;
     final theme = PokerThemeConfig.fromContext(context);
     final layout = widget.layout;
     final center = layout.center;
@@ -230,6 +300,7 @@ class _ShowdownFxOverlayState extends State<_ShowdownFxOverlay>
         heroId: widget.model.playerId,
         theme: theme,
         layout: layout,
+        showdownWinners: winners,
       );
       final potOrigin = potStackAnchor(layout, theme);
       final originSpread =

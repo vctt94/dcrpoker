@@ -17,6 +17,10 @@ class LastShowdownDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showdown = model.lastShowdown;
+    if (showdown == null) {
+      return const SizedBox.shrink();
+    }
     return Dialog(
       backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(16),
@@ -39,7 +43,8 @@ class LastShowdownDialog extends StatelessWidget {
           ],
         ),
         child: ShowdownContent(
-          model: model,
+          showdown: showdown,
+          heroId: model.playerId,
           showHeader: true,
           showCloseButton: true,
           onClose: () => Navigator.of(context).pop(),

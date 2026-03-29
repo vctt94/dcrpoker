@@ -127,17 +127,17 @@ class PokerGame {
       {PokerSceneLayout? scene,
       double aspectRatio = 16 / 9,
       VoidCallback? onReadyHotkey,
-      bool? showHeroCardsOverlay,
-      bool? showHeroSeatCards}) {
-    final renderHeroSeatCards =
-        showHeroSeatCards ?? showHeroCardsOverlay ?? true;
+      bool showHeroSeatCards = true}) {
     Widget buildTableScene(PokerSceneLayout resolvedScene) {
       final tableLayout = TableLayout.fromScene(resolvedScene);
+      final resolvedPot = gameState.phase == pr.GamePhase.SHOWDOWN
+          ? (pokerModel.showdown?.pot ?? gameState.pot)
+          : gameState.pot;
       final liveStreetBets = gameState.players.fold<int>(
         0,
         (sum, player) => sum + player.currentBet,
       );
-      final collectedPot = (gameState.pot - liveStreetBets).clamp(0, 1 << 30);
+      final collectedPot = (resolvedPot - liveStreetBets).clamp(0, 1 << 30);
 
       return SizedBox.expand(
         child: RepaintBoundary(
@@ -172,8 +172,11 @@ class PokerGame {
                 gameState: gameState,
                 heroId: playerId,
                 theme: theme,
-                heroCardsCache: pokerModel.myHoleCardsCache,
-                showHeroCardsInSeat: renderHeroSeatCards,
+                heroCardsCache: pokerModel.heroShowdownHand,
+                showHeroCardsInSeat: showHeroSeatCards,
+                showdownWinners: gameState.phase == pr.GamePhase.SHOWDOWN
+                    ? pokerModel.showdownWinners
+                    : const [],
                 aspectRatio: aspectRatio,
               ),
               DisconnectedBadgesOverlay(
@@ -188,9 +191,10 @@ class PokerGame {
                   layout: tableLayout,
                   pot: collectedPot,
                   theme: theme,
-                  settleFxMs: pokerModel.lastShowdownFxMs,
-                  hideForPayout: gameState.phase == pr.GamePhase.SHOWDOWN &&
-                      pokerModel.lastWinners.isNotEmpty,
+                  payoutFxMs: gameState.phase == pr.GamePhase.SHOWDOWN &&
+                          pokerModel.showdownWinners.isNotEmpty
+                      ? pokerModel.lastShowdownFxMs
+                      : 0,
                 ),
             ],
           ),

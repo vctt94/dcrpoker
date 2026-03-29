@@ -479,7 +479,8 @@ void main() {
 
     await tester.pumpWidget(_wrap(
       child: ShowdownSidebar(
-        model: model,
+        showdown: model.showdown!,
+        heroId: model.playerId,
         visible: true,
       ),
       size: const Size(360, 420),
@@ -583,6 +584,87 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('last-showdown-dialog')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('game ended does not render stale last-showdown preview',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.currentTableId = 'table-1';
+    model.gameEndingMessage = 'Game ended';
+    model.setShowdownDataForTest(
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [
+            pr.Card()
+              ..value = 'Q'
+              ..suit = 'spades',
+            pr.Card()
+              ..value = 'Q'
+              ..suit = 'hearts',
+          ],
+        ),
+        _player(
+          id: 'villain',
+          name: 'Villain',
+          hand: [
+            pr.Card()
+              ..value = 'J'
+              ..suit = 'clubs',
+            pr.Card()
+              ..value = '10'
+              ..suit = 'clubs',
+          ],
+        ),
+      ],
+      communityCards: [
+        pr.Card()
+          ..value = 'A'
+          ..suit = 'spades',
+        pr.Card()
+          ..value = 'K'
+          ..suit = 'hearts',
+        pr.Card()
+          ..value = '10'
+          ..suit = 'diamonds',
+        pr.Card()
+          ..value = '7'
+          ..suit = 'clubs',
+        pr.Card()
+          ..value = '2'
+          ..suit = 'spades',
+      ],
+      pot: 180,
+      winners: const [
+        UiWinner(
+          playerId: 'hero',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 180,
+        ),
+      ],
+    );
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.NEW_HAND_STARTED,
+      tableId: 'table-1',
+    ));
+
+    await tester.pumpWidget(
+      _wrap(
+        child: GameEndedView(model: model),
+        size: const Size(430, 900),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('game-ended-showdown-card-0')), findsNothing);
+    expect(
+      find.byKey(const Key('game-ended-view-showdown-button')),
+      findsNothing,
+    );
+    expect(find.text('Game ended'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

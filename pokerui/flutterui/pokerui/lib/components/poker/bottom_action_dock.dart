@@ -4,7 +4,6 @@ import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/components/poker/responsive.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
@@ -122,7 +121,7 @@ class BottomActionDock extends StatelessWidget {
     final canAct = model.canAct;
     final me = model.me;
     final cards =
-        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.myHoleCardsCache;
+        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
     final hasCards = cards.isNotEmpty;
 
     return Container(
@@ -286,7 +285,7 @@ class MobileHeroActionPanel extends StatelessWidget {
     final actionRowHeight = (48 * buttonScale(bp)).floorToDouble();
     final me = model.me;
     final cards =
-        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.myHoleCardsCache;
+        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
     final hasCards = cards.isNotEmpty;
 
     return LayoutBuilder(
@@ -476,7 +475,7 @@ class _ShowCardsDockToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasCards = (model.me?.hand.isNotEmpty ?? false) ||
-        model.myHoleCardsCache.isNotEmpty;
+        model.heroShowdownHand.isNotEmpty;
     if (!hasCards) return const SizedBox.shrink();
 
     final showing = model.me?.cardsRevealed ?? false;
