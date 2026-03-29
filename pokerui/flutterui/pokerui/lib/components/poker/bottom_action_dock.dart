@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/bet_amounts.dart';
@@ -410,12 +412,16 @@ class MobileHeroActionPanel extends StatelessWidget {
             left: PokerSpacing.sm,
             right: PokerSpacing.sm,
             top: topPadding,
-            bottom: safeBottomPadding(context, minPadding: 6),
           ),
           decoration: const BoxDecoration(color: PokerColors.screenBg),
           child: LayoutBuilder(
             builder: (context, innerConstraints) {
-              final body = Column(
+              final safeBottom = safeBottomPadding(context, minPadding: 6);
+              final maxH = innerConstraints.maxHeight;
+              final minMainRegion =
+                  math.max(0.0, maxH.isFinite ? maxH - safeBottom : 0.0);
+
+              final mainColumn = Column(
                 mainAxisSize: MainAxisSize.max,
                 mainAxisAlignment: hasBottomSection
                     ? MainAxisAlignment.spaceBetween
@@ -429,9 +435,24 @@ class MobileHeroActionPanel extends StatelessWidget {
                     ),
                 ],
               );
-              final maxH = innerConstraints.maxHeight;
+
+              final scrollChild = Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minWidth: innerConstraints.maxWidth,
+                      minHeight: minMainRegion,
+                    ),
+                    child: mainColumn,
+                  ),
+                  SizedBox(height: safeBottom),
+                ],
+              );
+
               if (!maxH.isFinite) {
-                return body;
+                return scrollChild;
               }
               return SingleChildScrollView(
                 physics: const ClampingScrollPhysics(),
@@ -440,7 +461,7 @@ class MobileHeroActionPanel extends StatelessWidget {
                     minWidth: innerConstraints.maxWidth,
                     minHeight: maxH,
                   ),
-                  child: body,
+                  child: scrollChild,
                 ),
               );
             },
