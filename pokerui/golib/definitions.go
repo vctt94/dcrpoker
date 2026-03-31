@@ -335,16 +335,16 @@ type joinPokerTable struct {
 }
 
 type createPokerTable struct {
-	SmallBlind                int64 `json:"small_blind"`
-	BigBlind                  int64 `json:"big_blind"`
-	MaxPlayers                int32 `json:"max_players"`
-	MinPlayers                int32 `json:"min_players"`
-	BuyIn                     int64 `json:"buy_in"`
-	StartingChips             int64 `json:"starting_chips"`
-	TimeBankSeconds           int32 `json:"time_bank_seconds"`
-	AutoStartMs               int32 `json:"auto_start_ms"`
-	AutoAdvanceMs             int32 `json:"auto_advance_ms"`
-	BlindIncreaseIntervalSec  int32 `json:"blind_increase_interval_sec"`
+	SmallBlind               int64 `json:"small_blind"`
+	BigBlind                 int64 `json:"big_blind"`
+	MaxPlayers               int32 `json:"max_players"`
+	MinPlayers               int32 `json:"min_players"`
+	BuyIn                    int64 `json:"buy_in"`
+	StartingChips            int64 `json:"starting_chips"`
+	TimeBankSeconds          int32 `json:"time_bank_seconds"`
+	AutoStartMs              int32 `json:"auto_start_ms"`
+	AutoAdvanceMs            int32 `json:"auto_advance_ms"`
+	BlindIncreaseIntervalSec int32 `json:"blind_increase_interval_sec"`
 }
 
 type makeBet struct {

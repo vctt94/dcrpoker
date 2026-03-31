@@ -29,8 +29,8 @@ type GameConfig struct {
 	TimeBank         time.Duration // Time bank for each player
 	Log              slog.Logger   // Logger for game events
 
-	BlindIncreaseInterval time.Duration  // Interval between blind level increases (0 = disabled)
-	BlindSchedule         []BlindLevel   // Custom schedule; nil uses DefaultBlindSchedule
+	BlindIncreaseInterval time.Duration // Interval between blind level increases (0 = disabled)
+	BlindSchedule         []BlindLevel  // Custom schedule; nil uses DefaultBlindSchedule
 }
 
 // GameEventType represents different types of game events sent to Table
@@ -93,10 +93,10 @@ type Game struct {
 	// Blind increase management — nil when blind increases are disabled.
 	// The BlindManager is a separate FSM; the Game caches the current
 	// level at hand boundaries and uses the cached values during play.
-	blindManager   *BlindManager
-	liveSmallBlind int64 // cached from BlindManager FSM
-	liveBigBlind   int64 // cached from BlindManager FSM
-	liveBlindLevel int   // cached level index
+	blindManager    *BlindManager
+	liveSmallBlind  int64 // cached from BlindManager FSM
+	liveBigBlind    int64 // cached from BlindManager FSM
+	liveBlindLevel  int   // cached level index
 	liveNextBlindMs int64 // cached next-increase unix ms
 
 	// Auto-start management
