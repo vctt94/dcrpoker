@@ -623,20 +623,41 @@ class _WaitingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = model.isWatching
+    final isWatchingOnly = model.isWatching;
+    final label = isWatchingOnly
         ? 'Watching only'
         : (model.autoAdvanceAllIn ? 'All-in' : 'Waiting...');
-    return Container(
+    final indicator = Container(
       padding: const EdgeInsets.symmetric(
           horizontal: PokerSpacing.lg, vertical: PokerSpacing.sm),
       decoration: BoxDecoration(
         color: PokerColors.overlayMedium,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(
-        label,
-        style: PokerTypography.bodyMedium,
-      ),
+      child: Text(label, style: PokerTypography.bodyMedium),
+    );
+
+    if (!isWatchingOnly) return indicator;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        indicator,
+        const SizedBox(height: PokerSpacing.sm),
+        OutlinedButton.icon(
+          onPressed: model.leaveTable,
+          icon: const Icon(Icons.exit_to_app, size: 16),
+          label: const Text('Stop Watching'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: PokerColors.danger,
+            side: BorderSide(color: PokerColors.danger.withValues(alpha: 0.55)),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            minimumSize: const Size(0, 36),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ],
     );
   }
 }
