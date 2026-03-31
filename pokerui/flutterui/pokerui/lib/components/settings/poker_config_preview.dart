@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/game.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
-import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/table_session_view.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/ui_config.dart';
@@ -309,7 +309,7 @@ class _PokerConfigPreviewState extends State<PokerConfigPreview> {
                   child: IgnorePointer(
                     ignoring: true,
                     child: widget.scene == PokerPreviewScene.game
-                        ? HandInProgressView(model: previewModel)
+                        ? TableSessionView(model: previewModel)
                         : Builder(
                             builder: (context) {
                               final pokerGame = PokerGame(

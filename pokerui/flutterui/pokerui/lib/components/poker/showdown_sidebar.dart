@@ -7,6 +7,9 @@ import 'package:pokerui/theme/spacing.dart';
 import 'package:pokerui/theme/typography.dart';
 
 class ShowdownSidebar extends StatelessWidget {
+  /// Must match [ShowdownContent.cardScale] passed from this sidebar.
+  static const double sidebarCardScale = 1.2;
+
   const ShowdownSidebar({
     super.key,
     required this.showdown,
@@ -149,13 +152,15 @@ class ShowdownSidebar extends StatelessWidget {
                   Expanded(
                     child: SingleChildScrollView(
                       key: const Key('showdown-sidebar-scroll'),
-                      physics: const ClampingScrollPhysics(),
+                      physics: const BouncingScrollPhysics(
+                        parent: AlwaysScrollableScrollPhysics(),
+                      ),
                       child: ShowdownContent(
                         showdown: showdown,
                         heroId: heroId,
                         showHeader: false,
                         showCloseButton: false,
-                        cardScale: 1.2,
+                        cardScale: sidebarCardScale,
                       ),
                     ),
                   ),

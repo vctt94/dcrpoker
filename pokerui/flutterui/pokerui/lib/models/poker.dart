@@ -758,18 +758,29 @@ class PokerModel extends ChangeNotifier {
 
       case pr.NotificationType.CARDS_HIDDEN:
         if (n.playerId.isNotEmpty) {
+          final isLocalPlayer = n.playerId == playerId;
           if (game != null &&
               (n.tableId.isEmpty || n.tableId == currentTableId)) {
-            _updatePlayerHandInGame(
-              n.playerId,
-              hand: const [],
-              handDesc: '',
-              cardsRevealed: false,
-            );
+            if (isLocalPlayer) {
+              // Hiding only affects what opponents see; keep our hole cards locally.
+              _updatePlayerHandInGame(
+                n.playerId,
+                cardsRevealed: false,
+              );
+            } else {
+              _updatePlayerHandInGame(
+                n.playerId,
+                hand: const [],
+                handDesc: '',
+                cardsRevealed: false,
+              );
+            }
           }
           _updateShowdownPlayer(
             n.playerId,
-            (player) => player.clearHandState(),
+            (player) => isLocalPlayer
+                ? player.copyWith(cardsRevealed: false)
+                : player.clearHandState(),
           );
           notifyListeners();
         }

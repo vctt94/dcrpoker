@@ -189,7 +189,6 @@ Size _measureCornerIndex(
       text: rank,
       style: TextStyle(
         color: color,
-        fontSize: isWideRank ? rankSize * 0.86 : rankSize,
         fontWeight: FontWeight.w900,
         height: 1.0,
         letterSpacing: isWideRank ? -0.6 : 0.0,
@@ -203,7 +202,6 @@ Size _measureCornerIndex(
       text: suit,
       style: TextStyle(
         color: color,
-        fontSize: suitSize,
         fontWeight: FontWeight.w700,
         height: 1.0,
       ),
@@ -322,7 +320,7 @@ double _maxPipCellSize(
   // Cap so pips stay proportional on low-count cards.
   final baseCap = math.min(areaWidth * 0.42, areaHeight * 0.28);
 
-  return math.min(math.min(fromSpacing, fromEdges), baseCap).clamp(0.0, 24.0);
+  return math.min(math.min(fromSpacing, fromEdges), baseCap);
 }
 
 double _cornerIndexScale(double width, String value,
@@ -344,20 +342,6 @@ bool _shouldShowCenterContent(
     return width >= 28;
   }
   return _rankToCount(value) == null ? width >= 32 : width >= 30;
-}
-
-bool _useMiniNumberLayout(
-  int pipCount,
-  double width, {
-  required bool simplifiedMode,
-}) {
-  if (!simplifiedMode) return false;
-  final minFullWidth = switch (pipCount) {
-    >= 9 => 30.0,
-    >= 7 => 28.0,
-    _ => 24.0,
-  };
-  return width < minFullWidth;
 }
 
 // ─────────────────────────────────────────────
@@ -390,8 +374,8 @@ class CardFace extends StatelessWidget {
           );
           final cornerScale =
               _cornerIndexScale(w, value, simplifiedMode: simplifiedMode);
-          final rankFs = (w * 0.32 * cornerScale).clamp(7.0, 24.0).toDouble();
-          final suitFs = (w * 0.27 * cornerScale).clamp(6.0, 20.0).toDouble();
+          final rankFs = math.max(10.0, w * cornerScale);
+          final suitFs = math.max(10.0, w  * cornerScale);
           final isRedSuit = suitSymbol == '♥' || suitSymbol == '♦';
           final cornerSuitSize = suitFs * (isRedSuit ? 1.2 : 1.12);
           final cornerSize = _measureCornerIndex(
@@ -553,8 +537,6 @@ class _CardCenter extends StatelessWidget {
         child: Text(suit,
             style: TextStyle(
               color: color,
-              fontSize: (math.min(width, height) * (compactAce ? 0.32 : 0.4))
-                  .clamp(10.0, 44.0),
               fontWeight: FontWeight.w600,
             )),
       );
@@ -574,18 +556,14 @@ class _CardCenter extends StatelessWidget {
                 Text(value,
                     style: TextStyle(
                       color: color,
-                      fontSize:
-                          (math.min(width, height) * (compactFace ? 0.24 : 0.3))
-                              .clamp(10.0, 32.0),
                       fontWeight: FontWeight.w800,
                     )),
                 SizedBox(height: height * (compactFace ? 0.01 : 0.015)),
                 Text(suit,
                     style: TextStyle(
                       color: color,
-                      fontSize: (math.min(width, height) *
-                              (compactFace ? 0.14 : 0.18))
-                          .clamp(7.0, 22.0),
+                      fontSize: math.max(7.0,
+                          math.min(width, height) * (compactFace ? 0.17 : 0.22)),
                       fontWeight: FontWeight.w600,
                     )),
               ],
@@ -596,18 +574,35 @@ class _CardCenter extends StatelessWidget {
     }
 
     if (pipCount != null) {
-      if (_useMiniNumberLayout(
-        pipCount,
-        cardWidth,
-        simplifiedMode: simplifiedMode,
-      )) {
+      if (simplifiedMode) {
+        // Phone / narrow UI: rank + suit in the center instead of multi-pip layout.
+        final compact = cardWidth < 52;
         return Center(
-          child: Text(suit,
-              style: TextStyle(
-                color: color,
-                fontSize: (math.min(width, height) * 0.32).clamp(8.0, 18.0),
-                fontWeight: FontWeight.w600,
-              )),
+          child: SizedBox(
+            width: width,
+            height: height,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(value,
+                      style: TextStyle(
+                        color: color,
+                        fontWeight: FontWeight.w800,
+                      )),
+                  SizedBox(height: height * (compact ? 0.01 : 0.015)),
+                  Text(suit,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: math.max(7.0,
+                            math.min(width, height) * (compact ? 0.17 : 0.22)),
+                        fontWeight: FontWeight.w600,
+                      )),
+                ],
+              ),
+            ),
+          ),
         );
       }
 
@@ -668,7 +663,6 @@ class _CardCenter extends StatelessWidget {
       child: Text(suit,
           style: TextStyle(
             color: color,
-            fontSize: (math.min(width, height) * 0.35).clamp(12.0, 36.0),
             fontWeight: FontWeight.w600,
           )),
     );
@@ -876,9 +870,6 @@ void drawCardFace(Canvas canvas, double x, double y, double width,
   final tint = getSuitColor(card.suit, cardTheme: cardTheme);
   final suitSym = getSuitSymbol(card.suit);
   final isWideRank = card.value.length > 1;
-  final rankSize =
-      (width * (isWideRank ? 0.2 : 0.24)).clamp(7.0, 14.0).toDouble();
-  final suitSize = (rankSize * 0.84).clamp(6.0, 12.0).toDouble();
   final left = x + width * 0.08;
   final top = y + height * 0.06;
 
@@ -887,7 +878,6 @@ void drawCardFace(Canvas canvas, double x, double y, double width,
       text: card.value,
       style: TextStyle(
         color: tint,
-        fontSize: rankSize,
         fontWeight: FontWeight.w900,
         height: 1.0,
         letterSpacing: isWideRank ? -0.5 : 0.0,
@@ -902,7 +892,6 @@ void drawCardFace(Canvas canvas, double x, double y, double width,
       text: suitSym,
       style: TextStyle(
         color: tint,
-        fontSize: suitSize,
         fontWeight: FontWeight.w700,
         height: 1.0,
       ),

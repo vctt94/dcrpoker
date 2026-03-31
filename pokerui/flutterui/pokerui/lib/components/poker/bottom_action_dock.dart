@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/bet_amounts.dart';
@@ -410,22 +412,59 @@ class MobileHeroActionPanel extends StatelessWidget {
             left: PokerSpacing.sm,
             right: PokerSpacing.sm,
             top: topPadding,
-            bottom: safeBottomPadding(context, minPadding: 6),
           ),
           decoration: const BoxDecoration(color: PokerColors.screenBg),
-          child: Column(
-            mainAxisSize: MainAxisSize.max,
-            mainAxisAlignment: hasBottomSection
-                ? MainAxisAlignment.spaceBetween
-                : MainAxisAlignment.start,
-            children: [
-              headerSection,
-              if (hasBottomSection)
-                Padding(
-                  padding: EdgeInsets.only(top: sectionGap),
-                  child: bottomSection,
+          child: LayoutBuilder(
+            builder: (context, innerConstraints) {
+              final safeBottom = safeBottomPadding(context, minPadding: 6);
+              final maxH = innerConstraints.maxHeight;
+              final minMainRegion =
+                  math.max(0.0, maxH.isFinite ? maxH - safeBottom : 0.0);
+
+              final mainColumn = Column(
+                mainAxisSize: MainAxisSize.max,
+                mainAxisAlignment: hasBottomSection
+                    ? MainAxisAlignment.spaceBetween
+                    : MainAxisAlignment.start,
+                children: [
+                  headerSection,
+                  if (hasBottomSection)
+                    Padding(
+                      padding: EdgeInsets.only(top: sectionGap),
+                      child: bottomSection,
+                    ),
+                ],
+              );
+
+              final scrollChild = Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minWidth: innerConstraints.maxWidth,
+                      minHeight: minMainRegion,
+                    ),
+                    child: mainColumn,
+                  ),
+                  SizedBox(height: safeBottom),
+                ],
+              );
+
+              if (!maxH.isFinite) {
+                return scrollChild;
+              }
+              return SingleChildScrollView(
+                physics: const ClampingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minWidth: innerConstraints.maxWidth,
+                    minHeight: maxH,
+                  ),
+                  child: scrollChild,
                 ),
-            ],
+              );
+            },
           ),
         );
       },
@@ -584,20 +623,41 @@ class _WaitingIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final label = model.isWatching
+    final isWatchingOnly = model.isWatching;
+    final label = isWatchingOnly
         ? 'Watching only'
         : (model.autoAdvanceAllIn ? 'All-in' : 'Waiting...');
-    return Container(
+    final indicator = Container(
       padding: const EdgeInsets.symmetric(
           horizontal: PokerSpacing.lg, vertical: PokerSpacing.sm),
       decoration: BoxDecoration(
         color: PokerColors.overlayMedium,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: Text(
-        label,
-        style: PokerTypography.bodyMedium,
-      ),
+      child: Text(label, style: PokerTypography.bodyMedium),
+    );
+
+    if (!isWatchingOnly) return indicator;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        indicator,
+        const SizedBox(height: PokerSpacing.sm),
+        OutlinedButton.icon(
+          onPressed: model.leaveTable,
+          icon: const Icon(Icons.exit_to_app, size: 16),
+          label: const Text('Stop Watching'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: PokerColors.danger,
+            side: BorderSide(color: PokerColors.danger.withValues(alpha: 0.55)),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            minimumSize: const Size(0, 36),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ],
     );
   }
 }

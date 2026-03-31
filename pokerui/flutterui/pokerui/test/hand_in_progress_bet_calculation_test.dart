@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pokerui/components/poker/bet_amounts.dart';
-import 'package:pokerui/components/views/hand_in_progress.dart';
+import 'package:pokerui/components/views/table_session_view.dart';
 
 void main() {
   test('Entered displayed stack after posting a blind becomes all-in total',
@@ -11,7 +11,7 @@ void main() {
     const myBet = 10; // posted small blind
     const input = 990; // visible remaining stack shown to the player
 
-    final totalBet = HandInProgressView.calculateTotalBet(
+    final totalBet = TableSessionView.calculateTotalBet(
       input,
       0, // currentBet
       myBet,
@@ -25,7 +25,7 @@ void main() {
   test('No prior bet: entered amount is total', () {
     const input = 150;
     const myBet = 0;
-    final totalBet = HandInProgressView.calculateTotalBet(
+    final totalBet = TableSessionView.calculateTotalBet(
       input,
       /*currentBet=*/ 0,
       myBet,
@@ -39,7 +39,7 @@ void main() {
   test('With prior bet: entered amount stays as total', () {
     const input = 60;
     const myBet = 40;
-    final totalBet = HandInProgressView.calculateTotalBet(
+    final totalBet = TableSessionView.calculateTotalBet(
       input,
       /*currentBet=*/ 100,
       myBet,
@@ -55,7 +55,7 @@ void main() {
     const myBalance = 1000;
     const currentBet = 2000;
 
-    final totalBet = HandInProgressView.calculateTotalBet(
+    final totalBet = TableSessionView.calculateTotalBet(
       myBalance,
       currentBet,
       myBet,
