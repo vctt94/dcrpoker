@@ -50,6 +50,7 @@ func LoadClientConfig(datadir, filename string) (*ClientConfig, error) {
 		GRPCHost:       cfg.GRPCHost,
 		GRPCPort:       cfg.GRPCPort,
 		GRPCCertPath:   cfg.GRPCCertPath,
+		Nickname:       cfg.Nickname,
 		PayoutAddress:  cfg.PayoutAddress,
 		LogFile:        cfg.LogFile,
 		Debug:          cfg.Debug,
@@ -69,6 +70,7 @@ type ClientConfig struct {
 	GRPCHost       string
 	GRPCPort       string
 	GRPCCertPath   string
+	Nickname       string
 	PayoutAddress  string
 	LogFile        string
 	Debug          string

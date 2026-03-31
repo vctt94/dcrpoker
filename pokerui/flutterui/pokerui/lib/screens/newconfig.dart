@@ -35,6 +35,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
 
   late final _serverAddr = TextEditingController(text: widget.model.serverAddr);
   late final _grpcCert = TextEditingController(text: widget.model.grpcCertPath);
+  late final _nickname = TextEditingController(text: widget.model.nickname);
   late final _address = TextEditingController(text: widget.model.address);
   late final _debugLvl = TextEditingController(text: widget.model.debugLevel);
 
@@ -45,7 +46,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   late String _uiSize;
   late bool _hideTableLogo;
   late String _logoPosition;
-  _SettingsSection _selectedSection = _SettingsSection.ui;
+  _SettingsSection _selectedSection = _SettingsSection.general;
   String _cfgPath = '';
   String _dataDir = '';
 
@@ -66,6 +67,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
   void dispose() {
     _serverAddr.dispose();
     _grpcCert.dispose();
+    _nickname.dispose();
     _address.dispose();
     _debugLvl.dispose();
     super.dispose();
@@ -113,6 +115,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
         widget.model.dataDir,
         widget.model.serverAddr,
         widget.model.grpcCertPath,
+        widget.model.nickname,
         widget.model.address,
         widget.model.debugLevel,
         _tableTheme,
@@ -169,6 +172,7 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
       widget.model
         ..serverAddr = serverAddr
         ..grpcCertPath = _grpcCert.text
+        ..nickname = _nickname.text.trim()
         ..address = _address.text
         ..debugLevel = _debugLvl.text
         ..soundsEnabled = _soundsEnabled
@@ -428,6 +432,15 @@ class _NewConfigScreenState extends State<NewConfigScreen> {
             runSpacing: PokerSpacing.md,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              _ControlSlot(
+                width: halfWidth,
+                child: _field(
+                  _nickname,
+                  'Nickname',
+                  helperText:
+                      'Used for login. Leave blank to be prompted on next start.',
+                ),
+              ),
               _ControlSlot(
                 width: halfWidth,
                 child: _field(

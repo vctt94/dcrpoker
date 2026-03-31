@@ -329,6 +329,18 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp>
   }
 
   Future<void> _openConfig(BuildContext context) async {
+    // Always reload from disk so Settings reflects external edits
+    // and values persisted by other flows (e.g. login).
+    try {
+      await _configNotifier.reload();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Failed to reload config before opening settings',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
     final cfg =
         _configNotifier.hasConfig ? _configNotifier.value : Config.filled();
     final navigator = Navigator.of(context);

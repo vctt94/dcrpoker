@@ -6,6 +6,7 @@ class NewConfigModel extends ChangeNotifier {
   // ─── Editable fields ────────────────────────────────────────────────────
   String serverAddr = '';
   String grpcCertPath = '';
+  String nickname = '';
   String address = '';
   String debugLevel = 'info';
   bool soundsEnabled = true;
@@ -39,6 +40,7 @@ class NewConfigModel extends ChangeNotifier {
         initialGrpcCertPath: c.grpcCertPath,
       )
         ..serverAddr = c.serverAddr
+        ..nickname = c.nickname
         ..address = c.address
         ..debugLevel = c.debugLevel
         ..soundsEnabled = c.soundsEnabled
