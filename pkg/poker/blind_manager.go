@@ -121,7 +121,6 @@ type BlindManager struct {
 	interval     time.Duration
 	currentLevel int
 	startTime    time.Time
-	timer        *time.Timer
 	log          slog.Logger
 
 	sm *statemachine.Machine[BlindManager]
@@ -154,9 +153,6 @@ func NewBlindManager(schedule []BlindLevel, interval time.Duration, log slog.Log
 func (bm *BlindManager) Start(ctx context.Context) { bm.sm.Start(ctx) }
 
 func (bm *BlindManager) Stop() {
-	if bm.timer != nil {
-		bm.timer.Stop()
-	}
 	bm.sm.Stop()
 }
 
@@ -266,13 +262,11 @@ func blindActive(bm *BlindManager, in <-chan any) BlindManagerStateFn {
 		return blindPending
 	}
 
-	bm.timer = time.AfterFunc(remaining, func() {
+	timer := time.AfterFunc(remaining, func() {
 		bm.sm.TrySend(evBlindTimerFired{})
 	})
 	defer func() {
-		if bm.timer != nil {
-			bm.timer.Stop()
-		}
+		timer.Stop()
 	}()
 
 	for ev := range in {

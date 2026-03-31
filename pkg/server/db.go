@@ -377,6 +377,12 @@ func (s *Server) saveTableStateAsync(tableID string, reason string) {
 		defer saveMutex.Unlock()
 
 		if err := s.saveTableState(tableID); err != nil {
+			// Table removal can race with queued async saves; this is expected once
+			// the table has been finalized and deleted from the registry.
+			if err.Error() == "table not found" {
+				s.log.Debugf("Skipping snapshot save for removed table %s (%s)", tableID, reason)
+				return
+			}
 			s.log.Errorf("Failed to save table state for %s (%s): %v", tableID, reason, err)
 		}
 	}()

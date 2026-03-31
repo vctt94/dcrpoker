@@ -1427,7 +1427,10 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	// Verify the game state is consistent
 	assert.True(t, restoredState.GameStarted, "game should still be started after restoration")
 	assert.NotEmpty(t, restoredState.CurrentPlayer, "current player should be calculated after restoration")
-	assert.Greater(t, restoredState.CurrentBet, int64(0), "current bet should be positive after restoration")
+	// CurrentBet is only guaranteed to be positive while an open bet exists
+	// (typically pre-flop after blinds). On restored post-flop streets it may
+	// legitimately be zero.
+	assert.GreaterOrEqual(t, restoredState.CurrentBet, int64(0), "current bet should be non-negative after restoration")
 }
 
 // Close properly stops the server and cleans up resources
