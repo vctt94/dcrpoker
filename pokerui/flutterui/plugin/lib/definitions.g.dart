@@ -388,6 +388,8 @@ PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
   players: (json['players'] as List<dynamic>?)
       ?.map((e) => PlayerDTO.fromJson(e as Map<String, dynamic>))
       .toList(),
+  blindIncreaseIntervalSec:
+      (json['blind_increase_interval_sec'] as num?)?.toInt() ?? 0,
 );
 
 Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
@@ -402,6 +404,7 @@ Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
       'game_started': instance.gameStarted,
       'all_players_ready': instance.allPlayersReady,
       'players': instance.players,
+      'blind_increase_interval_sec': instance.blindIncreaseIntervalSec,
     };
 
 CreatePokerTableArgs _$CreatePokerTableArgsFromJson(
@@ -416,6 +419,8 @@ CreatePokerTableArgs _$CreatePokerTableArgsFromJson(
   (json['time_bank_seconds'] as num).toInt(),
   (json['auto_start_ms'] as num).toInt(),
   (json['auto_advance_ms'] as num).toInt(),
+  blindIncreaseIntervalSec:
+      (json['blind_increase_interval_sec'] as num?)?.toInt() ?? 0,
 );
 
 Map<String, dynamic> _$CreatePokerTableArgsToJson(
@@ -430,6 +435,7 @@ Map<String, dynamic> _$CreatePokerTableArgsToJson(
   'time_bank_seconds': instance.timeBankSeconds,
   'auto_start_ms': instance.autoStartMs,
   'auto_advance_ms': instance.autoAdvanceMs,
+  'blind_increase_interval_sec': instance.blindIncreaseIntervalSec,
 };
 
 MakeBetArgs _$MakeBetArgsFromJson(Map<String, dynamic> json) =>
@@ -539,6 +545,9 @@ GameUpdateDTO _$GameUpdateDTOFromJson(Map<String, dynamic> json) =>
       (json['turnDeadlineUnixMs'] as num).toInt(),
       (json['smallBlind'] as num?)?.toInt() ?? 0,
       (json['bigBlind'] as num?)?.toInt() ?? 0,
+      blindLevel: (json['blindLevel'] as num?)?.toInt() ?? 0,
+      nextBlindIncreaseUnixMs:
+          (json['nextBlindIncreaseUnixMs'] as num?)?.toInt() ?? 0,
     );
 
 Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
@@ -560,6 +569,8 @@ Map<String, dynamic> _$GameUpdateDTOToJson(GameUpdateDTO instance) =>
       'turnDeadlineUnixMs': instance.turnDeadlineUnixMs,
       'smallBlind': instance.smallBlind,
       'bigBlind': instance.bigBlind,
+      'blindLevel': instance.blindLevel,
+      'nextBlindIncreaseUnixMs': instance.nextBlindIncreaseUnixMs,
     };
 
 WinnerDTO _$WinnerDTOFromJson(Map<String, dynamic> json) => WinnerDTO(

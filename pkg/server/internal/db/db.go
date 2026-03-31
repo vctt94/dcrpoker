@@ -318,19 +318,20 @@ type Transaction struct {
 }
 
 type Table struct {
-	ID            string
-	Name          string
-	Source        string
-	BuyIn         int64
-	MinPlayers    int
-	MaxPlayers    int
-	SmallBlind    int64
-	BigBlind      int64
-	StartingChips int64
-	TimebankMS    int64
-	AutoStartMS   int64
-	AutoAdvanceMS int64
-	CreatedAt     time.Time
+	ID                       string
+	Name                     string
+	Source                   string
+	BuyIn                    int64
+	MinPlayers               int
+	MaxPlayers               int
+	SmallBlind               int64
+	BigBlind                 int64
+	StartingChips            int64
+	TimebankMS               int64
+	AutoStartMS              int64
+	AutoAdvanceMS            int64
+	BlindIncreaseIntervalSec int64
+	CreatedAt                time.Time
 }
 
 type Participant struct {
@@ -443,27 +444,30 @@ func (db *DB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 		name = t.ID
 	}
 
+	blindIncreaseSec := t.BlindIncreaseInterval.Seconds()
+
 	query := `
 		INSERT INTO tables (
 			id, name, table_source, buy_in, min_players, max_players, small_blind, big_blind,
-			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, blind_increase_interval_sec, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
 		ON CONFLICT(id) DO UPDATE SET
-			name            = excluded.name,
-			table_source    = excluded.table_source,
-			buy_in          = excluded.buy_in,
-			min_players     = excluded.min_players,
-			max_players     = excluded.max_players,
-			small_blind     = excluded.small_blind,
-			big_blind       = excluded.big_blind,
-			starting_chips  = excluded.starting_chips,
-			timebank_ms     = excluded.timebank_ms,
-			autostart_ms    = excluded.autostart_ms,
-			auto_advance_ms = excluded.auto_advance_ms
+			name                        = excluded.name,
+			table_source                = excluded.table_source,
+			buy_in                      = excluded.buy_in,
+			min_players                 = excluded.min_players,
+			max_players                 = excluded.max_players,
+			small_blind                 = excluded.small_blind,
+			big_blind                   = excluded.big_blind,
+			starting_chips              = excluded.starting_chips,
+			timebank_ms                 = excluded.timebank_ms,
+			autostart_ms                = excluded.autostart_ms,
+			auto_advance_ms             = excluded.auto_advance_ms,
+			blind_increase_interval_sec = excluded.blind_increase_interval_sec
 	`
 	args := []any{
 		t.ID, name, source, t.BuyIn, t.MinPlayers, t.MaxPlayers, t.SmallBlind, t.BigBlind,
-		t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, time.Now(),
+		t.StartingChips, timeBankMS, autoStartMS, autoAdvanceMS, int64(blindIncreaseSec), time.Now(),
 	}
 
 	_, err := db.ExecContext(ctx, query, args...)
@@ -474,12 +478,14 @@ func (db *DB) GetTable(ctx context.Context, id string) (*Table, error) {
 	row := db.QueryRowContext(ctx, `
 		SELECT id, name, COALESCE(table_source, 'user'),
 			buy_in, min_players, max_players, small_blind, big_blind,
-			starting_chips, timebank_ms, autostart_ms, auto_advance_ms, created_at
+			starting_chips, timebank_ms, autostart_ms, auto_advance_ms,
+			blind_increase_interval_sec, created_at
 		FROM tables WHERE id = ?
 	`, id)
 	var t Table
 	if err := row.Scan(&t.ID, &t.Name, &t.Source, &t.BuyIn, &t.MinPlayers, &t.MaxPlayers, &t.SmallBlind, &t.BigBlind,
-		&t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.AutoAdvanceMS, &t.CreatedAt); err != nil {
+		&t.StartingChips, &t.TimebankMS, &t.AutoStartMS, &t.AutoAdvanceMS,
+		&t.BlindIncreaseIntervalSec, &t.CreatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("table not found: %s", id)
 		}

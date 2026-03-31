@@ -409,26 +409,28 @@ func (x *StartGameStreamRequest) GetTableId() string {
 }
 
 type GameUpdate struct {
-	state              protoimpl.MessageState `protogen:"open.v1"`
-	TableId            string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
-	Phase              GamePhase              `protobuf:"varint,2,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
-	Players            []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
-	CommunityCards     []*Card                `protobuf:"bytes,4,rep,name=community_cards,json=communityCards,proto3" json:"community_cards,omitempty"`
-	Pot                int64                  `protobuf:"varint,5,opt,name=pot,proto3" json:"pot,omitempty"`                                 // Total poker chips in the pot
-	CurrentBet         int64                  `protobuf:"varint,6,opt,name=current_bet,json=currentBet,proto3" json:"current_bet,omitempty"` // Current poker chips bet amount in this round
-	CurrentPlayer      string                 `protobuf:"bytes,7,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
-	MinRaise           int64                  `protobuf:"varint,8,opt,name=min_raise,json=minRaise,proto3" json:"min_raise,omitempty"` // Minimum poker chips raise amount
-	MaxRaise           int64                  `protobuf:"varint,9,opt,name=max_raise,json=maxRaise,proto3" json:"max_raise,omitempty"` // Maximum poker chips raise amount
-	GameStarted        bool                   `protobuf:"varint,10,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
-	PlayersRequired    int32                  `protobuf:"varint,11,opt,name=players_required,json=playersRequired,proto3" json:"players_required,omitempty"`
-	PlayersJoined      int32                  `protobuf:"varint,12,opt,name=players_joined,json=playersJoined,proto3" json:"players_joined,omitempty"`
-	PhaseName          string                 `protobuf:"bytes,13,opt,name=phase_name,json=phaseName,proto3" json:"phase_name,omitempty"`                                 // Human-readable name of the current phase
-	TimeBankSeconds    int32                  `protobuf:"varint,14,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"`            // Timebank per player (seconds)
-	TurnDeadlineUnixMs int64                  `protobuf:"varint,15,opt,name=turn_deadline_unix_ms,json=turnDeadlineUnixMs,proto3" json:"turn_deadline_unix_ms,omitempty"` // Absolute deadline for current turn (Unix ms). 0 if N/A
-	SmallBlind         int64                  `protobuf:"varint,16,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"`                             // Current table small blind (chips)
-	BigBlind           int64                  `protobuf:"varint,17,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`                                   // Current table big blind (chips)
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"open.v1"`
+	TableId                 string                 `protobuf:"bytes,1,opt,name=table_id,json=tableId,proto3" json:"table_id,omitempty"`
+	Phase                   GamePhase              `protobuf:"varint,2,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
+	Players                 []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
+	CommunityCards          []*Card                `protobuf:"bytes,4,rep,name=community_cards,json=communityCards,proto3" json:"community_cards,omitempty"`
+	Pot                     int64                  `protobuf:"varint,5,opt,name=pot,proto3" json:"pot,omitempty"`                                 // Total poker chips in the pot
+	CurrentBet              int64                  `protobuf:"varint,6,opt,name=current_bet,json=currentBet,proto3" json:"current_bet,omitempty"` // Current poker chips bet amount in this round
+	CurrentPlayer           string                 `protobuf:"bytes,7,opt,name=current_player,json=currentPlayer,proto3" json:"current_player,omitempty"`
+	MinRaise                int64                  `protobuf:"varint,8,opt,name=min_raise,json=minRaise,proto3" json:"min_raise,omitempty"` // Minimum poker chips raise amount
+	MaxRaise                int64                  `protobuf:"varint,9,opt,name=max_raise,json=maxRaise,proto3" json:"max_raise,omitempty"` // Maximum poker chips raise amount
+	GameStarted             bool                   `protobuf:"varint,10,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
+	PlayersRequired         int32                  `protobuf:"varint,11,opt,name=players_required,json=playersRequired,proto3" json:"players_required,omitempty"`
+	PlayersJoined           int32                  `protobuf:"varint,12,opt,name=players_joined,json=playersJoined,proto3" json:"players_joined,omitempty"`
+	PhaseName               string                 `protobuf:"bytes,13,opt,name=phase_name,json=phaseName,proto3" json:"phase_name,omitempty"`                                                  // Human-readable name of the current phase
+	TimeBankSeconds         int32                  `protobuf:"varint,14,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"`                             // Timebank per player (seconds)
+	TurnDeadlineUnixMs      int64                  `protobuf:"varint,15,opt,name=turn_deadline_unix_ms,json=turnDeadlineUnixMs,proto3" json:"turn_deadline_unix_ms,omitempty"`                  // Absolute deadline for current turn (Unix ms). 0 if N/A
+	SmallBlind              int64                  `protobuf:"varint,16,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"`                                              // Current table small blind (chips)
+	BigBlind                int64                  `protobuf:"varint,17,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`                                                    // Current table big blind (chips)
+	BlindLevel              int32                  `protobuf:"varint,18,opt,name=blind_level,json=blindLevel,proto3" json:"blind_level,omitempty"`                                              // Current blind level index (0-based)
+	NextBlindIncreaseUnixMs int64                  `protobuf:"varint,19,opt,name=next_blind_increase_unix_ms,json=nextBlindIncreaseUnixMs,proto3" json:"next_blind_increase_unix_ms,omitempty"` // Unix ms timestamp of next blind increase (0 if disabled/max)
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *GameUpdate) Reset() {
@@ -576,6 +578,20 @@ func (x *GameUpdate) GetSmallBlind() int64 {
 func (x *GameUpdate) GetBigBlind() int64 {
 	if x != nil {
 		return x.BigBlind
+	}
+	return 0
+}
+
+func (x *GameUpdate) GetBlindLevel() int32 {
+	if x != nil {
+		return x.BlindLevel
+	}
+	return 0
+}
+
+func (x *GameUpdate) GetNextBlindIncreaseUnixMs() int64 {
+	if x != nil {
+		return x.NextBlindIncreaseUnixMs
 	}
 	return 0
 }
@@ -1370,20 +1386,21 @@ func (x *Winner) GetWinnings() int64 {
 
 // Lobby Messages
 type CreateTableRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	PlayerId        string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
-	SmallBlind      int64                  `protobuf:"varint,2,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"` // Poker chips amount for small blind
-	BigBlind        int64                  `protobuf:"varint,3,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`       // Poker chips amount for big blind
-	MaxPlayers      int32                  `protobuf:"varint,4,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
-	MinPlayers      int32                  `protobuf:"varint,5,opt,name=min_players,json=minPlayers,proto3" json:"min_players,omitempty"`
-	BuyIn           int64                  `protobuf:"varint,6,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"`                                 // DCR amount to join table (in atoms)
-	StartingChips   int64                  `protobuf:"varint,7,opt,name=starting_chips,json=startingChips,proto3" json:"starting_chips,omitempty"`         // Poker chips each player starts with
-	TimeBankSeconds int32                  `protobuf:"varint,8,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"` // Player timeout in seconds (default: 30)
-	AutoStartMs     int32                  `protobuf:"varint,9,opt,name=auto_start_ms,json=autoStartMs,proto3" json:"auto_start_ms,omitempty"`             // Auto-start delay between hands in ms (0 = disabled)
-	AutoAdvanceMs   int32                  `protobuf:"varint,10,opt,name=auto_advance_ms,json=autoAdvanceMs,proto3" json:"auto_advance_ms,omitempty"`      // Auto-advance delay between streets when all-in in ms (must be > 0)
-	Name            string                 `protobuf:"bytes,11,opt,name=name,proto3" json:"name,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	PlayerId                 string                 `protobuf:"bytes,1,opt,name=player_id,json=playerId,proto3" json:"player_id,omitempty"`
+	SmallBlind               int64                  `protobuf:"varint,2,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"` // Poker chips amount for small blind
+	BigBlind                 int64                  `protobuf:"varint,3,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`       // Poker chips amount for big blind
+	MaxPlayers               int32                  `protobuf:"varint,4,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
+	MinPlayers               int32                  `protobuf:"varint,5,opt,name=min_players,json=minPlayers,proto3" json:"min_players,omitempty"`
+	BuyIn                    int64                  `protobuf:"varint,6,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"`                                 // DCR amount to join table (in atoms)
+	StartingChips            int64                  `protobuf:"varint,7,opt,name=starting_chips,json=startingChips,proto3" json:"starting_chips,omitempty"`         // Poker chips each player starts with
+	TimeBankSeconds          int32                  `protobuf:"varint,8,opt,name=time_bank_seconds,json=timeBankSeconds,proto3" json:"time_bank_seconds,omitempty"` // Player timeout in seconds (default: 30)
+	AutoStartMs              int32                  `protobuf:"varint,9,opt,name=auto_start_ms,json=autoStartMs,proto3" json:"auto_start_ms,omitempty"`             // Auto-start delay between hands in ms (0 = disabled)
+	AutoAdvanceMs            int32                  `protobuf:"varint,10,opt,name=auto_advance_ms,json=autoAdvanceMs,proto3" json:"auto_advance_ms,omitempty"`      // Auto-advance delay between streets when all-in in ms (must be > 0)
+	Name                     string                 `protobuf:"bytes,11,opt,name=name,proto3" json:"name,omitempty"`
+	BlindIncreaseIntervalSec int32                  `protobuf:"varint,12,opt,name=blind_increase_interval_sec,json=blindIncreaseIntervalSec,proto3" json:"blind_increase_interval_sec,omitempty"` // Blind increase interval in seconds (0 = disabled)
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *CreateTableRequest) Reset() {
@@ -1491,6 +1508,13 @@ func (x *CreateTableRequest) GetName() string {
 		return x.Name
 	}
 	return ""
+}
+
+func (x *CreateTableRequest) GetBlindIncreaseIntervalSec() int32 {
+	if x != nil {
+		return x.BlindIncreaseIntervalSec
+	}
+	return 0
 }
 
 type CreateTableResponse struct {
@@ -2042,21 +2066,22 @@ func (x *GetTablesResponse) GetTables() []*Table {
 }
 
 type Table struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Name            string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Players         []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
-	SmallBlind      int64                  `protobuf:"varint,4,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"` // Poker chips amount for small blind
-	BigBlind        int64                  `protobuf:"varint,5,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`       // Poker chips amount for big blind
-	MaxPlayers      int32                  `protobuf:"varint,6,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
-	MinPlayers      int32                  `protobuf:"varint,7,opt,name=min_players,json=minPlayers,proto3" json:"min_players,omitempty"`
-	CurrentPlayers  int32                  `protobuf:"varint,8,opt,name=current_players,json=currentPlayers,proto3" json:"current_players,omitempty"`
-	BuyIn           int64                  `protobuf:"varint,9,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"` // DCR amount to join table (in atoms)
-	Phase           GamePhase              `protobuf:"varint,10,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
-	AllPlayersReady bool                   `protobuf:"varint,11,opt,name=all_players_ready,json=allPlayersReady,proto3" json:"all_players_ready,omitempty"`
-	GameStarted     bool                   `protobuf:"varint,12,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Id                       string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name                     string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Players                  []*Player              `protobuf:"bytes,3,rep,name=players,proto3" json:"players,omitempty"`
+	SmallBlind               int64                  `protobuf:"varint,4,opt,name=small_blind,json=smallBlind,proto3" json:"small_blind,omitempty"` // Poker chips amount for small blind
+	BigBlind                 int64                  `protobuf:"varint,5,opt,name=big_blind,json=bigBlind,proto3" json:"big_blind,omitempty"`       // Poker chips amount for big blind
+	MaxPlayers               int32                  `protobuf:"varint,6,opt,name=max_players,json=maxPlayers,proto3" json:"max_players,omitempty"`
+	MinPlayers               int32                  `protobuf:"varint,7,opt,name=min_players,json=minPlayers,proto3" json:"min_players,omitempty"`
+	CurrentPlayers           int32                  `protobuf:"varint,8,opt,name=current_players,json=currentPlayers,proto3" json:"current_players,omitempty"`
+	BuyIn                    int64                  `protobuf:"varint,9,opt,name=buy_in,json=buyIn,proto3" json:"buy_in,omitempty"` // DCR amount to join table (in atoms)
+	Phase                    GamePhase              `protobuf:"varint,10,opt,name=phase,proto3,enum=poker.GamePhase" json:"phase,omitempty"`
+	AllPlayersReady          bool                   `protobuf:"varint,11,opt,name=all_players_ready,json=allPlayersReady,proto3" json:"all_players_ready,omitempty"`
+	GameStarted              bool                   `protobuf:"varint,12,opt,name=game_started,json=gameStarted,proto3" json:"game_started,omitempty"`
+	BlindIncreaseIntervalSec int32                  `protobuf:"varint,13,opt,name=blind_increase_interval_sec,json=blindIncreaseIntervalSec,proto3" json:"blind_increase_interval_sec,omitempty"` // Blind increase interval in seconds (0 = disabled)
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *Table) Reset() {
@@ -2171,6 +2196,13 @@ func (x *Table) GetGameStarted() bool {
 		return x.GameStarted
 	}
 	return false
+}
+
+func (x *Table) GetBlindIncreaseIntervalSec() int32 {
+	if x != nil {
+		return x.BlindIncreaseIntervalSec
+	}
+	return 0
 }
 
 type GetBalanceRequest struct {
@@ -4255,7 +4287,7 @@ const file_poker_proto_rawDesc = "" +
 	"\vpoker.proto\x12\x05poker\"P\n" +
 	"\x16StartGameStreamRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
-	"\btable_id\x18\x02 \x01(\tR\atableId\"\xf3\x04\n" +
+	"\btable_id\x18\x02 \x01(\tR\atableId\"\xd2\x05\n" +
 	"\n" +
 	"GameUpdate\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12&\n" +
@@ -4278,7 +4310,10 @@ const file_poker_proto_rawDesc = "" +
 	"\x15turn_deadline_unix_ms\x18\x0f \x01(\x03R\x12turnDeadlineUnixMs\x12\x1f\n" +
 	"\vsmall_blind\x18\x10 \x01(\x03R\n" +
 	"smallBlind\x12\x1b\n" +
-	"\tbig_blind\x18\x11 \x01(\x03R\bbigBlind\"`\n" +
+	"\tbig_blind\x18\x11 \x01(\x03R\bbigBlind\x12\x1f\n" +
+	"\vblind_level\x18\x12 \x01(\x05R\n" +
+	"blindLevel\x12<\n" +
+	"\x1bnext_blind_increase_unix_ms\x18\x13 \x01(\x03R\x17nextBlindIncreaseUnixMs\"`\n" +
 	"\x0eMakeBetRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x19\n" +
 	"\btable_id\x18\x02 \x01(\tR\atableId\x12\x16\n" +
@@ -4326,7 +4361,7 @@ const file_poker_proto_rawDesc = "" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12,\n" +
 	"\thand_rank\x18\x02 \x01(\x0e2\x0f.poker.HandRankR\bhandRank\x12(\n" +
 	"\tbest_hand\x18\x03 \x03(\v2\v.poker.CardR\bbestHand\x12\x1a\n" +
-	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\xfb\x02\n" +
+	"\bwinnings\x18\x04 \x01(\x03R\bwinnings\"\xba\x03\n" +
 	"\x12CreateTableRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\x12\x1f\n" +
 	"\vsmall_blind\x18\x02 \x01(\x03R\n" +
@@ -4342,7 +4377,8 @@ const file_poker_proto_rawDesc = "" +
 	"\rauto_start_ms\x18\t \x01(\x05R\vautoStartMs\x12&\n" +
 	"\x0fauto_advance_ms\x18\n" +
 	" \x01(\x05R\rautoAdvanceMs\x12\x12\n" +
-	"\x04name\x18\v \x01(\tR\x04name\"J\n" +
+	"\x04name\x18\v \x01(\tR\x04name\x12=\n" +
+	"\x1bblind_increase_interval_sec\x18\f \x01(\x05R\x18blindIncreaseIntervalSec\"J\n" +
 	"\x13CreateTableResponse\x12\x19\n" +
 	"\btable_id\x18\x01 \x01(\tR\atableId\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
@@ -4372,7 +4408,7 @@ const file_poker_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"\x12\n" +
 	"\x10GetTablesRequest\"9\n" +
 	"\x11GetTablesResponse\x12$\n" +
-	"\x06tables\x18\x01 \x03(\v2\f.poker.TableR\x06tables\"\x8b\x03\n" +
+	"\x06tables\x18\x01 \x03(\v2\f.poker.TableR\x06tables\"\xca\x03\n" +
 	"\x05Table\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12'\n" +
@@ -4389,7 +4425,8 @@ const file_poker_proto_rawDesc = "" +
 	"\x05phase\x18\n" +
 	" \x01(\x0e2\x10.poker.GamePhaseR\x05phase\x12*\n" +
 	"\x11all_players_ready\x18\v \x01(\bR\x0fallPlayersReady\x12!\n" +
-	"\fgame_started\x18\f \x01(\bR\vgameStarted\"0\n" +
+	"\fgame_started\x18\f \x01(\bR\vgameStarted\x12=\n" +
+	"\x1bblind_increase_interval_sec\x18\r \x01(\x05R\x18blindIncreaseIntervalSec\"0\n" +
 	"\x11GetBalanceRequest\x12\x1b\n" +
 	"\tplayer_id\x18\x01 \x01(\tR\bplayerId\".\n" +
 	"\x12GetBalanceResponse\x12\x18\n" +

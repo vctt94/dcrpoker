@@ -88,23 +88,27 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 	timeBankDur := time.Duration(tcfg.TimebankMS) * time.Millisecond
 	autoStartDur := time.Duration(tcfg.AutoStartMS) * time.Millisecond
 	autoAdvanceDur := time.Duration(tcfg.AutoAdvanceMS) * time.Millisecond
+	blindIncreaseDur := time.Duration(tcfg.BlindIncreaseIntervalSec) * time.Second
 
 	cfg := poker.TableConfig{
-		ID:               tcfg.ID,
-		Name:             tcfg.Name,
-		Log:              tblLog,
-		GameLog:          gameLog,
-		Source:           tcfg.Source,
-		BuyIn:            tcfg.BuyIn,
-		MinPlayers:       tcfg.MinPlayers,
-		MaxPlayers:       tcfg.MaxPlayers,
-		SmallBlind:       tcfg.SmallBlind,
-		BigBlind:         tcfg.BigBlind,
-		StartingChips:    tcfg.StartingChips,
-		TimeBank:         timeBankDur,
-		AutoStartDelay:   autoStartDur,
-		AutoAdvanceDelay: autoAdvanceDur,
+		ID:                    tcfg.ID,
+		Name:                  tcfg.Name,
+		Log:                   tblLog,
+		GameLog:               gameLog,
+		Source:                tcfg.Source,
+		BuyIn:                 tcfg.BuyIn,
+		MinPlayers:            tcfg.MinPlayers,
+		MaxPlayers:            tcfg.MaxPlayers,
+		SmallBlind:            tcfg.SmallBlind,
+		BigBlind:              tcfg.BigBlind,
+		StartingChips:         tcfg.StartingChips,
+		TimeBank:              timeBankDur,
+		AutoStartDelay:        autoStartDur,
+		AutoAdvanceDelay:      autoAdvanceDur,
+		BlindIncreaseInterval: blindIncreaseDur,
 	}
+
+	normalizeTableConfig(&cfg)
 
 	// 3) Create in-memory table and wire event forwarding
 	table := poker.NewTable(cfg)
@@ -373,6 +377,12 @@ func (s *Server) saveTableStateAsync(tableID string, reason string) {
 		defer saveMutex.Unlock()
 
 		if err := s.saveTableState(tableID); err != nil {
+			// Table removal can race with queued async saves; this is expected once
+			// the table has been finalized and deleted from the registry.
+			if err.Error() == "table not found" {
+				s.log.Debugf("Skipping snapshot save for removed table %s (%s)", tableID, reason)
+				return
+			}
 			s.log.Errorf("Failed to save table state for %s (%s): %v", tableID, reason, err)
 		}
 	}()

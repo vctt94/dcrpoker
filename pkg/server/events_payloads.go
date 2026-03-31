@@ -139,3 +139,12 @@ type GameEndedPayload struct {
 func (GameEndedPayload) Kind() pokerrpc.NotificationType {
 	return pokerrpc.NotificationType_GAME_ENDED
 }
+
+// MessagePayload carries a generic string message for table-wide notifications.
+type MessagePayload struct {
+	Message string
+}
+
+func (MessagePayload) Kind() pokerrpc.NotificationType {
+	return pokerrpc.NotificationType_MESSAGE
+}

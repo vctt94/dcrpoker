@@ -335,15 +335,16 @@ type joinPokerTable struct {
 }
 
 type createPokerTable struct {
-	SmallBlind      int64 `json:"small_blind"`
-	BigBlind        int64 `json:"big_blind"`
-	MaxPlayers      int32 `json:"max_players"`
-	MinPlayers      int32 `json:"min_players"`
-	BuyIn           int64 `json:"buy_in"`
-	StartingChips   int64 `json:"starting_chips"`
-	TimeBankSeconds int32 `json:"time_bank_seconds"`
-	AutoStartMs     int32 `json:"auto_start_ms"`
-	AutoAdvanceMs   int32 `json:"auto_advance_ms"`
+	SmallBlind               int64 `json:"small_blind"`
+	BigBlind                 int64 `json:"big_blind"`
+	MaxPlayers               int32 `json:"max_players"`
+	MinPlayers               int32 `json:"min_players"`
+	BuyIn                    int64 `json:"buy_in"`
+	StartingChips            int64 `json:"starting_chips"`
+	TimeBankSeconds          int32 `json:"time_bank_seconds"`
+	AutoStartMs              int32 `json:"auto_start_ms"`
+	AutoAdvanceMs            int32 `json:"auto_advance_ms"`
+	BlindIncreaseIntervalSec int32 `json:"blind_increase_interval_sec"`
 }
 
 type makeBet struct {
@@ -407,16 +408,17 @@ type waitingRoom struct {
 // pokerTable represents a poker table DTO for Flutter
 // All fields are explicitly set to avoid JSON type ambiguity
 type pokerTable struct {
-	ID              string       `json:"id"`
-	SmallBlind      int64        `json:"small_blind"`
-	BigBlind        int64        `json:"big_blind"`
-	MaxPlayers      int32        `json:"max_players"`
-	MinPlayers      int32        `json:"min_players"`
-	CurrentPlayers  int32        `json:"current_players"`
-	BuyIn           int64        `json:"buy_in"`
-	GameStarted     bool         `json:"game_started"`
-	AllPlayersReady bool         `json:"all_players_ready"`
-	Players         []*playerDTO `json:"players,omitempty"`
+	ID                       string       `json:"id"`
+	SmallBlind               int64        `json:"small_blind"`
+	BigBlind                 int64        `json:"big_blind"`
+	MaxPlayers               int32        `json:"max_players"`
+	MinPlayers               int32        `json:"min_players"`
+	CurrentPlayers           int32        `json:"current_players"`
+	BuyIn                    int64        `json:"buy_in"`
+	GameStarted              bool         `json:"game_started"`
+	AllPlayersReady          bool         `json:"all_players_ready"`
+	Players                  []*playerDTO `json:"players,omitempty"`
+	BlindIncreaseIntervalSec int32        `json:"blind_increase_interval_sec"`
 }
 
 // tableFromProto converts a protobuf Table to a clean DTO with all fields explicitly set
@@ -429,31 +431,33 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 		players = append(players, playerToDTO(p))
 	}
 	return &pokerTable{
-		ID:              t.Id,
-		SmallBlind:      t.SmallBlind,
-		BigBlind:        t.BigBlind,
-		MaxPlayers:      t.MaxPlayers,
-		MinPlayers:      t.MinPlayers,
-		CurrentPlayers:  t.CurrentPlayers,
-		BuyIn:           t.BuyIn,
-		GameStarted:     t.GameStarted,
-		AllPlayersReady: t.AllPlayersReady,
-		Players:         players,
+		ID:                       t.Id,
+		SmallBlind:               t.SmallBlind,
+		BigBlind:                 t.BigBlind,
+		MaxPlayers:               t.MaxPlayers,
+		MinPlayers:               t.MinPlayers,
+		CurrentPlayers:           t.CurrentPlayers,
+		BuyIn:                    t.BuyIn,
+		GameStarted:              t.GameStarted,
+		AllPlayersReady:          t.AllPlayersReady,
+		Players:                  players,
+		BlindIncreaseIntervalSec: t.BlindIncreaseIntervalSec,
 	}
 }
 
 // notificationTableDTO represents a table in a notification, including players
 type ntfnTableDTO struct {
-	ID              string       `json:"id"`
-	SmallBlind      int64        `json:"small_blind"`
-	BigBlind        int64        `json:"big_blind"`
-	MaxPlayers      int32        `json:"max_players"`
-	MinPlayers      int32        `json:"min_players"`
-	CurrentPlayers  int32        `json:"current_players"`
-	BuyIn           int64        `json:"buy_in"`
-	GameStarted     bool         `json:"game_started"`
-	AllPlayersReady bool         `json:"all_players_ready"`
-	Players         []*playerDTO `json:"players,omitempty"` // Include players for notifications
+	ID                       string       `json:"id"`
+	SmallBlind               int64        `json:"small_blind"`
+	BigBlind                 int64        `json:"big_blind"`
+	MaxPlayers               int32        `json:"max_players"`
+	MinPlayers               int32        `json:"min_players"`
+	CurrentPlayers           int32        `json:"current_players"`
+	BuyIn                    int64        `json:"buy_in"`
+	GameStarted              bool         `json:"game_started"`
+	AllPlayersReady          bool         `json:"all_players_ready"`
+	Players                  []*playerDTO `json:"players,omitempty"`
+	BlindIncreaseIntervalSec int32        `json:"blind_increase_interval_sec"`
 }
 
 // tableFromProtoForNotification converts a protobuf Table to a notification DTO with players
@@ -466,16 +470,17 @@ func tableFromProtoForNtfn(t *pokerrpc.Table) *ntfnTableDTO {
 		players = append(players, playerToDTO(p))
 	}
 	return &ntfnTableDTO{
-		ID:              t.Id,
-		SmallBlind:      t.SmallBlind,
-		BigBlind:        t.BigBlind,
-		MaxPlayers:      t.MaxPlayers,
-		MinPlayers:      t.MinPlayers,
-		CurrentPlayers:  t.CurrentPlayers,
-		BuyIn:           t.BuyIn,
-		GameStarted:     t.GameStarted,
-		AllPlayersReady: t.AllPlayersReady,
-		Players:         players,
+		ID:                       t.Id,
+		SmallBlind:               t.SmallBlind,
+		BigBlind:                 t.BigBlind,
+		MaxPlayers:               t.MaxPlayers,
+		MinPlayers:               t.MinPlayers,
+		CurrentPlayers:           t.CurrentPlayers,
+		BuyIn:                    t.BuyIn,
+		GameStarted:              t.GameStarted,
+		AllPlayersReady:          t.AllPlayersReady,
+		Players:                  players,
+		BlindIncreaseIntervalSec: t.BlindIncreaseIntervalSec,
 	}
 }
 
@@ -511,21 +516,25 @@ type playerDTO struct {
 
 // gameUpdateDTO represents a game update for JSON marshaling
 type gameUpdateDTO struct {
-	TableId            string       `json:"tableId"`
-	Phase              int32        `json:"phase"` // enum as int
-	Players            []*playerDTO `json:"players"`
-	CommunityCards     []*cardDTO   `json:"communityCards"`
-	Pot                int64        `json:"pot"`
-	CurrentBet         int64        `json:"currentBet"`
-	CurrentPlayer      string       `json:"currentPlayer"`
-	MinRaise           int64        `json:"minRaise"`
-	MaxRaise           int64        `json:"maxRaise"`
-	GameStarted        bool         `json:"gameStarted"`
-	PlayersRequired    int32        `json:"playersRequired"`
-	PlayersJoined      int32        `json:"playersJoined"`
-	PhaseName          string       `json:"phaseName"`
-	TimeBankSeconds    int32        `json:"timeBankSeconds"`
-	TurnDeadlineUnixMs int64        `json:"turnDeadlineUnixMs"`
+	TableId                 string       `json:"tableId"`
+	Phase                   int32        `json:"phase"` // enum as int
+	Players                 []*playerDTO `json:"players"`
+	CommunityCards          []*cardDTO   `json:"communityCards"`
+	Pot                     int64        `json:"pot"`
+	CurrentBet              int64        `json:"currentBet"`
+	CurrentPlayer           string       `json:"currentPlayer"`
+	MinRaise                int64        `json:"minRaise"`
+	MaxRaise                int64        `json:"maxRaise"`
+	GameStarted             bool         `json:"gameStarted"`
+	PlayersRequired         int32        `json:"playersRequired"`
+	PlayersJoined           int32        `json:"playersJoined"`
+	PhaseName               string       `json:"phaseName"`
+	TimeBankSeconds         int32        `json:"timeBankSeconds"`
+	TurnDeadlineUnixMs      int64        `json:"turnDeadlineUnixMs"`
+	SmallBlind              int64        `json:"smallBlind"`
+	BigBlind                int64        `json:"bigBlind"`
+	BlindLevel              int32        `json:"blindLevel"`
+	NextBlindIncreaseUnixMs int64        `json:"nextBlindIncreaseUnixMs"`
 }
 
 func cardToDTO(c *pokerrpc.Card) *cardDTO {
@@ -582,21 +591,25 @@ func gameUpdateToDTO(gu *pokerrpc.GameUpdate) *gameUpdateDTO {
 		communityCards = append(communityCards, cardToDTO(c))
 	}
 	return &gameUpdateDTO{
-		TableId:            gu.TableId,
-		Phase:              int32(gu.Phase),
-		Players:            players,
-		CommunityCards:     communityCards,
-		Pot:                gu.Pot,
-		CurrentBet:         gu.CurrentBet,
-		CurrentPlayer:      gu.CurrentPlayer,
-		MinRaise:           gu.MinRaise,
-		MaxRaise:           gu.MaxRaise,
-		GameStarted:        gu.GameStarted,
-		PlayersRequired:    gu.PlayersRequired,
-		PlayersJoined:      gu.PlayersJoined,
-		PhaseName:          gu.PhaseName,
-		TimeBankSeconds:    gu.TimeBankSeconds,
-		TurnDeadlineUnixMs: gu.TurnDeadlineUnixMs,
+		TableId:                 gu.TableId,
+		Phase:                   int32(gu.Phase),
+		Players:                 players,
+		CommunityCards:          communityCards,
+		Pot:                     gu.Pot,
+		CurrentBet:              gu.CurrentBet,
+		CurrentPlayer:           gu.CurrentPlayer,
+		MinRaise:                gu.MinRaise,
+		MaxRaise:                gu.MaxRaise,
+		GameStarted:             gu.GameStarted,
+		PlayersRequired:         gu.PlayersRequired,
+		PlayersJoined:           gu.PlayersJoined,
+		PhaseName:               gu.PhaseName,
+		TimeBankSeconds:         gu.TimeBankSeconds,
+		TurnDeadlineUnixMs:      gu.TurnDeadlineUnixMs,
+		SmallBlind:              gu.SmallBlind,
+		BigBlind:                gu.BigBlind,
+		BlindLevel:              gu.BlindLevel,
+		NextBlindIncreaseUnixMs: gu.NextBlindIncreaseUnixMs,
 	}
 }
 

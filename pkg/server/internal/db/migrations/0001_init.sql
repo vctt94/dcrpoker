@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS tables (
     timebank_ms     INTEGER NOT NULL DEFAULT 0,
     autostart_ms    INTEGER NOT NULL DEFAULT 0,
     auto_advance_ms INTEGER NOT NULL DEFAULT 1000,
+    blind_increase_interval_sec INTEGER NOT NULL DEFAULT 0,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

@@ -196,6 +196,18 @@ class PokerGame {
                       ? pokerModel.lastShowdownFxMs
                       : 0,
                 ),
+              if (pokerModel.tableMessage.isNotEmpty)
+                Positioned(
+                  top: 4,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _TableMessageBanner(
+                      message: pokerModel.tableMessage,
+                      uiScale: theme.uiSizeMultiplier,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
@@ -458,4 +470,36 @@ class _TableThemePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TableThemePainter old) =>
       old.theme != theme || old.layout != layout;
+}
+
+class _TableMessageBanner extends StatelessWidget {
+  const _TableMessageBanner({
+    required this.message,
+    this.uiScale = 1.0,
+  });
+
+  final String message;
+  final double uiScale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: 16 * uiScale,
+        vertical: 6 * uiScale,
+      ),
+      decoration: BoxDecoration(
+        color: PokerColors.warning.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(8 * uiScale),
+      ),
+      child: Text(
+        message,
+        style: PokerTypography.bodySmall.copyWith(
+          color: Colors.black87,
+          fontWeight: FontWeight.w600,
+          fontSize: 12 * uiScale,
+        ),
+      ),
+    );
+  }
 }

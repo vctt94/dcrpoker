@@ -525,6 +525,8 @@ class PokerTable {
   final bool allPlayersReady;
   @JsonKey(name: 'players')
   final List<PlayerDTO>? players; // Optional: included in notifications
+  @JsonKey(name: 'blind_increase_interval_sec', defaultValue: 0)
+  final int blindIncreaseIntervalSec;
 
   PokerTable(
     this.id,
@@ -537,6 +539,7 @@ class PokerTable {
     this.gameStarted,
     this.allPlayersReady, {
     this.players,
+    this.blindIncreaseIntervalSec = 0,
   });
 
   factory PokerTable.fromJson(Map<String, dynamic> json) =>
@@ -553,7 +556,8 @@ class PokerTable {
       ..currentPlayers = currentPlayers
       ..buyIn = Int64(buyIn)
       ..gameStarted = gameStarted
-      ..allPlayersReady = allPlayersReady;
+      ..allPlayersReady = allPlayersReady
+      ..blindIncreaseIntervalSec = blindIncreaseIntervalSec;
     // Include players if present (from notifications)
     if (players != null) {
       t.players.addAll(players!.map((p) => p.toProtobuf()));
@@ -582,6 +586,8 @@ class CreatePokerTableArgs {
   final int autoStartMs;
   @JsonKey(name: 'auto_advance_ms')
   final int autoAdvanceMs;
+  @JsonKey(name: 'blind_increase_interval_sec', defaultValue: 0)
+  final int blindIncreaseIntervalSec;
 
   CreatePokerTableArgs(
     this.smallBlind,
@@ -592,8 +598,9 @@ class CreatePokerTableArgs {
     this.startingChips,
     this.timeBankSeconds,
     this.autoStartMs,
-    this.autoAdvanceMs,
-  );
+    this.autoAdvanceMs, {
+    this.blindIncreaseIntervalSec = 0,
+  });
 
   factory CreatePokerTableArgs.fromJson(Map<String, dynamic> json) =>
       _$CreatePokerTableArgsFromJson(json);
@@ -798,6 +805,10 @@ class GameUpdateDTO {
   final int smallBlind;
   @JsonKey(name: 'bigBlind', defaultValue: 0)
   final int bigBlind;
+  @JsonKey(name: 'blindLevel', defaultValue: 0)
+  final int blindLevel;
+  @JsonKey(name: 'nextBlindIncreaseUnixMs', defaultValue: 0)
+  final int nextBlindIncreaseUnixMs;
 
   GameUpdateDTO(
     this.tableId,
@@ -816,8 +827,10 @@ class GameUpdateDTO {
     this.timeBankSeconds,
     this.turnDeadlineUnixMs,
     this.smallBlind,
-    this.bigBlind,
-  );
+    this.bigBlind, {
+    this.blindLevel = 0,
+    this.nextBlindIncreaseUnixMs = 0,
+  });
 
   factory GameUpdateDTO.fromJson(Map<String, dynamic> json) =>
       _$GameUpdateDTOFromJson(json);
@@ -841,7 +854,9 @@ class GameUpdateDTO {
       ..timeBankSeconds = timeBankSeconds
       ..turnDeadlineUnixMs = Int64(turnDeadlineUnixMs)
       ..smallBlind = Int64(smallBlind)
-      ..bigBlind = Int64(bigBlind);
+      ..bigBlind = Int64(bigBlind)
+      ..blindLevel = blindLevel
+      ..nextBlindIncreaseUnixMs = Int64(nextBlindIncreaseUnixMs);
   }
 }
 

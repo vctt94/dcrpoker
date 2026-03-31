@@ -107,19 +107,20 @@ func (m *InMemoryDB) UpsertTable(_ context.Context, t *poker.TableConfig) error 
 	cp := *t // store by value to avoid external mutation
 	// set CreatedAt if zero-ish
 	m.tables[cp.ID] = &db.Table{
-		ID:            cp.ID,
-		Name:          cp.Name,
-		Source:        cp.Source,
-		BuyIn:         cp.BuyIn,
-		MinPlayers:    cp.MinPlayers,
-		MaxPlayers:    cp.MaxPlayers,
-		SmallBlind:    cp.SmallBlind,
-		BigBlind:      cp.BigBlind,
-		StartingChips: cp.StartingChips,
-		TimebankMS:    cp.TimeBank.Milliseconds(),
-		AutoStartMS:   cp.AutoStartDelay.Milliseconds(),
-		AutoAdvanceMS: cp.AutoAdvanceDelay.Milliseconds(),
-		CreatedAt:     time.Now(),
+		ID:                       cp.ID,
+		Name:                     cp.Name,
+		Source:                   cp.Source,
+		BuyIn:                    cp.BuyIn,
+		MinPlayers:               cp.MinPlayers,
+		MaxPlayers:               cp.MaxPlayers,
+		SmallBlind:               cp.SmallBlind,
+		BigBlind:                 cp.BigBlind,
+		StartingChips:            cp.StartingChips,
+		TimebankMS:               cp.TimeBank.Milliseconds(),
+		AutoStartMS:              cp.AutoStartDelay.Milliseconds(),
+		AutoAdvanceMS:            cp.AutoAdvanceDelay.Milliseconds(),
+		BlindIncreaseIntervalSec: int64(cp.BlindIncreaseInterval.Seconds()),
+		CreatedAt:                time.Now(),
 	}
 	if m.tables[cp.ID].Name == "" {
 		m.tables[cp.ID].Name = cp.ID
@@ -1426,7 +1427,10 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	// Verify the game state is consistent
 	assert.True(t, restoredState.GameStarted, "game should still be started after restoration")
 	assert.NotEmpty(t, restoredState.CurrentPlayer, "current player should be calculated after restoration")
-	assert.Greater(t, restoredState.CurrentBet, int64(0), "current bet should be positive after restoration")
+	// CurrentBet is only guaranteed to be positive while an open bet exists
+	// (typically pre-flop after blinds). On restored post-flop streets it may
+	// legitimately be zero.
+	assert.GreaterOrEqual(t, restoredState.CurrentBet, int64(0), "current bet should be non-negative after restoration")
 }
 
 // Close properly stops the server and cleans up resources

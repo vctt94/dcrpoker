@@ -60,6 +60,11 @@ type PlayerLostPayload struct {
 	PlayerID string
 }
 
+// MessagePayload carries a generic string message for table-wide notifications.
+type MessagePayload struct {
+	Message string
+}
+
 // GameEndedPayload carries information about the game winner for settlement.
 type GameEndedPayload struct {
 	WinnerID   string // Player ID of the game winner
@@ -87,6 +92,8 @@ type TableConfig struct {
 	TimeBank         time.Duration
 	AutoStartDelay   time.Duration // Delay before automatically starting next hand after showdown
 	AutoAdvanceDelay time.Duration // Delay between streets when all players are all-in (must be > 0)
+
+	BlindIncreaseInterval time.Duration // Interval between blind level increases (0 = disabled, default 5m)
 }
 
 // TableEventManager handles notifications and state updates for table events
@@ -354,6 +361,15 @@ func (t *Table) handleGameEvent(event GameEvent) {
 				PlayerID: info.PlayerID,
 				Cards:    info.Cards,
 			})
+		}
+	case GameEventBlindsIncreased:
+		// Informational: blinds were applied at hand boundary. No table action needed.
+	case GameEventBlindsPending:
+		if event.NextBlind != nil {
+			msg := fmt.Sprintf("Next hand: blinds increase to %d/%d",
+				event.NextBlind.SmallBlind, event.NextBlind.BigBlind)
+			t.log.Infof("Table: %s", msg)
+			t.PublishEvent(pokerrpc.NotificationType_MESSAGE, t.config.ID, MessagePayload{Message: msg})
 		}
 	default:
 		t.log.Warnf("Unknown game event type: %v", event.Type)
@@ -862,14 +878,15 @@ func (t *Table) StartGame() error {
 		gameLog = t.config.GameLog
 	}
 	g, err := NewGame(GameConfig{
-		NumPlayers:       len(active),
-		StartingChips:    t.config.StartingChips,
-		SmallBlind:       t.config.SmallBlind,
-		BigBlind:         t.config.BigBlind,
-		TimeBank:         t.config.TimeBank,
-		AutoStartDelay:   t.config.AutoStartDelay,
-		AutoAdvanceDelay: t.config.AutoAdvanceDelay,
-		Log:              gameLog,
+		NumPlayers:            len(active),
+		StartingChips:         t.config.StartingChips,
+		SmallBlind:            t.config.SmallBlind,
+		BigBlind:              t.config.BigBlind,
+		TimeBank:              t.config.TimeBank,
+		AutoStartDelay:        t.config.AutoStartDelay,
+		AutoAdvanceDelay:      t.config.AutoAdvanceDelay,
+		BlindIncreaseInterval: t.config.BlindIncreaseInterval,
+		Log:                   gameLog,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create game: %w", err)
@@ -1806,14 +1823,15 @@ func (t *Table) RestoreGame(tableID string) (*Game, error) {
 		len(t.users), tblCfg.StartingChips, tblCfg.SmallBlind, tblCfg.BigBlind, tblCfg.TimeBank, tblCfg.AutoStartDelay, tblCfg.AutoAdvanceDelay)
 
 	gCfg := GameConfig{
-		NumPlayers:       len(t.users),
-		StartingChips:    tblCfg.StartingChips,
-		SmallBlind:       tblCfg.SmallBlind,
-		BigBlind:         tblCfg.BigBlind,
-		TimeBank:         tblCfg.TimeBank,
-		AutoStartDelay:   tblCfg.AutoStartDelay,
-		AutoAdvanceDelay: tblCfg.AutoAdvanceDelay,
-		Log:              gameLog,
+		NumPlayers:            len(t.users),
+		StartingChips:         tblCfg.StartingChips,
+		SmallBlind:            tblCfg.SmallBlind,
+		BigBlind:              tblCfg.BigBlind,
+		TimeBank:              tblCfg.TimeBank,
+		AutoStartDelay:        tblCfg.AutoStartDelay,
+		AutoAdvanceDelay:      tblCfg.AutoAdvanceDelay,
+		BlindIncreaseInterval: tblCfg.BlindIncreaseInterval,
+		Log:                   gameLog,
 	}
 	game, err := NewGame(gCfg)
 	if err != nil {

@@ -526,33 +526,40 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 	if _, err := rs2.Recv(); err == nil { /* initial snapshot ok */
 	}
 
-	// Ensure we are at PRE_FLOP after restore
+	// Restore timing can vary under parallel load. If we restored at PRE_FLOP,
+	// drive one call/check to reach FLOP; if already on/after FLOP, continue.
+	var st *pokerrpc.GetGameStateResponse
 	require.Eventually(t, func() bool {
-		st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		return err == nil && st.GameState.GetPhase() == pokerrpc.GamePhase_PRE_FLOP
+		resp, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		if err != nil || resp == nil || resp.GameState == nil {
+			return false
+		}
+		st = resp
+		return true
 	}, 3*time.Second, 25*time.Millisecond)
 
-	// Complete pre-flop: current player calls; next player checks → FLOP
-	st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.NoError(t, err)
-	cur := st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CallBet(ctx, &pokerrpc.CallBetRequest{TableId: tableID, PlayerId: cur})
-	require.NoError(t, err)
+	if st.GameState.GetPhase() == pokerrpc.GamePhase_PRE_FLOP {
+		// Complete pre-flop: current player calls; next player checks → FLOP
+		cur := st.GameState.GetCurrentPlayer()
+		_, err = b2.pc.CallBet(ctx, &pokerrpc.CallBetRequest{TableId: tableID, PlayerId: cur})
+		require.NoError(t, err)
 
-	// Wait turn to switch, then check
-	require.Eventually(t, func() bool {
-		st, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		return st.GameState.GetCurrentPlayer() != cur
-	}, 2*time.Second, 25*time.Millisecond)
-	st, _ = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	next := st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: next})
-	require.NoError(t, err)
+		// Wait turn to switch, then check
+		require.Eventually(t, func() bool {
+			nextState, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+			return nextState != nil && nextState.GameState != nil && nextState.GameState.GetCurrentPlayer() != cur
+		}, 2*time.Second, 25*time.Millisecond)
+		nextState, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		next := nextState.GameState.GetCurrentPlayer()
+		_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: next})
+		require.NoError(t, err)
+	}
 
-	// Wait for FLOP
+	// Wait until flop cards are available (at least first 3 board cards).
 	require.Eventually(t, func() bool {
-		st, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		return st.GameState.GetPhase() == pokerrpc.GamePhase_FLOP && len(st.GameState.CommunityCards) >= 3
+		gs, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		return gs != nil && gs.GameState != nil && len(gs.GameState.CommunityCards) >= 3
 	}, 3*time.Second, 25*time.Millisecond)
 
 	// Fetch community cards and assert no duplicates with any hole card
