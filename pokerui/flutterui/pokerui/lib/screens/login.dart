@@ -272,7 +272,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         color: Colors.white,
                                       ),
                                     )
-                                  : Text('Continue',
+                                  : Text('Login',
                                       style: PokerTypography.labelLarge
                                           .copyWith(color: Colors.white)),
                             ),
