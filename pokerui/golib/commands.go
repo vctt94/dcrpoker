@@ -89,6 +89,7 @@ const (
 	CTEnableProfiler        CmdType = 0x86
 	CTZipTimedProfilingLogs CmdType = 0x87
 	CTEnableTimedProfiling  CmdType = 0x89
+	CTReadLogPage           CmdType = 0x8a
 
 	NTUINotification    CmdType = 0x1001
 	NTClientStopped     CmdType = 0x1002
@@ -231,6 +232,12 @@ func call(cmd *cmd) *CmdResult {
 		var dest string
 		if decode(&dest) {
 			err = globalProfiler.zipLogs(dest)
+		}
+
+	case CTReadLogPage:
+		var args readLogPageArgs
+		if decode(&args) {
+			v, err = handleReadLogPage(args)
 		}
 
 	case CTRegister:
@@ -390,8 +397,6 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 	dto.IsWinner = n.IsWinner
 	// Carry full showdown payload so Flutter can render last showdown correctly.
 	if n.Showdown != nil {
-		fmt.Printf("[notify] showdown payload winners=%d players=%d board=%d pot=%d\n",
-			len(n.Showdown.Winners), len(n.Showdown.Players), len(n.Showdown.Board), n.Showdown.Pot)
 		if n.Showdown.Pot != 0 {
 			dto.ShowdownPot = n.Showdown.Pot
 		}
@@ -407,10 +412,6 @@ func notificationToDTO(n *pokerrpc.Notification) *notificationDTO {
 	} else if len(n.Winners) > 0 {
 		// Fallback to top-level winners slice if present.
 		dto.Winners = n.Winners
-	}
-	if len(dto.ShowdownPlayers) > 0 || len(dto.Winners) > 0 {
-		fmt.Printf("[notify] DTO showdown winners=%d players=%d board=%d pot=%d\n",
-			len(dto.Winners), len(dto.ShowdownPlayers), len(dto.Board), dto.ShowdownPot)
 	}
 	return dto
 }

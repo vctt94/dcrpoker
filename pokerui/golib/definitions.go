@@ -1,10 +1,13 @@
 package golib
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -968,4 +971,222 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 	}
 
 	return res, nil
+}
+
+type readLogPageArgs struct {
+	// Optional explicit log file path. If empty, DataDir is used.
+	LogFile string `json:"log_file"`
+	// Optional datadir (used to resolve <datadir>/logs/<appName>.log).
+	DataDir string `json:"datadir"`
+	// Read log content strictly before this byte offset. Use -1 to mean EOF.
+	BeforeOffset int64 `json:"before_offset"`
+	// Maximum number of lines to return.
+	MaxLines int `json:"max_lines"`
+	// Maximum number of bytes to scan backwards for a page.
+	MaxBytes int64 `json:"max_bytes"`
+}
+
+type readLogPageResult struct {
+	Lines []string `json:"lines"`
+	// Byte offset to pass back as before_offset to fetch an older page.
+	NextBeforeOffset int64 `json:"next_before_offset"`
+	// Whether there is more log content before NextBeforeOffset.
+	HasMoreBefore bool `json:"has_more_before"`
+	// Resolved log file path used.
+	LogFile string `json:"log_file"`
+}
+
+type logLine struct {
+	start int64
+	text  string
+}
+
+func handleReadLogPage(args readLogPageArgs) (*readLogPageResult, error) {
+	maxLines := args.MaxLines
+	if maxLines <= 0 {
+		maxLines = 50
+	}
+
+	maxBytes := args.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 256 * 1024
+	}
+
+	logFile := strings.TrimSpace(args.LogFile)
+	if logFile == "" {
+		dataDir := strings.TrimSpace(args.DataDir)
+		if dataDir == "" {
+			return nil, fmt.Errorf("missing log_file or datadir")
+		}
+		logFile = filepath.Join(dataDir, "logs", appName+".log")
+	}
+
+	if abs, err := filepath.Abs(logFile); err == nil {
+		logFile = abs
+	}
+	logFile = filepath.Clean(logFile)
+
+	f, err := os.Open(logFile)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &readLogPageResult{
+				Lines:            []string{fmt.Sprintf("Log file not found: %s", logFile)},
+				NextBeforeOffset: 0,
+				HasMoreBefore:    false,
+				LogFile:          logFile,
+			}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if st.IsDir() {
+		return &readLogPageResult{
+			Lines:            []string{fmt.Sprintf("Log path is a directory: %s", logFile)},
+			NextBeforeOffset: 0,
+			HasMoreBefore:    false,
+			LogFile:          logFile,
+		}, nil
+	}
+
+	size := st.Size()
+	before := args.BeforeOffset
+	if before <= 0 || before > size {
+		before = size
+	}
+
+	if before == 0 {
+		return &readLogPageResult{
+			Lines:            []string{},
+			NextBeforeOffset: 0,
+			HasMoreBefore:    false,
+			LogFile:          logFile,
+		}, nil
+	}
+
+	start := before - maxBytes
+	if start < 0 {
+		start = 0
+	}
+
+	segLen := before - start
+	buf := make([]byte, int(segLen))
+	if segLen > 0 {
+		if _, err := f.ReadAt(buf, start); err != nil && err != io.EOF {
+			return nil, err
+		}
+	}
+
+	startsAtLineBoundary := start == 0
+	if !startsAtLineBoundary {
+		var prev [1]byte
+		if _, err := f.ReadAt(prev[:], start-1); err != nil {
+			return nil, err
+		}
+		startsAtLineBoundary = prev[0] == '\n'
+	}
+
+	endsAtLineBoundary := before == size
+	if !endsAtLineBoundary && len(buf) > 0 {
+		endsAtLineBoundary = buf[len(buf)-1] == '\n'
+	}
+
+	parsed := parseLogLines(buf, start, startsAtLineBoundary, endsAtLineBoundary)
+
+	if len(parsed) > maxLines {
+		parsed = parsed[len(parsed)-maxLines:]
+	}
+
+	lines := make([]string, len(parsed))
+	for i, ln := range parsed {
+		lines[i] = ln.text
+	}
+
+	var nextBefore int64
+	var hasMore bool
+
+	if len(parsed) > 0 {
+		nextBefore = parsed[0].start
+		hasMore = nextBefore > 0
+	} else {
+		// No complete lines found in this window.
+		// Keep paging by bytes so caller can still go further back.
+		nextBefore = start
+		hasMore = start > 0
+	}
+
+	return &readLogPageResult{
+		Lines:            lines,
+		NextBeforeOffset: nextBefore,
+		HasMoreBefore:    hasMore,
+		LogFile:          logFile,
+	}, nil
+}
+
+func parseLogLines(buf []byte, absStart int64, startsAtLineBoundary, endsAtLineBoundary bool) []logLine {
+	if len(buf) == 0 {
+		return nil
+	}
+
+	from := 0
+	if !startsAtLineBoundary {
+		i := bytes.IndexByte(buf, '\n')
+		if i < 0 {
+			return nil
+		}
+		from = i + 1
+	}
+
+	to := len(buf)
+	if !endsAtLineBoundary {
+		i := bytes.LastIndexByte(buf, '\n')
+		if i < 0 || i < from {
+			return nil
+		}
+		to = i + 1
+	}
+
+	if from >= to {
+		return nil
+	}
+
+	out := make([]logLine, 0, bytes.Count(buf[from:to], []byte{'\n'})+1)
+	lineStart := from
+
+	for i := from; i < to; i++ {
+		if buf[i] != '\n' {
+			continue
+		}
+
+		line := buf[lineStart:i]
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+
+		out = append(out, logLine{
+			start: absStart + int64(lineStart),
+			text:  string(line),
+		})
+
+		lineStart = i + 1
+	}
+
+	// EOF without trailing newline.
+	if lineStart < to {
+		line := buf[lineStart:to]
+		if len(line) > 0 && line[len(line)-1] == '\r' {
+			line = line[:len(line)-1]
+		}
+
+		out = append(out, logLine{
+			start: absStart + int64(lineStart),
+			text:  string(line),
+		})
+	}
+
+	return out
 }

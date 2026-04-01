@@ -1,9 +1,9 @@
-import 'dart:io';
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as path;
-import 'package:pokerui/config.dart';
 import 'package:pokerui/components/shared_layout.dart';
+import 'package:golib_plugin/definitions.dart';
+import 'package:golib_plugin/golib_plugin.dart';
+import 'package:provider/provider.dart';
+import 'package:pokerui/config.dart';
 
 class LogsScreen extends StatefulWidget {
   const LogsScreen({super.key});
@@ -13,79 +13,133 @@ class LogsScreen extends StatefulWidget {
 }
 
 class _LogsScreenState extends State<LogsScreen> {
+  static const int _pageSizeLines = 50;
+  static const int _maxBytes = 256 * 1024;
+  static const double _loadOlderThresholdPx = 24.0;
+
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  
-  List<String> _logLines = [];
-  List<String> _filteredLogLines = [];
-  String _logLevel = 'ALL';
-  bool _isLoadingFile = false;
-  String? _logFilePath;
-  Timer? _refreshTimer;
 
-  final List<String> _logLevels = ['ALL', 'ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE'];
-  
+  List<String> _lines = [];
+  bool _initialLoading = true;
+  bool _loadingOlder = false;
+  bool _hasMoreBefore = true;
+  int _nextBeforeOffset = -1; // -1 means EOF (tail)
+
   @override
   void initState() {
     super.initState();
-    _loadLogFile();
-    _startAutoRefresh();
-    _searchController.addListener(_filterLogs);
+    _searchController.addListener(() => setState(() {}));
+    _scrollController.addListener(() {
+      if (!_scrollController.hasClients) return;
+      final pos = _scrollController.position;
+      if (pos.pixels <= pos.minScrollExtent + _loadOlderThresholdPx) {
+        _loadOlder();
+      }
+    });
+    _loadInitial();
   }
 
   @override
   void dispose() {
-    _refreshTimer?.cancel();
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadLogFile() async {
+  Future<void> _loadInitial() async {
     setState(() {
-      _isLoadingFile = true;
+      _initialLoading = true;
     });
-
     try {
-      final appDataDir = await _defaultAppDataDir();
-      _logFilePath = path.join(appDataDir, "logs", "$APPNAME.log");
-      
-      final logFile = File(_logFilePath!);
-      if (await logFile.exists()) {
-        final contents = await logFile.readAsString();
-        _logLines = contents.split('\n').where((line) => line.trim().isNotEmpty).toList();
-      } else {
-        _logLines = ['Log file not found: $_logFilePath'];
-      }
-    } catch (e) {
-      _logLines = ['Error reading log file: $e'];
-    } finally {
+      final dataDir = context.read<ConfigNotifier>().value.dataDir;
+      final res = await Golib.readLogPage(
+        ReadLogPageArgs(
+          dataDir: dataDir,
+          beforeOffset: -1,
+          maxLines: _pageSizeLines,
+          maxBytes: _maxBytes,
+        ),
+      );
+      if (!mounted) return;
       setState(() {
-        _isLoadingFile = false;
+        _lines = res.lines;
+        _nextBeforeOffset = res.nextBeforeOffset;
+        _hasMoreBefore = res.hasMoreBefore;
+        _initialLoading = false;
       });
-      _filterLogs();
+      // Stick to bottom on first load.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scrollController.hasClients) return;
+        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _lines = const ['Error reading log file'];
+        _hasMoreBefore = false;
+        _initialLoading = false;
+      });
     }
   }
 
-  void _startAutoRefresh() {
-    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
-      if (mounted) {
-        _loadLogFile();
+  Future<void> _loadOlder() async {
+    if (_loadingOlder || !_hasMoreBefore) return;
+    if (_nextBeforeOffset <= 0) {
+      setState(() {
+        _hasMoreBefore = false;
+      });
+      return;
+    }
+
+    if (!_scrollController.hasClients) return;
+    final prevMax = _scrollController.position.maxScrollExtent;
+    final prevPixels = _scrollController.position.pixels;
+
+    setState(() {
+      _loadingOlder = true;
+    });
+    try {
+      final dataDir = context.read<ConfigNotifier>().value.dataDir;
+      final res = await Golib.readLogPage(
+        ReadLogPageArgs(
+          dataDir: dataDir,
+          beforeOffset: _nextBeforeOffset,
+          maxLines: _pageSizeLines,
+          maxBytes: _maxBytes,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        // Prepend older lines.
+        _lines = [...res.lines, ..._lines];
+        _nextBeforeOffset = res.nextBeforeOffset;
+        _hasMoreBefore = res.hasMoreBefore;
+        _loadingOlder = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loadingOlder = false;
+        _hasMoreBefore = false;
+      });
+    }
+
+    // Keep content anchored after prepend.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final newMax = _scrollController.position.maxScrollExtent;
+      final delta = newMax - prevMax;
+      if (delta > 0) {
+        _scrollController.jumpTo(prevPixels + delta);
       }
     });
   }
 
-  void _filterLogs() {
-    final searchTerm = _searchController.text.toLowerCase();
-    final logLevel = _logLevel.toLowerCase();
-    
-    _filteredLogLines = _logLines.where((line) {
-      final matchesSearch = searchTerm.isEmpty || line.toLowerCase().contains(searchTerm);
-      final matchesLevel = logLevel == 'all' || line.toLowerCase().contains(logLevel);
-      return matchesSearch && matchesLevel;
-    }).toList();
-
-    setState(() {});
+  List<String> get _visibleLines {
+    final search = _searchController.text.trim().toLowerCase();
+    if (search.isEmpty) return _lines;
+    return _lines.where((l) => l.toLowerCase().contains(search)).toList();
   }
 
   Color _getLogLevelColor(String line) {
@@ -106,14 +160,25 @@ class _LogsScreenState extends State<LogsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final lines = _visibleLines;
     return SharedLayout(
       title: "Application Logs",
       child: Column(
         children: [
-          
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Showing last $_pageSizeLines lines (scroll up to load more).',
+                style: const TextStyle(color: Colors.white54, fontSize: 12),
+              ),
+            ),
+          ),
+
           // Log Content
           Expanded(
-            child: _isLoadingFile
+            child: _initialLoading
                 ? const Center(
                     child: CircularProgressIndicator(),
                   )
@@ -124,7 +189,7 @@ class _LogsScreenState extends State<LogsScreen> {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(color: Colors.grey.shade700),
                     ),
-                    child: _filteredLogLines.isEmpty
+                    child: lines.isEmpty
                         ? const Center(
                             child: Text(
                               'No logs found',
@@ -133,9 +198,9 @@ class _LogsScreenState extends State<LogsScreen> {
                           )
                         : ListView.builder(
                             controller: _scrollController,
-                            itemCount: _filteredLogLines.length,
+                            itemCount: lines.length,
                             itemBuilder: (context, index) {
-                              final line = _filteredLogLines[index];
+                              final line = lines[index];
                               return Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 8.0,
@@ -162,10 +227,5 @@ class _LogsScreenState extends State<LogsScreen> {
         ],
       ),
     );
-  }
-
-  // Helper method to get default app data directory
-  Future<String> _defaultAppDataDir() async {
-    return await defaultAppDataDir();
   }
 }

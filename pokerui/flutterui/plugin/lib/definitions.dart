@@ -1074,10 +1074,6 @@ class NotificationDTO {
         ? showdownPotRaw.toInt()
         : int.tryParse('$showdownPotRaw');
 
-    debugPrint(
-      '[NtfParse] type=$rawType winners=${winners?.length ?? 0} players=${showdownPlayers?.length ?? 0} board=${board?.length ?? 0} pot=${showdownPot ?? 0}',
-    );
-
     return NotificationDTO(
       rawType,
       message: json['message'] as String?,
@@ -1181,6 +1177,70 @@ class ZipLogsArgs {
     this.destPath,
   );
   Map<String, dynamic> toJson() => _$ZipLogsArgsToJson(this);
+}
+
+class ReadLogPageArgs {
+  @JsonKey(name: 'log_file')
+  final String logFile;
+  @JsonKey(name: 'datadir')
+  final String dataDir;
+  @JsonKey(name: 'before_offset')
+  final int beforeOffset;
+  @JsonKey(name: 'max_lines')
+  final int maxLines;
+  @JsonKey(name: 'max_bytes')
+  final int maxBytes;
+
+  ReadLogPageArgs({
+    this.logFile = '',
+    this.dataDir = '',
+    this.beforeOffset = -1,
+    this.maxLines = 50,
+    this.maxBytes = 256 * 1024,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'log_file': logFile,
+    'datadir': dataDir,
+    'before_offset': beforeOffset,
+    'max_lines': maxLines,
+    'max_bytes': maxBytes,
+  };
+}
+
+class ReadLogPageResult {
+  @JsonKey(name: 'lines', defaultValue: [])
+  final List<String> lines;
+  @JsonKey(name: 'next_before_offset')
+  final int nextBeforeOffset;
+  @JsonKey(name: 'has_more_before')
+  final bool hasMoreBefore;
+  @JsonKey(name: 'log_file')
+  final String logFile;
+
+  ReadLogPageResult({
+    required this.lines,
+    required this.nextBeforeOffset,
+    required this.hasMoreBefore,
+    required this.logFile,
+  });
+
+  factory ReadLogPageResult.fromJson(Map<String, dynamic> json) {
+    final linesRaw = json['lines'];
+    final lines = linesRaw is List ? linesRaw.map((e) => e.toString()).toList() : <String>[];
+    final nboRaw = json['next_before_offset'];
+    final nextBeforeOffset =
+        nboRaw is num ? nboRaw.toInt() : int.tryParse('$nboRaw') ?? 0;
+    final hmbRaw = json['has_more_before'];
+    final hasMoreBefore = hmbRaw == true;
+    final logFile = (json['log_file'] ?? '').toString();
+    return ReadLogPageResult(
+      lines: lines,
+      nextBeforeOffset: nextBeforeOffset,
+      hasMoreBefore: hasMoreBefore,
+      logFile: logFile,
+    );
+  }
 }
 
 /// -------------------- UI Notifications --------------------
@@ -1454,6 +1514,11 @@ abstract class PluginPlatform {
   Future<Map<String, dynamic>> loadConfig(String filepath) async {
     final res = await asyncCall(CTLoadConfig, filepath);
     return _asJsonMap(res);
+  }
+
+  Future<ReadLogPageResult> readLogPage(ReadLogPageArgs args) async {
+    final res = await asyncCall(CTReadLogPage, args.toJson());
+    return ReadLogPageResult.fromJson(_asJsonMap(res));
   }
 
   Future<void> createLockFile(String rootDir) async =>
@@ -1814,6 +1879,7 @@ const int CTRequestLoginCode = 0x29;
 const int CTSetPayoutAddress = 0x2a;
 const int CTGetPayoutAddress = 0x2b;
 const int CTReconnectNow = 0x2c;
+const int CTReadLogPage = 0x8a;
 
 const int notificationsStartID = 0x1000;
 const int notificationClientStopped =
