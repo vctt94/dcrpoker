@@ -227,6 +227,7 @@ func (pc *PokerClient) LeaveTable(ctx context.Context) error {
 	}
 
 	pc.SetCurrentTableID("")
+	pc.rememberGameUpdate(nil)
 
 	return nil
 }
@@ -257,6 +258,7 @@ func (pc *PokerClient) UnwatchTable(ctx context.Context) error {
 	}
 
 	pc.SetCurrentTableID("")
+	pc.rememberGameUpdate(nil)
 	return nil
 }
 
@@ -532,11 +534,12 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 		var winners []*pokerrpc.Winner
 		if ntfn.Showdown != nil {
 			winners = ntfn.Showdown.Winners
-			pc.log.Infof("Showdown result received for table %s: pot=%d, winners=%d", ntfn.TableId, ntfn.Showdown.Pot, len(winners))
 		} else {
 			// Fallback to top-level winners if present
 			winners = ntfn.Winners
-			pc.log.Infof("Showdown result received for table %s with %d winners (no showdown data)", ntfn.TableId, len(winners))
+		}
+		for _, line := range buildShowdownLogLines(ntfn, pc.lastKnownGameUpdate(), pc.ID.String()) {
+			pc.log.Info(line)
 		}
 		pc.ntfns.notifyShowdownResult(ntfn.TableId, winners, ts)
 
@@ -545,11 +548,11 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 
 	case pokerrpc.NotificationType_SMALL_BLIND_POSTED:
 		pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
-		pc.log.Infof("Small blind posted: %d chips by %s", ntfn.Amount, ntfn.PlayerId)
+		pc.log.Debugf("Small blind posted: %d chips by %s", ntfn.Amount, ntfn.PlayerId)
 
 	case pokerrpc.NotificationType_BIG_BLIND_POSTED:
 		pc.ntfns.notifyBetMade(ntfn.PlayerId, ntfn.Amount, ts)
-		pc.log.Infof("Big blind posted: %d chips by %s", ntfn.Amount, ntfn.PlayerId)
+		pc.log.Debugf("Big blind posted: %d chips by %s", ntfn.Amount, ntfn.PlayerId)
 
 	case pokerrpc.NotificationType_CALL_MADE:
 		pc.ntfns.notifyPlayerCalled(ntfn.PlayerId, ntfn.Amount, ts)
@@ -575,6 +578,7 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 			// Stop consuming updates from the finished table and clear local state.
 			pc.stopGameStream()
 			pc.SetCurrentTableID("")
+			pc.rememberGameUpdate(nil)
 			pc.Lock()
 			pc.IsReady = false
 			pc.Unlock()
@@ -625,6 +629,7 @@ func (pc *PokerClient) reSyncTableState(ctx context.Context) (*pokerrpc.GameUpda
 
 	if tableID == "" {
 		pc.SetCurrentTableID("")
+		pc.rememberGameUpdate(nil)
 		pc.Lock()
 		pc.IsReady = false
 		pc.Unlock()
@@ -643,6 +648,7 @@ func (pc *PokerClient) reSyncTableState(ctx context.Context) (*pokerrpc.GameUpda
 
 	gameUpdate := resp.GetGameState()
 	if gameUpdate != nil {
+		pc.rememberGameUpdate(gameUpdate)
 		pc.syncReadyStatusFromGameUpdate(gameUpdate)
 		pc.enqueueUpdate(gameUpdate)
 	}

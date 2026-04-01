@@ -1638,6 +1638,10 @@ class PokerModel extends ChangeNotifier {
     try {
       await Golib.startGameStream();
     } catch (e) {
+      final msg = e.toString().toLowerCase();
+      if (msg.contains('not currently at a table')) {
+        return;
+      }
       rethrow;
     }
   }

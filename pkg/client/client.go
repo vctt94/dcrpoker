@@ -25,6 +25,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/protobuf/proto"
 )
 
 // LoadClientConfig loads the client config and creates ClientConfig with LogBackend
@@ -122,6 +123,7 @@ type PokerClient struct {
 	gameStreamConnected bool
 	lastConnectTime     time.Time
 	lastDisconnectTime  time.Time
+	lastGameUpdate      *pokerrpc.GameUpdate
 
 	// Loop coordination
 	ntfnLoopMu      sync.Mutex
@@ -474,7 +476,6 @@ func (pc *PokerClient) consumeGameStream(ctx context.Context, stream pokerrpc.Po
 		update, err := stream.Recv()
 		if err != nil {
 			if isTransportClosing(err) {
-				pc.log.Info("Game stream closed")
 				return err
 			}
 
@@ -487,6 +488,7 @@ func (pc *PokerClient) consumeGameStream(ctx context.Context, stream pokerrpc.Po
 			continue
 		}
 
+		pc.rememberGameUpdate(update)
 		pc.enqueueUpdate(update)
 	}
 }
@@ -535,10 +537,16 @@ func (pc *PokerClient) enqueueUpdate(msg tea.Msg) {
 
 // enqueueError sends an error to the error channel without blocking.
 func (pc *PokerClient) enqueueError(err error) {
+	if err == nil {
+		return
+	}
 	select {
 	case pc.ErrorsCh <- err:
 	case <-pc.ctx.Done():
 	default:
+		if isExpectedStreamShutdown(err) || isNotAtTableError(err) {
+			return
+		}
 		pc.log.Warnf("Errors channel full, dropping error: %v", err)
 	}
 }
@@ -549,9 +557,25 @@ func isTransportClosing(err error) bool {
 		return false
 	}
 
+	msg := strings.ToLower(err.Error())
 	return errors.Is(err, io.EOF) ||
-		strings.Contains(err.Error(), "transport is closing") ||
-		strings.Contains(err.Error(), "connection is being forcefully terminated")
+		errors.Is(err, context.Canceled) ||
+		strings.Contains(msg, "transport is closing") ||
+		strings.Contains(msg, "client connection is closing") ||
+		strings.Contains(msg, "connection is being forcefully terminated") ||
+		strings.Contains(msg, "context canceled") ||
+		strings.Contains(msg, "code = canceled")
+}
+
+func isExpectedStreamShutdown(err error) bool {
+	return err == nil || isTransportClosing(err)
+}
+
+func isNotAtTableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not currently at a table")
 }
 
 // setConnectionState updates connection flags and emits a synthetic notification for UI layers.
@@ -577,10 +601,14 @@ func (pc *PokerClient) setConnectionState(connected bool, reason error) {
 		pc.log.Infof("notification stream connected at %s", now.Format(time.RFC3339))
 	} else {
 		msg = "connection lost"
-		if reason != nil {
+		if reason != nil && !isExpectedStreamShutdown(reason) {
 			msg = fmt.Sprintf("connection lost: %v", reason)
 		}
-		pc.log.Warnf("notification stream disconnected: %v", reason)
+		if isExpectedStreamShutdown(reason) {
+			pc.log.Infof("notification stream reconnecting")
+		} else {
+			pc.log.Warnf("notification stream disconnected: %v", reason)
+		}
 	}
 
 	ntype := pokerrpc.NotificationType_NOTIFICATION_STREAM_CONNECTED
@@ -601,12 +629,18 @@ func (pc *PokerClient) setGameStreamConnectionState(connected bool, reason error
 	pc.Unlock()
 
 	var msg string
-	if !connected {
+	if connected {
+		msg = "game stream connected"
+	} else {
 		msg = "game stream disconnected"
-		if reason != nil {
+		if reason != nil && !isExpectedStreamShutdown(reason) {
 			msg = fmt.Sprintf("game stream disconnected: %v", reason)
 		}
-		pc.log.Warnf("game stream disconnected: %v", reason)
+		if isExpectedStreamShutdown(reason) {
+			pc.log.Debug("game stream reconnecting")
+		} else {
+			pc.log.Warnf("game stream disconnected: %v", reason)
+		}
 	}
 
 	ntype := pokerrpc.NotificationType_GAME_STREAM_CONNECTED
@@ -656,6 +690,32 @@ func (pc *PokerClient) signalGameReconnect() {
 	}
 }
 
+func (pc *PokerClient) rememberGameUpdate(update *pokerrpc.GameUpdate) {
+	pc.Lock()
+	defer pc.Unlock()
+
+	pc.lastGameUpdate = cloneGameUpdate(update)
+}
+
+func (pc *PokerClient) lastKnownGameUpdate() *pokerrpc.GameUpdate {
+	pc.RLock()
+	defer pc.RUnlock()
+
+	return cloneGameUpdate(pc.lastGameUpdate)
+}
+
+func cloneGameUpdate(update *pokerrpc.GameUpdate) *pokerrpc.GameUpdate {
+	if update == nil {
+		return nil
+	}
+
+	cloned, ok := proto.Clone(update).(*pokerrpc.GameUpdate)
+	if !ok {
+		return nil
+	}
+	return cloned
+}
+
 // ReconnectNow forces any active streams to reconnect immediately instead of
 // waiting for the normal retry timer or keepalive detection.
 func (pc *PokerClient) ReconnectNow() error {
@@ -673,7 +733,7 @@ func (pc *PokerClient) ReconnectNow() error {
 	pc.reconnecting = true
 	defer func() { pc.reconnecting = false }()
 
-	pc.log.Info("forcing immediate reconnect attempt")
+	pc.log.Debug("forcing immediate reconnect attempt")
 
 	replacement, err := newClient(pc.ctx, pc.cfg)
 	if err != nil {
