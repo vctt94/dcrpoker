@@ -164,10 +164,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Logo area
-                    Icon(
-                      Icons.style,
-                      size: 64,
-                      color: PokerColors.primary.withOpacity(0.8),
+                    Image.asset(
+                      'assets/images/newdcrpokerlogo-transparent.png',
+                      height: 140,
+                      fit: BoxFit.contain,
                     ),
                     const SizedBox(height: PokerSpacing.lg),
                     Text(
@@ -179,7 +179,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: PokerSpacing.sm),
                     Text(
-                      'Trustless poker on Bison Relay',
+                      'Trustless poker on decred, powered by schnorr',
                       style: PokerTypography.bodySmall,
                       textAlign: TextAlign.center,
                     ),
@@ -197,7 +197,8 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Text('Enter your nickname',
+                          Text(
+                            'Enter your nickname',
                             style: PokerTypography.titleSmall.copyWith(
                               color: PokerColors.textSecondary,
                             ),
@@ -217,7 +218,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             autofocus: true,
                             onFieldSubmitted: (_) => _handleLogin(),
                           ),
-
                           if (_errorMessage != null) ...[
                             const SizedBox(height: PokerSpacing.md),
                             Container(
@@ -242,8 +242,9 @@ class _LoginScreenState extends State<LoginScreen> {
                                     onPressed: () {
                                       Clipboard.setData(
                                           ClipboardData(text: _errorMessage!));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Copied')));
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text('Copied')));
                                     },
                                     padding: EdgeInsets.zero,
                                     constraints: const BoxConstraints(),
@@ -252,7 +253,6 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                           ],
-
                           const SizedBox(height: PokerSpacing.lg),
                           SizedBox(
                             height: 48,
@@ -266,7 +266,8 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                               child: _isLoading
                                   ? const SizedBox(
-                                      width: 20, height: 20,
+                                      width: 20,
+                                      height: 20,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         color: Colors.white,
@@ -281,14 +282,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: PokerSpacing.lg),
-                    Text(
-                      'New nicknames are auto-registered.',
-                      style: PokerTypography.bodySmall.copyWith(
-                        color: PokerColors.textMuted,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
                   ],
                 ),
               ),
