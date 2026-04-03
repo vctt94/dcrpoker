@@ -93,4 +93,35 @@ void main() {
     expect(find.text('River Club'), findsOneWidget);
     expect(find.text('Summit Room'), findsNothing);
   });
+
+  testWidgets('browse filters narrow the visible tables by player count', (
+    tester,
+  ) async {
+    final model = PokerModel(playerId: 'player-1', dataDir: '/tmp');
+    model.tables = [
+      table(id: 'duel', name: 'Heads Up', buyInAtoms: 0, maxPlayers: 2),
+      table(id: 'ring-4', name: 'Four Max', buyInAtoms: 1000000, maxPlayers: 4),
+      table(id: 'ring-6', name: 'Six Max', buyInAtoms: 1000000, maxPlayers: 6),
+    ];
+
+    await tester.pumpWidget(appFor(model));
+
+    expect(find.text('Heads Up'), findsOneWidget);
+    expect(find.text('Four Max'), findsOneWidget);
+    expect(find.text('Six Max'), findsOneWidget);
+
+    await tester.tap(find.text('4').first);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Heads Up'), findsNothing);
+    expect(find.text('Four Max'), findsOneWidget);
+    expect(find.text('Six Max'), findsNothing);
+
+    await tester.tap(find.text('Reset'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Heads Up'), findsOneWidget);
+    expect(find.text('Four Max'), findsOneWidget);
+    expect(find.text('Six Max'), findsOneWidget);
+  });
 }

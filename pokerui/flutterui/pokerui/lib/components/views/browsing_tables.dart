@@ -9,6 +9,8 @@ enum _SortBy { players, blinds, buyIn }
 
 enum _BuyInFilter { any, free, micro, medium, high }
 
+enum _PlayerCountFilter { any, two, three, four, five, six }
+
 extension on _SortBy {
   String get label {
     switch (this) {
@@ -58,6 +60,47 @@ extension on _BuyInFilter {
   }
 }
 
+extension on _PlayerCountFilter {
+  String get label {
+    switch (this) {
+      case _PlayerCountFilter.any:
+        return 'Any';
+      case _PlayerCountFilter.two:
+        return '2';
+      case _PlayerCountFilter.three:
+        return '3';
+      case _PlayerCountFilter.four:
+        return '4';
+      case _PlayerCountFilter.five:
+        return '5';
+      case _PlayerCountFilter.six:
+        return '6';
+    }
+  }
+
+  int? get maxPlayers {
+    switch (this) {
+      case _PlayerCountFilter.any:
+        return null;
+      case _PlayerCountFilter.two:
+        return 2;
+      case _PlayerCountFilter.three:
+        return 3;
+      case _PlayerCountFilter.four:
+        return 4;
+      case _PlayerCountFilter.five:
+        return 5;
+      case _PlayerCountFilter.six:
+        return 6;
+    }
+  }
+
+  bool matches(UiTable table) {
+    final expectedPlayers = maxPlayers;
+    return expectedPlayers == null || table.maxPlayers == expectedPlayers;
+  }
+}
+
 class BrowsingTablesView extends StatefulWidget {
   const BrowsingTablesView({super.key, required this.model});
 
@@ -72,6 +115,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
 
   _SortBy _sort = _SortBy.players;
   _BuyInFilter _buyIn = _BuyInFilter.any;
+  _PlayerCountFilter _playerCount = _PlayerCountFilter.any;
   bool _hideFull = false;
   bool _showWaitingOnly = false;
   String _searchQuery = '';
@@ -135,7 +179,8 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
       (_searchQuery.trim().isNotEmpty ? 1 : 0) +
       (_hideFull ? 1 : 0) +
       (_showWaitingOnly ? 1 : 0) +
-      (_buyIn == _BuyInFilter.any ? 0 : 1);
+      (_buyIn == _BuyInFilter.any ? 0 : 1) +
+      (_playerCount == _PlayerCountFilter.any ? 0 : 1);
 
   bool _matchesSearch(UiTable table) {
     final query = _searchQuery.trim().toLowerCase();
@@ -167,6 +212,9 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
     if (_buyIn != _BuyInFilter.any) {
       list = list.where(_buyIn.matches).toList();
     }
+    if (_playerCount != _PlayerCountFilter.any) {
+      list = list.where(_playerCount.matches).toList();
+    }
 
     switch (_sort) {
       case _SortBy.players:
@@ -189,6 +237,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
       _hideFull = false;
       _showWaitingOnly = false;
       _buyIn = _BuyInFilter.any;
+      _playerCount = _PlayerCountFilter.any;
       _searchQuery = '';
     });
   }
@@ -240,12 +289,15 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                         searchController: _searchController,
                         sort: _sort,
                         buyIn: _buyIn,
+                        playerCount: _playerCount,
                         hideFull: _hideFull,
                         waitingOnly: _showWaitingOnly,
                         activeFilterCount: _activeFilterCount,
                         onSortChanged: (value) => setState(() => _sort = value),
                         onBuyInChanged: (value) =>
                             setState(() => _buyIn = value),
+                        onPlayerCountChanged: (value) =>
+                            setState(() => _playerCount = value),
                         onHideFullChanged: (value) =>
                             setState(() => _hideFull = value),
                         onWaitingOnlyChanged: (value) =>
@@ -279,11 +331,14 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
                       searchController: _searchController,
                       sort: _sort,
                       buyIn: _buyIn,
+                      playerCount: _playerCount,
                       hideFull: _hideFull,
                       waitingOnly: _showWaitingOnly,
                       activeFilterCount: _activeFilterCount,
                       onSortChanged: (value) => setState(() => _sort = value),
                       onBuyInChanged: (value) => setState(() => _buyIn = value),
+                      onPlayerCountChanged: (value) =>
+                          setState(() => _playerCount = value),
                       onHideFullChanged: (value) =>
                           setState(() => _hideFull = value),
                       onWaitingOnlyChanged: (value) =>
@@ -363,11 +418,13 @@ class _BrowseFiltersCard extends StatelessWidget {
     required this.searchController,
     required this.sort,
     required this.buyIn,
+    required this.playerCount,
     required this.hideFull,
     required this.waitingOnly,
     required this.activeFilterCount,
     required this.onSortChanged,
     required this.onBuyInChanged,
+    required this.onPlayerCountChanged,
     required this.onHideFullChanged,
     required this.onWaitingOnlyChanged,
     required this.onClearFilters,
@@ -376,11 +433,13 @@ class _BrowseFiltersCard extends StatelessWidget {
   final TextEditingController searchController;
   final _SortBy sort;
   final _BuyInFilter buyIn;
+  final _PlayerCountFilter playerCount;
   final bool hideFull;
   final bool waitingOnly;
   final int activeFilterCount;
   final ValueChanged<_SortBy> onSortChanged;
   final ValueChanged<_BuyInFilter> onBuyInChanged;
+  final ValueChanged<_PlayerCountFilter> onPlayerCountChanged;
   final ValueChanged<bool> onHideFullChanged;
   final ValueChanged<bool> onWaitingOnlyChanged;
   final VoidCallback onClearFilters;
@@ -448,6 +507,23 @@ class _BrowseFiltersCard extends StatelessWidget {
                       label: option.label,
                       selected: buyIn == option,
                       onSelected: (_) => onBuyInChanged(option),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ),
+          const SizedBox(height: PokerSpacing.lg),
+          _FilterSection(
+            title: 'Players',
+            child: Wrap(
+              spacing: PokerSpacing.sm,
+              runSpacing: PokerSpacing.sm,
+              children: _PlayerCountFilter.values
+                  .map(
+                    (option) => _ChoiceFilterPill(
+                      label: option.label,
+                      selected: playerCount == option,
+                      onSelected: (_) => onPlayerCountChanged(option),
                     ),
                   )
                   .toList(),
