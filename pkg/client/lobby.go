@@ -46,7 +46,7 @@ func (pc *PokerClient) StartGameStream(ctx context.Context) error {
 
 	go pc.runGameStreamLoop(loopCtx, currentTableID)
 
-	pc.log.Infof("Started game stream for table %s", currentTableID)
+	pc.log.Debug("starting game stream")
 	return nil
 }
 
@@ -471,7 +471,7 @@ func (pc *PokerClient) handleNotification(ctx context.Context, ntfn *pokerrpc.No
 				pc.log.Error(err)
 				pc.enqueueError(err)
 			}
-			pc.log.Infof("Game started for table %s", ntfn.TableId)
+			pc.log.Info("game started")
 		}
 
 	case pokerrpc.NotificationType_NEW_HAND_STARTED:

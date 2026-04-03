@@ -43,17 +43,14 @@ func TestBuildShowdownLogLines(t *testing.T) {
 	}
 
 	lines := buildShowdownLogLines(ntfn, nil, "hero")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 showdown log lines, got %d: %v", len(lines), lines)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 showdown log lines, got %d: %v", len(lines), lines)
 	}
 
-	if got := lines[0]; got != "showdown table=table-1 hand=hand-9 round=9 pot=120 board=As Kh Tc" {
+	if got := lines[0]; got != "showdown, r9, pot 120, board As Kh Tc, winners Hero(+120, Straight)" {
 		t.Fatalf("unexpected showdown header: %q", got)
 	}
-	if got := lines[1]; got != "showdown winners=Hero(+120, Straight)" {
-		t.Fatalf("unexpected winner summary: %q", got)
-	}
-	if got := lines[2]; got != "showdown hands=*Hero[Qd Jc; in-game], Villain[2s 2h; folded]" {
+	if got := lines[1]; got != "players: you Qd Jc (in-game), Villain 2s 2h (folded)" {
 		t.Fatalf("unexpected hand summary: %q", got)
 	}
 }
@@ -99,17 +96,14 @@ func TestBuildShowdownLogLinesFallsBackToLastGameUpdate(t *testing.T) {
 	}
 
 	lines := buildShowdownLogLines(ntfn, lastUpdate, "hero")
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 showdown log lines with fallback state, got %d: %v", len(lines), lines)
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 showdown log lines with fallback state, got %d: %v", len(lines), lines)
 	}
 
-	if got := lines[0]; got != "showdown table=table-2 hand=hand-10 round=10 pot=75 board=Kh Qd Jc" {
+	if got := lines[0]; got != "showdown, r10, pot 75, board Kh Qd Jc, winners Hero(+75, Pair)" {
 		t.Fatalf("unexpected fallback showdown header: %q", got)
 	}
-	if got := lines[1]; got != "showdown winners=Hero(+75, Pair)" {
-		t.Fatalf("unexpected fallback winner summary: %q", got)
-	}
-	if got := lines[2]; got != "showdown hands=*Hero[As Ac; in-game]" {
+	if got := lines[1]; got != "players: you As Ac (in-game)" {
 		t.Fatalf("unexpected fallback hand summary: %q", got)
 	}
 }

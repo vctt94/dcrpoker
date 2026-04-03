@@ -158,6 +158,17 @@ class _LogsScreenState extends State<LogsScreen> {
     return Colors.white;
   }
 
+  List<InlineSpan> _buildLogTextSpans(List<String> lines) {
+    return List<InlineSpan>.generate(lines.length, (index) {
+      final line = lines[index];
+      final suffix = index == lines.length - 1 ? '' : '\n';
+      return TextSpan(
+        text: '${index + 1}: $line$suffix',
+        style: TextStyle(color: _getLogLevelColor(line)),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final lines = _visibleLines;
@@ -196,31 +207,22 @@ class _LogsScreenState extends State<LogsScreen> {
                               style: TextStyle(color: Colors.white54),
                             ),
                           )
-                        : ListView.builder(
+                        : SingleChildScrollView(
                             controller: _scrollController,
-                            itemCount: lines.length,
-                            itemBuilder: (context, index) {
-                              final line = lines[index];
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8.0,
-                                  vertical: 2.0,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: index % 2 == 0
-                                      ? Colors.transparent
-                                      : Colors.white.withOpacity(0.02),
-                                ),
-                                child: SelectableText(
-                                  '${index + 1}: $line',
-                                  style: TextStyle(
-                                    color: _getLogLevelColor(line),
-                                    fontFamily: 'monospace',
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              );
-                            },
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8.0,
+                              vertical: 6.0,
+                            ),
+                            child: SelectableText.rich(
+                              key: const Key('logs-selectable-content'),
+                              TextSpan(children: _buildLogTextSpans(lines)),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontFamily: 'monospace',
+                                fontSize: 12,
+                                height: 1.3,
+                              ),
+                            ),
                           ),
                   ),
           ),
