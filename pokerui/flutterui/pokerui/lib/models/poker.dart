@@ -221,6 +221,7 @@ class UiBetFx {
 @immutable
 class UiTable {
   final String id;
+  final String name;
   final List<UiPlayer> players;
   final int smallBlind;
   final int bigBlind;
@@ -235,6 +236,7 @@ class UiTable {
 
   const UiTable({
     required this.id,
+    required this.name,
     required this.players,
     required this.smallBlind,
     required this.bigBlind,
@@ -250,6 +252,7 @@ class UiTable {
 
   factory UiTable.fromProto(pr.Table t) => UiTable(
         id: t.id,
+        name: t.name,
         players: List.unmodifiable(t.players.map(UiPlayer.fromProto)),
         smallBlind: t.smallBlind.toInt(),
         bigBlind: t.bigBlind.toInt(),
@@ -429,7 +432,8 @@ class PokerModel extends ChangeNotifier {
   String errorMessage = '';
   String successMessage = '';
   String gameEndingMessage = ''; // message shown when game ends
-  String tableMessage = ''; // transient table-wide notification (e.g., blind increase)
+  String tableMessage =
+      ''; // transient table-wide notification (e.g., blind increase)
 
   // Active showdown for the current hand.
   UiShowdownState? _showdown;
@@ -1338,6 +1342,7 @@ class PokerModel extends ChangeNotifier {
   Future<String?> createTable({
     int smallBlindChips = 0, // 0 = server default (10)
     int bigBlindChips = 0, // 0 = server default (20)
+    String name = '',
     required int maxPlayers,
     required int minPlayers,
     required int buyInAtoms,
@@ -1358,6 +1363,7 @@ class PokerModel extends ChangeNotifier {
         timeBankSeconds,
         autoStartMs,
         autoAdvanceMs,
+        name: name,
         blindIncreaseIntervalSec: blindIncreaseIntervalSec,
       ));
       // Cache timebank seconds locally for countdowns in this session

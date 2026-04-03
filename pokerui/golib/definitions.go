@@ -343,16 +343,17 @@ type joinPokerTable struct {
 }
 
 type createPokerTable struct {
-	SmallBlind               int64 `json:"small_blind"`
-	BigBlind                 int64 `json:"big_blind"`
-	MaxPlayers               int32 `json:"max_players"`
-	MinPlayers               int32 `json:"min_players"`
-	BuyIn                    int64 `json:"buy_in"`
-	StartingChips            int64 `json:"starting_chips"`
-	TimeBankSeconds          int32 `json:"time_bank_seconds"`
-	AutoStartMs              int32 `json:"auto_start_ms"`
-	AutoAdvanceMs            int32 `json:"auto_advance_ms"`
-	BlindIncreaseIntervalSec int32 `json:"blind_increase_interval_sec"`
+	SmallBlind               int64  `json:"small_blind"`
+	BigBlind                 int64  `json:"big_blind"`
+	MaxPlayers               int32  `json:"max_players"`
+	MinPlayers               int32  `json:"min_players"`
+	BuyIn                    int64  `json:"buy_in"`
+	StartingChips            int64  `json:"starting_chips"`
+	TimeBankSeconds          int32  `json:"time_bank_seconds"`
+	AutoStartMs              int32  `json:"auto_start_ms"`
+	AutoAdvanceMs            int32  `json:"auto_advance_ms"`
+	Name                     string `json:"name"`
+	BlindIncreaseIntervalSec int32  `json:"blind_increase_interval_sec"`
 }
 
 type makeBet struct {
@@ -417,6 +418,7 @@ type waitingRoom struct {
 // All fields are explicitly set to avoid JSON type ambiguity
 type pokerTable struct {
 	ID                       string       `json:"id"`
+	Name                     string       `json:"name"`
 	SmallBlind               int64        `json:"small_blind"`
 	BigBlind                 int64        `json:"big_blind"`
 	MaxPlayers               int32        `json:"max_players"`
@@ -440,6 +442,7 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 	}
 	return &pokerTable{
 		ID:                       t.Id,
+		Name:                     t.Name,
 		SmallBlind:               t.SmallBlind,
 		BigBlind:                 t.BigBlind,
 		MaxPlayers:               t.MaxPlayers,

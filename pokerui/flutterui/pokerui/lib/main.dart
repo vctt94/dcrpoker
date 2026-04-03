@@ -14,7 +14,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/services/sound_service.dart';
-import 'package:pokerui/screens/main.dart';
+import 'package:pokerui/screens/home.dart';
 import 'package:pokerui/screens/newconfig.dart';
 import 'package:pokerui/screens/logs.dart';
 import 'package:pokerui/screens/startup_error.dart';
@@ -329,6 +329,8 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp>
   }
 
   Future<void> _openConfig(BuildContext context) async {
+    final navigator = Navigator.of(context);
+
     // Always reload from disk so Settings reflects external edits
     // and values persisted by other flows (e.g. login).
     try {
@@ -343,7 +345,9 @@ class _PokerBootstrapAppState extends State<PokerBootstrapApp>
 
     final cfg =
         _configNotifier.hasConfig ? _configNotifier.value : Config.filled();
-    final navigator = Navigator.of(context);
+    if (!mounted) {
+      return;
+    }
     await navigator.push(
       MaterialPageRoute(
         builder: (_) => NewConfigScreen(

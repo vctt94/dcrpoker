@@ -63,7 +63,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
       title: "Poker",
       child: Consumer<PokerModel>(builder: (context, pokerModel, _) {
         return RefreshIndicator(
-          onRefresh: pokerModel.browseTables,
+          onRefresh: pokerModel.refreshTables,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.only(bottom: PokerSpacing.xl),
@@ -115,33 +115,37 @@ class _ErrorBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(
-        PokerSpacing.lg, PokerSpacing.md, PokerSpacing.lg, 0,
+        PokerSpacing.lg,
+        PokerSpacing.md,
+        PokerSpacing.lg,
+        0,
       ),
       padding: const EdgeInsets.all(PokerSpacing.md),
       decoration: BoxDecoration(
-        color: PokerColors.danger.withOpacity(0.12),
+        color: PokerColors.danger.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: PokerColors.danger.withOpacity(0.3)),
+        border: Border.all(color: PokerColors.danger.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: PokerColors.danger, size: 20),
+          const Icon(Icons.error_outline, color: PokerColors.danger, size: 20),
           const SizedBox(width: PokerSpacing.sm),
           Expanded(
             child: SelectableText(
               message,
-              style: PokerTypography.bodySmall.copyWith(color: PokerColors.danger),
+              style:
+                  PokerTypography.bodySmall.copyWith(color: PokerColors.danger),
             ),
           ),
           IconButton(
-            icon: Icon(Icons.copy, color: PokerColors.danger, size: 16),
+            icon: const Icon(Icons.copy, color: PokerColors.danger, size: 16),
             onPressed: onCopy,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
           ),
           const SizedBox(width: PokerSpacing.xs),
           IconButton(
-            icon: Icon(Icons.close, color: PokerColors.danger, size: 16),
+            icon: const Icon(Icons.close, color: PokerColors.danger, size: 16),
             onPressed: onDismiss,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(),
@@ -160,22 +164,30 @@ class _SuccessBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.fromLTRB(
-        PokerSpacing.lg, PokerSpacing.md, PokerSpacing.lg, 0,
+        PokerSpacing.lg,
+        PokerSpacing.md,
+        PokerSpacing.lg,
+        0,
       ),
       padding: const EdgeInsets.all(PokerSpacing.md),
       decoration: BoxDecoration(
-        color: PokerColors.success.withOpacity(0.12),
+        color: PokerColors.success.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: PokerColors.success.withOpacity(0.3)),
+        border: Border.all(color: PokerColors.success.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(Icons.check_circle_outline, color: PokerColors.success, size: 20),
+          const Icon(
+            Icons.check_circle_outline,
+            color: PokerColors.success,
+            size: 20,
+          ),
           const SizedBox(width: PokerSpacing.sm),
           Expanded(
             child: Text(
               message,
-              style: PokerTypography.bodySmall.copyWith(color: PokerColors.success),
+              style: PokerTypography.bodySmall
+                  .copyWith(color: PokerColors.success),
             ),
           ),
         ],

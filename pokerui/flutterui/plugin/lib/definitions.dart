@@ -510,6 +510,8 @@ class CreateWaitingRoomArgs {
 class PokerTable {
   @JsonKey(name: 'id')
   final String id;
+  @JsonKey(name: 'name', defaultValue: '')
+  final String name;
   @JsonKey(name: 'small_blind')
   final int smallBlind;
   @JsonKey(name: 'big_blind')
@@ -533,6 +535,7 @@ class PokerTable {
 
   PokerTable(
     this.id,
+    this.name,
     this.smallBlind,
     this.bigBlind,
     this.maxPlayers,
@@ -552,6 +555,7 @@ class PokerTable {
   pr.Table toProtobuf() {
     final t = pr.Table()
       ..id = id
+      ..name = name
       ..smallBlind = Int64(smallBlind)
       ..bigBlind = Int64(bigBlind)
       ..maxPlayers = maxPlayers
@@ -589,6 +593,8 @@ class CreatePokerTableArgs {
   final int autoStartMs;
   @JsonKey(name: 'auto_advance_ms')
   final int autoAdvanceMs;
+  @JsonKey(name: 'name', defaultValue: '')
+  final String name;
   @JsonKey(name: 'blind_increase_interval_sec', defaultValue: 0)
   final int blindIncreaseIntervalSec;
 
@@ -602,6 +608,7 @@ class CreatePokerTableArgs {
     this.timeBankSeconds,
     this.autoStartMs,
     this.autoAdvanceMs, {
+    this.name = '',
     this.blindIncreaseIntervalSec = 0,
   });
 

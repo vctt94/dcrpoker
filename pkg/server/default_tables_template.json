@@ -7,6 +7,30 @@
       "max_players": 2
     },
     {
+      "name": "Free Table 3 Players",
+      "buy_in_dcr": "0.00",
+      "min_players": 2,
+      "max_players": 3
+    },
+    {
+      "name": "Free Table 4 Players",
+      "buy_in_dcr": "0.00",
+      "min_players": 2,
+      "max_players": 4
+    },
+    {
+      "name": "Free Table 5 Players",
+      "buy_in_dcr": "0.00",
+      "min_players": 2,
+      "max_players": 5
+    },
+    {
+      "name": "Free Table 6 Players",
+      "buy_in_dcr": "0.00",
+      "min_players": 2,
+      "max_players": 6
+    },
+    {
       "name": "Micro Table 2 Players",
       "buy_in_dcr": "0.01",
       "min_players": 2,
@@ -19,7 +43,19 @@
       "max_players": 3
     },
     {
-      "name": "Micro Table",
+      "name": "Micro Table 4 Players",
+      "buy_in_dcr": "0.01",
+      "min_players": 2,
+      "max_players": 4
+    },
+    {
+      "name": "Micro Table 5 Players",
+      "buy_in_dcr": "0.01",
+      "min_players": 2,
+      "max_players": 5
+    },
+    {
+      "name": "Micro Table 6 Players",
       "buy_in_dcr": "0.01",
       "min_players": 2,
       "max_players": 6
@@ -37,7 +73,19 @@
       "max_players": 3
     },
     {
-      "name": "Medium Table",
+      "name": "Medium Table 4 Players",
+      "buy_in_dcr": "0.1",
+      "min_players": 2,
+      "max_players": 4
+    },
+    {
+      "name": "Medium Table 5 Players",
+      "buy_in_dcr": "0.1",
+      "min_players": 2,
+      "max_players": 5
+    },
+    {
+      "name": "Medium Table 6 Players",
       "buy_in_dcr": "0.1",
       "min_players": 2,
       "max_players": 6
@@ -55,7 +103,19 @@
       "max_players": 3
     },
     {
-      "name": "Big Table",
+      "name": "Big Table 4 Players",
+      "buy_in_dcr": "1",
+      "min_players": 2,
+      "max_players": 4
+    },
+    {
+      "name": "Big Table 5 Players",
+      "buy_in_dcr": "1",
+      "min_players": 2,
+      "max_players": 5
+    },
+    {
+      "name": "Big Table 6 Players",
       "buy_in_dcr": "1",
       "min_players": 2,
       "max_players": 6

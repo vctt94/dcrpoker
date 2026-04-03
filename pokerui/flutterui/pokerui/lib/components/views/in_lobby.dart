@@ -204,6 +204,7 @@ class InLobbyView extends StatelessWidget {
       (t) => t.id == tableId,
       orElse: () => UiTable(
         id: tableId ?? '',
+        name: '',
         players: const [],
         smallBlind: 0,
         bigBlind: 0,

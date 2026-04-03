@@ -65,6 +65,33 @@ adaptorsecret=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 	require.Equal(t, profiles, cfg.DefaultTables)
 }
 
+func TestDefaultTablesTemplateIncludesSeatCountsTwoThroughSix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, defaultTablesFilename)
+
+	require.NoError(t, ensureDefaultTablesConfigFile(path))
+
+	profiles, err := loadDefaultTableProfiles(path)
+	require.NoError(t, err)
+
+	seatCountsByBuyIn := make(map[string]map[int]struct{})
+	for _, profile := range profiles {
+		if seatCountsByBuyIn[profile.BuyInDCR] == nil {
+			seatCountsByBuyIn[profile.BuyInDCR] = make(map[int]struct{})
+		}
+		seatCountsByBuyIn[profile.BuyInDCR][profile.MaxPlayers] = struct{}{}
+	}
+
+	for _, buyIn := range []string{"0.00", "0.01", "0.1", "1"} {
+		counts := seatCountsByBuyIn[buyIn]
+		require.NotNil(t, counts, "missing default tables for buy-in %s", buyIn)
+		for maxPlayers := 2; maxPlayers <= 6; maxPlayers++ {
+			_, ok := counts[maxPlayers]
+			require.True(t, ok, "missing default table for buy-in %s with max_players=%d", buyIn, maxPlayers)
+		}
+	}
+}
+
 func TestManagedTablePersistsWithoutCreator(t *testing.T) {
 	db, err := NewDatabase(filepath.Join(t.TempDir(), "poker.sqlite"))
 	require.NoError(t, err)
@@ -188,6 +215,19 @@ func TestDefaultTableManagerReplacesManagedTableAfterGameEndCleanup(t *testing.T
 		tables := managedTablesForServer(srv)
 		return len(tables) == 1 && tables[0].GetConfig().ID != oldID
 	}, 3*time.Second, 20*time.Millisecond)
+}
+
+func TestNormalizeTableConfigUsesPlayerCountInDefaultName(t *testing.T) {
+	cfg := poker.TableConfig{
+		ID:         "1234567890abcdef",
+		BuyIn:      10_000_000,
+		MinPlayers: 2,
+		MaxPlayers: 6,
+	}
+
+	normalizeTableConfig(&cfg)
+
+	require.Equal(t, "0.10 DCR Table 6 Players", cfg.Name)
 }
 
 func testDefaultTableProfile(count int) DefaultTableProfile {
