@@ -5,7 +5,7 @@ import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/spacing.dart';
 import 'package:pokerui/theme/typography.dart';
 
-enum _SortBy { players, blinds, buyIn }
+enum _SortBy { players, lowestBuyIn, highestBuyIn }
 
 enum _BuyInFilter { any, free, micro, medium, high }
 
@@ -16,10 +16,10 @@ extension on _SortBy {
     switch (this) {
       case _SortBy.players:
         return 'Most players';
-      case _SortBy.blinds:
-        return 'Highest blinds';
-      case _SortBy.buyIn:
+      case _SortBy.lowestBuyIn:
         return 'Lowest buy-in';
+      case _SortBy.highestBuyIn:
+        return 'Highest buy-in';
     }
   }
 }
@@ -113,7 +113,7 @@ class BrowsingTablesView extends StatefulWidget {
 class _BrowsingTablesViewState extends State<BrowsingTablesView> {
   final TextEditingController _searchController = TextEditingController();
 
-  _SortBy _sort = _SortBy.players;
+  _SortBy? _sort;
   _BuyInFilter _buyIn = _BuyInFilter.any;
   _PlayerCountFilter _playerCount = _PlayerCountFilter.any;
   bool _hideFull = false;
@@ -217,14 +217,16 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
     }
 
     switch (_sort) {
+      case null:
+        break;
       case _SortBy.players:
         list.sort((a, b) => b.currentPlayers.compareTo(a.currentPlayers));
         break;
-      case _SortBy.blinds:
-        list.sort((a, b) => b.bigBlind.compareTo(a.bigBlind));
-        break;
-      case _SortBy.buyIn:
+      case _SortBy.lowestBuyIn:
         list.sort((a, b) => a.buyInAtoms.compareTo(b.buyInAtoms));
+        break;
+      case _SortBy.highestBuyIn:
+        list.sort((a, b) => b.buyInAtoms.compareTo(a.buyInAtoms));
         break;
     }
 
@@ -234,6 +236,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
   void _clearFilters() {
     _searchController.clear();
     setState(() {
+      _sort = null;
       _hideFull = false;
       _showWaitingOnly = false;
       _buyIn = _BuyInFilter.any;
@@ -431,13 +434,13 @@ class _BrowseFiltersCard extends StatelessWidget {
   });
 
   final TextEditingController searchController;
-  final _SortBy sort;
+  final _SortBy? sort;
   final _BuyInFilter buyIn;
   final _PlayerCountFilter playerCount;
   final bool hideFull;
   final bool waitingOnly;
   final int activeFilterCount;
-  final ValueChanged<_SortBy> onSortChanged;
+  final ValueChanged<_SortBy?> onSortChanged;
   final ValueChanged<_BuyInFilter> onBuyInChanged;
   final ValueChanged<_PlayerCountFilter> onPlayerCountChanged;
   final ValueChanged<bool> onHideFullChanged;
@@ -553,7 +556,9 @@ class _BrowseFiltersCard extends StatelessWidget {
           _FilterSection(
             title: 'Sort by',
             child: DropdownButtonFormField<_SortBy>(
+              key: ValueKey(sort),
               initialValue: sort,
+              hint: const Text('None'),
               items: _SortBy.values
                   .map(
                     (option) => DropdownMenuItem<_SortBy>(
@@ -576,6 +581,14 @@ class _BrowseFiltersCard extends StatelessWidget {
               ),
             ),
           ),
+          if (sort != null) ...[
+            const SizedBox(height: PokerSpacing.sm),
+            TextButton.icon(
+              onPressed: () => onSortChanged(null),
+              icon: const Icon(Icons.restart_alt, size: 16),
+              label: const Text('Clear sort'),
+            ),
+          ],
         ],
       ),
     );
@@ -701,7 +714,7 @@ class _BrowseResultsPane extends StatelessWidget {
   final List<UiTable> tables;
   final int totalCount;
   final int activeFilterCount;
-  final _SortBy sort;
+  final _SortBy? sort;
   final String searchQuery;
   final VoidCallback onClearFilters;
   final Future<void> Function() onRefresh;
@@ -749,7 +762,9 @@ class _BrowseResultsPane extends StatelessWidget {
                   const Text('Tables', style: PokerTypography.titleLarge),
                   const SizedBox(height: PokerSpacing.xs),
                   Text(
-                    'Showing ${tables.length} of $totalCount tables, sorted by ${sort.label.toLowerCase()}.',
+                    sort == null
+                        ? 'Showing ${tables.length} of $totalCount tables.'
+                        : 'Showing ${tables.length} of $totalCount tables, sorted by ${sort!.label.toLowerCase()}.',
                     style: PokerTypography.bodySmall,
                   ),
                   const SizedBox(height: PokerSpacing.sm),
