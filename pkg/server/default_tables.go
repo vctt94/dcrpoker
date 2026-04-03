@@ -427,7 +427,7 @@ func normalizeTableConfig(cfg *poker.TableConfig) {
 		cfg.Source = managedTableSourceUser
 	}
 	if strings.TrimSpace(cfg.Name) == "" {
-		cfg.Name = fmt.Sprintf("Table %s", cfg.ID[:8])
+		cfg.Name = defaultTableName(*cfg)
 	}
 	if cfg.SmallBlind == 0 {
 		cfg.SmallBlind = defaultSmallBlind
@@ -452,4 +452,27 @@ func normalizeTableConfig(cfg *poker.TableConfig) {
 		cfg.BigBlind == defaultBigBlind {
 		cfg.BlindIncreaseInterval = defaultBlindIncreaseInterval
 	}
+}
+
+func defaultTableName(cfg poker.TableConfig) string {
+	if cfg.BuyIn == 0 {
+		if cfg.MaxPlayers > 0 {
+			return fmt.Sprintf("Free Table %d Players", cfg.MaxPlayers)
+		}
+		return "Free Table"
+	}
+
+	if cfg.MaxPlayers > 0 {
+		return fmt.Sprintf(
+			"%.2f DCR Table %d Players",
+			dcrutil.Amount(cfg.BuyIn).ToCoin(),
+			cfg.MaxPlayers,
+		)
+	}
+
+	if strings.TrimSpace(cfg.ID) == "" {
+		return "Table"
+	}
+
+	return fmt.Sprintf("Table %s", cfg.ID[:8])
 }
