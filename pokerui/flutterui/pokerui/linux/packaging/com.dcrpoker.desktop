@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=DCR Poker
+Comment=DCR Poker desktop app
+Exec=dcrpoker
+Terminal=false
+Categories=Game;
+StartupNotify=true
+StartupWMClass=dcrpoker
+Icon=com.dcrpoker
+
