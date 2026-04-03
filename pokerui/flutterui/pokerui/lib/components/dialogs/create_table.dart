@@ -14,7 +14,8 @@ class CreateTableDialog extends StatefulWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (_) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+        padding:
+            EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: CreateTableDialog(model: model),
       ),
     );
@@ -27,6 +28,7 @@ class CreateTableDialog extends StatefulWidget {
 class _CreateTableDialogState extends State<CreateTableDialog> {
   final _form = GlobalKey<FormState>();
 
+  String _tableName = '';
   int _maxPlayers = 2;
   String _buyInDcr = '0.0';
   int _startingChips = 1000;
@@ -51,7 +53,11 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
               children: [
                 const Icon(Icons.add, color: Colors.white70),
                 const SizedBox(width: 8),
-                const Text('Create Table', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text('Create Table',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold)),
                 const Spacer(),
                 IconButton(
                   onPressed: () => Navigator.of(context).pop(),
@@ -64,6 +70,12 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
               spacing: 12,
               runSpacing: 12,
               children: [
+                _textField(
+                  label: 'Table Name',
+                  initial: _tableName,
+                  hintText: 'Optional',
+                  onSaved: (v) => _tableName = v?.trim() ?? '',
+                ),
                 _numberField(
                   label: 'Number of Players',
                   initial: _maxPlayers.toString(),
@@ -121,7 +133,26 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
         keyboardType: TextInputType.number,
         style: const TextStyle(color: Colors.white),
         decoration: _decoration(label),
-        validator: (v) => (v == null || v.isEmpty || int.tryParse(v) == null) ? 'Enter number' : null,
+        validator: (v) => (v == null || v.isEmpty || int.tryParse(v) == null)
+            ? 'Enter number'
+            : null,
+        onSaved: onSaved,
+      ),
+    );
+  }
+
+  Widget _textField({
+    required String label,
+    required String initial,
+    required FormFieldSetter<String> onSaved,
+    String? hintText,
+  }) {
+    return SizedBox(
+      width: 220,
+      child: TextFormField(
+        initialValue: initial,
+        style: const TextStyle(color: Colors.white),
+        decoration: _decoration(label).copyWith(hintText: hintText),
         onSaved: onSaved,
       ),
     );
@@ -139,7 +170,9 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         style: const TextStyle(color: Colors.white),
         decoration: _decoration(label),
-        validator: (v) => (v == null || v.isEmpty || double.tryParse(v) == null) ? 'Enter amount' : null,
+        validator: (v) => (v == null || v.isEmpty || double.tryParse(v) == null)
+            ? 'Enter amount'
+            : null,
         onSaved: onSaved,
       ),
     );
@@ -149,7 +182,7 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
         labelText: label,
         labelStyle: const TextStyle(color: Colors.white70),
         enabledBorder: OutlineInputBorder(
-          borderSide: BorderSide(color: Colors.white.withOpacity(0.2)),
+          borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
           borderRadius: BorderRadius.circular(8),
         ),
         focusedBorder: OutlineInputBorder(
@@ -167,6 +200,7 @@ class _CreateTableDialogState extends State<CreateTableDialog> {
     final buyInAtoms = _toAtoms(_buyInDcr);
 
     final tid = await widget.model.createTable(
+      name: _tableName,
       maxPlayers: _maxPlayers,
       minPlayers: 2,
       buyInAtoms: buyInAtoms,

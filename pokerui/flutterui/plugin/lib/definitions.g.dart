@@ -379,6 +379,7 @@ Map<String, dynamic> _$CreateWaitingRoomArgsToJson(
 
 PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
   json['id'] as String,
+  json['name'] as String? ?? '',
   (json['small_blind'] as num).toInt(),
   (json['big_blind'] as num).toInt(),
   (json['max_players'] as num).toInt(),
@@ -397,6 +398,7 @@ PokerTable _$PokerTableFromJson(Map<String, dynamic> json) => PokerTable(
 Map<String, dynamic> _$PokerTableToJson(PokerTable instance) =>
     <String, dynamic>{
       'id': instance.id,
+      'name': instance.name,
       'small_blind': instance.smallBlind,
       'big_blind': instance.bigBlind,
       'max_players': instance.maxPlayers,
@@ -421,6 +423,7 @@ CreatePokerTableArgs _$CreatePokerTableArgsFromJson(
   (json['time_bank_seconds'] as num).toInt(),
   (json['auto_start_ms'] as num).toInt(),
   (json['auto_advance_ms'] as num).toInt(),
+  name: json['name'] as String? ?? '',
   blindIncreaseIntervalSec:
       (json['blind_increase_interval_sec'] as num?)?.toInt() ?? 0,
 );
@@ -437,6 +440,7 @@ Map<String, dynamic> _$CreatePokerTableArgsToJson(
   'time_bank_seconds': instance.timeBankSeconds,
   'auto_start_ms': instance.autoStartMs,
   'auto_advance_ms': instance.autoAdvanceMs,
+  'name': instance.name,
   'blind_increase_interval_sec': instance.blindIncreaseIntervalSec,
 };
 

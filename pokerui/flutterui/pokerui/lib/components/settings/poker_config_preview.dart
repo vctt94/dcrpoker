@@ -122,6 +122,7 @@ class _PokerConfigPreviewState extends State<PokerConfigPreview> {
       ..tables = [
         UiTable(
           id: game.tableId,
+          name: 'Preview Table',
           players: players,
           smallBlind: game.smallBlind,
           bigBlind: game.bigBlind,

@@ -765,6 +765,7 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 
 		// Create TableConfig from request
 		config := poker.TableConfig{
+			Name:                  req.Name,
 			SmallBlind:            req.SmallBlind,
 			BigBlind:              req.BigBlind,
 			MaxPlayers:            int(req.MaxPlayers),
