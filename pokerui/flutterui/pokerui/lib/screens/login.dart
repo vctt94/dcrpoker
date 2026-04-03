@@ -20,7 +20,8 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _nicknameController = TextEditingController();
+  late final _nicknameController =
+      TextEditingController(text: widget.config.nickname);
   final _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
   bool _clientInitialized = false;
@@ -75,12 +76,14 @@ class _LoginScreenState extends State<LoginScreen> {
       final nickname = _nicknameController.text.trim();
       try {
         final loginResp = await Golib.login(LoginRequest(nickname));
+        await _persistNickname(nickname);
         widget.onLoginSuccess(loginResp);
       } catch (loginError) {
         final errorMsg = loginError.toString().toLowerCase();
         if (errorMsg.contains('nickname not found')) {
           await Golib.register(RegisterRequest(nickname));
           final loginResp = await Golib.login(LoginRequest(nickname));
+          await _persistNickname(nickname);
           widget.onLoginSuccess(loginResp);
         } else {
           setState(() {
@@ -94,6 +97,30 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorMessage = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _persistNickname(String nickname) async {
+    try {
+      final cfg = widget.config;
+      final updateArgs = UpdateConfig(
+        cfg.dataDir,
+        cfg.serverAddr,
+        cfg.grpcCertPath,
+        nickname,
+        cfg.address,
+        cfg.debugLevel,
+        cfg.tableTheme,
+        cfg.cardTheme,
+        cfg.cardSize,
+        cfg.uiSize,
+        cfg.soundsEnabled,
+        cfg.hideTableLogo,
+        cfg.logoPosition,
+      );
+      await Golib.updateConfig(updateArgs);
+    } catch (_) {
+      // Best-effort. Login should still succeed if config persistence fails.
     }
   }
 
@@ -245,7 +272,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                         color: Colors.white,
                                       ),
                                     )
-                                  : Text('Continue',
+                                  : Text('Login',
                                       style: PokerTypography.labelLarge
                                           .copyWith(color: Colors.white)),
                             ),

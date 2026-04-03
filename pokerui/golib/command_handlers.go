@@ -19,10 +19,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-const (
-	appName = "dcrpoker"
-)
-
 func handleHello(name string) (string, error) {
 	if name == "*bug" {
 		return "", fmt.Errorf("name '%s' is an error", name)

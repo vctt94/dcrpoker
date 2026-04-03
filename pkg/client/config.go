@@ -45,7 +45,9 @@ type PokerConf struct {
 	GRPCPort     string // gRPC server port
 	GRPCCertPath string // Path to gRPC server certificate
 
-	PayoutAddress string
+	PayoutAddress string // User payout address
+
+	Nickname string // User nickname
 
 	LogFile        string
 	Debug          string
@@ -96,6 +98,8 @@ func parseClientConfigFile(configPath string, appName string) (*PokerConf, error
 			cfg.GRPCPort = value
 		case "grpccertpath":
 			cfg.GRPCCertPath = value
+		case "nickname":
+			cfg.Nickname = value
 		case "payoutaddress":
 			cfg.PayoutAddress = value
 		case "logfile":
@@ -277,6 +281,7 @@ func WriteClientConfigFile(cfg *PokerConf, configPath string) error {
 grpchost=%s
 grpcport=%s
 grpccertpath=%s
+nickname=%s
 payoutaddress=%s
 logfile=%s
 debug=%s
@@ -294,6 +299,7 @@ logoposition=%s
 		cfg.GRPCHost,
 		cfg.GRPCPort,
 		cfg.GRPCCertPath,
+		cfg.Nickname,
 		cfg.PayoutAddress,
 		cfg.LogFile,
 		cfg.Debug,
@@ -492,26 +498,43 @@ func ValidateServerAddress(serverAddr string) error {
 	return nil
 }
 
-// UpdateClientConfig updates configurable settings in an existing config file with validation
-func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath, address, debugLevel string, theme *ThemeConfig) error {
+// ClientConfigParams bundles client config params.
+type ClientConfigParams struct {
+	ServerAddr   string
+	GRPCCertPath string
+	Nickname     string
+	Address      string
+	DebugLevel   string
+	Theme        *ThemeConfig
+}
+
+// UpdateClientConfig updates configurable settings in an existing config file
+// with validation.
+func UpdateClientConfig(dataDir, configFileName string, p ClientConfigParams) error {
 	configPath := filepath.Join(dataDir, configFileName)
 
 	// Validate inputs
-	if err := ValidateCertPath(grpcCertPath); err != nil {
+	if err := ValidateCertPath(p.GRPCCertPath); err != nil {
 		return fmt.Errorf("invalid cert path: %v", err)
 	}
 
-	if err := ValidateAddress(address); err != nil {
+	if strings.TrimSpace(p.Nickname) != "" {
+		if err := validateNickname(p.Nickname); err != nil {
+			return fmt.Errorf("invalid nickname: %v", err)
+		}
+	}
+
+	if err := ValidateAddress(p.Address); err != nil {
 		return fmt.Errorf("invalid address/pubkey: %v", err)
 	}
 
-	if err := ValidateServerAddress(serverAddr); err != nil {
+	if err := ValidateServerAddress(p.ServerAddr); err != nil {
 		return fmt.Errorf("invalid server address: %v", err)
 	}
 
 	// Validate theme config if provided
-	if theme != nil {
-		if err := theme.Validate(); err != nil {
+	if p.Theme != nil {
+		if err := p.Theme.Validate(); err != nil {
 			return err
 		}
 	}
@@ -523,42 +546,45 @@ func UpdateClientConfig(dataDir, configFileName string, serverAddr, grpcCertPath
 	}
 
 	// Update server address (split into host:port)
-	if serverAddr != "" {
-		host, port, _ := strings.Cut(serverAddr, ":")
+	if p.ServerAddr != "" {
+		host, port, _ := strings.Cut(p.ServerAddr, ":")
 		cfg.GRPCHost = host
 		cfg.GRPCPort = port
 	}
 
 	// Update other fields if provided
-	if grpcCertPath != "" {
-		cfg.GRPCCertPath = grpcCertPath
+	if p.GRPCCertPath != "" {
+		cfg.GRPCCertPath = p.GRPCCertPath
 	}
-	if address != "" {
-		cfg.PayoutAddress = address
+	if strings.TrimSpace(p.Nickname) != "" {
+		cfg.Nickname = strings.TrimSpace(p.Nickname)
 	}
-	if debugLevel != "" {
-		cfg.Debug = debugLevel
+	if p.Address != "" {
+		cfg.PayoutAddress = p.Address
+	}
+	if p.DebugLevel != "" {
+		cfg.Debug = p.DebugLevel
 	}
 
 	// Update theme settings if provided
-	if theme != nil {
-		if theme.TableTheme != "" {
-			cfg.TableTheme = strings.ToLower(strings.TrimSpace(theme.TableTheme))
+	if p.Theme != nil {
+		if p.Theme.TableTheme != "" {
+			cfg.TableTheme = strings.ToLower(strings.TrimSpace(p.Theme.TableTheme))
 		}
-		if theme.CardTheme != "" {
-			cfg.CardTheme = strings.ToLower(strings.TrimSpace(theme.CardTheme))
+		if p.Theme.CardTheme != "" {
+			cfg.CardTheme = strings.ToLower(strings.TrimSpace(p.Theme.CardTheme))
 		}
-		if theme.CardSize != "" {
-			cfg.CardSize = strings.ToLower(strings.TrimSpace(theme.CardSize))
+		if p.Theme.CardSize != "" {
+			cfg.CardSize = strings.ToLower(strings.TrimSpace(p.Theme.CardSize))
 		}
-		if theme.UISize != "" {
-			cfg.UISize = strings.ToLower(strings.TrimSpace(theme.UISize))
+		if p.Theme.UISize != "" {
+			cfg.UISize = strings.ToLower(strings.TrimSpace(p.Theme.UISize))
 		}
-		if theme.LogoPosition != "" {
-			cfg.LogoPosition = strings.ToLower(strings.TrimSpace(theme.LogoPosition))
+		if p.Theme.LogoPosition != "" {
+			cfg.LogoPosition = strings.ToLower(strings.TrimSpace(p.Theme.LogoPosition))
 		}
-		cfg.SoundsEnabled = theme.SoundsEnabled
-		cfg.HideTableLogo = theme.HideTableLogo
+		cfg.SoundsEnabled = p.Theme.SoundsEnabled
+		cfg.HideTableLogo = p.Theme.HideTableLogo
 	}
 
 	// Write updated config back

@@ -150,6 +150,8 @@ class UpdateConfig {
   final String serverAddr;
   @JsonKey(name: 'grpc_cert_path')
   final String grpcCertPath;
+  @JsonKey(name: 'nickname')
+  final String nickname;
   @JsonKey(name: 'address')
   final String address;
   @JsonKey(name: 'debug_level')
@@ -173,6 +175,7 @@ class UpdateConfig {
     this.dataDir,
     this.serverAddr,
     this.grpcCertPath,
+    this.nickname,
     this.address,
     this.debugLevel,
     this.tableTheme,

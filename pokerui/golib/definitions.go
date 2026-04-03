@@ -24,6 +24,10 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 )
 
+const (
+	appName = "dcrpoker"
+)
+
 type initClient struct {
 	ServerAddr string `json:"server_addr"`
 
@@ -296,6 +300,7 @@ type updateConfigArgs struct {
 	DataDir       string `json:"datadir"`
 	ServerAddr    string `json:"server_addr"`
 	GRPCCertPath  string `json:"grpc_cert_path"`
+	Nickname      string `json:"nickname"`
 	Address       string `json:"address"`
 	DebugLevel    string `json:"debug_level"`
 	TableTheme    string `json:"table_theme"`
@@ -855,6 +860,7 @@ maxbufferlines=%d
 		GRPCHost:       host,
 		GRPCPort:       port,
 		GRPCCertPath:   grpcCertPath,
+		Nickname:       "",
 		PayoutAddress:  "",
 		LogFile:        filepath.Join(dataDir, "logs", appName+".log"),
 		Debug:          debugLevel,
@@ -906,7 +912,13 @@ func handleCreateDefaultServerCert(certPath string) (map[string]string, error) {
 
 // updateConfig updates configurable settings in an existing config file
 func updateConfig(dataDir, serverAddr, grpcCertPath, address, debugLevel string, theme *client.ThemeConfig) error {
-	return client.UpdateClientConfig(dataDir, appName+".conf", serverAddr, grpcCertPath, address, debugLevel, theme)
+	return client.UpdateClientConfig(dataDir, appName+".conf", client.ClientConfigParams{
+		ServerAddr:   serverAddr,
+		GRPCCertPath: grpcCertPath,
+		Address:      address,
+		DebugLevel:   debugLevel,
+		Theme:        theme,
+	})
 }
 
 // handleUpdateConfig handles the CTUpdateConfig command
@@ -920,7 +932,14 @@ func handleUpdateConfig(args updateConfigArgs) (map[string]string, error) {
 		HideTableLogo: args.HideTableLogo,
 		LogoPosition:  args.LogoPosition,
 	}
-	if err := updateConfig(args.DataDir, args.ServerAddr, args.GRPCCertPath, args.Address, args.DebugLevel, theme); err != nil {
+	if err := client.UpdateClientConfig(args.DataDir, appName+".conf", client.ClientConfigParams{
+		ServerAddr:   args.ServerAddr,
+		GRPCCertPath: args.GRPCCertPath,
+		Nickname:     args.Nickname,
+		Address:      args.Address,
+		DebugLevel:   args.DebugLevel,
+		Theme:        theme,
+	}); err != nil {
 		return nil, err
 	}
 
@@ -957,6 +976,7 @@ func handleLoadConfig(pathOrDir string) (map[string]interface{}, error) {
 	res := map[string]interface{}{
 		"server_addr":    serverAddr,
 		"grpc_cert_path": cfg.GRPCCertPath,
+		"nickname":       cfg.Nickname,
 
 		"debug_level":     cfg.Debug,
 		"sounds_enabled":  cfg.SoundsEnabled,

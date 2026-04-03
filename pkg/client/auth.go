@@ -464,6 +464,7 @@ func (pc *PokerClient) PersistPayoutAddress(addr string) {
 		GRPCHost:       pc.cfg.GRPCHost,
 		GRPCPort:       pc.cfg.GRPCPort,
 		GRPCCertPath:   pc.cfg.GRPCCertPath,
+		Nickname:       pc.cfg.Nickname,
 		PayoutAddress:  pc.cfg.PayoutAddress,
 		LogFile:        pc.cfg.LogFile,
 		Debug:          pc.cfg.Debug,

@@ -14,6 +14,7 @@ String mainConfigFilename = "";
 class Config {
   final String serverAddr;
   final String grpcCertPath;
+  final String nickname;
   final String payoutAddress;
   final String debugLevel;
   final bool soundsEnabled;
@@ -29,6 +30,7 @@ class Config {
   Config({
     required this.serverAddr,
     required this.grpcCertPath,
+    required this.nickname,
     required this.payoutAddress,
     required this.debugLevel,
     required this.soundsEnabled,
@@ -45,6 +47,7 @@ class Config {
   factory Config.empty() => Config(
         serverAddr: '',
         grpcCertPath: '',
+        nickname: '',
         payoutAddress: '',
         debugLevel: 'info',
         soundsEnabled: true,
@@ -76,6 +79,7 @@ class Config {
     return Config(
       serverAddr: serverAddr,
       grpcCertPath: pickPath('grpc_cert_path'),
+      nickname: pick('nickname'),
       payoutAddress: pick('payout_address'),
       debugLevel: pick('debug_level').isNotEmpty ? pick('debug_level') : 'info',
 
@@ -94,6 +98,7 @@ class Config {
   Config copyWith({
     String? serverAddr,
     String? grpcCertPath,
+    String? nickname,
     String? payoutAddress,
     String? rpcCertPath,
     String? rpcClientCertPath,
@@ -114,6 +119,7 @@ class Config {
     return Config(
       serverAddr: serverAddr ?? this.serverAddr,
       grpcCertPath: grpcCertPath ?? this.grpcCertPath,
+      nickname: nickname ?? this.nickname,
       payoutAddress: payoutAddress ?? this.payoutAddress,
       debugLevel: debugLevel ?? this.debugLevel,
       soundsEnabled: soundsEnabled ?? this.soundsEnabled,
