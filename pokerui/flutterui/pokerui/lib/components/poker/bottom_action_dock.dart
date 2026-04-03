@@ -11,6 +11,12 @@ import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
 import 'package:pokerui/theme/spacing.dart';
 
+List<pr.Card> _dockCardsForModel(PokerModel model) {
+  if (model.isWatching) return const <pr.Card>[];
+  final me = model.me;
+  return (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
+}
+
 class _ActionControls {
   const _ActionControls({
     required this.betCtrl,
@@ -121,9 +127,7 @@ class BottomActionDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final canAct = model.canAct;
-    final me = model.me;
-    final cards =
-        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
+    final cards = _dockCardsForModel(model);
     final hasCards = cards.isNotEmpty;
 
     return Container(
@@ -285,9 +289,7 @@ class MobileHeroActionPanel extends StatelessWidget {
     final canAct = model.canAct;
     final actionControls = _actionControls;
     final actionRowHeight = (48 * buttonScale(bp)).floorToDouble();
-    final me = model.me;
-    final cards =
-        (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
+    final cards = _dockCardsForModel(model);
     final hasCards = cards.isNotEmpty;
 
     return LayoutBuilder(
@@ -314,7 +316,9 @@ class MobileHeroActionPanel extends StatelessWidget {
             }
             final stackedHeader =
                 constraints.maxWidth < cardsWidth + trailingWidth + 36.0;
-            final cardsRow = _CompactHeroCards(cards: cards);
+            final cardsRow = hasCards
+                ? _CompactHeroCards(cards: cards)
+                : const SizedBox.shrink();
             final hasTrailingControls = hasCards || hasLastHandButton;
             final trailingControls = hasTrailingControls
                 ? Column(
@@ -343,7 +347,7 @@ class MobileHeroActionPanel extends StatelessWidget {
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  cardsRow,
+                  if (hasCards) cardsRow,
                   const Spacer(),
                   if (hasTrailingControls) trailingControls,
                 ],
@@ -354,7 +358,7 @@ class MobileHeroActionPanel extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                cardsRow,
+                if (hasCards) cardsRow,
                 if (hasTrailingControls) ...[
                   SizedBox(height: sectionGap),
                   Align(
@@ -513,8 +517,7 @@ class _ShowCardsDockToggle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasCards = (model.me?.hand.isNotEmpty ?? false) ||
-        model.heroShowdownHand.isNotEmpty;
+    final hasCards = _dockCardsForModel(model).isNotEmpty;
     if (!hasCards) return const SizedBox.shrink();
 
     final showing = model.me?.cardsRevealed ?? false;
@@ -627,37 +630,66 @@ class _WaitingIndicator extends StatelessWidget {
     final label = isWatchingOnly
         ? 'Watching only'
         : (model.autoAdvanceAllIn ? 'All-in' : 'Waiting...');
-    final indicator = Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: PokerSpacing.lg, vertical: PokerSpacing.sm),
-      decoration: BoxDecoration(
-        color: PokerColors.overlayMedium,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Text(label, style: PokerTypography.bodyMedium),
-    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactLayout =
+            constraints.maxHeight.isFinite && constraints.maxHeight <= 48;
+        final indicator = Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compactLayout ? 12 : PokerSpacing.lg,
+            vertical: compactLayout ? 6 : PokerSpacing.sm,
+          ),
+          decoration: BoxDecoration(
+            color: PokerColors.overlayMedium,
+            borderRadius: BorderRadius.circular(compactLayout ? 10 : 12),
+          ),
+          child: Text(
+            label,
+            style: compactLayout
+                ? PokerTypography.labelLarge.copyWith(fontSize: 12)
+                : PokerTypography.bodyMedium,
+          ),
+        );
 
-    if (!isWatchingOnly) return indicator;
+        if (!isWatchingOnly) return indicator;
 
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        indicator,
-        const SizedBox(height: PokerSpacing.sm),
-        OutlinedButton.icon(
+        final stopWatchingButton = OutlinedButton.icon(
           onPressed: model.leaveTable,
-          icon: const Icon(Icons.exit_to_app, size: 16),
-          label: const Text('Stop Watching'),
+          icon: Icon(Icons.exit_to_app, size: compactLayout ? 14 : 16),
+          label: Text(compactLayout ? 'Stop' : 'Stop Watching'),
           style: OutlinedButton.styleFrom(
             foregroundColor: PokerColors.danger,
             side: BorderSide(color: PokerColors.danger.withValues(alpha: 0.55)),
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            minimumSize: const Size(0, 36),
+            padding: EdgeInsets.symmetric(horizontal: compactLayout ? 10 : 12),
+            minimumSize: Size(0, compactLayout ? 32 : 36),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            visualDensity: compactLayout
+                ? const VisualDensity(horizontal: -2, vertical: -2)
+                : VisualDensity.standard,
           ),
-        ),
-      ],
+        );
+
+        if (compactLayout) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              indicator,
+              const SizedBox(width: PokerSpacing.sm),
+              stopWatchingButton,
+            ],
+          );
+        }
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            indicator,
+            const SizedBox(height: PokerSpacing.sm),
+            stopWatchingButton,
+          ],
+        );
+      },
     );
   }
 }
