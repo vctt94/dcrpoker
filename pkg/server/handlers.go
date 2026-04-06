@@ -794,4 +794,8 @@ func (ph *PersistenceHandler) SaveTableStateAsync(event *GameEvent) {
 		return
 	}
 	ph.server.saveTableStateAsync(event.TableID, string(event.Type))
+	switch event.Type {
+	case pokerrpc.NotificationType_SHOWDOWN_RESULT, pokerrpc.NotificationType_GAME_ENDED:
+		ph.server.saveMatchCheckpointAsync(event.TableID, string(event.Type))
+	}
 }

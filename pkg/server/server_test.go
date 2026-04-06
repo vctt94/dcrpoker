@@ -80,7 +80,8 @@ type InMemoryDB struct {
 	seatIndex    map[string]map[int]string             // tableID -> seat -> playerID
 
 	// optional fast-restore snapshots
-	snapshots map[string]db.Snapshot // tableID -> snapshot
+	snapshots        map[string]db.Snapshot        // tableID -> snapshot
+	matchCheckpoints map[string]db.MatchCheckpoint // tableID -> checkpoint
 
 	// auth
 	authUsers map[string]*db.AuthUser // userID -> AuthUser
@@ -89,13 +90,14 @@ type InMemoryDB struct {
 // NewInMemoryDB creates a new in-memory database for testing.
 func NewInMemoryDB() *InMemoryDB {
 	return &InMemoryDB{
-		balances:     make(map[string]int64),
-		transactions: make(map[string][]Transaction),
-		tables:       make(map[string]*db.Table),
-		participants: make(map[string]map[string]*db.Participant),
-		seatIndex:    make(map[string]map[int]string),
-		snapshots:    make(map[string]db.Snapshot),
-		authUsers:    make(map[string]*db.AuthUser),
+		balances:         make(map[string]int64),
+		transactions:     make(map[string][]Transaction),
+		tables:           make(map[string]*db.Table),
+		participants:     make(map[string]map[string]*db.Participant),
+		seatIndex:        make(map[string]map[int]string),
+		snapshots:        make(map[string]db.Snapshot),
+		matchCheckpoints: make(map[string]db.MatchCheckpoint),
+		authUsers:        make(map[string]*db.AuthUser),
 	}
 }
 
@@ -146,6 +148,7 @@ func (m *InMemoryDB) DeleteTable(_ context.Context, id string) error {
 	delete(m.participants, id)
 	delete(m.seatIndex, id)
 	delete(m.snapshots, id)
+	delete(m.matchCheckpoints, id)
 	return nil
 }
 
@@ -259,6 +262,22 @@ func (m *InMemoryDB) UnseatPlayer(_ context.Context, tableID, playerID string) e
 	return nil
 }
 
+func (m *InMemoryDB) SetReady(_ context.Context, tableID, playerID string, ready bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	mp := m.participants[tableID]
+	if mp == nil {
+		return fmt.Errorf("table not found")
+	}
+	p := mp[playerID]
+	if p == nil {
+		return fmt.Errorf("player not found")
+	}
+	p.Ready = ready
+	return nil
+}
+
 // -------- Snapshots (fast-restore cache) --------
 
 func (m *InMemoryDB) UpsertSnapshot(_ context.Context, s db.Snapshot) error {
@@ -280,6 +299,34 @@ func (m *InMemoryDB) GetSnapshot(_ context.Context, tableID string) (*db.Snapsho
 	}
 	cp := s
 	return &cp, nil
+}
+
+func (m *InMemoryDB) UpsertMatchCheckpoint(_ context.Context, c db.MatchCheckpoint) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if c.UpdatedAt.IsZero() {
+		c.UpdatedAt = time.Now()
+	}
+	m.matchCheckpoints[c.TableID] = c
+	return nil
+}
+
+func (m *InMemoryDB) GetMatchCheckpoint(_ context.Context, tableID string) (*db.MatchCheckpoint, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	c, ok := m.matchCheckpoints[tableID]
+	if !ok {
+		return nil, fmt.Errorf("match checkpoint not found")
+	}
+	cp := c
+	return &cp, nil
+}
+
+func (m *InMemoryDB) DeleteMatchCheckpoint(_ context.Context, tableID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.matchCheckpoints, tableID)
+	return nil
 }
 
 // -------- Auth --------
@@ -1321,10 +1368,10 @@ func TestJoinTableAfterGameStartFails(t *testing.T) {
 	assert.Contains(t, resp.Message, "Game already started")
 }
 
-// TestSnapshotRestoresCurrentPlayer ensures that when a snapshot is taken while it is a particular
-// player's turn (and that player subsequently disconnects), restoring the table from the persisted
-// snapshot correctly identifies the same player as the current player to act.
-func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
+// TestCheckpointRestoresPausedMatchAtBoundary ensures graceful recovery brings
+// an active match back at the next-hand boundary instead of resuming a betting
+// street mid-hand.
+func TestCheckpointRestoresPausedMatchAtBoundary(t *testing.T) {
 	// Use the same in-memory DB for the two server instances so that persisted state survives.
 	db := NewInMemoryDB()
 	defer db.Close()
@@ -1340,18 +1387,15 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Players
 	p1 := "p1"
 	p2 := "p2"
-	p3 := "p3"
 
-	// p1 creates table
 	createResp, err := srv1.CreateTable(ctx, &pokerrpc.CreateTableRequest{
 		PlayerId:      p1,
 		SmallBlind:    5,
 		BigBlind:      10,
-		MinPlayers:    3,
-		MaxPlayers:    3,
+		MinPlayers:    2,
+		MaxPlayers:    2,
 		BuyIn:         0,
 		StartingChips: 1000,
 		AutoAdvanceMs: 1000,
@@ -1359,18 +1403,14 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 	require.NoError(t, err)
 	tableID := createResp.TableId
 
-	// p2 and p3 join
-	for _, pid := range []string{p2, p3} {
-		joinResp, err := srv1.JoinTable(ctx, &pokerrpc.JoinTableRequest{
-			PlayerId: pid,
-			TableId:  tableID,
-		})
-		require.NoError(t, err)
-		assert.True(t, joinResp.Success)
-	}
+	joinResp, err := srv1.JoinTable(ctx, &pokerrpc.JoinTableRequest{
+		PlayerId: p2,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+	assert.True(t, joinResp.Success)
 
-	// Everyone ready
-	for _, pid := range []string{p1, p2, p3} {
+	for _, pid := range []string{p1, p2} {
 		_, err := srv1.SetPlayerReady(ctx, &pokerrpc.SetPlayerReadyRequest{
 			PlayerId: pid,
 			TableId:  tableID,
@@ -1378,59 +1418,98 @@ func TestSnapshotRestoresCurrentPlayer(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Wait for game to start
-	var currentPlayer string
-	for i := 0; i < 20; i++ {
-		time.Sleep(25 * time.Millisecond)
+	var pre *pokerrpc.GameUpdate
+	require.Eventually(t, func() bool {
 		stateResp, err := srv1.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 		require.NoError(t, err)
-
-		if stateResp.GameState.GameStarted && stateResp.GameState.CurrentPlayer != "" {
-			currentPlayer = stateResp.GameState.CurrentPlayer
-			break
+		if stateResp != nil && stateResp.GameState != nil && stateResp.GameState.CurrentPlayer != "" {
+			pre = stateResp.GameState
+			return true
 		}
-	}
-	require.NotEmpty(t, currentPlayer, "failed to retrieve current player")
+		return false
+	}, 3*time.Second, 25*time.Millisecond)
 
-	// Give the async persistence some time to complete safely.
-	time.Sleep(50 * time.Millisecond)
+	require.NotNil(t, pre)
 
-	// Second server instance — loads the previously saved snapshot.
+	_, err = srv1.MakeBet(ctx, &pokerrpc.MakeBetRequest{
+		PlayerId: pre.CurrentPlayer,
+		TableId:  tableID,
+		Amount:   1000,
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		stateResp, err := srv1.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		if err != nil || stateResp == nil || stateResp.GameState == nil {
+			return false
+		}
+		return stateResp.GameState.CurrentPlayer != "" && stateResp.GameState.CurrentPlayer != pre.CurrentPlayer
+	}, 3*time.Second, 25*time.Millisecond)
+
+	stateResp, err := srv1.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+	require.NoError(t, err)
+	require.NotNil(t, stateResp.GameState)
+
+	_, err = srv1.CallBet(ctx, &pokerrpc.CallBetRequest{
+		PlayerId: stateResp.GameState.CurrentPlayer,
+		TableId:  tableID,
+	})
+	require.NoError(t, err)
+
+	var showdown *pokerrpc.GameUpdate
+	require.Eventually(t, func() bool {
+		stateResp, err := srv1.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		require.NoError(t, err)
+		if stateResp != nil && stateResp.GameState != nil && stateResp.GameState.Phase == pokerrpc.GamePhase_SHOWDOWN {
+			showdown = stateResp.GameState
+			return true
+		}
+		return false
+	}, 5*time.Second, 25*time.Millisecond)
+
+	require.NotNil(t, showdown)
+	time.Sleep(100 * time.Millisecond)
+	srv1.Close()
+
 	srv2Instance, err := NewTestServer(db, logBackend)
 	require.NoError(t, err)
 	srv2 := &TestServer{Server: srv2Instance}
+	defer srv2.Close()
 
-	// Wait until the table FSM transitions to GAME_ACTIVE and a current player is available.
 	var restoredState *pokerrpc.GameUpdate
 	require.Eventually(t, func() bool {
 		st, err := srv2.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 		require.NoError(t, err)
-		if st != nil {
+		if st != nil && st.GameState != nil {
 			restoredState = st.GameState
-			if restoredState != nil && restoredState.GameStarted && restoredState.CurrentPlayer != "" {
-				return true
-			}
+			return true
 		}
 		return false
-	}, 2*time.Second, 20*time.Millisecond, "restore did not stabilize")
+	}, 2*time.Second, 20*time.Millisecond, "checkpoint restore did not stabilize")
 
-	// For any follow-up assertions below, ensure we captured the stabilized state.
 	require.NotNil(t, restoredState)
 	require.True(t, restoredState.GameStarted)
-	require.NotEmpty(t, restoredState.CurrentPlayer)
+	assert.Contains(t, []pokerrpc.GamePhase{
+		pokerrpc.GamePhase_NEW_HAND_DEALING,
+		pokerrpc.GamePhase_PRE_FLOP,
+	}, restoredState.Phase)
 
-	// Debug: Print the restored state to understand what's happening
-	t.Logf("Restored state: GameStarted=%v, CurrentPlayer=%s, CurrentBet=%d, Phase=%v",
-		restoredState.GameStarted, restoredState.CurrentPlayer,
-		restoredState.CurrentBet, restoredState.Phase)
+	balances := make(map[string]int64)
+	for _, p := range showdown.Players {
+		balances[p.Id] = p.Balance
+	}
+	for _, p := range restoredState.Players {
+		effectiveStack := p.Balance + p.CurrentBet
+		assert.Equal(t, balances[p.Id], effectiveStack, "effective stack should persist through checkpoint restore")
+	}
 
-	// Verify the game state is consistent
-	assert.True(t, restoredState.GameStarted, "game should still be started after restoration")
-	assert.NotEmpty(t, restoredState.CurrentPlayer, "current player should be calculated after restoration")
-	// CurrentBet is only guaranteed to be positive while an open bet exists
-	// (typically pre-flop after blinds). On restored post-flop streets it may
-	// legitimately be zero.
-	assert.GreaterOrEqual(t, restoredState.CurrentBet, int64(0), "current bet should be non-negative after restoration")
+	require.Eventually(t, func() bool {
+		st, err := srv2.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		if err != nil || st == nil || st.GameState == nil {
+			return false
+		}
+		return st.GameState.Phase == pokerrpc.GamePhase_PRE_FLOP && st.GameState.CurrentPlayer != ""
+	}, 3*time.Second, 25*time.Millisecond, "restored match should resume at the next hand boundary")
 }
 
 // Close properly stops the server and cleans up resources

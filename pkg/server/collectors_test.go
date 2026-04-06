@@ -20,6 +20,11 @@ type stubDB struct{}
 func (stubDB) GetSnapshot(ctx context.Context, _ string) (*db.Snapshot, error) {
 	return nil, nil
 }
+func (stubDB) UpsertMatchCheckpoint(context.Context, db.MatchCheckpoint) error { return nil }
+func (stubDB) GetMatchCheckpoint(context.Context, string) (*db.MatchCheckpoint, error) {
+	return nil, nil
+}
+func (stubDB) DeleteMatchCheckpoint(context.Context, string) error { return nil }
 
 // --- Tables (only what tests may touch indirectly) ---
 func (stubDB) GetTable(ctx context.Context, id string) (*db.Table, error) {
@@ -34,6 +39,7 @@ func (stubDB) ActiveParticipants(ctx context.Context, _ string) ([]db.Participan
 }
 func (stubDB) SeatPlayer(ctx context.Context, _ string, _ string, _ int) error { return nil }
 func (stubDB) UnseatPlayer(ctx context.Context, _ string, _ string) error      { return nil }
+func (stubDB) SetReady(context.Context, string, string, bool) error            { return nil }
 
 // --- Snapshots (fast-restore cache) ---
 func (stubDB) UpsertSnapshot(ctx context.Context, _ db.Snapshot) error   { return nil }

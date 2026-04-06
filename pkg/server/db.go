@@ -24,6 +24,9 @@ type Database interface {
 	// ---- Players / wallet ----
 	UpsertSnapshot(ctx context.Context, s db.Snapshot) error
 	GetSnapshot(ctx context.Context, tableID string) (*db.Snapshot, error)
+	UpsertMatchCheckpoint(ctx context.Context, c db.MatchCheckpoint) error
+	GetMatchCheckpoint(ctx context.Context, tableID string) (*db.MatchCheckpoint, error)
+	DeleteMatchCheckpoint(ctx context.Context, tableID string) error
 	// ---- Tables (configuration) ----
 	UpsertTable(ctx context.Context, t *poker.TableConfig) error
 	GetTable(ctx context.Context, id string) (*db.Table, error)
@@ -34,6 +37,7 @@ type Database interface {
 	ActiveParticipants(ctx context.Context, tableID string) ([]db.Participant, error)
 	SeatPlayer(ctx context.Context, tableID, playerID string, seat int) error
 	UnseatPlayer(ctx context.Context, tableID, playerID string) error
+	SetReady(ctx context.Context, tableID, playerID string, ready bool) error
 
 	// ---- Auth ----
 	UpsertAuthUser(ctx context.Context, nickname, userID string) error
@@ -123,6 +127,7 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		return nil, fmt.Errorf("failed to load participants: %w", err)
 	}
 	sort.Slice(parts, func(i, j int) bool { return parts[i].Seat < parts[j].Seat })
+	readyPlayerIDs := make([]string, 0, len(parts))
 
 	for _, p := range parts {
 		user := poker.NewUser(p.PlayerID, table, &poker.AddUserOptions{
@@ -136,20 +141,36 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 		if err := table.AddUser(user); err != nil {
 			s.log.Errorf("AddUser(%s): %v", user.ID, err)
 		}
+		if p.Ready {
+			readyPlayerIDs = append(readyPlayerIDs, p.PlayerID)
+		}
 	}
 
-	// Attempt to hydrate an in-progress game from the latest fast-restore snapshot
-	if snap, err := s.db.GetSnapshot(ctx, tableID); err == nil && snap != nil && len(snap.Payload) > 0 {
-		var persisted struct {
-			Game *poker.GameStateSnapshot `json:"Game"`
+	// Restore only from the stable match checkpoint. Mid-hand snapshot restore is
+	// intentionally not used for maintenance recovery anymore.
+	if err := s.loadMatchCheckpoint(tableID, table); err != nil && err.Error() != "match checkpoint not found" {
+		s.log.Errorf("loadMatchCheckpoint(%s) failed: %v", tableID, err)
+	}
+
+	for _, playerID := range readyPlayerIDs {
+		user := table.GetUser(playerID)
+		if user == nil {
+			continue
 		}
-		if uerr := json.Unmarshal(snap.Payload, &persisted); uerr != nil {
-			s.log.Errorf("failed to unmarshal snapshot for table %s: %v", tableID, uerr)
-		} else if persisted.Game != nil {
-			if err := s.applyGameSnapshot(table, persisted.Game); err != nil {
-				s.log.Errorf("applyGameSnapshot(%s) failed: %v", tableID, err)
+		if err := user.SendReady(); err != nil {
+			s.log.Errorf("restore ready state for %s on table %s: %v", playerID, tableID, err)
+		}
+	}
+
+	if game := table.GetGame(); game != nil &&
+		game.GetPhase() == pokerrpc.GamePhase_NEW_HAND_DEALING &&
+		table.CheckAllPlayersReady() {
+		s.log.Infof("Resuming restored match at next-hand boundary for table %s", tableID)
+		go func() {
+			if err := table.StartNextHand(); err != nil {
+				s.log.Errorf("resume restored match for table %s: %v", tableID, err)
 			}
-		}
+		}()
 	}
 
 	s.tables.Store(tableID, table)

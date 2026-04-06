@@ -132,9 +132,11 @@ type Server struct {
 	// cleanup, which must stop scheduling work once server teardown begins.
 	stopChan chan struct{}
 	stopOnce sync.Once
+	draining atomic.Bool
 
 	// Event-driven architecture components
-	eventProcessor *EventProcessor
+	eventProcessor      *EventProcessor
+	shutdownCoordinator *shutdownCoordinator
 
 	// Authentication state
 	auth *authState
@@ -214,6 +216,7 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
+	pokerServer.shutdownCoordinator = newShutdownCoordinator(pokerServer.log)
 
 	// Load persisted auth state from database
 	ctx := context.Background()
@@ -465,6 +468,7 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
+	pokerServer.shutdownCoordinator = newShutdownCoordinator(pokerServer.log)
 
 	// Load persisted tables on startup AFTER the event processor is fully
 	// initialized.
@@ -477,16 +481,17 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 
 // Stop gracefully stops the server
 func (s *Server) Stop() {
-	if s != nil {
-		s.stopOnce.Do(func() {
-			if s.stopChan != nil {
-				close(s.stopChan)
-			}
-		})
+	if s == nil {
+		return
 	}
 
-	// Stop gRPC server first to cancel all stream contexts and prevent new RPC calls.
-	// This ensures that no new game actions can be triggered via RPC after shutdown starts.
+	s.beginDrain()
+	s.waitForDrain()
+	s.saveAllMatchCheckpointsSync("shutdown drain complete")
+
+	// Stop gRPC server after active hands have drained and final checkpoints were
+	// persisted. This keeps existing players connected long enough to finish the
+	// hand while still rejecting new work once drain begins.
 	if s.grpcServer != nil {
 		s.grpcServer.Stop()
 	}
@@ -503,6 +508,13 @@ func (s *Server) Stop() {
 	if s.eventProcessor != nil {
 		s.eventProcessor.Stop()
 	}
+	if s.shutdownCoordinator != nil {
+		s.shutdownCoordinator.Stop()
+	}
+
+	// Ensure every async save that was already launched finishes against live
+	// tables before Close() flips closedFlag and zeroes snapshots.
+	s.saveWg.Wait()
 
 	// Close all tables properly to prevent goroutine leaks. This cascades
 	// into Game and Player shutdown, including state machine Stop() calls.
@@ -510,9 +522,6 @@ func (s *Server) Stop() {
 	for _, table := range tables {
 		table.Close()
 	}
-
-	// Wait for any in-flight asynchronous saves to complete before returning.
-	s.saveWg.Wait()
 
 	// Shutdown dcrd client if configured.
 	if s.dcrd != nil {
@@ -529,6 +538,58 @@ func (s *Server) Stop() {
 	if s.db != nil {
 		_ = s.db.Close()
 	}
+}
+
+func (s *Server) beginDrain() {
+	if s == nil || s.draining.Swap(true) {
+		return
+	}
+
+	tables := s.getAllTables()
+	if s.shutdownCoordinator != nil {
+		tableIDs := make([]string, 0, len(tables))
+		for _, table := range tables {
+			if table == nil {
+				continue
+			}
+			tableIDs = append(tableIDs, table.GetConfig().ID)
+		}
+		s.shutdownCoordinator.BeginDrain(tableIDs)
+	}
+
+	s.stopOnce.Do(func() {
+		if s.stopChan != nil {
+			close(s.stopChan)
+		}
+	})
+
+	if s.defaultTableMgr != nil {
+		s.defaultTableMgr.stop()
+	}
+
+	for _, table := range tables {
+		if table == nil {
+			continue
+		}
+		table.BeginDrain()
+		if s.shutdownCoordinator != nil {
+			s.shutdownCoordinator.NotifyDrainStarted(table.GetConfig().ID, table.HasActiveHand())
+		}
+	}
+}
+
+func (s *Server) waitForDrain() {
+	if s == nil || s.shutdownCoordinator == nil {
+		return
+	}
+	s.shutdownCoordinator.WaitForQuiescence()
+}
+
+func (s *Server) IsDraining() bool {
+	if s == nil {
+		return false
+	}
+	return s.draining.Load()
 }
 
 // getTable retrieves a table by ID from the registry.

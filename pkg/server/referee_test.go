@@ -21,10 +21,15 @@ type mockDB struct{}
 
 func (m *mockDB) Close() error { return nil }
 
-func (m *mockDB) UpsertSnapshot(context.Context, db.Snapshot) error { return nil }
+func (m *mockDB) UpsertSnapshot(context.Context, db.Snapshot) error               { return nil }
+func (m *mockDB) UpsertMatchCheckpoint(context.Context, db.MatchCheckpoint) error { return nil }
 func (m *mockDB) GetSnapshot(context.Context, string) (*db.Snapshot, error) {
 	return nil, fmt.Errorf("not found")
 }
+func (m *mockDB) GetMatchCheckpoint(context.Context, string) (*db.MatchCheckpoint, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (m *mockDB) DeleteMatchCheckpoint(context.Context, string) error   { return nil }
 func (m *mockDB) UpsertTable(context.Context, *poker.TableConfig) error { return nil }
 func (m *mockDB) GetTable(context.Context, string) (*db.Table, error) {
 	return nil, fmt.Errorf("not found")
@@ -36,6 +41,7 @@ func (m *mockDB) ActiveParticipants(context.Context, string) ([]db.Participant, 
 }
 func (m *mockDB) SeatPlayer(context.Context, string, string, int) error { return nil }
 func (m *mockDB) UnseatPlayer(context.Context, string, string) error    { return nil }
+func (m *mockDB) SetReady(context.Context, string, string, bool) error  { return nil }
 func (m *mockDB) UpsertAuthUser(context.Context, string, string) error  { return nil }
 func (m *mockDB) GetAuthUserByNickname(context.Context, string) (*db.AuthUser, error) {
 	return nil, fmt.Errorf("not found")

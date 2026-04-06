@@ -1249,3 +1249,71 @@ func TestTableClose_WaitGroupProperlyTracked(t *testing.T) {
 	// This should not panic
 	table.Close()
 }
+
+func TestTableDrainBlocksStartingMatch(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	u1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	u2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+	require.NoError(t, u1.SendReady())
+	require.NoError(t, u2.SendReady())
+
+	tbl.BeginDrain()
+
+	err = tbl.StartGame()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "draining")
+}
+
+func TestTableDrainCancelsAutoStartOfNextHand(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	tbl.config.AutoStartDelay = 50 * time.Millisecond
+
+	u1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	u2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+	require.NoError(t, u1.SendReady())
+	require.NoError(t, u2.SendReady())
+	require.NoError(t, tbl.StartGame())
+
+	require.Eventually(t, func() bool {
+		return tbl.GetGamePhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond)
+
+	game := tbl.GetGame()
+	require.NotNil(t, game)
+
+	var current string
+	require.Eventually(t, func() bool {
+		st := game.GetStateSnapshot()
+		if st.CurrentPlayer == "" {
+			return false
+		}
+		current = st.CurrentPlayer
+		return true
+	}, 2*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, tbl.MakeBet(current, 1000))
+
+	var other string
+	require.Eventually(t, func() bool {
+		st := game.GetStateSnapshot()
+		if st.CurrentPlayer == "" || st.CurrentPlayer == current {
+			return false
+		}
+		other = st.CurrentPlayer
+		return true
+	}, 2*time.Second, 10*time.Millisecond)
+
+	tbl.BeginDrain()
+	require.NoError(t, tbl.MakeBet(other, 1000))
+
+	require.Eventually(t, func() bool {
+		return tbl.GetGamePhase() == pokerrpc.GamePhase_SHOWDOWN
+	}, 5*time.Second, 10*time.Millisecond)
+
+	time.Sleep(150 * time.Millisecond)
+	assert.Equal(t, pokerrpc.GamePhase_SHOWDOWN, tbl.GetGamePhase())
+}

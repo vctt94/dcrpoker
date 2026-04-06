@@ -387,6 +387,12 @@ type Snapshot struct {
 	Payload    []byte
 }
 
+type MatchCheckpoint struct {
+	TableID   string
+	UpdatedAt time.Time
+	Payload   []byte
+}
+
 // =========================
 // ===== Players API =======
 // =========================
@@ -845,6 +851,38 @@ func (db *DB) GetSnapshot(ctx context.Context, tableID string) (*Snapshot, error
 		return nil, err
 	}
 	return &s, nil
+}
+
+func (db *DB) UpsertMatchCheckpoint(ctx context.Context, c MatchCheckpoint) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO match_checkpoints (table_id, updated_at, payload)
+		VALUES (?, COALESCE(?, CURRENT_TIMESTAMP), ?)
+		ON CONFLICT(table_id) DO UPDATE SET
+			updated_at = excluded.updated_at,
+			payload = excluded.payload
+	`, c.TableID, c.UpdatedAt, c.Payload)
+	return err
+}
+
+func (db *DB) GetMatchCheckpoint(ctx context.Context, tableID string) (*MatchCheckpoint, error) {
+	row := db.QueryRowContext(ctx, `
+		SELECT table_id, updated_at, payload
+		FROM match_checkpoints
+		WHERE table_id = ?
+	`, tableID)
+	var c MatchCheckpoint
+	if err := row.Scan(&c.TableID, &c.UpdatedAt, &c.Payload); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("match checkpoint not found")
+		}
+		return nil, err
+	}
+	return &c, nil
+}
+
+func (db *DB) DeleteMatchCheckpoint(ctx context.Context, tableID string) error {
+	_, err := db.ExecContext(ctx, `DELETE FROM match_checkpoints WHERE table_id = ?`, tableID)
+	return err
 }
 
 func (db *DB) DeleteSnapshot(ctx context.Context, tableID string) error {
