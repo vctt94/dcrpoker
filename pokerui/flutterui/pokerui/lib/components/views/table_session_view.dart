@@ -11,6 +11,7 @@ import 'package:pokerui/components/poker/showdown_sidebar.dart';
 import 'package:pokerui/components/poker/table.dart';
 import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/spacing.dart';
 
 class TableSessionView extends StatefulWidget {
   const TableSessionView({super.key, required this.model});
@@ -156,24 +157,56 @@ class _TableSessionViewState extends State<TableSessionView> {
           constraints.biggest,
           safePadding: MediaQuery.paddingOf(context),
         );
+        final safePadding = MediaQuery.paddingOf(context);
         final useMobileDock = scene.mode == PokerLayoutMode.compactPortrait;
         // Match hand-in-progress: on phone portrait, hero hole cards live in the dock
         // only — not also at the seat (showdown used to force seat cards and caused
         // duplicates with the dock).
         final showTableHeroCards = !useMobileDock;
         const toggleInset = 4.0;
+        const menuButtonSize = 44.0;
+        final topChromeInset = safePadding.top + PokerSpacing.md;
+        final menuCornerClearance =
+            menuButtonSize + (PokerSpacing.md * 2) + PokerSpacing.sm;
+        final panelLeftInset = safePadding.left + PokerSpacing.md;
+        final panelRightInset = safePadding.right + PokerSpacing.md;
+        final sidebarTopInset =
+            topChromeInset + menuButtonSize + PokerSpacing.sm;
+        final sidebarBottomInset = () {
+          final dockClearance =
+              constraints.maxHeight - scene.heroDockRect.top + PokerSpacing.sm;
+          final minBottomInset = safePadding.bottom + PokerSpacing.md;
+          return dockClearance > minBottomInset
+              ? dockClearance
+              : minBottomInset;
+        }();
         final uiSpec = PokerUiSpec.fromContext(context);
         final minBoardRowWidth =
             ShowdownContent.minPanelWidthForBoardRowSingleLine(
           uiSpec,
           cardScale: ShowdownSidebar.sidebarCardScale,
         );
-        final partialSidebarWidth = constraints.maxWidth * 0.48;
+        final availableSidebarWidth =
+            constraints.maxWidth - panelLeftInset - panelRightInset;
+        final maxDesktopSidebarWidth =
+            availableSidebarWidth < 560.0 ? availableSidebarWidth : 560.0;
+        final minDesktopSidebarWidth =
+            (minBoardRowWidth + PokerSpacing.lg) < maxDesktopSidebarWidth
+                ? (minBoardRowWidth + PokerSpacing.lg)
+                : maxDesktopSidebarWidth;
+        final preferredDesktopSidebarWidth = maxDesktopSidebarWidth <= 0
+            ? 0.0
+            : (constraints.maxWidth * 0.42)
+                .clamp(
+                  minDesktopSidebarWidth,
+                  maxDesktopSidebarWidth,
+                )
+                .toDouble();
         final sidebarWidth = useMobileDock
-            ? constraints.maxWidth
-            : (partialSidebarWidth >= minBoardRowWidth
-                ? partialSidebarWidth
-                : constraints.maxWidth);
+            ? availableSidebarWidth
+            : (preferredDesktopSidebarWidth <= availableSidebarWidth
+                ? preferredDesktopSidebarWidth
+                : availableSidebarWidth);
 
         return Stack(
           fit: StackFit.expand,
@@ -206,35 +239,57 @@ class _TableSessionViewState extends State<TableSessionView> {
                 () => model.setReady(),
                 gameState,
               ),
+            if (showShowdownChrome)
+              Positioned.fill(
+                child: IgnorePointer(
+                  ignoring: !_showSidebar,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _closeSidebar,
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      opacity: _showSidebar ? 1 : 0,
+                      child: Container(
+                        color: Colors.black.withValues(alpha: 0.26),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (showShowdownChrome && sidebarShowdown != null)
-              AnimatedPositioned(
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                left: _showSidebar ? 0 : -(sidebarWidth),
-                top: 0,
-                bottom: 0,
+              Positioned(
+                left: panelLeftInset,
+                top: sidebarTopInset,
+                bottom: sidebarBottomInset,
                 width: sidebarWidth,
                 child: IgnorePointer(
                   ignoring: !_showSidebar,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ShowdownSidebar(
-                          showdown: sidebarShowdown,
-                          heroId: model.playerId,
-                          visible: true,
-                          onClose: _closeSidebar,
-                        ),
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 280),
+                    curve: Curves.easeOutCubic,
+                    offset: _showSidebar ? Offset.zero : const Offset(-1.08, 0),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 220),
+                      curve: Curves.easeOutCubic,
+                      opacity: _showSidebar ? 1 : 0,
+                      child: ShowdownSidebar(
+                        showdown: sidebarShowdown,
+                        heroId: model.playerId,
+                        visible: true,
+                        onClose: _closeSidebar,
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
             if (showShowdownChrome && !_showSidebar)
               Positioned(
-                left: scene.contentRect.left + toggleInset,
-                top: scene.contentRect.top + toggleInset,
+                left: safePadding.left +
+                    PokerSpacing.md +
+                    menuCornerClearance +
+                    toggleInset,
+                top: topChromeInset,
                 child: PokerLastHandButton(
                   active: _showSidebar,
                   onTap: () => setState(() => _showSidebar = !_showSidebar),

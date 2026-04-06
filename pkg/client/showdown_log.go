@@ -22,9 +22,7 @@ func buildShowdownLogLines(ntfn *pokerrpc.Notification, fallback *pokerrpc.GameU
 			board = formatCardList(fallback.GetCommunityCards())
 		}
 		if winners := formatWinnerSummaries(ntfn.GetWinners(), playerNamesFromGameUpdate(fallback)); winners != "" {
-			return []string{
-				fmt.Sprintf("showdown table=%s board=%s winners=%s", fallbackLabel(ntfn.GetTableId(), "-"), board, winners),
-			}
+			return []string{formatShowdownSummaryLine(0, 0, board, winners)}
 		}
 		return nil
 	}
@@ -48,28 +46,36 @@ func buildShowdownLogLines(ntfn *pokerrpc.Notification, fallback *pokerrpc.GameU
 		board = fallback.GetCommunityCards()
 	}
 
-	lines := []string{
-		fmt.Sprintf(
-			"showdown table=%s hand=%s round=%d pot=%d board=%s",
-			fallbackLabel(ntfn.GetTableId(), "-"),
-			fallbackLabel(showdown.GetHandId(), "-"),
-			showdown.GetRound(),
-			showdown.GetPot(),
-			formatCardList(board),
-		),
-	}
+	lines := []string{formatShowdownSummaryLine(showdown.GetRound(), showdown.GetPot(), formatCardList(board), "")}
 
 	if winners := formatWinnerSummaries(showdown.GetWinners(), playerNames); winners != "" {
-		lines = append(lines, "showdown winners="+winners)
+		lines[0] = formatShowdownSummaryLine(showdown.GetRound(), showdown.GetPot(), formatCardList(board), winners)
 	} else if winners := formatWinnerSummaries(ntfn.GetWinners(), playerNames); winners != "" {
-		lines = append(lines, "showdown winners="+winners)
+		lines[0] = formatShowdownSummaryLine(showdown.GetRound(), showdown.GetPot(), formatCardList(board), winners)
 	}
 
 	if hands := formatShowdownPlayers(showdown.GetPlayers(), fallback, selfID); hands != "" {
-		lines = append(lines, "showdown hands="+hands)
+		lines = append(lines, "players: "+hands)
 	}
 
 	return lines
+}
+
+func formatShowdownSummaryLine(round int32, pot int64, board, winners string) string {
+	parts := []string{"showdown"}
+	if round > 0 {
+		parts = append(parts, fmt.Sprintf("r%d", round))
+	}
+	if pot > 0 {
+		parts = append(parts, fmt.Sprintf("pot %d", pot))
+	}
+	if board != "" && board != "-" {
+		parts = append(parts, "board "+board)
+	}
+	if winners != "" {
+		parts = append(parts, "winners "+winners)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func formatWinnerSummaries(winners []*pokerrpc.Winner, playerNames map[string]string) string {
@@ -114,7 +120,7 @@ func formatShowdownPlayers(players []*pokerrpc.ShowdownPlayer, fallback *pokerrp
 		}
 		label := displayNameOrID(firstNonEmpty(player.GetName(), fallbackName), player.GetPlayerId())
 		if player.GetPlayerId() == selfID {
-			label = "*" + label
+			label = "you"
 		}
 
 		holeCards := player.GetHoleCards()
@@ -122,11 +128,10 @@ func formatShowdownPlayers(players []*pokerrpc.ShowdownPlayer, fallback *pokerrp
 			holeCards = fallbackPlayer.GetHand()
 		}
 
-		part := fmt.Sprintf("%s[%s", label, formatCardList(holeCards))
+		part := fmt.Sprintf("%s %s", label, formatCardList(holeCards))
 		if state := playerStateLabel(player.GetFinalState()); state != "" {
-			part += "; " + state
+			part += " (" + state + ")"
 		}
-		part += "]"
 		parts = append(parts, part)
 	}
 

@@ -785,7 +785,7 @@ func handleInitClient(handle uint32, args initClient) (*localInfo, error) {
 		}
 	}()
 
-	cctx.log.Infof("Poker client initialized with ID: %s", clientID.String())
+	cctx.log.Info("Poker client initialized")
 
 	return &localInfo{ID: clientID.String(), Nick: nick}, nil
 }

@@ -22,8 +22,9 @@ class PokerHomeScreen extends StatefulWidget {
 
 class _PokerHomeScreenState extends State<PokerHomeScreen> {
   Widget _buildPokerContent(PokerModel model) {
-    final effectiveState =
-        model.currentTableId == null ? PokerState.browsingTables : model.state;
+    final effectiveState = !model.showTableView || model.currentTableId == null
+        ? PokerState.browsingTables
+        : model.state;
 
     switch (effectiveState) {
       case PokerState.idle:
@@ -45,9 +46,11 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
   @override
   Widget build(BuildContext context) {
     final gameStarted = context.select<PokerModel, bool>((m) =>
-        m.state == PokerState.handInProgress ||
-        m.state == PokerState.showdown ||
-        m.state == PokerState.gameEnded);
+        m.showTableView &&
+        m.currentTableId != null &&
+        (m.state == PokerState.handInProgress ||
+            m.state == PokerState.showdown ||
+            m.state == PokerState.gameEnded));
 
     // Full-bleed game shell during active gameplay
     if (gameStarted) {

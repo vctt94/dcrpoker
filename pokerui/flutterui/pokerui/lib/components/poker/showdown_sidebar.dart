@@ -55,10 +55,7 @@ class ShowdownSidebar extends StatelessWidget {
                     PokerColors.surfaceDim,
                   ],
                 ),
-                borderRadius: const BorderRadius.only(
-                  topRight: Radius.circular(28),
-                  bottomRight: Radius.circular(28),
-                ),
+                borderRadius: BorderRadius.circular(28),
                 border: Border.all(
                   color: PokerColors.borderSubtle,
                 ),

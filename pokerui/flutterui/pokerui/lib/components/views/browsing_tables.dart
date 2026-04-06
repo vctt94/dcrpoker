@@ -5,7 +5,7 @@ import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/spacing.dart';
 import 'package:pokerui/theme/typography.dart';
 
-enum _SortBy { players, blinds, buyIn }
+enum _SortBy { players, name, lowestBuyIn, highestBuyIn }
 
 enum _BuyInFilter { any, free, micro, medium, high }
 
@@ -16,10 +16,12 @@ extension on _SortBy {
     switch (this) {
       case _SortBy.players:
         return 'Most players';
-      case _SortBy.blinds:
-        return 'Highest blinds';
-      case _SortBy.buyIn:
+      case _SortBy.name:
+        return 'Name';
+      case _SortBy.lowestBuyIn:
         return 'Lowest buy-in';
+      case _SortBy.highestBuyIn:
+        return 'Highest buy-in';
     }
   }
 }
@@ -198,6 +200,30 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
     return haystacks.any((value) => value.toLowerCase().contains(query));
   }
 
+  int _compareTableNames(UiTable a, UiTable b) {
+    final nameA = _tableName(a).trim();
+    final nameB = _tableName(b).trim();
+    final lowerA = nameA.toLowerCase();
+    final lowerB = nameB.toLowerCase();
+    final byLower = lowerA.compareTo(lowerB);
+    if (byLower != 0) {
+      return byLower;
+    }
+    final byName = nameA.compareTo(nameB);
+    if (byName != 0) {
+      return byName;
+    }
+    return a.id.compareTo(b.id);
+  }
+
+  int _compareTablesByPlayers(UiTable a, UiTable b) {
+    final byPlayers = b.currentPlayers.compareTo(a.currentPlayers);
+    if (byPlayers != 0) {
+      return byPlayers;
+    }
+    return _compareTableNames(a, b);
+  }
+
   List<UiTable> get _filteredSortedTables {
     var list = List<UiTable>.of(widget.model.tables);
 
@@ -218,13 +244,28 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
 
     switch (_sort) {
       case _SortBy.players:
-        list.sort((a, b) => b.currentPlayers.compareTo(a.currentPlayers));
+        list.sort(_compareTablesByPlayers);
         break;
-      case _SortBy.blinds:
-        list.sort((a, b) => b.bigBlind.compareTo(a.bigBlind));
+      case _SortBy.name:
+        list.sort(_compareTableNames);
         break;
-      case _SortBy.buyIn:
-        list.sort((a, b) => a.buyInAtoms.compareTo(b.buyInAtoms));
+      case _SortBy.lowestBuyIn:
+        list.sort((a, b) {
+          final byBuyIn = a.buyInAtoms.compareTo(b.buyInAtoms);
+          if (byBuyIn != 0) {
+            return byBuyIn;
+          }
+          return _compareTableNames(a, b);
+        });
+        break;
+      case _SortBy.highestBuyIn:
+        list.sort((a, b) {
+          final byBuyIn = b.buyInAtoms.compareTo(a.buyInAtoms);
+          if (byBuyIn != 0) {
+            return byBuyIn;
+          }
+          return _compareTableNames(a, b);
+        });
         break;
     }
 
@@ -234,6 +275,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
   void _clearFilters() {
     _searchController.clear();
     setState(() {
+      _sort = _SortBy.players;
       _hideFull = false;
       _showWaitingOnly = false;
       _buyIn = _BuyInFilter.any;
@@ -553,6 +595,7 @@ class _BrowseFiltersCard extends StatelessWidget {
           _FilterSection(
             title: 'Sort by',
             child: DropdownButtonFormField<_SortBy>(
+              key: const Key('browse-sort-dropdown'),
               initialValue: sort,
               items: _SortBy.values
                   .map(

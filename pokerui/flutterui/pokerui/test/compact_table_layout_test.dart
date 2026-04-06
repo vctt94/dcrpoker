@@ -45,6 +45,7 @@ class _MockPokerModel extends PokerModel {
 final _defaultConfig = Config(
   serverAddr: '127.0.0.1:50051',
   grpcCertPath: '',
+  nickname: '',
   payoutAddress: '',
   debugLevel: 'info',
   soundsEnabled: false,
@@ -413,7 +414,8 @@ void main() {
     final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
     final tableRect = tester.getRect(find.byType(PokerTableBackground));
 
-    expect(buttonRect.left, lessThan(tableRect.left + 32));
+    expect(buttonRect.left, greaterThan(tableRect.left + 56));
+    expect(buttonRect.left, lessThan(tableRect.left + 180));
     expect(buttonRect.top, lessThan(tableRect.top + 32));
     expect(buttonRect.bottom, lessThan(dockRect.top - 24));
 
@@ -428,8 +430,10 @@ void main() {
     expect(find.byTooltip('Close last hand details'), findsOneWidget);
     final sidebarRect =
         tester.getRect(find.byKey(const Key('showdown-sidebar')));
-    expect(sidebarRect.left, 0);
-    expect(sidebarRect.top, 0);
+    expect(sidebarRect.left, greaterThan(0));
+    expect(sidebarRect.top, greaterThan(0));
+    expect(sidebarRect.right, lessThan(viewport.width));
+    expect(sidebarRect.bottom, lessThan(dockRect.top));
     expect(sidebarRect.height, lessThan(viewport.height));
     expect(sidebarRect.width, lessThan(viewport.width));
 

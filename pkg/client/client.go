@@ -21,10 +21,12 @@ import (
 	"github.com/vctt94/pokerbisonrelay/pkg/rpc/grpc/pokerrpc"
 	pokerutils "github.com/vctt94/pokerbisonrelay/pkg/utils"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -459,7 +461,7 @@ func (pc *PokerClient) stopGameStream() {
 	pc.gameStreamCtx = nil
 	pc.gameStreamTable = ""
 	pc.setGameStreamConnectionState(false, nil)
-	pc.log.Info("Stopped game stream")
+	pc.log.Debug("stopped game stream")
 }
 
 // consumeGameStream processes incoming game updates from a stream until error or cancellation.
@@ -481,8 +483,7 @@ func (pc *PokerClient) consumeGameStream(ctx context.Context, stream pokerrpc.Po
 				return err
 			}
 
-			pc.log.Errorf("Game stream error: %v", err)
-			pc.enqueueError(fmt.Errorf("game stream error: %v", err))
+			pc.enqueueError(fmt.Errorf("game stream error: %s", summarizeRPCError(err)))
 			return err
 		}
 
@@ -577,7 +578,51 @@ func isNotAtTableError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "not currently at a table")
+
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "not currently at a table") || strings.Contains(msg, "player not at table") {
+		return true
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+
+	if st.Code() == codes.NotFound || st.Code() == codes.FailedPrecondition {
+		desc := strings.ToLower(strings.TrimSpace(st.Message()))
+		return strings.Contains(desc, "player not at table") || strings.Contains(desc, "not currently at a table")
+	}
+
+	return false
+}
+
+func summarizeRPCError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		return strings.TrimSpace(err.Error())
+	}
+
+	desc := strings.TrimSpace(st.Message())
+	if desc == "" {
+		return strings.ToLower(st.Code().String())
+	}
+
+	switch st.Code() {
+	case codes.Unavailable:
+		if strings.EqualFold(desc, "error reading from server: EOF") {
+			return "server unavailable"
+		}
+		return desc
+	case codes.NotFound, codes.FailedPrecondition, codes.InvalidArgument, codes.Unauthenticated, codes.PermissionDenied, codes.AlreadyExists:
+		return desc
+	default:
+		return fmt.Sprintf("%s: %s", strings.ToLower(st.Code().String()), desc)
+	}
 }
 
 // setConnectionState updates connection flags and emits a synthetic notification for UI layers.
@@ -600,16 +645,16 @@ func (pc *PokerClient) setConnectionState(connected bool, reason error) {
 	var msg string
 	if connected {
 		msg = "connection restored"
-		pc.log.Infof("notification stream connected at %s", now.Format(time.RFC3339))
+		pc.log.Debug("notifications connected")
 	} else {
 		msg = "connection lost"
 		if reason != nil && !isExpectedStreamShutdown(reason) {
-			msg = fmt.Sprintf("connection lost: %v", reason)
+			msg = fmt.Sprintf("connection lost: %s", summarizeRPCError(reason))
 		}
 		if isExpectedStreamShutdown(reason) {
-			pc.log.Infof("notification stream reconnecting")
+			pc.log.Debug("notifications reconnecting")
 		} else {
-			pc.log.Warnf("notification stream disconnected: %v", reason)
+			pc.log.Warnf("notifications disconnected: %s", summarizeRPCError(reason))
 		}
 	}
 
@@ -636,12 +681,12 @@ func (pc *PokerClient) setGameStreamConnectionState(connected bool, reason error
 	} else {
 		msg = "game stream disconnected"
 		if reason != nil && !isExpectedStreamShutdown(reason) {
-			msg = fmt.Sprintf("game stream disconnected: %v", reason)
+			msg = fmt.Sprintf("game stream disconnected: %s", summarizeRPCError(reason))
 		}
 		if isExpectedStreamShutdown(reason) {
 			pc.log.Debug("game stream reconnecting")
 		} else {
-			pc.log.Warnf("game stream disconnected: %v", reason)
+			pc.log.Warnf("game stream disconnected: %s", summarizeRPCError(reason))
 		}
 	}
 
