@@ -94,6 +94,69 @@ void main() {
     expect(find.text('Summit Room'), findsNothing);
   });
 
+  testWidgets('browse tables default to most players, then alphabetical', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final model = PokerModel(playerId: 'player-1', dataDir: '/tmp');
+    model.tables = [
+      table(id: 'charlie', name: 'Charlie', buyInAtoms: 0, currentPlayers: 2),
+      table(id: 'bravo', name: 'Bravo', buyInAtoms: 0, currentPlayers: 3),
+      table(id: 'alpha', name: 'Alpha', buyInAtoms: 0, currentPlayers: 2),
+    ];
+
+    await tester.pumpWidget(appFor(model));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('sorted by most players'), findsOneWidget);
+
+    final bravoY = tester.getTopLeft(find.text('Bravo')).dy;
+    final alphaY = tester.getTopLeft(find.text('Alpha')).dy;
+    final charlieY = tester.getTopLeft(find.text('Charlie')).dy;
+
+    expect(bravoY, lessThan(alphaY));
+    expect(alphaY, lessThan(charlieY));
+  });
+
+  testWidgets('browse tables can be sorted by name', (tester) async {
+    tester.view.physicalSize = const Size(430, 1400);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    final model = PokerModel(playerId: 'player-1', dataDir: '/tmp');
+    model.tables = [
+      table(id: 'charlie', name: 'Charlie', buyInAtoms: 0, currentPlayers: 4),
+      table(id: 'bravo', name: 'Bravo', buyInAtoms: 0, currentPlayers: 2),
+      table(id: 'alpha', name: 'Alpha', buyInAtoms: 0, currentPlayers: 3),
+    ];
+
+    await tester.pumpWidget(appFor(model));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('browse-sort-dropdown')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Name').last);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('sorted by name'), findsOneWidget);
+
+    final alphaY = tester.getTopLeft(find.text('Alpha')).dy;
+    final bravoY = tester.getTopLeft(find.text('Bravo')).dy;
+    final charlieY = tester.getTopLeft(find.text('Charlie')).dy;
+
+    expect(alphaY, lessThan(bravoY));
+    expect(bravoY, lessThan(charlieY));
+  });
+
   testWidgets('browse filters narrow the visible tables by player count', (
     tester,
   ) async {
