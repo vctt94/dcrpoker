@@ -3058,12 +3058,38 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 // between-hand checkpoints.
 func (g *Game) GetBlindSnapshot() BlindSnapshot {
 	g.mu.RLock()
-	bm := g.blindManager
-	g.mu.RUnlock()
-	if bm == nil {
-		return BlindSnapshot{}
+	defer g.mu.RUnlock()
+
+	if g.config.BlindIncreaseInterval <= 0 {
+		return BlindSnapshot{
+			CurrentLevel: g.liveBlindLevel,
+			State:        BlindStateDisabled,
+		}
 	}
-	return bm.Snapshot()
+
+	state := BlindStateWaiting
+	switch {
+	case g.round <= 0:
+		state = BlindStateWaiting
+	case g.liveNextBlindMs == 0:
+		state = BlindStateMaxLevel
+	case time.Now().UnixMilli() >= g.liveNextBlindMs:
+		state = BlindStatePending
+	default:
+		state = BlindStateActive
+	}
+
+	snap := BlindSnapshot{
+		CurrentLevel:   g.liveBlindLevel,
+		State:          state,
+		NextIncreaseMs: g.liveNextBlindMs,
+	}
+	if g.config.BlindIncreaseInterval > 0 && g.liveNextBlindMs > 0 {
+		next := time.UnixMilli(g.liveNextBlindMs)
+		start := next.Add(-time.Duration(g.liveBlindLevel+1) * g.config.BlindIncreaseInterval)
+		snap.StartUnixMs = start.UnixMilli()
+	}
+	return snap
 }
 
 // RestorePausedMatchState seeds stable multi-hand state while keeping the FSM

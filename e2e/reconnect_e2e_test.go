@@ -17,11 +17,10 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-// TestReconnectRestore_ChecksAdvance verifies that after a server restart and reconnect
-// the game is restored and a pair of checks on the flop advances the game to the turn.
-//
-// NOTE: This test encodes the expected behavior.
-func TestReconnectRestore_ChecksAdvance(t *testing.T) {
+// TestReconnectRestore_MidHandReturnsWaiting verifies that restarting during
+// FLOP does not restore the in-flight hand. The table comes back in WAITING
+// with the seated ready players preserved.
+func TestReconnectRestore_MidHandReturnsWaiting(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -170,39 +169,31 @@ func TestReconnectRestore_ChecksAdvance(t *testing.T) {
 	if _, err := s2.Recv(); err == nil { /* ok */
 	}
 
-	// Wait until restored game shows FLOP after reconnect
-	waitPhase(b2.pc, pokerrpc.GamePhase_FLOP)
-
-	// 4) After reconnect: both players check; EXPECT: advance to TURN
-	st, err = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.NoError(t, err)
-	cur = st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: cur, TableId: tableID})
-	require.NoError(t, err)
-
-	// Next player checks
+	// Mid-hand restore is intentionally disabled. The table should come back in
+	// WAITING with no current player and no active hand to act on.
 	require.Eventually(t, func() bool {
 		st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		if err != nil || st == nil || st.GameState == nil {
-			return false
-		}
-		return st.GameState.GetCurrentPlayer() != cur
-	}, 2*time.Second, 25*time.Millisecond)
-	st, _ = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	next = st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: next, TableId: tableID})
-	require.NoError(t, err)
+		return err == nil && st != nil && st.GameState != nil &&
+			st.GameState.GetPhase() == pokerrpc.GamePhase_WAITING
+	}, 3*time.Second, 25*time.Millisecond)
 
-	// Assert we advance to TURN
-	require.Eventually(t, func() bool {
-		st, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		return st.GameState.GetPhase() == pokerrpc.GamePhase_TURN
-	}, 2*time.Second, 25*time.Millisecond, "expected to advance to TURN after two checks post-reconnect")
+	st, err = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+	require.NoError(t, err)
+	require.Equal(t, pokerrpc.GamePhase_WAITING, st.GameState.GetPhase())
+	require.Empty(t, st.GameState.GetCurrentPlayer())
+	require.Len(t, st.GameState.GetPlayers(), 2)
+	for _, pl := range st.GameState.GetPlayers() {
+		require.True(t, pl.GetIsReady(), "ready state should survive mid-hand restart")
+	}
+
+	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: p1, TableId: tableID})
+	require.Error(t, err, "actions must be rejected when no hand is restored")
 }
 
-// Ensures restoring at TURN preserves a non-zero pot and a valid current player,
-// and that out-of-turn actions are rejected after restore (no false positives).
-func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
+// TestReconnectRestore_TurnReturnsWaiting verifies that restarting during TURN
+// drops the in-flight hand instead of restoring street state, pot state, or a
+// current actor.
+func TestReconnectRestore_TurnReturnsWaiting(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -339,41 +330,30 @@ func TestReconnectRestore_TurnPotPreserved(t *testing.T) {
 	}
 	_, _ = s2.Recv()
 
-	// Verify restored TURN with non-zero pot and valid current player not ALL_IN
-	// CI can be slower to restore; allow a bit more time here.
+	// Mid-hand restore is intentionally disabled.
 	require.Eventually(t, func() bool {
 		st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		return err == nil && st.GameState.GetPhase() == pokerrpc.GamePhase_TURN
-	}, 6*time.Second, 25*time.Millisecond)
+		return err == nil && st != nil && st.GameState != nil &&
+			st.GameState.GetPhase() == pokerrpc.GamePhase_WAITING
+	}, 3*time.Second, 25*time.Millisecond)
 	stR, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	require.NoError(t, err)
-	require.Equal(t, pokerrpc.GamePhase_TURN, stR.GameState.GetPhase())
-	require.Greater(t, stR.GameState.GetPot(), int64(0), "expected non-zero pot at TURN after restore")
-	curID := stR.GameState.GetCurrentPlayer()
-	require.NotEmpty(t, curID, "expected a current player at TURN")
-	// Ensure current player is not all-in
-	isAllIn := false
+	require.Equal(t, pokerrpc.GamePhase_WAITING, stR.GameState.GetPhase())
+	require.Zero(t, stR.GameState.GetPot(), "no in-flight pot should survive restart")
+	require.Empty(t, stR.GameState.GetCurrentPlayer(), "no current player should remain after dropping the hand")
+	require.Len(t, stR.GameState.GetPlayers(), 2)
 	for _, pl := range stR.GameState.GetPlayers() {
-		if pl.GetId() == curID {
-			isAllIn = pl.GetIsAllIn()
-			break
-		}
+		require.True(t, pl.GetIsReady(), "ready state should survive mid-hand restart")
 	}
-	require.False(t, isAllIn, "current player should not be ALL_IN at TURN")
 
-	// Out-of-turn action should be rejected
-	other := p1
-	if curID == p1 {
-		other = p2
-	}
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: other, TableId: tableID})
-	require.Error(t, err, "out-of-turn action should be rejected after restore at TURN")
+	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: p2, TableId: tableID})
+	require.Error(t, err, "actions must be rejected when TURN is not restored")
 }
 
-// TestReconnectRestore_NoDuplicateBoardCards ensures that after a server restart
-// during PRE_FLOP, the subsequently dealt FLOP does not contain any of the
-// players' hole cards (i.e., deck state is correctly restored).
-func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
+// TestReconnectRestore_PreFlopClearsHoleCards verifies that restarting during
+// PRE_FLOP does not restore the in-flight hand and does not leak previously
+// dealt hole cards after reconnect.
+func TestReconnectRestore_PreFlopClearsHoleCards(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -526,8 +506,6 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 	if _, err := rs2.Recv(); err == nil { /* initial snapshot ok */
 	}
 
-	// Restore timing can vary under parallel load. If we restored at PRE_FLOP,
-	// drive one call/check to reach FLOP; if already on/after FLOP, continue.
 	var st *pokerrpc.GetGameStateResponse
 	require.Eventually(t, func() bool {
 		resp, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
@@ -538,51 +516,25 @@ func TestReconnectRestore_NoDuplicateBoardCards(t *testing.T) {
 		return true
 	}, 3*time.Second, 25*time.Millisecond)
 
-	if st.GameState.GetPhase() == pokerrpc.GamePhase_PRE_FLOP {
-		// Complete pre-flop: current player calls; next player checks → FLOP
-		cur := st.GameState.GetCurrentPlayer()
-		_, err = b2.pc.CallBet(ctx, &pokerrpc.CallBetRequest{TableId: tableID, PlayerId: cur})
-		require.NoError(t, err)
-
-		// Wait turn to switch, then check
-		require.Eventually(t, func() bool {
-			nextState, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-			return nextState != nil && nextState.GameState != nil && nextState.GameState.GetCurrentPlayer() != cur
-		}, 2*time.Second, 25*time.Millisecond)
-		nextState, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		require.NoError(t, err)
-		next := nextState.GameState.GetCurrentPlayer()
-		_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: next})
-		require.NoError(t, err)
+	require.Equal(t, pokerrpc.GamePhase_WAITING, st.GameState.GetPhase())
+	require.Empty(t, st.GameState.GetCurrentPlayer())
+	for _, pl := range st.GameState.GetPlayers() {
+		require.Empty(t, pl.GetHand(), "restored WAITING state must not expose old hole cards")
 	}
 
-	// Wait until flop cards are available (at least first 3 board cards).
-	require.Eventually(t, func() bool {
-		gs, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		return gs != nil && gs.GameState != nil && len(gs.GameState.CommunityCards) >= 3
-	}, 3*time.Second, 25*time.Millisecond)
+	// Sanity check that cards really were dealt before restart, so this asserts
+	// the reconnect path is clearing prior in-flight hand data.
+	require.Len(t, p1Hole, 2)
+	require.Len(t, p2Hole, 2)
 
-	// Fetch community cards and assert no duplicates with any hole card
-	st, err = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.NoError(t, err)
-	board := st.GameState.CommunityCards
-	require.True(t, len(board) >= 3)
-	// Build a set of all hole cards
-	key := func(c *pokerrpc.Card) string { return c.Value + "|" + c.Suit }
-	holes := map[string]struct{}{
-		key(p1Hole[0]): {}, key(p1Hole[1]): {}, key(p2Hole[0]): {}, key(p2Hole[1]): {},
-	}
-	for i := 0; i < 3; i++ { // only flop
-		if _, dup := holes[key(board[i])]; dup {
-			t.Fatalf("duplicate card on board after restore: %s of %s appears in hole cards", board[i].GetValue(), board[i].GetSuit())
-		}
-	}
+	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: p1, TableId: tableID})
+	require.Error(t, err, "actions must be rejected when PRE_FLOP is not restored")
 }
 
-// TestReconnectRestore_ShowdownPhasePreserved ensures that after finishing a hand
-// at SHOWDOWN and restarting, the restored phase remains SHOWDOWN with no current player,
-// and actions are rejected.
-func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
+// TestReconnectRestore_ShowdownStartsNextHand verifies that a restart after
+// SHOWDOWN resumes the match from the next-hand boundary instead of restoring
+// the completed hand.
+func TestReconnectRestore_ShowdownStartsNextHand(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -788,25 +740,33 @@ func TestReconnectRestore_ShowdownPhasePreserved(t *testing.T) {
 	}
 	_, _ = s2.Recv()
 
-	// Restored phase must remain SHOWDOWN and there must be no current player
-	st2, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.NoError(t, err)
-	require.Equal(t, pokerrpc.GamePhase_SHOWDOWN, st2.GameState.GetPhase(), "restored phase should remain SHOWDOWN, not regress")
-	require.Equal(t, "", st2.GameState.GetCurrentPlayer(), "no current player at SHOWDOWN")
+	var st2 *pokerrpc.GetGameStateResponse
+	require.Eventually(t, func() bool {
+		resp, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		if err != nil || resp == nil || resp.GameState == nil {
+			return false
+		}
+		st2 = resp
+		return resp.GameState.GetPhase() == pokerrpc.GamePhase_PRE_FLOP &&
+			resp.GameState.GetCurrentPlayer() != ""
+	}, 3*time.Second, 25*time.Millisecond)
 
-	// Any action at SHOWDOWN must be rejected and phase remain unchanged
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: p1, TableId: tableID})
-	require.Error(t, err, "actions must be rejected at SHOWDOWN")
-	st3, _ := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.Equal(t, pokerrpc.GamePhase_SHOWDOWN, st3.GameState.GetPhase())
+	require.NotNil(t, st2)
+	require.Equal(t, pokerrpc.GamePhase_PRE_FLOP, st2.GameState.GetPhase())
+	require.NotEmpty(t, st2.GameState.GetCurrentPlayer(), "a fresh hand should resume with a current player")
+
+	outOfTurn := p1
+	if st2.GameState.GetCurrentPlayer() == p1 {
+		outOfTurn = p2
+	}
+	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: outOfTurn, TableId: tableID})
+	require.Error(t, err, "out-of-turn actions should still be rejected on the resumed hand")
 }
 
-// TestPotRestoration_AfterReconnect verifies that after a server restart and reconnect,
-// the pot amount is correctly restored and distributed to the winner during showdown.
-//
-// This test reproduces the bug where pot=0 is restored from snapshot, causing
-// "0 winners" in showdown despite correct hand evaluation.
-func TestPotRestoration_AfterReconnect(t *testing.T) {
+// TestPotRestoration_NoStalePotAfterReconnect verifies that a restart during an
+// in-flight hand does not preserve the old pot. Mid-hand restore is disabled,
+// so reconnect should return WAITING with a zero pot.
+func TestPotRestoration_NoStalePotAfterReconnect(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -979,55 +939,18 @@ func TestPotRestoration_AfterReconnect(t *testing.T) {
 	if _, err := s2.Recv(); err == nil { /* ok */
 	}
 
-	// Wait until restored game shows TURN after reconnect
-	waitPhase(b2.pc, pokerrpc.GamePhase_TURN)
-
-	// 4) After reconnect: both players check through TURN and RIVER to reach showdown
-	st, err = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.NoError(t, err)
-	cur = st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: cur, TableId: tableID})
-	require.NoError(t, err)
-
-	// Next player checks
 	require.Eventually(t, func() bool {
 		st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		if err != nil || st == nil || st.GameState == nil {
-			return false
-		}
-		return st.GameState.GetCurrentPlayer() != cur
-	}, 2*time.Second, 25*time.Millisecond)
-	st, _ = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	next = st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: next, TableId: tableID})
-	require.NoError(t, err)
+		return err == nil && st != nil && st.GameState != nil &&
+			st.GameState.GetPhase() == pokerrpc.GamePhase_WAITING
+	}, 3*time.Second, 25*time.Millisecond)
 
-	// We should now be on RIVER
-	waitPhase(b2.pc, pokerrpc.GamePhase_RIVER)
-
-	// RIVER: both players check to reach showdown. Avoid racing phase change.
 	st, err = b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	require.NoError(t, err)
-	cur = st.GameState.GetCurrentPlayer()
-	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: cur, TableId: tableID})
-	require.NoError(t, err)
+	require.Equal(t, pokerrpc.GamePhase_WAITING, st.GameState.GetPhase())
+	require.Zero(t, st.GameState.GetPot(), "stale pot must not survive mid-hand reconnect")
+	require.Empty(t, st.GameState.GetCurrentPlayer())
 
-	// Determine the other player's ID (heads-up)
-	other := p1
-	if cur == p1 {
-		other = p2
-	}
-
-	// Wait until either it's the other player's turn on RIVER, or SHOWDOWN already
-	require.Eventually(t, func() bool {
-		st, err := b2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-		if err != nil || st == nil || st.GameState == nil {
-			return false
-		}
-		ph := st.GameState.GetPhase()
-		if ph == pokerrpc.GamePhase_SHOWDOWN {
-			return true
-		}
-		return ph == pokerrpc.GamePhase_RIVER && st.GameState.GetCurrentPlayer() == other
-	}, 2*time.Second, 25*time.Millisecond)
+	_, err = b2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{PlayerId: p1, TableId: tableID})
+	require.Error(t, err, "actions must be rejected when the old hand is discarded")
 }

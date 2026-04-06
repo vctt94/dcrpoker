@@ -19,9 +19,9 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-// TestShowdownRestoreBug_HandEvaluationCorrectness verifies that after a server restart
-// during a hand, the showdown correctly determines the winner based on hand strength.
-func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
+// TestShowdownHandEvaluationCorrectness verifies that showdown winners match
+// local hand evaluation for the final board and hole cards.
+func TestShowdownHandEvaluationCorrectness(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -299,70 +299,17 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 
 	cmp := poker.CompareHands(hv1, hv2)
 
-	// 4) Server restart simulation - stop first server
-	boot1.grpc.Stop()
-	boot1.conn.Close()
-
-	// 5) Start second server instance (restore from snapshot)
-	boot2 := start(t)
-	defer boot2.db.Close()
-	defer boot2.srv.Stop()
-	defer boot2.conn.Close()
-	defer boot2.grpc.Stop()
-
-	// Reconnect both players (read a single initial snapshot to ensure stream is established)
-	s1r, err := boot2.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p1})
-	require.NoError(t, err)
-	if closer, ok := interface{}(s1r).(interface{ CloseSend() error }); ok {
-		defer closer.CloseSend()
-	}
-	s2r, err := boot2.pc.StartGameStream(ctx, &pokerrpc.StartGameStreamRequest{TableId: tableID, PlayerId: p2})
-	require.NoError(t, err)
-	if closer, ok := interface{}(s2r).(interface{ CloseSend() error }); ok {
-		defer closer.CloseSend()
-	}
-	// Reuse a lightweight one-shot receive with timeout
-	recvOne := func(s pokerrpc.PokerService_StartGameStreamClient, d time.Duration) *pokerrpc.GameUpdate {
-		ch := make(chan *pokerrpc.GameUpdate, 1)
-		errCh := make(chan error, 1)
-		go func() {
-			st, err := s.Recv()
-			if err != nil {
-				errCh <- err
-				return
-			}
-			ch <- st
-		}()
-		select {
-		case st := <-ch:
-			return st
-		case err := <-errCh:
-			require.NoError(t, err)
-			return nil
-		case <-time.After(5 * time.Second):
-			t.Fatalf("timeout waiting for restored stream update")
-			return nil
-		}
-	}
-	_ = recvOne(s1r, 5*time.Second)
-	_ = recvOne(s2r, 5*time.Second)
-
-	// Verify we're still in RIVER phase
-	stR, err := boot2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
-	require.NoError(t, err)
-	require.Equal(t, pokerrpc.GamePhase_RIVER, stR.GameState.GetPhase())
-
-	// Complete the hand on RIVER using current player order (post-restore)
-	curR := stR.GameState.GetCurrentPlayer()
-	require.NotEmpty(t, curR)
-	_, err = boot2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: curR})
+	// 4) Complete the hand on RIVER before restart.
+	cur = r.GameState.GetCurrentPlayer()
+	require.NotEmpty(t, cur)
+	_, err = boot1.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: cur})
 	require.NoError(t, err)
 	other := p1
-	if curR == p1 {
+	if cur == p1 {
 		other = p2
 	}
 	require.Eventually(t, func() bool {
-		st, err := boot2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		st, err := boot1.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 		if err != nil || st == nil || st.GameState == nil {
 			return false
 		}
@@ -372,20 +319,18 @@ func TestShowdownRestoreBug_HandEvaluationCorrectness(t *testing.T) {
 		}
 		return ph == pokerrpc.GamePhase_RIVER && st.GameState.GetCurrentPlayer() == other
 	}, 2*time.Second, 25*time.Millisecond)
-	stAfter, _ := boot2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+	stAfter, _ := boot1.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 	if stAfter.GameState.GetPhase() == pokerrpc.GamePhase_RIVER {
-		_, err = boot2.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: other})
+		_, err = boot1.pc.CheckBet(ctx, &pokerrpc.CheckBetRequest{TableId: tableID, PlayerId: other})
 		require.NoError(t, err)
 	}
 
-	// Wait for showdown to complete
 	require.Eventually(t, func() bool {
-		st, err := boot2.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
+		st, err := boot1.pc.GetGameState(ctx, &pokerrpc.GetGameStateRequest{TableId: tableID})
 		return err == nil && st.GameState.GetPhase() == pokerrpc.GamePhase_SHOWDOWN
 	}, 3*time.Second, 25*time.Millisecond)
 
-	// Winners must match evaluator
-	winners, err := boot2.pc.GetLastWinners(ctx, &pokerrpc.GetLastWinnersRequest{TableId: tableID})
+	winners, err := boot1.pc.GetLastWinners(ctx, &pokerrpc.GetLastWinnersRequest{TableId: tableID})
 	require.NoError(t, err)
 	switch cmp {
 	case 0:

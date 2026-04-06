@@ -1774,6 +1774,25 @@ func TestTimebankExpiryBroadcast(t *testing.T) {
 	wg.Wait()
 }
 
+func TestProcessTableEventsStopsWhenChannelClosed(t *testing.T) {
+	s := newBareServer()
+
+	eventChan := make(chan poker.TableEvent)
+	done := make(chan struct{})
+	go func() {
+		s.processTableEvents(eventChan)
+		close(done)
+	}()
+
+	close(eventChan)
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("processTableEvents did not exit after channel close")
+	}
+}
+
 func TestSetPlayerReadyRequiresFundedEscrowWhenBound(t *testing.T) {
 	ctx := context.Background()
 	db := NewInMemoryDB()

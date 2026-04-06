@@ -230,6 +230,11 @@ func (t *Table) Close() {
 		t.mu.Lock()
 		game := t.game
 		sm := t.sm
+		users := make([]*User, 0, len(t.users))
+		for _, user := range t.users {
+			users = append(users, user)
+		}
+		eventChan := t.eventManager.eventChannel
 		t.mu.Unlock()
 
 		// Signal stop to all background goroutines
@@ -244,15 +249,29 @@ func (t *Table) Close() {
 			game.Close()
 		}
 
+		// Stop any seated user FSMs that outlive the active game.
+		for _, user := range users {
+			if user != nil {
+				user.Close()
+			}
+		}
+
 		// Stop the table state machine (without holding lock to avoid deadlock)
 		if sm != nil {
 			sm.Stop()
+		}
+
+		// Closing the outbound event channel lets the server-side table event
+		// forwarder exit as soon as the table is finalized.
+		if eventChan != nil {
+			close(eventChan)
 		}
 
 		// Clear references after shutdown to aid GC; keep outside of hot path.
 		t.mu.Lock()
 		t.game = nil
 		t.sm = nil
+		t.eventManager.eventChannel = nil
 		t.mu.Unlock()
 	})
 }

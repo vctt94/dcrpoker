@@ -90,7 +90,7 @@ func (c *shutdownCoordinator) Stop() {
 	if c == nil || c.sm == nil {
 		return
 	}
-	c.sm.TrySend(evShutdownStop{})
+	c.closeDrainDone()
 	c.sm.Stop()
 }
 

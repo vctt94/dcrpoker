@@ -222,6 +222,8 @@ func (u *User) Close() {
 	// Grab reference to state machine while holding lock
 	u.mu.Lock()
 	tableMachine := u.sm
+	u.sm = nil
+	u.table = nil
 	u.mu.Unlock()
 
 	// Stop state machine

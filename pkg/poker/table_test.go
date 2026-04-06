@@ -39,7 +39,6 @@ func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChip
 	}()
 	t.Cleanup(func() {
 		tbl.Close()
-		close(eventChan)
 	})
 	return tbl
 }
@@ -1116,6 +1115,14 @@ func TestTableClose_WithGame(t *testing.T) {
 	}
 
 	table := NewTable(cfg)
+	eventChan := make(chan TableEvent, 16)
+	eventsDone := make(chan struct{})
+	table.SetEventChannel(eventChan)
+	go func() {
+		for range eventChan {
+		}
+		close(eventsDone)
+	}()
 
 	// Add users to the table
 	user1 := NewUser("user1", table, nil)
@@ -1166,6 +1173,25 @@ func TestTableClose_WithGame(t *testing.T) {
 	}
 	if sm != nil {
 		t.Error("Expected table.sm to be nil after Close()")
+	}
+	user1.mu.RLock()
+	user1SM := user1.sm
+	user1Table := user1.table
+	user1.mu.RUnlock()
+	user2.mu.RLock()
+	user2SM := user2.sm
+	user2Table := user2.table
+	user2.mu.RUnlock()
+	if user1SM != nil || user2SM != nil {
+		t.Error("Expected user state machines to be nil after Close()")
+	}
+	if user1Table != nil || user2Table != nil {
+		t.Error("Expected user table references to be nil after Close()")
+	}
+	select {
+	case <-eventsDone:
+	case <-time.After(time.Second):
+		t.Fatal("Expected table event channel reader to exit after Close()")
 	}
 }
 

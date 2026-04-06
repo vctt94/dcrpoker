@@ -782,7 +782,6 @@ func (s *Server) processTableEvents(eventChan <-chan poker.TableEvent) {
 
 		// Publish to notification/state handlers
 		s.eventProcessor.PublishEvent(ev)
-
 	}
 }
 

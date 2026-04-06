@@ -134,6 +134,10 @@ type Server struct {
 	stopOnce sync.Once
 	draining atomic.Bool
 
+	// Drain active tables only for real server shutdowns. Tests still rely on
+	// immediate stop semantics to simulate restarts and teardown half-finished hands.
+	drainOnShutdown bool
+
 	// Event-driven architecture components
 	eventProcessor      *EventProcessor
 	shutdownCoordinator *shutdownCoordinator
@@ -163,13 +167,14 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	}
 
 	pokerServer := &Server{
-		log:           cfg.LogBackend.Logger("SERVER"),
-		logBackend:    cfg.LogBackend,
-		db:            db,
-		chainParams:   selectChainParams(cfg.Network),
-		adaptorSecret: cfg.AdaptorSecret,
-		defaultTables: append([]DefaultTableProfile(nil), cfg.DefaultTables...),
-		stopChan:      make(chan struct{}),
+		log:             cfg.LogBackend.Logger("SERVER"),
+		logBackend:      cfg.LogBackend,
+		db:              db,
+		chainParams:     selectChainParams(cfg.Network),
+		adaptorSecret:   cfg.AdaptorSecret,
+		defaultTables:   append([]DefaultTableProfile(nil), cfg.DefaultTables...),
+		stopChan:        make(chan struct{}),
+		drainOnShutdown: true,
 	}
 
 	// Initialize auth state
@@ -453,12 +458,13 @@ func BuildHTTPTLSConfig(datadir, certFile, keyFile, caCertFile string) (*tls.Con
 // It can be used by e2e tests that need to set up their own gRPC server.
 func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error) {
 	pokerServer := &Server{
-		log:           logBackend.Logger("SERVER"),
-		logBackend:    logBackend,
-		db:            db,
-		chainParams:   selectChainParams("testnet"),
-		adaptorSecret: "",
-		stopChan:      make(chan struct{}),
+		log:             logBackend.Logger("SERVER"),
+		logBackend:      logBackend,
+		db:              db,
+		chainParams:     selectChainParams("testnet"),
+		adaptorSecret:   "",
+		stopChan:        make(chan struct{}),
+		drainOnShutdown: false,
 	}
 
 	// Initialize auth state
@@ -468,7 +474,6 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 	// Initialize event processor for deadlock-free architecture
 	pokerServer.eventProcessor = NewEventProcessor(pokerServer, 1000, 3) // queue size: 1000, workers: 3
 	pokerServer.eventProcessor.Start()
-	pokerServer.shutdownCoordinator = newShutdownCoordinator(pokerServer.log)
 
 	// Load persisted tables on startup AFTER the event processor is fully
 	// initialized.
@@ -485,9 +490,17 @@ func (s *Server) Stop() {
 		return
 	}
 
-	s.beginDrain()
-	s.waitForDrain()
-	s.saveAllMatchCheckpointsSync("shutdown drain complete")
+	if s.drainOnShutdown {
+		s.beginDrain()
+		s.waitForDrain()
+		s.saveAllMatchCheckpointsSync("shutdown drain complete")
+	} else {
+		s.stopOnce.Do(func() {
+			if s.stopChan != nil {
+				close(s.stopChan)
+			}
+		})
+	}
 
 	// Stop gRPC server after active hands have drained and final checkpoints were
 	// persisted. This keeps existing players connected long enough to finish the
