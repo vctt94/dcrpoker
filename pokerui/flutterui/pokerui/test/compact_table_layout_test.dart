@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fixnum/fixnum.dart';
 import 'package:provider/provider.dart';
 import 'package:pokerui/components/poker/bottom_action_dock.dart';
 import 'package:pokerui/components/poker/cards.dart';
@@ -506,7 +507,7 @@ void main() {
     expect(scrolledTop, lessThan(initialTop));
   });
 
-  testWidgets('game ended preview enlarges last-hand community cards',
+  testWidgets('game ended keeps last-hand details behind a button',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');
     model.setShowdownDataForTest(
@@ -572,14 +573,10 @@ void main() {
     );
     await tester.pump();
 
-    final boardCardSize =
-        tester.getSize(find.byKey(const Key('game-ended-showdown-card-0')));
-
-    expect(boardCardSize.width, greaterThan(45));
-    expect(boardCardSize.height, greaterThan(65));
     final viewShowdownButton =
         find.byKey(const Key('game-ended-view-showdown-button'));
     expect(viewShowdownButton, findsOneWidget);
+    expect(find.byKey(const Key('game-ended-showdown-card-0')), findsNothing);
 
     await tester.ensureVisible(viewShowdownButton);
     await tester.tap(viewShowdownButton);
@@ -587,6 +584,95 @@ void main() {
 
     expect(find.byKey(const Key('last-showdown-dialog')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('game ended derives DCR result client-side for escrow table',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.currentTableId = 'table-1';
+    model.setShowdownDataForTest(
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 180,
+      winners: const [
+        UiWinner(
+          playerId: 'hero',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 180,
+        ),
+      ],
+    );
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.GAME_ENDED,
+      tableId: 'table-1',
+      winnerId: 'hero',
+      isWinner: true,
+      amount: Int64(100000000),
+      message: 'Game ended',
+    ));
+
+    await tester.pumpWidget(
+      _wrap(
+        child: GameEndedView(model: model),
+        size: const Size(430, 900),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('You Won'), findsOneWidget);
+    expect(find.text('Congratulations! You won 1.0000 DCR.'), findsOneWidget);
+  });
+
+  testWidgets(
+      'game ended uses explicit match result for DCR loss messaging after split showdown',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.currentTableId = 'table-1';
+    model.setShowdownDataForTest(
+      players: [
+        _player(id: 'hero', name: 'Hero'),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 180,
+      winners: const [
+        UiWinner(
+          playerId: 'hero',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 90,
+        ),
+        UiWinner(
+          playerId: 'villain',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 90,
+        ),
+      ],
+    );
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.GAME_ENDED,
+      tableId: 'table-1',
+      winnerId: 'villain',
+      isWinner: false,
+      amount: Int64(-100000000),
+      message: 'Game ended',
+    ));
+
+    await tester.pumpWidget(
+      _wrap(
+        child: GameEndedView(model: model),
+        size: const Size(430, 900),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('You Lost'), findsOneWidget);
+    expect(find.text('Sorry, you lost 1.0000 DCR.'), findsOneWidget);
   });
 
   testWidgets('game ended does not render stale last-showdown preview',
@@ -666,7 +752,7 @@ void main() {
       find.byKey(const Key('game-ended-view-showdown-button')),
       findsNothing,
     );
-    expect(find.text('Game ended'), findsOneWidget);
+    expect(find.text('Game finished.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

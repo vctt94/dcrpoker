@@ -172,31 +172,34 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 	nh.server.log.Infof("Game ended - winner: %s, seat: %d, matchID: %s, pot: %d",
 		pl.WinnerID, pl.WinnerSeat, pl.MatchID, pl.TotalPot)
 
-	winnerLabel := pl.WinnerID
+	var buyInAtoms int64
 	if table, ok := nh.server.getTable(event.TableID); ok && table != nil {
-		if winner := table.GetUser(pl.WinnerID); winner != nil && winner.Name != "" {
-			winnerLabel = winner.Name
-		}
+		_ = table.GetUser(pl.WinnerID)
+		buyInAtoms = table.GetConfig().BuyIn
 	}
 
 	// Send personalized notifications to each player
+	entrants := pl.Entrants
+	if entrants <= 0 {
+		entrants = len(event.PlayerIDs)
+	}
 	for _, playerID := range event.PlayerIDs {
 		isWinner := playerID == pl.WinnerID
-		var message string
-		if isWinner {
-			message = fmt.Sprintf("Congratulations! You won the game with %d chips!", pl.TotalPot)
-		} else {
-			message = fmt.Sprintf("Game over. %s won with %d chips.", winnerLabel, pl.TotalPot)
+		amountAtoms := -buyInAtoms
+		if isWinner && entrants > 1 {
+			amountAtoms = buyInAtoms * int64(entrants-1)
+		} else if isWinner {
+			amountAtoms = 0
 		}
 
 		notification := &pokerrpc.Notification{
 			Type:       pokerrpc.NotificationType_GAME_ENDED,
 			TableId:    event.TableID,
-			Message:    message,
+			Message:    "Game ended",
 			WinnerId:   pl.WinnerID,
 			WinnerSeat: pl.WinnerSeat,
 			MatchId:    pl.MatchID,
-			Amount:     pl.TotalPot,
+			Amount:     amountAtoms,
 			IsWinner:   isWinner,
 		}
 		nh.server.sendNotificationToPlayer(playerID, notification)

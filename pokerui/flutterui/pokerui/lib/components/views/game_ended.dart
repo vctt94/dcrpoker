@@ -1,9 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:pokerui/components/dialogs/last_showdown.dart';
-import 'package:pokerui/components/poker/cards.dart';
-import 'package:pokerui/components/poker/table_theme.dart';
 import 'package:pokerui/models/poker.dart';
-import 'package:pokerui/config.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
 import 'package:pokerui/theme/spacing.dart';
@@ -37,51 +34,53 @@ class GameEndedView extends StatelessWidget {
     return pid.length > 8 ? '${pid.substring(0, 8)}...' : pid;
   }
 
-  String _winnerChipLabel(UiWinner w) {
-    if (w.playerId == model.playerId) {
-      return 'You';
-    }
-    return _winnerLabel(w);
+  String _headline(bool isWin, bool isDraw) {
+    if (isWin) return 'You Won';
+    if (isDraw) return 'Table Finished';
+    return 'You Lost';
   }
 
-  String _winnerSummary() {
-    final winners = model.showdownWinners;
-    if (winners.isEmpty) {
-      return model.gameEndingMessage.isNotEmpty
-          ? model.gameEndingMessage
-          : 'Game ended';
-    }
+  bool? _explicitGameResult() => model.didWinGame;
+  int? _gameEndAmountAtoms() => model.gameEndAmountAtoms;
 
-    final iWon = winners.any((w) => w.playerId == model.playerId);
-    if (!iWon) {
-      return model.gameEndingMessage.isNotEmpty
-          ? model.gameEndingMessage
-          : 'You lost.';
-    }
+  String _formatDcr(int atoms) => '${(atoms / 1e8).toStringAsFixed(4)} DCR';
 
-    final names = winners.map(_winnerLabel).toList(growable: false);
-    if (names.length == 1) {
-      return 'Congratulations! You are the winner.';
+  String _summary(bool isWin, bool isDraw) {
+    final amountAtoms = _gameEndAmountAtoms();
+    if (amountAtoms != null && amountAtoms != 0) {
+      final displayAtoms = amountAtoms.abs();
+      if (isWin) {
+        return 'Congratulations! You won ${_formatDcr(displayAtoms)}.';
+      }
+      if (!isDraw) {
+        return 'Sorry, you lost ${_formatDcr(displayAtoms)}.';
+      }
     }
-    if (iWon) {
-      return 'Congratulations! You are one of the winners.';
+    if (isWin) {
+      return 'Congratulations! You won the table.';
     }
-    return 'Winners: ${names.join(', ')}';
+    if (isDraw) {
+      final names =
+          model.showdownWinners.map(_winnerLabel).toList(growable: false);
+      return names.isEmpty ? 'Table finished.' : 'Winners: ${names.join(', ')}';
+    }
+    final message = model.gameEndingMessage.trim();
+    if (message.isNotEmpty && message != 'Game ended') {
+      return message;
+    }
+    return 'Game finished.';
   }
 
   @override
   Widget build(BuildContext context) {
-    final uiSpec = PokerUiSpec.fromContext(context);
-    final cardTheme = cardColorThemeFromKey(context.cardTheme);
-    final previewCardSize = uiSpec.gameEndedPreviewCardSize(surfaceScale: 1.2);
-    final showdown = model.showdown;
-    final message = _winnerSummary();
+    final explicitResult = _explicitGameResult();
     final hasWinners = model.showdownWinners.isNotEmpty;
     final iWon = model.showdownWinners.any((w) => w.playerId == model.playerId);
-    final isDraw = model.showdownWinners.length > 1;
-    final isWin = hasWinners && iWon;
-    final showWinnerSummary = hasWinners && (iWon || isDraw);
-    final hasShowdown = showdown != null;
+    final isDraw = explicitResult == null && model.showdownWinners.length > 1;
+    final isWin = explicitResult ?? (hasWinners && iWon);
+    final title = _headline(isWin, isDraw);
+    final message = _summary(isWin, isDraw);
+    final hasShowdown = model.hasShowdown;
 
     final accentColor = isWin
         ? PokerColors.success
@@ -126,7 +125,7 @@ class GameEndedView extends StatelessWidget {
                   ),
                   const SizedBox(height: PokerSpacing.xl),
                   Text(
-                    "Game End!",
+                    title,
                     style: PokerTypography.displayLarge.copyWith(
                       fontSize: constraints.maxWidth < 360 ? 24 : 32,
                       color: accentColor,
@@ -140,97 +139,17 @@ class GameEndedView extends StatelessWidget {
                   ),
                   const SizedBox(height: PokerSpacing.xxl),
                   if (hasShowdown) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(PokerSpacing.lg),
-                      decoration: BoxDecoration(
-                        color: PokerColors.surfaceDim,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: PokerColors.borderSubtle),
+                    const SizedBox(height: PokerSpacing.sm),
+                    TextButton.icon(
+                      key: const Key(
+                        'game-ended-view-showdown-button',
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                showWinnerSummary
-                                    ? (model.showdownWinners.length > 1
-                                        ? 'Winners'
-                                        : 'Winner')
-                                    : 'Last hand',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (showWinnerSummary) ...[
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: model.showdownWinners
-                                  .map((w) => Chip(
-                                        backgroundColor:
-                                            Colors.green.withOpacity(0.15),
-                                        label: Text(
-                                          _winnerChipLabel(w),
-                                          style: const TextStyle(
-                                              color: Colors.white),
-                                        ),
-                                      ))
-                                  .toList(),
-                            ),
-                          ],
-                          if ((showdown?.communityCards ?? const [])
-                              .isNotEmpty) ...[
-                            const SizedBox(height: PokerSpacing.md),
-                            Text('Community cards',
-                                style: PokerTypography.labelSmall),
-                            const SizedBox(height: PokerSpacing.sm),
-                            Wrap(
-                              alignment: WrapAlignment.center,
-                              spacing: 6,
-                              runSpacing: 6,
-                              children: showdown!.communityCards
-                                  .asMap()
-                                  .entries
-                                  .map((entry) => SizedBox(
-                                        key: Key(
-                                            'game-ended-showdown-card-${entry.key}'),
-                                        width: previewCardSize.width,
-                                        height: previewCardSize.height,
-                                        child: CardFace(
-                                          card: entry.value,
-                                          cardTheme: cardTheme,
-                                        ),
-                                      ))
-                                  .toList(),
-                            ),
-                          ],
-                          if (hasShowdown) ...[
-                            const SizedBox(height: PokerSpacing.md),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton.icon(
-                                key: const Key(
-                                  'game-ended-view-showdown-button',
-                                ),
-                                onPressed: () =>
-                                    LastShowdownDialog.show(context, model),
-                                icon: const Icon(
-                                  Icons.remove_red_eye,
-                                  size: 16,
-                                ),
-                                label: const Text('View showdown'),
-                              ),
-                            ),
-                          ],
-                        ],
+                      onPressed: () => LastShowdownDialog.show(context, model),
+                      icon: const Icon(
+                        Icons.remove_red_eye,
+                        size: 16,
                       ),
+                      label: const Text('View last hand'),
                     ),
                     const SizedBox(height: PokerSpacing.xl),
                   ],
