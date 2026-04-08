@@ -27,6 +27,9 @@ func newTableID() string {
 }
 
 func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableRequest) (*pokerrpc.CreateTableResponse, error) {
+	if s.IsDraining() {
+		return nil, status.Error(codes.Unavailable, "server is draining for shutdown")
+	}
 	// Prevent joining a different table while still seated in an active game.
 	if activeTableID, found := s.findActiveTableForPlayer(req.PlayerId); found {
 		return nil, status.Errorf(codes.FailedPrecondition, "player already in active game at table %s", activeTableID)
@@ -63,6 +66,12 @@ func (s *Server) CreateTable(ctx context.Context, req *pokerrpc.CreateTableReque
 }
 
 func (s *Server) JoinTable(ctx context.Context, req *pokerrpc.JoinTableRequest) (*pokerrpc.JoinTableResponse, error) {
+	if s.IsDraining() {
+		return &pokerrpc.JoinTableResponse{
+			Success: false,
+			Message: "Server is draining for shutdown",
+		}, nil
+	}
 	table, ok := s.getTable(req.TableId)
 	if !ok {
 		return &pokerrpc.JoinTableResponse{Success: false, Message: "Table not found"}, nil
@@ -178,6 +187,9 @@ func (s *Server) WatchTable(ctx context.Context, req *pokerrpc.WatchTableRequest
 }
 
 func (s *Server) createTable(ctx context.Context, cfg poker.TableConfig, initialPlayerID string) (*poker.Table, error) {
+	if s.IsDraining() {
+		return nil, fmt.Errorf("server is draining for shutdown")
+	}
 	normalizeTableConfig(&cfg)
 	if strings.TrimSpace(cfg.ID) == "" {
 		cfg.ID = newTableID()
@@ -513,6 +525,9 @@ func (s *Server) findActiveTableForPlayer(playerID string) (string, bool) {
 }
 
 func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerReadyRequest) (*pokerrpc.SetPlayerReadyResponse, error) {
+	if s.IsDraining() {
+		return nil, status.Error(codes.Unavailable, "server is draining for shutdown")
+	}
 	// Get table reference
 	table, ok := s.getTable(req.TableId)
 
@@ -560,13 +575,15 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 	// Inform FSM so snapshots reflect readiness via player marshal.
 	user.SendReady()
 	table.SendPlayerReady(req.PlayerId, true)
+	if err := s.db.SetReady(ctx, req.TableId, req.PlayerId, true); err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to persist ready state: %v", err))
+	}
 
 	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 		s.publishTableSnapshotEvent(req.TableId, snap)
 	}
 
 	allReady := table.CheckAllPlayersReady()
-	gameStarted := table.IsGameStarted()
 
 	// Publish typed PLAYER_READY event
 	event, err := s.buildGameEvent(
@@ -582,7 +599,7 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 	// If all players are ready and the game hasn't started yet, either:
 	//   - for escrow-backed tables (BuyIn > 0), ensure presigning is complete; or
 	//   - for non-escrow tables (BuyIn == 0), start immediately.
-	if allReady && !gameStarted {
+	if allReady {
 		matchID := req.TableId
 		if cfg.BuyIn > 0 {
 			complete, completedSeats, totalSeats := s.IsPresigningComplete(matchID)
@@ -618,8 +635,19 @@ func (s *Server) SetPlayerReady(ctx context.Context, req *pokerrpc.SetPlayerRead
 // and when presigning completes in the referee.
 func (s *Server) maybeStartGameAfterPresign(table *poker.Table, tableID, matchID, playerID string) {
 	allReady := table.CheckAllPlayersReady()
-	gameStarted := table.IsGameStarted()
-	if !allReady || gameStarted {
+	if !allReady {
+		return
+	}
+
+	if game := table.GetGame(); game != nil {
+		if game.GetPhase() != pokerrpc.GamePhase_NEW_HAND_DEALING {
+			return
+		}
+		go func() {
+			if err := table.StartNextHand(); err != nil {
+				s.log.Errorf("Failed to resume match for table %s: %v", tableID, err)
+			}
+		}()
 		return
 	}
 
@@ -676,6 +704,9 @@ func (s *Server) SetPlayerUnready(ctx context.Context, req *pokerrpc.SetPlayerUn
 	}
 	user.SendUnready()
 	table.SendPlayerReady(req.PlayerId, false)
+	if err := s.db.SetReady(ctx, req.TableId, req.PlayerId, false); err != nil {
+		return nil, status.Error(codes.Internal, fmt.Sprintf("failed to persist ready state: %v", err))
+	}
 	if snap, err := s.collectTableSnapshot(req.TableId); err == nil {
 		s.publishTableSnapshotEvent(req.TableId, snap)
 	}
@@ -751,7 +782,6 @@ func (s *Server) processTableEvents(eventChan <-chan poker.TableEvent) {
 
 		// Publish to notification/state handlers
 		s.eventProcessor.PublishEvent(ev)
-
 	}
 }
 
@@ -913,6 +943,9 @@ func (s *Server) finalizeTableRemoval(tableID string) {
 	// Delete from database
 	if err := s.db.DeleteTable(context.Background(), tableID); err != nil {
 		s.log.Errorf("Failed to delete table %s in DB after TABLE_REMOVED: %v", tableID, err)
+	}
+	if err := s.db.DeleteMatchCheckpoint(context.Background(), tableID); err != nil {
+		s.log.Errorf("Failed to delete match checkpoint for table %s: %v", tableID, err)
 	}
 	if s.defaultTableMgr != nil && removedCfg.Source == managedTableSourceDefault {
 		s.defaultTableMgr.notifyManagedTableRemoved(removedCfg.ID, defaultTableConfigProfileKey(removedCfg))

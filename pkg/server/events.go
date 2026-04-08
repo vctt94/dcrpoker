@@ -234,7 +234,7 @@ func (w *eventWorker) processEvent(event *GameEvent) {
 	w.processNotifications(event)
 	w.processGameStateUpdates(event)
 	w.processPersistence(event)
-
+	w.processor.server.observeShutdownEvent(event)
 }
 
 // processNotifications handles notification broadcasting for the event
@@ -265,4 +265,5 @@ func (w *eventWorker) processTableRemoved(event *GameEvent) {
 	// Now broadcast to clients that the table is gone.
 	handler := NewNotificationHandler(s)
 	handler.handleTableRemoved(event)
+	s.observeShutdownEvent(event)
 }

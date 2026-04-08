@@ -184,6 +184,7 @@ type Table struct {
 	// Shutdown management
 	closeOnce  sync.Once
 	closedFlag atomic.Bool
+	drainFlag  atomic.Bool
 	wg         sync.WaitGroup
 }
 
@@ -229,6 +230,11 @@ func (t *Table) Close() {
 		t.mu.Lock()
 		game := t.game
 		sm := t.sm
+		users := make([]*User, 0, len(t.users))
+		for _, user := range t.users {
+			users = append(users, user)
+		}
+		eventChan := t.eventManager.eventChannel
 		t.mu.Unlock()
 
 		// Signal stop to all background goroutines
@@ -243,15 +249,29 @@ func (t *Table) Close() {
 			game.Close()
 		}
 
+		// Stop any seated user FSMs that outlive the active game.
+		for _, user := range users {
+			if user != nil {
+				user.Close()
+			}
+		}
+
 		// Stop the table state machine (without holding lock to avoid deadlock)
 		if sm != nil {
 			sm.Stop()
+		}
+
+		// Closing the outbound event channel lets the server-side table event
+		// forwarder exit as soon as the table is finalized.
+		if eventChan != nil {
+			close(eventChan)
 		}
 
 		// Clear references after shutdown to aid GC; keep outside of hot path.
 		t.mu.Lock()
 		t.game = nil
 		t.sm = nil
+		t.eventManager.eventChannel = nil
 		t.mu.Unlock()
 	})
 }
@@ -847,6 +867,9 @@ func (t *Table) StartGame() error {
 	if t.GetTableStateString() == "GAME_ENDED" {
 		return fmt.Errorf("cannot start game: table has ended")
 	}
+	if t.drainFlag.Load() {
+		return fmt.Errorf("cannot start game: table is draining for server shutdown")
+	}
 
 	if !t.allSeatedPlayersReadyLocked(false) {
 		return fmt.Errorf("cannot start game: not enough ready players")
@@ -1029,6 +1052,10 @@ func (t *Table) handleShowdownComplete(result *ShowdownResult) error {
 func (t *Table) startNewHand() error {
 	t.log.Debugf("startNewHand: Starting new hand")
 
+	if t.drainFlag.Load() {
+		return fmt.Errorf("cannot start new hand: table is draining for server shutdown")
+	}
+
 	// Build the sorted users list under table lock only.
 	t.mu.Lock()
 	if t.game == nil {
@@ -1084,6 +1111,63 @@ func (t *Table) startNewHand() error {
 	}
 
 	return nil
+}
+
+// StartNextHand resumes an existing match from the next-hand boundary.
+func (t *Table) StartNextHand() error {
+	return t.startNewHand()
+}
+
+// BeginDrain prevents any new hands from starting on this table.
+func (t *Table) BeginDrain() {
+	if t == nil {
+		return
+	}
+	if t.drainFlag.Swap(true) {
+		return
+	}
+
+	t.mu.RLock()
+	game := t.game
+	t.mu.RUnlock()
+
+	if game != nil {
+		game.CancelAutoStart()
+	}
+
+	t.PublishEvent(
+		pokerrpc.NotificationType_MESSAGE,
+		t.config.ID,
+		MessagePayload{Message: "Server restart requested. Current hand will finish, and no new hand will start."},
+	)
+}
+
+func (t *Table) IsDraining() bool {
+	if t == nil {
+		return false
+	}
+	return t.drainFlag.Load()
+}
+
+// HasActiveHand reports whether a hand is currently in progress and must be
+// allowed to settle before a graceful shutdown can complete.
+func (t *Table) HasActiveHand() bool {
+	t.mu.RLock()
+	game := t.game
+	t.mu.RUnlock()
+	if game == nil {
+		return false
+	}
+
+	switch game.GetPhase() {
+	case pokerrpc.GamePhase_PRE_FLOP,
+		pokerrpc.GamePhase_FLOP,
+		pokerrpc.GamePhase_TURN,
+		pokerrpc.GamePhase_RIVER:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetStatus returns the current status of the table
@@ -1770,6 +1854,20 @@ type TableStateSnapshot struct {
 	Game   GameStateSnapshot // Nested game state snapshot if game is active
 }
 
+// MatchStateSnapshot is the durable subset needed to resume a match at the
+// next-hand boundary without reconstructing an in-flight hand.
+type MatchStateSnapshot struct {
+	Round                   int
+	Dealer                  int
+	Players                 []PlayerSnapshot
+	Blind                   BlindSnapshot
+	SmallBlind              int64
+	BigBlind                int64
+	BlindLevel              int
+	NextBlindIncreaseUnixMs int64
+	LastShowdown            *ShowdownResult
+}
+
 // GetStateSnapshot returns an atomic snapshot of the table state for safe concurrent access
 func (t *Table) GetStateSnapshot() TableStateSnapshot {
 	if t.closedFlag.Load() {
@@ -1807,6 +1905,70 @@ func (t *Table) GetStateSnapshot() TableStateSnapshot {
 		Users:  usersCopy,
 		Game:   gameSnapshot,
 	}
+}
+
+// RestorePausedMatch recreates the long-lived Game object for a match that was
+// checkpointed between hands. The next hand still starts through the normal FSM.
+func (t *Table) RestorePausedMatch(snapshot MatchStateSnapshot) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	tblCfg := t.config
+	gameLog := t.log
+	if tblCfg.GameLog != nil {
+		gameLog = tblCfg.GameLog
+	}
+
+	game, err := NewGame(GameConfig{
+		NumPlayers:            len(t.users),
+		StartingChips:         tblCfg.StartingChips,
+		SmallBlind:            tblCfg.SmallBlind,
+		BigBlind:              tblCfg.BigBlind,
+		TimeBank:              tblCfg.TimeBank,
+		AutoStartDelay:        tblCfg.AutoStartDelay,
+		AutoAdvanceDelay:      tblCfg.AutoAdvanceDelay,
+		BlindIncreaseInterval: tblCfg.BlindIncreaseInterval,
+		Log:                   gameLog,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create restored game: %w", err)
+	}
+
+	active := make([]*User, 0, len(t.users))
+	for _, u := range t.users {
+		active = append(active, u)
+	}
+	sort.Slice(active, func(i, j int) bool { return active[i].TableSeat < active[j].TableSeat })
+
+	game.SetPlayers(active)
+	game.SetTableEventChannel(t.gameEventChan)
+
+	players := make(map[string]PlayerSnapshot, len(snapshot.Players))
+	for _, ps := range snapshot.Players {
+		players[ps.ID] = ps
+	}
+	game.RestorePausedMatchState(
+		snapshot.Round,
+		snapshot.Dealer,
+		players,
+		snapshot.LastShowdown,
+		snapshot.Blind,
+		snapshot.SmallBlind,
+		snapshot.BigBlind,
+		snapshot.BlindLevel,
+		snapshot.NextBlindIncreaseUnixMs,
+	)
+
+	t.game = game
+	t.lastShowdown = snapshot.LastShowdown
+	if snapshot.LastShowdown != nil {
+		t.resolvedRound = snapshot.LastShowdown.Round
+	} else {
+		t.resolvedRound = -1
+	}
+
+	go game.Start(context.Background())
+	return nil
 }
 
 // XX We need to properly fix this restore for clients. and properly restore game state from sm

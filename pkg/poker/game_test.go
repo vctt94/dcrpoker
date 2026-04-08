@@ -2663,7 +2663,6 @@ func TestAllIn_ActivePlayer_AutoAdvancesWithOneActive(t *testing.T) {
 	}()
 	defer func() {
 		tbl.Close()
-		close(eventChan)
 	}()
 
 	// Add two players
@@ -3040,4 +3039,41 @@ func TestShowdownRaceCondition(t *testing.T) {
 		"Stale showdown request should NOT trigger showdown for the current hand")
 
 	t.Log("✓ Stale showdown request was correctly ignored")
+}
+
+func TestGetBlindSnapshotAfterGameClose(t *testing.T) {
+	cfg := GameConfig{
+		NumPlayers:            2,
+		StartingChips:         1000,
+		SmallBlind:            10,
+		BigBlind:              20,
+		AutoAdvanceDelay:      time.Second,
+		BlindIncreaseInterval: time.Minute,
+		Log:                   createTestLogger(),
+	}
+
+	game, err := NewGame(cfg)
+	require.NoError(t, err)
+
+	nextIncrease := time.Now().Add(2 * time.Minute).UnixMilli()
+	game.round = 3
+	game.liveBlindLevel = 2
+	game.liveNextBlindMs = nextIncrease
+
+	game.Close()
+
+	done := make(chan BlindSnapshot, 1)
+	go func() {
+		done <- game.GetBlindSnapshot()
+	}()
+
+	select {
+	case snap := <-done:
+		require.Equal(t, BlindStateActive, snap.State)
+		require.Equal(t, 2, snap.CurrentLevel)
+		require.Equal(t, nextIncrease, snap.NextIncreaseMs)
+		require.Equal(t, time.UnixMilli(nextIncrease).Add(-3*time.Minute).UnixMilli(), snap.StartUnixMs)
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("GetBlindSnapshot blocked after Game.Close")
+	}
 }

@@ -29,15 +29,28 @@ func (f failingDB) SeatPlayer(ctx context.Context, tableID, playerID string, sea
 	return nil
 }
 func (f failingDB) UnseatPlayer(ctx context.Context, tableID, playerID string) error { return nil }
+func (f failingDB) SetReady(ctx context.Context, tableID, playerID string, ready bool) error {
+	return nil
+}
 
 // Snapshots — force failure
 func (f failingDB) UpsertSnapshot(ctx context.Context, s sdb.Snapshot) error {
 	return errors.New("forced snapshot error")
 }
 
+func (f failingDB) UpsertMatchCheckpoint(ctx context.Context, c sdb.MatchCheckpoint) error {
+	return nil
+}
+
 func (f failingDB) GetSnapshot(ctx context.Context, tableID string) (*sdb.Snapshot, error) {
 	return nil, fmt.Errorf("snapshot not found")
 }
+
+func (f failingDB) GetMatchCheckpoint(ctx context.Context, tableID string) (*sdb.MatchCheckpoint, error) {
+	return nil, fmt.Errorf("match checkpoint not found")
+}
+
+func (f failingDB) DeleteMatchCheckpoint(ctx context.Context, tableID string) error { return nil }
 
 // Auth
 func (f failingDB) UpsertAuthUser(ctx context.Context, _, _ string) error { return nil }

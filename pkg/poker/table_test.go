@@ -39,7 +39,6 @@ func newTestTable(t *testing.T, minPlayers, maxPlayers int, sb, bb, startingChip
 	}()
 	t.Cleanup(func() {
 		tbl.Close()
-		close(eventChan)
 	})
 	return tbl
 }
@@ -1116,6 +1115,14 @@ func TestTableClose_WithGame(t *testing.T) {
 	}
 
 	table := NewTable(cfg)
+	eventChan := make(chan TableEvent, 16)
+	eventsDone := make(chan struct{})
+	table.SetEventChannel(eventChan)
+	go func() {
+		for range eventChan {
+		}
+		close(eventsDone)
+	}()
 
 	// Add users to the table
 	user1 := NewUser("user1", table, nil)
@@ -1166,6 +1173,25 @@ func TestTableClose_WithGame(t *testing.T) {
 	}
 	if sm != nil {
 		t.Error("Expected table.sm to be nil after Close()")
+	}
+	user1.mu.RLock()
+	user1SM := user1.sm
+	user1Table := user1.table
+	user1.mu.RUnlock()
+	user2.mu.RLock()
+	user2SM := user2.sm
+	user2Table := user2.table
+	user2.mu.RUnlock()
+	if user1SM != nil || user2SM != nil {
+		t.Error("Expected user state machines to be nil after Close()")
+	}
+	if user1Table != nil || user2Table != nil {
+		t.Error("Expected user table references to be nil after Close()")
+	}
+	select {
+	case <-eventsDone:
+	case <-time.After(time.Second):
+		t.Fatal("Expected table event channel reader to exit after Close()")
 	}
 }
 
@@ -1248,4 +1274,72 @@ func TestTableClose_WaitGroupProperlyTracked(t *testing.T) {
 	// Verify we can't accidentally double-close channels (closeOnce protection)
 	// This should not panic
 	table.Close()
+}
+
+func TestTableDrainBlocksStartingMatch(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	u1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	u2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+	require.NoError(t, u1.SendReady())
+	require.NoError(t, u2.SendReady())
+
+	tbl.BeginDrain()
+
+	err = tbl.StartGame()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "draining")
+}
+
+func TestTableDrainCancelsAutoStartOfNextHand(t *testing.T) {
+	tbl := newTestTable(t, 2, 2, 5, 10, 1000)
+	tbl.config.AutoStartDelay = 50 * time.Millisecond
+
+	u1, err := tbl.AddNewUser("p1", nil)
+	require.NoError(t, err)
+	u2, err := tbl.AddNewUser("p2", nil)
+	require.NoError(t, err)
+	require.NoError(t, u1.SendReady())
+	require.NoError(t, u2.SendReady())
+	require.NoError(t, tbl.StartGame())
+
+	require.Eventually(t, func() bool {
+		return tbl.GetGamePhase() == pokerrpc.GamePhase_PRE_FLOP
+	}, 2*time.Second, 10*time.Millisecond)
+
+	game := tbl.GetGame()
+	require.NotNil(t, game)
+
+	var current string
+	require.Eventually(t, func() bool {
+		st := game.GetStateSnapshot()
+		if st.CurrentPlayer == "" {
+			return false
+		}
+		current = st.CurrentPlayer
+		return true
+	}, 2*time.Second, 10*time.Millisecond)
+
+	require.NoError(t, tbl.MakeBet(current, 1000))
+
+	var other string
+	require.Eventually(t, func() bool {
+		st := game.GetStateSnapshot()
+		if st.CurrentPlayer == "" || st.CurrentPlayer == current {
+			return false
+		}
+		other = st.CurrentPlayer
+		return true
+	}, 2*time.Second, 10*time.Millisecond)
+
+	tbl.BeginDrain()
+	require.NoError(t, tbl.MakeBet(other, 1000))
+
+	require.Eventually(t, func() bool {
+		return tbl.GetGamePhase() == pokerrpc.GamePhase_SHOWDOWN
+	}, 5*time.Second, 10*time.Millisecond)
+
+	time.Sleep(150 * time.Millisecond)
+	assert.Equal(t, pokerrpc.GamePhase_SHOWDOWN, tbl.GetGamePhase())
 }

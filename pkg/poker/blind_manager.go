@@ -66,6 +66,15 @@ type BlindInfo struct {
 	NextIncreaseUnixMs int64 // 0 when disabled or at max
 }
 
+// BlindSnapshot is the durable subset needed to resume blind progression at a
+// hand boundary without restoring an in-flight hand.
+type BlindSnapshot struct {
+	CurrentLevel   int        `json:"current_level"`
+	State          BlindState `json:"state"`
+	StartUnixMs    int64      `json:"start_unix_ms"`
+	NextIncreaseMs int64      `json:"next_increase_ms"`
+}
+
 // BlindApplyResult is the reply from evBlindApply.
 type BlindApplyResult struct {
 	Level   BlindLevel
@@ -195,6 +204,63 @@ func (bm *BlindManager) Schedule() []BlindLevel {
 	out := make([]BlindLevel, len(bm.schedule))
 	copy(out, bm.schedule)
 	return out
+}
+
+// Snapshot returns the current blind progression state for durable checkpoints.
+func (bm *BlindManager) Snapshot() BlindSnapshot {
+	info := bm.GetInfo()
+	snap := BlindSnapshot{
+		CurrentLevel:   info.Index,
+		State:          info.State,
+		NextIncreaseMs: info.NextIncreaseUnixMs,
+	}
+	if bm.interval > 0 && info.NextIncreaseUnixMs > 0 {
+		next := time.UnixMilli(info.NextIncreaseUnixMs)
+		start := next.Add(-time.Duration(info.Index+1) * bm.interval)
+		snap.StartUnixMs = start.UnixMilli()
+	}
+	return snap
+}
+
+// Restore resets the FSM so blind progression continues from a durable
+// hand-boundary checkpoint instead of restarting from level zero.
+func (bm *BlindManager) Restore(snap BlindSnapshot) {
+	if bm == nil {
+		return
+	}
+
+	if bm.sm != nil {
+		bm.sm.Stop()
+	}
+
+	if snap.CurrentLevel < 0 {
+		snap.CurrentLevel = 0
+	}
+	if snap.CurrentLevel >= len(bm.schedule) {
+		snap.CurrentLevel = len(bm.schedule) - 1
+	}
+	if snap.StartUnixMs > 0 {
+		bm.startTime = time.UnixMilli(snap.StartUnixMs)
+	}
+	bm.currentLevel = snap.CurrentLevel
+
+	initial := BlindManagerStateFn(blindWaiting)
+	switch snap.State {
+	case BlindStateDisabled:
+		initial = blindDisabled
+	case BlindStateWaiting:
+		initial = blindWaiting
+	case BlindStateActive:
+		initial = blindActive
+	case BlindStatePending:
+		initial = blindPending
+	case BlindStateMaxLevel:
+		initial = blindMaxLevel
+	}
+	if bm.interval <= 0 || len(bm.schedule) <= 1 {
+		initial = blindDisabled
+	}
+	bm.sm = statemachine.New(bm, initial, 16)
 }
 
 // TotalLevels returns the number of levels in the schedule.

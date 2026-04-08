@@ -30,6 +30,27 @@ func (m *metricsDB) GetSnapshot(ctx context.Context, tableID string) (*db.Snapsh
 	return v, err
 }
 
+func (m *metricsDB) UpsertMatchCheckpoint(ctx context.Context, c db.MatchCheckpoint) error {
+	start := time.Now()
+	err := m.inner.UpsertMatchCheckpoint(ctx, c)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) GetMatchCheckpoint(ctx context.Context, tableID string) (*db.MatchCheckpoint, error) {
+	start := time.Now()
+	v, err := m.inner.GetMatchCheckpoint(ctx, tableID)
+	m.observe(start, err)
+	return v, err
+}
+
+func (m *metricsDB) DeleteMatchCheckpoint(ctx context.Context, tableID string) error {
+	start := time.Now()
+	err := m.inner.DeleteMatchCheckpoint(ctx, tableID)
+	m.observe(start, err)
+	return err
+}
+
 func (m *metricsDB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 	start := time.Now()
 	err := m.inner.UpsertTable(ctx, t)
@@ -75,6 +96,13 @@ func (m *metricsDB) SeatPlayer(ctx context.Context, tableID, playerID string, se
 func (m *metricsDB) UnseatPlayer(ctx context.Context, tableID, playerID string) error {
 	start := time.Now()
 	err := m.inner.UnseatPlayer(ctx, tableID, playerID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) SetReady(ctx context.Context, tableID, playerID string, ready bool) error {
+	start := time.Now()
+	err := m.inner.SetReady(ctx, tableID, playerID, ready)
 	m.observe(start, err)
 	return err
 }

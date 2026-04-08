@@ -1314,6 +1314,14 @@ func (g *Game) GetLastShowdownResult() *ShowdownResult {
 	return g.lastShowdownResult
 }
 
+// RestoreLastShowdownResult seeds the cached showdown result when resuming a
+// match from a safe hand boundary.
+func (g *Game) RestoreLastShowdownResult(result *ShowdownResult) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.lastShowdownResult = result
+}
+
 // GetCurrentHand returns the current hand (with hole cards for all players)
 func (g *Game) GetCurrentHand() *Hand {
 	g.mu.RLock()
@@ -2695,6 +2703,16 @@ func (g *Game) ScheduleAutoStart() {
 	g.scheduleAutoStart()
 }
 
+// CancelAutoStart cancels any pending automatic next-hand start.
+func (g *Game) CancelAutoStart() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.cancelAutoStart()
+}
+
 // scheduleAutoStart is the internal implementation
 func (g *Game) scheduleAutoStart() {
 	mustHeld(&g.mu)
@@ -3033,6 +3051,107 @@ func (g *Game) GetStateSnapshot() GameStateSnapshot {
 		BigBlind:                g.currentBigBlind(),
 		BlindLevel:              g.liveBlindLevel,
 		NextBlindIncreaseUnixMs: g.liveNextBlindMs,
+	}
+}
+
+// GetBlindSnapshot returns the durable blind progression state for safe
+// between-hand checkpoints.
+func (g *Game) GetBlindSnapshot() BlindSnapshot {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	if g.config.BlindIncreaseInterval <= 0 {
+		return BlindSnapshot{
+			CurrentLevel: g.liveBlindLevel,
+			State:        BlindStateDisabled,
+		}
+	}
+
+	state := BlindStateWaiting
+	switch {
+	case g.round <= 0:
+		state = BlindStateWaiting
+	case g.liveNextBlindMs == 0:
+		state = BlindStateMaxLevel
+	case time.Now().UnixMilli() >= g.liveNextBlindMs:
+		state = BlindStatePending
+	default:
+		state = BlindStateActive
+	}
+
+	snap := BlindSnapshot{
+		CurrentLevel:   g.liveBlindLevel,
+		State:          state,
+		NextIncreaseMs: g.liveNextBlindMs,
+	}
+	if g.config.BlindIncreaseInterval > 0 && g.liveNextBlindMs > 0 {
+		next := time.UnixMilli(g.liveNextBlindMs)
+		start := next.Add(-time.Duration(g.liveBlindLevel+1) * g.config.BlindIncreaseInterval)
+		snap.StartUnixMs = start.UnixMilli()
+	}
+	return snap
+}
+
+// RestorePausedMatchState seeds stable multi-hand state while keeping the FSM
+// parked in NEW_HAND_DEALING so the next hand uses the normal path.
+func (g *Game) RestorePausedMatchState(
+	round int,
+	dealer int,
+	players map[string]PlayerSnapshot,
+	lastShowdown *ShowdownResult,
+	blindSnap BlindSnapshot,
+	liveSmallBlind int64,
+	liveBigBlind int64,
+	liveBlindLevel int,
+	liveNextBlindMs int64,
+) {
+	g.mu.Lock()
+	g.round = round
+	g.dealer = dealer
+	g.phase = pokerrpc.GamePhase_NEW_HAND_DEALING
+	g.currentBet = 0
+	g.currentPlayer = -1
+	g.communityCards = nil
+	g.winners = nil
+	g.currentHand = nil
+	g.liveSmallBlind = liveSmallBlind
+	g.liveBigBlind = liveBigBlind
+	g.liveBlindLevel = liveBlindLevel
+	g.liveNextBlindMs = liveNextBlindMs
+	if liveBigBlind > 0 {
+		g.lastRaiseAmount = liveBigBlind
+	} else {
+		g.lastRaiseAmount = g.config.BigBlind
+	}
+	g.lastShowdownResult = lastShowdown
+	for _, p := range g.players {
+		if p == nil {
+			continue
+		}
+		snap, ok := players[p.ID()]
+		if !ok {
+			continue
+		}
+		p.SetBalance(snap.Balance)
+		p.SetStartingBalance(snap.Balance)
+		p.SetCurrentBet(0)
+		p.mu.Lock()
+		p.isDealer = false
+		p.isSmallBlind = false
+		p.isBigBlind = false
+		p.isTurn = false
+		p.isAllIn = false
+		p.hasFolded = false
+		p.handValue = nil
+		p.handDescription = ""
+		p.revealed = false
+		p.mu.Unlock()
+	}
+	g.potManager = NewPotManager(len(g.players))
+	g.mu.Unlock()
+
+	if g.blindManager != nil {
+		g.blindManager.Restore(blindSnap)
 	}
 }
 

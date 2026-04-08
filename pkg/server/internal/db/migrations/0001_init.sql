@@ -148,3 +148,11 @@ CREATE TABLE IF NOT EXISTS table_snapshots (
     payload     BLOB NOT NULL,
     FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
 );
+
+-- Stable between-hand checkpoints used for graceful shutdown/restore.
+CREATE TABLE IF NOT EXISTS match_checkpoints (
+    table_id    TEXT PRIMARY KEY,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    payload     BLOB NOT NULL,
+    FOREIGN KEY (table_id) REFERENCES tables(id) ON DELETE CASCADE
+);
