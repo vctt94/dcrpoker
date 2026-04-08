@@ -404,15 +404,40 @@ bool isAutoAdvanceAllIn(UiGameState? g) {
       g.phase == pr.GamePhase.RIVER;
   if (!actionablePhase) return false;
 
-  // When all remaining (non-folded) players are all-in, streets will
-  // auto-advance and no manual decision is expected. Also guard against a
-  // current player that is already marked all-in.
-  final current = g.players.firstWhereOrNull((p) => p.id == g.currentPlayerId);
-  final everyoneAllIn = g.players
-      .where((p) => !p.folded)
-      .every((p) => p.isAllIn); // folded players can't act
+  // Mirror the server's turn-skipping rule: hide manual actions when there are
+  // no actionable players left, or exactly one actionable player remains and
+  // every other live player is already all-in with matched bets.
+  var maxAllInBet = 0;
+  var alive = 0;
+  var active = 0;
 
-  return (current?.isAllIn ?? false) || everyoneAllIn;
+  for (final player in g.players) {
+    if (player.folded) continue;
+    alive++;
+    if (player.isAllIn) {
+      if (player.currentBet > maxAllInBet) {
+        maxAllInBet = player.currentBet;
+      }
+      continue;
+    }
+    active++;
+  }
+
+  var effectiveBet = g.currentBet;
+  if (maxAllInBet > 0 && maxAllInBet < effectiveBet) {
+    effectiveBet = maxAllInBet;
+  }
+
+  var unmatched = 0;
+  for (final player in g.players) {
+    if (player.folded || player.isAllIn) continue;
+    if (player.currentBet < effectiveBet) {
+      unmatched++;
+    }
+  }
+
+  final allInCount = alive - active;
+  return active == 0 || (active == 1 && allInCount > 0 && unmatched == 0);
 }
 
 /// -------- The main ChangeNotifier --------
@@ -2205,6 +2230,8 @@ class PokerModel extends ChangeNotifier {
     final g = game;
     if (g == null) return false;
     if (!_seated) return false;
+    final mePlayer = me;
+    if (mePlayer == null || mePlayer.folded || mePlayer.isAllIn) return false;
     final actionablePhase = g.phase == pr.GamePhase.PRE_FLOP ||
         g.phase == pr.GamePhase.FLOP ||
         g.phase == pr.GamePhase.TURN ||
