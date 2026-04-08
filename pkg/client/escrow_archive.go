@@ -280,53 +280,18 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 		path := filepath.Join(dir, e.Name())
 		b, err := os.ReadFile(path)
 		if err != nil {
+			pc.log.Warnf("GetBindableEscrows: failed reading %s: %v", e.Name(), err)
 			continue
 		}
 
 		var info map[string]interface{}
 		if err := json.Unmarshal(b, &info); err != nil {
+			pc.log.Warnf("GetBindableEscrows: failed decoding %s: %v", e.Name(), err)
 			continue
 		}
 
-		// Extract escrow_id (top-level or under escrow_info).
-		var idRaw any
-		if v, ok := info["escrow_id"]; ok {
-			idRaw = v
-		} else if escRaw, ok := info["escrow_info"]; ok {
-			if m, ok := escRaw.(map[string]interface{}); ok {
-				idRaw = m["escrow_id"]
-			}
-		}
-		escrowID := strings.TrimSpace(fmt.Sprint(idRaw))
+		escrowID := extractEscrowID(info)
 		if escrowID == "" {
-			continue
-		}
-
-		// Require a funding outpoint; unfunded escrows are not bindable.
-		// Check nested escrow_info first for compatibility.
-		var txid string
-		var vout any
-		if escRaw, ok := info["escrow_info"]; ok {
-			if m, ok := escRaw.(map[string]interface{}); ok {
-				if v, ok := m["funding_txid"]; ok {
-					txid = strings.TrimSpace(fmt.Sprint(v))
-				}
-				if v2, ok := m["funding_vout"]; ok {
-					vout = v2
-				}
-			}
-		}
-		if txid == "" {
-			if v, ok := info["funding_txid"]; ok {
-				txid = strings.TrimSpace(fmt.Sprint(v))
-			}
-		}
-		if vout == nil {
-			if v2, ok := info["funding_vout"]; ok {
-				vout = v2
-			}
-		}
-		if txid == "" || vout == nil {
 			continue
 		}
 
@@ -356,6 +321,7 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 		resp, err := ref.GetEscrowStatus(ctx, c.escrowID)
 		if err != nil {
 			// Skip escrows the referee no longer knows about.
+			pc.log.Warnf("GetBindableEscrows: referee status failed for escrow_id=%s: %v", c.escrowID, err)
 			continue
 		}
 		// Only escrows with a single live UTXO and not CSV-matured are bindable.
@@ -379,20 +345,16 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 			m[k] = v
 		}
 		m["escrow_id"] = resp.GetEscrowId()
+		m["ok"] = resp.GetOk()
 		m["confs"] = resp.GetConfs()
 		m["utxo_count"] = resp.GetUtxoCount()
 		m["mature_for_csv"] = resp.GetMatureForCsv()
 		m["required_confirmations"] = resp.GetRequiredConfirmations()
 		m["funding_state"] = resp.GetFundingState()
-		if tx := resp.GetFundingTxid(); tx != "" {
-			m["funding_txid"] = tx
-		}
-		if v := resp.GetFundingVout(); v != 0 {
-			m["funding_vout"] = v
-		}
-		if amt := resp.GetAmountAtoms(); amt != 0 {
-			m["funded_amount"] = amt
-		}
+		m["funding_txid"] = resp.GetFundingTxid()
+		m["funding_vout"] = resp.GetFundingVout()
+		m["amount_atoms"] = resp.GetAmountAtoms()
+		m["funded_amount"] = resp.GetAmountAtoms()
 
 		out = append(out, result{info: m, height: c.height})
 	}
@@ -421,6 +383,21 @@ func (pc *PokerClient) GetBindableEscrows(ctx context.Context, token string) ([]
 		res = append(res, it.info)
 	}
 	return res, nil
+}
+
+func extractEscrowID(info map[string]interface{}) string {
+	if info == nil {
+		return ""
+	}
+	if v, ok := info["escrow_id"]; ok {
+		return strings.TrimSpace(fmt.Sprint(v))
+	}
+	if escRaw, ok := info["escrow_info"]; ok {
+		if m, ok := escRaw.(map[string]interface{}); ok {
+			return strings.TrimSpace(fmt.Sprint(m["escrow_id"]))
+		}
+	}
+	return ""
 }
 
 // extractConfirmedHeight returns the confirmed block height (or conf count) if present.
