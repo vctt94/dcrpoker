@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 )
 
 type testPokerRefereeServer struct {
@@ -25,8 +26,7 @@ func (s *testPokerRefereeServer) GetEscrowStatus(_ context.Context, req *pokerrp
 	if !ok {
 		return nil, status.Error(codes.NotFound, "escrow not found")
 	}
-	respCopy := *resp
-	return &respCopy, nil
+	return proto.Clone(resp).(*pokerrpc.GetEscrowStatusResponse), nil
 }
 
 func TestGetBindableEscrowsIncludesLiveReadyEscrowWithStaleCache(t *testing.T) {
