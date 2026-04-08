@@ -51,6 +51,41 @@ func (f failingDB) GetMatchCheckpoint(ctx context.Context, tableID string) (*sdb
 }
 
 func (f failingDB) DeleteMatchCheckpoint(ctx context.Context, tableID string) error { return nil }
+func (f failingDB) ReplaceSettlementEscrows(ctx context.Context, matchID string, seats map[uint32]string) error {
+	return nil
+}
+func (f failingDB) ListSettlementEscrows(ctx context.Context) ([]sdb.SettlementEscrow, error) {
+	return nil, nil
+}
+func (f failingDB) DeleteSettlementEscrows(ctx context.Context, matchID string) error { return nil }
+func (f failingDB) UpsertRefereeEscrow(ctx context.Context, row sdb.RefereeEscrow) error {
+	return nil
+}
+func (f failingDB) ListRefereeEscrows(ctx context.Context) ([]sdb.RefereeEscrow, error) {
+	return nil, nil
+}
+func (f failingDB) DeleteRefereeEscrow(ctx context.Context, escrowID string) error { return nil }
+func (f failingDB) UpsertRefereeBranchGamma(ctx context.Context, row sdb.RefereeBranchGamma) error {
+	return nil
+}
+func (f failingDB) ListRefereeBranchGammas(ctx context.Context) ([]sdb.RefereeBranchGamma, error) {
+	return nil, nil
+}
+func (f failingDB) DeleteRefereeBranchGammas(ctx context.Context, matchID string) error { return nil }
+func (f failingDB) UpsertRefereePresign(ctx context.Context, row sdb.RefereePresign) error {
+	return nil
+}
+func (f failingDB) ListRefereePresigns(ctx context.Context) ([]sdb.RefereePresign, error) {
+	return nil, nil
+}
+func (f failingDB) DeleteRefereePresigns(ctx context.Context, matchID string) error { return nil }
+func (f failingDB) UpsertPendingSettlement(ctx context.Context, row sdb.PendingSettlement) error {
+	return nil
+}
+func (f failingDB) ListPendingSettlements(ctx context.Context) ([]sdb.PendingSettlement, error) {
+	return nil, nil
+}
+func (f failingDB) DeletePendingSettlement(ctx context.Context, matchID string) error { return nil }
 
 // Auth
 func (f failingDB) UpsertAuthUser(ctx context.Context, _, _ string) error { return nil }

@@ -25,6 +25,37 @@ func (stubDB) GetMatchCheckpoint(context.Context, string) (*db.MatchCheckpoint, 
 	return nil, nil
 }
 func (stubDB) DeleteMatchCheckpoint(context.Context, string) error { return nil }
+func (stubDB) ReplaceSettlementEscrows(context.Context, string, map[uint32]string) error {
+	return nil
+}
+func (stubDB) ListSettlementEscrows(context.Context) ([]db.SettlementEscrow, error) {
+	return nil, nil
+}
+func (stubDB) DeleteSettlementEscrows(context.Context, string) error       { return nil }
+func (stubDB) UpsertRefereeEscrow(context.Context, db.RefereeEscrow) error { return nil }
+func (stubDB) ListRefereeEscrows(context.Context) ([]db.RefereeEscrow, error) {
+	return nil, nil
+}
+func (stubDB) DeleteRefereeEscrow(context.Context, string) error { return nil }
+func (stubDB) UpsertRefereeBranchGamma(context.Context, db.RefereeBranchGamma) error {
+	return nil
+}
+func (stubDB) ListRefereeBranchGammas(context.Context) ([]db.RefereeBranchGamma, error) {
+	return nil, nil
+}
+func (stubDB) DeleteRefereeBranchGammas(context.Context, string) error       { return nil }
+func (stubDB) UpsertRefereePresign(context.Context, db.RefereePresign) error { return nil }
+func (stubDB) ListRefereePresigns(context.Context) ([]db.RefereePresign, error) {
+	return nil, nil
+}
+func (stubDB) DeleteRefereePresigns(context.Context, string) error { return nil }
+func (stubDB) UpsertPendingSettlement(context.Context, db.PendingSettlement) error {
+	return nil
+}
+func (stubDB) ListPendingSettlements(context.Context) ([]db.PendingSettlement, error) {
+	return nil, nil
+}
+func (stubDB) DeletePendingSettlement(context.Context, string) error { return nil }
 
 // --- Tables (only what tests may touch indirectly) ---
 func (stubDB) GetTable(ctx context.Context, id string) (*db.Table, error) {

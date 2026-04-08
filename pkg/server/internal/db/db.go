@@ -393,6 +393,42 @@ type MatchCheckpoint struct {
 	Payload   []byte
 }
 
+type SettlementEscrow struct {
+	MatchID   string
+	Seat      uint32
+	EscrowID  string
+	UpdatedAt time.Time
+}
+
+type RefereeEscrow struct {
+	EscrowID  string
+	UpdatedAt time.Time
+	Payload   []byte
+}
+
+type RefereeBranchGamma struct {
+	MatchID   string
+	Branch    int32
+	GammaHex  string
+	UpdatedAt time.Time
+}
+
+type RefereePresign struct {
+	MatchID   string
+	Branch    int32
+	InputID   string
+	UpdatedAt time.Time
+	Payload   []byte
+}
+
+type PendingSettlement struct {
+	MatchID    string
+	TableID    string
+	WinnerID   string
+	WinnerSeat int32
+	UpdatedAt  time.Time
+}
+
 // =========================
 // ===== Players API =======
 // =========================
@@ -887,6 +923,278 @@ func (db *DB) DeleteMatchCheckpoint(ctx context.Context, tableID string) error {
 
 func (db *DB) DeleteSnapshot(ctx context.Context, tableID string) error {
 	_, err := db.ExecContext(ctx, `DELETE FROM table_snapshots WHERE table_id = ?`, tableID)
+	return err
+}
+
+func (db *DB) ReplaceSettlementEscrows(ctx context.Context, matchID string, seats map[uint32]string) error {
+	if strings.TrimSpace(matchID) == "" {
+		return fmt.Errorf("matchID required")
+	}
+
+	return db.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM settlement_escrows WHERE match_id = ?`, matchID); err != nil {
+			return err
+		}
+		if len(seats) == 0 {
+			return nil
+		}
+
+		seatOrder := make([]int, 0, len(seats))
+		for seat, escrowID := range seats {
+			if strings.TrimSpace(escrowID) == "" {
+				continue
+			}
+			seatOrder = append(seatOrder, int(seat))
+		}
+		sort.Ints(seatOrder)
+
+		stmt, err := tx.PrepareContext(ctx, `
+			INSERT INTO settlement_escrows (match_id, seat, escrow_id, updated_at)
+			VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		for _, seat := range seatOrder {
+			escrowID := strings.TrimSpace(seats[uint32(seat)])
+			if escrowID == "" {
+				continue
+			}
+			if _, err := stmt.ExecContext(ctx, matchID, seat, escrowID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (db *DB) ListSettlementEscrows(ctx context.Context) ([]SettlementEscrow, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT match_id, seat, escrow_id, updated_at
+		FROM settlement_escrows
+		ORDER BY match_id, seat
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []SettlementEscrow
+	for rows.Next() {
+		var row SettlementEscrow
+		var seat int64
+		if err := rows.Scan(&row.MatchID, &seat, &row.EscrowID, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		row.Seat = uint32(seat)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) DeleteSettlementEscrows(ctx context.Context, matchID string) error {
+	if strings.TrimSpace(matchID) == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM settlement_escrows WHERE match_id = ?`, matchID)
+	return err
+}
+
+func (db *DB) UpsertRefereeEscrow(ctx context.Context, row RefereeEscrow) error {
+	if strings.TrimSpace(row.EscrowID) == "" {
+		return fmt.Errorf("escrowID required")
+	}
+	if len(row.Payload) == 0 {
+		return fmt.Errorf("payload required")
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO referee_escrows (escrow_id, updated_at, payload)
+		VALUES (?, COALESCE(?, CURRENT_TIMESTAMP), ?)
+		ON CONFLICT(escrow_id) DO UPDATE SET
+			updated_at = excluded.updated_at,
+			payload = excluded.payload
+	`, row.EscrowID, row.UpdatedAt, row.Payload)
+	return err
+}
+
+func (db *DB) ListRefereeEscrows(ctx context.Context) ([]RefereeEscrow, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT escrow_id, updated_at, payload
+		FROM referee_escrows
+		ORDER BY escrow_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RefereeEscrow
+	for rows.Next() {
+		var row RefereeEscrow
+		if err := rows.Scan(&row.EscrowID, &row.UpdatedAt, &row.Payload); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) DeleteRefereeEscrow(ctx context.Context, escrowID string) error {
+	if strings.TrimSpace(escrowID) == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM referee_escrows WHERE escrow_id = ?`, escrowID)
+	return err
+}
+
+func (db *DB) UpsertRefereeBranchGamma(ctx context.Context, row RefereeBranchGamma) error {
+	if strings.TrimSpace(row.MatchID) == "" {
+		return fmt.Errorf("matchID required")
+	}
+	if strings.TrimSpace(row.GammaHex) == "" {
+		return fmt.Errorf("gammaHex required")
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO referee_branch_gammas (match_id, branch, gamma_hex, updated_at)
+		VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+		ON CONFLICT(match_id, branch) DO UPDATE SET
+			gamma_hex = excluded.gamma_hex,
+			updated_at = excluded.updated_at
+	`, row.MatchID, row.Branch, row.GammaHex, row.UpdatedAt)
+	return err
+}
+
+func (db *DB) ListRefereeBranchGammas(ctx context.Context) ([]RefereeBranchGamma, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT match_id, branch, gamma_hex, updated_at
+		FROM referee_branch_gammas
+		ORDER BY match_id, branch
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RefereeBranchGamma
+	for rows.Next() {
+		var row RefereeBranchGamma
+		if err := rows.Scan(&row.MatchID, &row.Branch, &row.GammaHex, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) DeleteRefereeBranchGammas(ctx context.Context, matchID string) error {
+	if strings.TrimSpace(matchID) == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM referee_branch_gammas WHERE match_id = ?`, matchID)
+	return err
+}
+
+func (db *DB) UpsertRefereePresign(ctx context.Context, row RefereePresign) error {
+	if strings.TrimSpace(row.MatchID) == "" {
+		return fmt.Errorf("matchID required")
+	}
+	if strings.TrimSpace(row.InputID) == "" {
+		return fmt.Errorf("inputID required")
+	}
+	if len(row.Payload) == 0 {
+		return fmt.Errorf("payload required")
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO referee_presigns (match_id, branch, input_id, updated_at, payload)
+		VALUES (?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), ?)
+		ON CONFLICT(match_id, branch, input_id) DO UPDATE SET
+			updated_at = excluded.updated_at,
+			payload = excluded.payload
+	`, row.MatchID, row.Branch, row.InputID, row.UpdatedAt, row.Payload)
+	return err
+}
+
+func (db *DB) ListRefereePresigns(ctx context.Context) ([]RefereePresign, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT match_id, branch, input_id, updated_at, payload
+		FROM referee_presigns
+		ORDER BY match_id, branch, input_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RefereePresign
+	for rows.Next() {
+		var row RefereePresign
+		if err := rows.Scan(&row.MatchID, &row.Branch, &row.InputID, &row.UpdatedAt, &row.Payload); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) DeleteRefereePresigns(ctx context.Context, matchID string) error {
+	if strings.TrimSpace(matchID) == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM referee_presigns WHERE match_id = ?`, matchID)
+	return err
+}
+
+func (db *DB) UpsertPendingSettlement(ctx context.Context, row PendingSettlement) error {
+	if strings.TrimSpace(row.MatchID) == "" {
+		return fmt.Errorf("matchID required")
+	}
+	if strings.TrimSpace(row.TableID) == "" {
+		return fmt.Errorf("tableID required")
+	}
+	if strings.TrimSpace(row.WinnerID) == "" {
+		return fmt.Errorf("winnerID required")
+	}
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO pending_settlements (match_id, table_id, winner_id, winner_seat, updated_at)
+		VALUES (?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP))
+		ON CONFLICT(match_id) DO UPDATE SET
+			table_id = excluded.table_id,
+			winner_id = excluded.winner_id,
+			winner_seat = excluded.winner_seat,
+			updated_at = excluded.updated_at
+	`, row.MatchID, row.TableID, row.WinnerID, row.WinnerSeat, row.UpdatedAt)
+	return err
+}
+
+func (db *DB) ListPendingSettlements(ctx context.Context) ([]PendingSettlement, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT match_id, table_id, winner_id, winner_seat, updated_at
+		FROM pending_settlements
+		ORDER BY match_id
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PendingSettlement
+	for rows.Next() {
+		var row PendingSettlement
+		if err := rows.Scan(&row.MatchID, &row.TableID, &row.WinnerID, &row.WinnerSeat, &row.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+func (db *DB) DeletePendingSettlement(ctx context.Context, matchID string) error {
+	if strings.TrimSpace(matchID) == "" {
+		return nil
+	}
+	_, err := db.ExecContext(ctx, `DELETE FROM pending_settlements WHERE match_id = ?`, matchID)
 	return err
 }
 

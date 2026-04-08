@@ -80,8 +80,13 @@ type InMemoryDB struct {
 	seatIndex    map[string]map[int]string             // tableID -> seat -> playerID
 
 	// optional fast-restore snapshots
-	snapshots        map[string]db.Snapshot        // tableID -> snapshot
-	matchCheckpoints map[string]db.MatchCheckpoint // tableID -> checkpoint
+	snapshots          map[string]db.Snapshot        // tableID -> snapshot
+	matchCheckpoints   map[string]db.MatchCheckpoint // tableID -> checkpoint
+	settlementEscrows  map[string]map[uint32]string  // matchID -> seat -> escrowID
+	refereeEscrows     map[string]db.RefereeEscrow
+	branchGammas       map[string]map[int32]db.RefereeBranchGamma
+	refereePresigns    map[string]map[int32]map[string]db.RefereePresign
+	pendingSettlements map[string]db.PendingSettlement
 
 	// auth
 	authUsers map[string]*db.AuthUser // userID -> AuthUser
@@ -90,14 +95,19 @@ type InMemoryDB struct {
 // NewInMemoryDB creates a new in-memory database for testing.
 func NewInMemoryDB() *InMemoryDB {
 	return &InMemoryDB{
-		balances:         make(map[string]int64),
-		transactions:     make(map[string][]Transaction),
-		tables:           make(map[string]*db.Table),
-		participants:     make(map[string]map[string]*db.Participant),
-		seatIndex:        make(map[string]map[int]string),
-		snapshots:        make(map[string]db.Snapshot),
-		matchCheckpoints: make(map[string]db.MatchCheckpoint),
-		authUsers:        make(map[string]*db.AuthUser),
+		balances:           make(map[string]int64),
+		transactions:       make(map[string][]Transaction),
+		tables:             make(map[string]*db.Table),
+		participants:       make(map[string]map[string]*db.Participant),
+		seatIndex:          make(map[string]map[int]string),
+		snapshots:          make(map[string]db.Snapshot),
+		matchCheckpoints:   make(map[string]db.MatchCheckpoint),
+		settlementEscrows:  make(map[string]map[uint32]string),
+		refereeEscrows:     make(map[string]db.RefereeEscrow),
+		branchGammas:       make(map[string]map[int32]db.RefereeBranchGamma),
+		refereePresigns:    make(map[string]map[int32]map[string]db.RefereePresign),
+		pendingSettlements: make(map[string]db.PendingSettlement),
+		authUsers:          make(map[string]*db.AuthUser),
 	}
 }
 
@@ -149,6 +159,10 @@ func (m *InMemoryDB) DeleteTable(_ context.Context, id string) error {
 	delete(m.seatIndex, id)
 	delete(m.snapshots, id)
 	delete(m.matchCheckpoints, id)
+	delete(m.settlementEscrows, id)
+	delete(m.branchGammas, id)
+	delete(m.refereePresigns, id)
+	delete(m.pendingSettlements, id)
 	return nil
 }
 
@@ -326,6 +340,205 @@ func (m *InMemoryDB) DeleteMatchCheckpoint(_ context.Context, tableID string) er
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.matchCheckpoints, tableID)
+	return nil
+}
+
+func (m *InMemoryDB) ReplaceSettlementEscrows(_ context.Context, matchID string, seats map[uint32]string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.settlementEscrows, matchID)
+	if len(seats) == 0 {
+		return nil
+	}
+	m.settlementEscrows[matchID] = make(map[uint32]string, len(seats))
+	for seat, escrowID := range seats {
+		if escrowID == "" {
+			continue
+		}
+		m.settlementEscrows[matchID][seat] = escrowID
+	}
+	return nil
+}
+
+func (m *InMemoryDB) ListSettlementEscrows(_ context.Context) ([]db.SettlementEscrow, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var matchIDs []string
+	for matchID := range m.settlementEscrows {
+		matchIDs = append(matchIDs, matchID)
+	}
+	sort.Strings(matchIDs)
+
+	var out []db.SettlementEscrow
+	for _, matchID := range matchIDs {
+		var seats []int
+		for seat := range m.settlementEscrows[matchID] {
+			seats = append(seats, int(seat))
+		}
+		sort.Ints(seats)
+		for _, seat := range seats {
+			out = append(out, db.SettlementEscrow{
+				MatchID:  matchID,
+				Seat:     uint32(seat),
+				EscrowID: m.settlementEscrows[matchID][uint32(seat)],
+			})
+		}
+	}
+	return out, nil
+}
+
+func (m *InMemoryDB) DeleteSettlementEscrows(_ context.Context, matchID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.settlementEscrows, matchID)
+	return nil
+}
+
+func (m *InMemoryDB) UpsertRefereeEscrow(_ context.Context, row db.RefereeEscrow) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.refereeEscrows[row.EscrowID] = row
+	return nil
+}
+
+func (m *InMemoryDB) ListRefereeEscrows(_ context.Context) ([]db.RefereeEscrow, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var ids []string
+	for id := range m.refereeEscrows {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	out := make([]db.RefereeEscrow, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, m.refereeEscrows[id])
+	}
+	return out, nil
+}
+
+func (m *InMemoryDB) DeleteRefereeEscrow(_ context.Context, escrowID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.refereeEscrows, escrowID)
+	return nil
+}
+
+func (m *InMemoryDB) UpsertRefereeBranchGamma(_ context.Context, row db.RefereeBranchGamma) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.branchGammas[row.MatchID] == nil {
+		m.branchGammas[row.MatchID] = make(map[int32]db.RefereeBranchGamma)
+	}
+	m.branchGammas[row.MatchID][row.Branch] = row
+	return nil
+}
+
+func (m *InMemoryDB) ListRefereeBranchGammas(_ context.Context) ([]db.RefereeBranchGamma, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var matchIDs []string
+	for matchID := range m.branchGammas {
+		matchIDs = append(matchIDs, matchID)
+	}
+	sort.Strings(matchIDs)
+	var out []db.RefereeBranchGamma
+	for _, matchID := range matchIDs {
+		var branches []int
+		for branch := range m.branchGammas[matchID] {
+			branches = append(branches, int(branch))
+		}
+		sort.Ints(branches)
+		for _, branch := range branches {
+			out = append(out, m.branchGammas[matchID][int32(branch)])
+		}
+	}
+	return out, nil
+}
+
+func (m *InMemoryDB) DeleteRefereeBranchGammas(_ context.Context, matchID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.branchGammas, matchID)
+	return nil
+}
+
+func (m *InMemoryDB) UpsertRefereePresign(_ context.Context, row db.RefereePresign) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.refereePresigns[row.MatchID] == nil {
+		m.refereePresigns[row.MatchID] = make(map[int32]map[string]db.RefereePresign)
+	}
+	if m.refereePresigns[row.MatchID][row.Branch] == nil {
+		m.refereePresigns[row.MatchID][row.Branch] = make(map[string]db.RefereePresign)
+	}
+	m.refereePresigns[row.MatchID][row.Branch][row.InputID] = row
+	return nil
+}
+
+func (m *InMemoryDB) ListRefereePresigns(_ context.Context) ([]db.RefereePresign, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var matchIDs []string
+	for matchID := range m.refereePresigns {
+		matchIDs = append(matchIDs, matchID)
+	}
+	sort.Strings(matchIDs)
+	var out []db.RefereePresign
+	for _, matchID := range matchIDs {
+		var branches []int
+		for branch := range m.refereePresigns[matchID] {
+			branches = append(branches, int(branch))
+		}
+		sort.Ints(branches)
+		for _, branch := range branches {
+			var inputIDs []string
+			for inputID := range m.refereePresigns[matchID][int32(branch)] {
+				inputIDs = append(inputIDs, inputID)
+			}
+			sort.Strings(inputIDs)
+			for _, inputID := range inputIDs {
+				out = append(out, m.refereePresigns[matchID][int32(branch)][inputID])
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *InMemoryDB) DeleteRefereePresigns(_ context.Context, matchID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.refereePresigns, matchID)
+	return nil
+}
+
+func (m *InMemoryDB) UpsertPendingSettlement(_ context.Context, row db.PendingSettlement) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pendingSettlements[row.MatchID] = row
+	return nil
+}
+
+func (m *InMemoryDB) ListPendingSettlements(_ context.Context) ([]db.PendingSettlement, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var matchIDs []string
+	for matchID := range m.pendingSettlements {
+		matchIDs = append(matchIDs, matchID)
+	}
+	sort.Strings(matchIDs)
+	out := make([]db.PendingSettlement, 0, len(matchIDs))
+	for _, matchID := range matchIDs {
+		out = append(out, m.pendingSettlements[matchID])
+	}
+	return out, nil
+}
+
+func (m *InMemoryDB) DeletePendingSettlement(_ context.Context, matchID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.pendingSettlements, matchID)
 	return nil
 }
 
@@ -1186,7 +1399,7 @@ func TestLeaveTableDuringPendingSettlementKeepsSeat(t *testing.T) {
 	require.NoError(t, err)
 	tableID := createResp.TableId
 
-	server.markPendingSettlement(tableID)
+	server.markPendingSettlement(tableID, tableID, "player1", 0)
 
 	leaveResp, err := server.LeaveTable(ctx, &pokerrpc.LeaveTableRequest{
 		PlayerId: host,

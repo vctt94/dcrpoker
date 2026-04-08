@@ -308,6 +308,7 @@ func (s *Server) clearEscrowBindingForSeat(tableID string, seat uint32) {
 				es.SeatIndex = 0
 			}
 			es.mu.Unlock()
+			s.persistEscrowSession(es)
 		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/companyzero/bisonrelay/zkidentity"
@@ -29,7 +30,38 @@ func (m *mockDB) GetSnapshot(context.Context, string) (*db.Snapshot, error) {
 func (m *mockDB) GetMatchCheckpoint(context.Context, string) (*db.MatchCheckpoint, error) {
 	return nil, fmt.Errorf("not found")
 }
-func (m *mockDB) DeleteMatchCheckpoint(context.Context, string) error   { return nil }
+func (m *mockDB) DeleteMatchCheckpoint(context.Context, string) error { return nil }
+func (m *mockDB) ReplaceSettlementEscrows(context.Context, string, map[uint32]string) error {
+	return nil
+}
+func (m *mockDB) ListSettlementEscrows(context.Context) ([]db.SettlementEscrow, error) {
+	return nil, nil
+}
+func (m *mockDB) DeleteSettlementEscrows(context.Context, string) error       { return nil }
+func (m *mockDB) UpsertRefereeEscrow(context.Context, db.RefereeEscrow) error { return nil }
+func (m *mockDB) ListRefereeEscrows(context.Context) ([]db.RefereeEscrow, error) {
+	return nil, nil
+}
+func (m *mockDB) DeleteRefereeEscrow(context.Context, string) error { return nil }
+func (m *mockDB) UpsertRefereeBranchGamma(context.Context, db.RefereeBranchGamma) error {
+	return nil
+}
+func (m *mockDB) ListRefereeBranchGammas(context.Context) ([]db.RefereeBranchGamma, error) {
+	return nil, nil
+}
+func (m *mockDB) DeleteRefereeBranchGammas(context.Context, string) error       { return nil }
+func (m *mockDB) UpsertRefereePresign(context.Context, db.RefereePresign) error { return nil }
+func (m *mockDB) ListRefereePresigns(context.Context) ([]db.RefereePresign, error) {
+	return nil, nil
+}
+func (m *mockDB) DeleteRefereePresigns(context.Context, string) error { return nil }
+func (m *mockDB) UpsertPendingSettlement(context.Context, db.PendingSettlement) error {
+	return nil
+}
+func (m *mockDB) ListPendingSettlements(context.Context) ([]db.PendingSettlement, error) {
+	return nil, nil
+}
+func (m *mockDB) DeletePendingSettlement(context.Context, string) error { return nil }
 func (m *mockDB) UpsertTable(context.Context, *poker.TableConfig) error { return nil }
 func (m *mockDB) GetTable(context.Context, string) (*db.Table, error) {
 	return nil, fmt.Errorf("not found")
@@ -145,9 +177,17 @@ func TestGetFinalizeBundleSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up presigns for all branches to ensure the test works regardless of sorting.
+	ctx1b0 := *ctx1
+	ctx1b0.Branch = 0
+	ctx2b0 := *ctx2
+	ctx2b0.Branch = 0
+	ctx1b1 := *ctx1
+	ctx1b1.Branch = 1
+	ctx2b1 := *ctx2
+	ctx2b1.Branch = 1
 	srv.referee.presigns[matchID] = map[int32]map[string]*refereePreSignCtx{
-		0: {ctx1.InputID: ctx1, ctx2.InputID: ctx2},
-		1: {ctx1.InputID: ctx1, ctx2.InputID: ctx2},
+		0: {ctx1b0.InputID: &ctx1b0, ctx2b0.InputID: &ctx2b0},
+		1: {ctx1b1.InputID: &ctx1b1, ctx2b1.InputID: &ctx2b1},
 	}
 	// Configure gamma so that the branch corresponding to seat 0 has a
 	// distinctive value we can assert on, without assuming a specific
@@ -554,4 +594,145 @@ func TestCleanupMatchState(t *testing.T) {
 	es2.mu.RUnlock()
 	_, err = ensureBoundFunding(es2)
 	require.ErrorContains(t, err, "spent")
+}
+
+func TestSettlementEscrowsPersistAndReload(t *testing.T) {
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	sqlDB, err := db.NewDB(filepath.Join(t.TempDir(), "poker.db"))
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	srv := &Server{
+		log:        logBackend.Logger("SERVER"),
+		logBackend: logBackend,
+		db:         sqlDB,
+		referee:    newSchnorrRefereeState(ServerConfig{}),
+	}
+
+	matchID := "table-persist"
+	srv.freezeSettlementEscrows(matchID, []*refereeEscrowSession{
+		{EscrowID: "escrow-0", SeatIndex: 0},
+		{EscrowID: "escrow-2", SeatIndex: 2},
+	})
+
+	rows, err := sqlDB.ListSettlementEscrows(context.Background())
+	require.NoError(t, err)
+	require.Len(t, rows, 2)
+	require.Equal(t, matchID, rows[0].MatchID)
+	require.Equal(t, uint32(0), rows[0].Seat)
+	require.Equal(t, "escrow-0", rows[0].EscrowID)
+	require.Equal(t, uint32(2), rows[1].Seat)
+	require.Equal(t, "escrow-2", rows[1].EscrowID)
+
+	restored := &Server{
+		log:        logBackend.Logger("SERVER"),
+		logBackend: logBackend,
+		db:         sqlDB,
+		referee:    newSchnorrRefereeState(ServerConfig{}),
+	}
+	require.NoError(t, restored.loadSettlementEscrows())
+	require.Equal(t, map[uint32]string{
+		0: "escrow-0",
+		2: "escrow-2",
+	}, restored.referee.settlementEscrows[matchID])
+
+	restored.clearMatchPreparationState(matchID)
+
+	rows, err = sqlDB.ListSettlementEscrows(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, rows)
+}
+
+func TestFinalizeBundleRestoredAfterRestart(t *testing.T) {
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	sqlDB, err := db.NewDB(filepath.Join(t.TempDir(), "poker.db"))
+	require.NoError(t, err)
+	defer sqlDB.Close()
+
+	const matchID = "table-restore"
+	const amount = uint64(1_000_000)
+
+	srv := &Server{
+		log:         logBackend.Logger("SERVER"),
+		logBackend:  logBackend,
+		db:          sqlDB,
+		auth:        newAuthState(sqlDB),
+		referee:     newSchnorrRefereeState(ServerConfig{}),
+		chainParams: selectChainParams("testnet"),
+	}
+
+	ctx1, esc1 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000021", "tok21", "aaaa", 0, amount)
+	ctx2, esc2 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000022", "tok22", "bbbb", 1, amount)
+
+	srv.referee.matchEscrows[matchID] = map[uint32]string{0: esc1, 1: esc2}
+	srv.referee.escrows[esc1].SeatIndex = 0
+	srv.referee.escrows[esc2].SeatIndex = 1
+	srv.persistEscrowSession(srv.referee.escrows[esc1])
+	srv.persistEscrowSession(srv.referee.escrows[esc2])
+	srv.freezeSettlementEscrows(matchID, []*refereeEscrowSession{
+		srv.referee.escrows[esc1],
+		srv.referee.escrows[esc2],
+	})
+
+	branchIndex, err := srv.seatToBranchIndex(matchID, 1)
+	require.NoError(t, err)
+
+	ctx1b0 := *ctx1
+	ctx1b0.Branch = 0
+	ctx2b0 := *ctx2
+	ctx2b0.Branch = 0
+	ctx1b1 := *ctx1
+	ctx1b1.Branch = 1
+	ctx2b1 := *ctx2
+	ctx2b1.Branch = 1
+	srv.referee.presigns[matchID] = map[int32]map[string]*refereePreSignCtx{
+		0: {ctx1b0.InputID: &ctx1b0, ctx2b0.InputID: &ctx2b0},
+		1: {ctx1b1.InputID: &ctx1b1, ctx2b1.InputID: &ctx2b1},
+	}
+	srv.referee.branchGamma[matchID] = map[int32]string{
+		0: "gamma0",
+		1: "gamma1",
+	}
+	for branch, gamma := range srv.referee.branchGamma[matchID] {
+		srv.persistBranchGamma(matchID, branch, gamma)
+	}
+	for _, branchMap := range srv.referee.presigns[matchID] {
+		for _, ps := range branchMap {
+			srv.persistPresignContext(matchID, ps)
+		}
+	}
+	srv.markPendingSettlement(matchID, matchID, zeroShortID.String(), 1)
+
+	persistedPresigns, err := sqlDB.ListRefereePresigns(context.Background())
+	require.NoError(t, err)
+	require.Len(t, persistedPresigns, 4)
+
+	restored := &Server{
+		log:         logBackend.Logger("SERVER"),
+		logBackend:  logBackend,
+		db:          sqlDB,
+		auth:        newAuthState(sqlDB),
+		referee:     newSchnorrRefereeState(ServerConfig{}),
+		chainParams: selectChainParams("testnet"),
+	}
+	require.NoError(t, restored.loadPersistedRefereeEscrows())
+	require.NoError(t, restored.loadSettlementEscrows())
+	require.NoError(t, restored.loadPersistedBranchGammas())
+	require.NoError(t, restored.loadPersistedPresigns())
+	require.NoError(t, restored.loadPendingSettlements())
+	require.Len(t, restored.referee.presigns[matchID][0], 2)
+	require.Len(t, restored.referee.presigns[matchID][1], 2)
+
+	resp, err := restored.GetFinalizeBundle(context.Background(), &pokerrpc.GetFinalizeBundleRequest{
+		MatchId:    matchID,
+		WinnerSeat: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, branchIndex, resp.Branch)
+	require.Len(t, resp.Inputs, 2)
+	require.True(t, restored.hasPendingSettlement(matchID))
 }

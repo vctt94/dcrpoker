@@ -27,6 +27,21 @@ type Database interface {
 	UpsertMatchCheckpoint(ctx context.Context, c db.MatchCheckpoint) error
 	GetMatchCheckpoint(ctx context.Context, tableID string) (*db.MatchCheckpoint, error)
 	DeleteMatchCheckpoint(ctx context.Context, tableID string) error
+	ReplaceSettlementEscrows(ctx context.Context, matchID string, seats map[uint32]string) error
+	ListSettlementEscrows(ctx context.Context) ([]db.SettlementEscrow, error)
+	DeleteSettlementEscrows(ctx context.Context, matchID string) error
+	UpsertRefereeEscrow(ctx context.Context, row db.RefereeEscrow) error
+	ListRefereeEscrows(ctx context.Context) ([]db.RefereeEscrow, error)
+	DeleteRefereeEscrow(ctx context.Context, escrowID string) error
+	UpsertRefereeBranchGamma(ctx context.Context, row db.RefereeBranchGamma) error
+	ListRefereeBranchGammas(ctx context.Context) ([]db.RefereeBranchGamma, error)
+	DeleteRefereeBranchGammas(ctx context.Context, matchID string) error
+	UpsertRefereePresign(ctx context.Context, row db.RefereePresign) error
+	ListRefereePresigns(ctx context.Context) ([]db.RefereePresign, error)
+	DeleteRefereePresigns(ctx context.Context, matchID string) error
+	UpsertPendingSettlement(ctx context.Context, row db.PendingSettlement) error
+	ListPendingSettlements(ctx context.Context) ([]db.PendingSettlement, error)
+	DeletePendingSettlement(ctx context.Context, matchID string) error
 	// ---- Tables (configuration) ----
 	UpsertTable(ctx context.Context, t *poker.TableConfig) error
 	GetTable(ctx context.Context, id string) (*db.Table, error)
@@ -151,6 +166,8 @@ func (s *Server) loadTableFromDatabase(tableID string) (*poker.Table, error) {
 	if err := s.loadMatchCheckpoint(tableID, table); err != nil && err.Error() != "match checkpoint not found" {
 		s.log.Errorf("loadMatchCheckpoint(%s) failed: %v", tableID, err)
 	}
+	s.rebuildMatchEscrowsFromTable(tableID, table)
+	s.rebuildPresignCompleteFromTable(tableID, table)
 
 	for _, playerID := range readyPlayerIDs {
 		user := table.GetUser(playerID)

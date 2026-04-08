@@ -236,6 +236,21 @@ func NewServer(cfg ServerConfig) (*Server, error) {
 	if err := pokerServer.loadAllTables(); err != nil {
 		pokerServer.log.Errorf("Failed to load persisted tables: %v", err)
 	}
+	if err := pokerServer.loadPersistedRefereeEscrows(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted referee escrows: %v", err)
+	}
+	if err := pokerServer.loadSettlementEscrows(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted settlement escrows: %v", err)
+	}
+	if err := pokerServer.loadPersistedBranchGammas(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted branch gammas: %v", err)
+	}
+	if err := pokerServer.loadPersistedPresigns(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted presigns: %v", err)
+	}
+	if err := pokerServer.loadPendingSettlements(); err != nil {
+		pokerServer.log.Errorf("Failed to load pending settlements: %v", err)
+	}
 	if err := pokerServer.initializeDefaultTables(); err != nil {
 		pokerServer.eventProcessor.Stop()
 		_ = grpcLis.Close()
@@ -479,6 +494,21 @@ func NewTestServer(db Database, logBackend *logging.LogBackend) (*Server, error)
 	// initialized.
 	if err := pokerServer.loadAllTables(); err != nil {
 		pokerServer.log.Errorf("Failed to load persisted tables: %v", err)
+	}
+	if err := pokerServer.loadPersistedRefereeEscrows(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted referee escrows: %v", err)
+	}
+	if err := pokerServer.loadSettlementEscrows(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted settlement escrows: %v", err)
+	}
+	if err := pokerServer.loadPersistedBranchGammas(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted branch gammas: %v", err)
+	}
+	if err := pokerServer.loadPersistedPresigns(); err != nil {
+		pokerServer.log.Errorf("Failed to load persisted presigns: %v", err)
+	}
+	if err := pokerServer.loadPendingSettlements(); err != nil {
+		pokerServer.log.Errorf("Failed to load pending settlements: %v", err)
 	}
 
 	return pokerServer, nil

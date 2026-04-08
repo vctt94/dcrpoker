@@ -208,7 +208,7 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 	// Attempt to finalize and broadcast Schnorr settlement if matchID and winner are valid.
 	if pl.WinnerID != "" && pl.MatchID != "" && pl.WinnerSeat >= 0 {
 		if nh.server.matchHasEscrows(pl.MatchID) {
-			nh.server.markPendingSettlement(pl.MatchID)
+			nh.server.markPendingSettlement(pl.MatchID, event.TableID, pl.WinnerID, pl.WinnerSeat)
 		}
 		go nh.server.trySettlementBroadcast(event.TableID, pl.MatchID, pl.WinnerSeat, pl.WinnerID, event.PlayerIDs)
 	}

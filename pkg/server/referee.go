@@ -214,6 +214,8 @@ func (es *refereeEscrowSession) snapshot() escrowSnapshot {
 	}
 }
 
+type pendingSettlementInfo = pendingSettlementState
+
 // schnorrRefereeState is the in-memory view of Schnorr SNG escrow/presign state.
 type schnorrRefereeState struct {
 	network       string
@@ -227,7 +229,7 @@ type schnorrRefereeState struct {
 	presigns           map[string]map[int32]map[string]*refereePreSignCtx // matchKey -> branch -> inputID -> ctx
 	branchGamma        map[string]map[int32]string                        // matchKey -> branch -> gammaHex
 	presignComplete    map[string]map[uint32]bool                         // matchKey -> seat -> completed
-	pendingSettlements map[string]bool                                    // matchKey -> settlement still pending
+	pendingSettlements map[string]pendingSettlementInfo                   // matchKey -> settlement metadata
 }
 
 func newSchnorrRefereeState(cfg ServerConfig) *schnorrRefereeState {
@@ -241,7 +243,7 @@ func newSchnorrRefereeState(cfg ServerConfig) *schnorrRefereeState {
 		presigns:           make(map[string]map[int32]map[string]*refereePreSignCtx),
 		branchGamma:        make(map[string]map[int32]string),
 		presignComplete:    make(map[string]map[uint32]bool),
-		pendingSettlements: make(map[string]bool),
+		pendingSettlements: make(map[string]pendingSettlementInfo),
 	}
 }
 
@@ -451,6 +453,7 @@ func (s *Server) OpenEscrow(ctx context.Context, req *pokerrpc.OpenEscrowRequest
 	if lf.UTXOCount == 1 && len(lf.UTXOs) == 1 {
 		_ = enforceSingleFunding(es)
 	}
+	s.persistEscrowSession(es)
 
 	return &pokerrpc.OpenEscrowResponse{
 		EscrowId:              es.EscrowID,
@@ -750,6 +753,7 @@ func (s *Server) BindEscrow(ctx context.Context, req *pokerrpc.BindEscrowRequest
 	es.mu.RUnlock()
 
 	s.broadcastEscrowFundingNotification(tableID, uid.String(), escrowID, fundingState, update, boundUTXO, csvBlocks)
+	s.persistEscrowSession(es)
 
 	return &pokerrpc.BindEscrowResponse{
 		MatchId:             matchID,
@@ -920,6 +924,9 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 		s.referee.branchGamma[matchID][int32(idx)] = draft.GammaHex
 	}
 	s.referee.mu.Unlock()
+	for idx, draft := range branchDrafts {
+		s.persistBranchGamma(matchID, int32(idx), draft.GammaHex)
+	}
 
 	draftMap := make(map[int32]branchDraft)
 	for idx, d := range branchDrafts {
@@ -1096,6 +1103,7 @@ func (f *escrowFundingFSM) applyDecisionAndDetermineNext(dec escrowFundingDecisi
 		if err := f.notifyStateChange(dec.state, update, dec.bound, dec.reason); err != nil {
 			f.server.log.Errorf("Failed to notify escrow state change: %v", err)
 		}
+		f.server.persistEscrowSession(f.session)
 	}
 	if dec.state == currentState {
 		return nil
@@ -1477,12 +1485,20 @@ func (s *Server) cleanupMatchState(matchID string) {
 
 	// Snapshot escrow IDs so we can clean them after releasing the match maps.
 	s.referee.mu.Lock()
-	seats := s.referee.matchEscrows[matchID]
-	var escrowIDs []string
-	for _, eid := range seats {
+	escrowIDSet := make(map[string]struct{})
+	for _, eid := range s.referee.matchEscrows[matchID] {
 		if eid != "" {
-			escrowIDs = append(escrowIDs, eid)
+			escrowIDSet[eid] = struct{}{}
 		}
+	}
+	for _, eid := range s.referee.settlementEscrows[matchID] {
+		if eid != "" {
+			escrowIDSet[eid] = struct{}{}
+		}
+	}
+	escrowIDs := make([]string, 0, len(escrowIDSet))
+	for eid := range escrowIDSet {
+		escrowIDs = append(escrowIDs, eid)
 	}
 	delete(s.referee.matchEscrows, matchID)
 	delete(s.referee.settlementEscrows, matchID)
@@ -1491,6 +1507,8 @@ func (s *Server) cleanupMatchState(matchID string) {
 	delete(s.referee.presignComplete, matchID)
 	delete(s.referee.pendingSettlements, matchID)
 	s.referee.mu.Unlock()
+
+	s.deletePersistedMatchArtifacts(matchID)
 
 	for _, escrowID := range escrowIDs {
 		s.resetEscrowState(escrowID)
@@ -1532,6 +1550,7 @@ func (s *Server) resetEscrowState(escrowID string) {
 		At:          time.Now(),
 	}
 	es.updateFundingState(escrowStateSpent, "match settled; escrow spent", update, nil)
+	s.persistEscrowSession(es)
 }
 
 // GetEscrowStatus returns funding/conf status for an escrow owned by caller.
@@ -1614,6 +1633,7 @@ func (s *Server) TestBindEscrowFunding(escrowID, txid string, vout uint32, amoun
 	}
 	decision := classifyEscrowFundingState(amount, es.CSVBlocks, escrowRequiredConfirmations, true, update)
 	es.updateFundingState(decision.state, decision.reason, update, decision.bound)
+	s.persistEscrowSession(es)
 }
 
 // TestBindEscrowToMatch binds an escrow to a match/seat and table user model (testing only).
@@ -1640,6 +1660,7 @@ func (s *Server) TestBindEscrowToMatch(escrowID, matchID, tableID, playerID stri
 	es.TableID = tableID
 	es.SeatIndex = seat
 	es.mu.Unlock()
+	s.persistEscrowSession(es)
 
 	// Update user's escrow binding in the table.
 	table, ok := s.getTable(tableID)
@@ -1682,6 +1703,27 @@ func (s *Server) rebuildMatchEscrowsFromTable(matchID string, table *poker.Table
 	s.referee.mu.Unlock()
 }
 
+func (s *Server) rebuildPresignCompleteFromTable(matchID string, table *poker.Table) {
+	if s.referee == nil || table == nil {
+		return
+	}
+	snap := table.GetStateSnapshot()
+	next := make(map[uint32]bool)
+	for _, u := range snap.Users {
+		if u.TableSeat >= 0 && u.PresignComplete {
+			next[uint32(u.TableSeat)] = true
+		}
+	}
+	s.referee.mu.Lock()
+	if len(next) == 0 {
+		delete(s.referee.presignComplete, matchID)
+		s.referee.mu.Unlock()
+		return
+	}
+	s.referee.presignComplete[matchID] = next
+	s.referee.mu.Unlock()
+}
+
 func (s *Server) matchHasEscrows(matchID string) bool {
 	if s.referee == nil || matchID == "" {
 		return false
@@ -1689,17 +1731,23 @@ func (s *Server) matchHasEscrows(matchID string) bool {
 
 	s.referee.mu.RLock()
 	defer s.referee.mu.RUnlock()
-	return len(s.referee.matchEscrows[matchID]) > 0
+	return len(s.referee.matchEscrows[matchID]) > 0 || len(s.referee.settlementEscrows[matchID]) > 0
 }
 
-func (s *Server) markPendingSettlement(matchID string) {
-	if s.referee == nil || matchID == "" {
+func (s *Server) markPendingSettlement(matchID, tableID, winnerID string, winnerSeat int32) {
+	if s.referee == nil || matchID == "" || tableID == "" || winnerID == "" {
 		return
 	}
 
+	state := pendingSettlementInfo{
+		TableID:    tableID,
+		WinnerID:   winnerID,
+		WinnerSeat: winnerSeat,
+	}
 	s.referee.mu.Lock()
-	s.referee.pendingSettlements[matchID] = true
+	s.referee.pendingSettlements[matchID] = state
 	s.referee.mu.Unlock()
+	s.persistPendingSettlement(matchID, state)
 }
 
 func (s *Server) hasPendingSettlement(matchID string) bool {
@@ -1709,7 +1757,8 @@ func (s *Server) hasPendingSettlement(matchID string) bool {
 
 	s.referee.mu.RLock()
 	defer s.referee.mu.RUnlock()
-	return s.referee.pendingSettlements[matchID]
+	_, ok := s.referee.pendingSettlements[matchID]
+	return ok
 }
 
 func (s *Server) clearMatchPreparationState(matchID string) {
@@ -1727,6 +1776,8 @@ func (s *Server) clearMatchPreparationState(matchID string) {
 		delete(s.referee.matchEscrows, matchID)
 	}
 	s.referee.mu.Unlock()
+
+	s.deletePersistedMatchArtifacts(matchID)
 }
 
 func (s *Server) tableHasRefereeState(tableID string) bool {
@@ -1752,7 +1803,8 @@ func (s *Server) tableHasRefereeState(tableID string) bool {
 	if len(s.referee.presignComplete[tableID]) > 0 {
 		return true
 	}
-	return s.referee.pendingSettlements[tableID]
+	_, ok := s.referee.pendingSettlements[tableID]
+	return ok
 }
 
 func copyMatchEscrows(src map[uint32]string) map[uint32]string {
@@ -1778,7 +1830,11 @@ func (s *Server) matchEscrowsSnapshot(matchID string, frozen bool) map[uint32]st
 // readyMatchEscrows returns all current escrows for a match, ensuring 2-6
 // entries and that each has a bound UTXO and session pubkey.
 func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, error) {
-	return s.readyEscrowsForSeats(s.matchEscrowsSnapshot(matchID, false))
+	seats := s.matchEscrowsSnapshot(matchID, false)
+	if len(seats) == 0 {
+		seats = s.matchEscrowsSnapshot(matchID, true)
+	}
+	return s.readyEscrowsForSeats(seats)
 }
 
 // readySettlementEscrows returns the frozen settlement roster for a match when
@@ -1849,6 +1905,52 @@ func (s *Server) freezeSettlementEscrows(matchID string, escrows []*refereeEscro
 	s.referee.mu.Lock()
 	s.referee.settlementEscrows[matchID] = seats
 	s.referee.mu.Unlock()
+
+	s.persistSettlementEscrows(matchID, seats)
+}
+
+func (s *Server) persistSettlementEscrows(matchID string, seats map[uint32]string) {
+	if s == nil || s.db == nil || matchID == "" {
+		return
+	}
+	if err := s.db.ReplaceSettlementEscrows(context.Background(), matchID, copyMatchEscrows(seats)); err != nil {
+		s.log.Warnf("failed to persist settlement escrows for %s: %v", matchID, err)
+	}
+}
+
+func (s *Server) loadSettlementEscrows() error {
+	if s == nil || s.referee == nil || s.db == nil {
+		return nil
+	}
+
+	rows, err := s.db.ListSettlementEscrows(context.Background())
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+
+	s.referee.mu.Lock()
+	defer s.referee.mu.Unlock()
+
+	loaded := 0
+	for _, row := range rows {
+		matchID := strings.TrimSpace(row.MatchID)
+		escrowID := strings.TrimSpace(row.EscrowID)
+		if matchID == "" || escrowID == "" {
+			continue
+		}
+		if s.referee.settlementEscrows[matchID] == nil {
+			s.referee.settlementEscrows[matchID] = make(map[uint32]string)
+		}
+		s.referee.settlementEscrows[matchID][row.Seat] = escrowID
+		loaded++
+	}
+	if loaded > 0 {
+		s.log.Infof("Loaded %d persisted settlement escrow bindings", loaded)
+	}
+	return nil
 }
 
 // seatToBranchIndex maps a table seat index to the corresponding branch index.
@@ -2124,6 +2226,7 @@ func (s *Server) storePresigs(matchID string, branch int32, uid zkidentity.Short
 		s.referee.mu.Lock()
 		s.referee.presigns[matchID][branch][in.InputID] = ctx
 		s.referee.mu.Unlock()
+		s.persistPresignContext(matchID, ctx)
 	}
 
 	return nil

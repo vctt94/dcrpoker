@@ -51,6 +51,111 @@ func (m *metricsDB) DeleteMatchCheckpoint(ctx context.Context, tableID string) e
 	return err
 }
 
+func (m *metricsDB) ReplaceSettlementEscrows(ctx context.Context, matchID string, seats map[uint32]string) error {
+	start := time.Now()
+	err := m.inner.ReplaceSettlementEscrows(ctx, matchID, seats)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) ListSettlementEscrows(ctx context.Context) ([]db.SettlementEscrow, error) {
+	start := time.Now()
+	v, err := m.inner.ListSettlementEscrows(ctx)
+	m.observe(start, err)
+	return v, err
+}
+
+func (m *metricsDB) DeleteSettlementEscrows(ctx context.Context, matchID string) error {
+	start := time.Now()
+	err := m.inner.DeleteSettlementEscrows(ctx, matchID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) UpsertRefereeEscrow(ctx context.Context, row db.RefereeEscrow) error {
+	start := time.Now()
+	err := m.inner.UpsertRefereeEscrow(ctx, row)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) ListRefereeEscrows(ctx context.Context) ([]db.RefereeEscrow, error) {
+	start := time.Now()
+	v, err := m.inner.ListRefereeEscrows(ctx)
+	m.observe(start, err)
+	return v, err
+}
+
+func (m *metricsDB) DeleteRefereeEscrow(ctx context.Context, escrowID string) error {
+	start := time.Now()
+	err := m.inner.DeleteRefereeEscrow(ctx, escrowID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) UpsertRefereeBranchGamma(ctx context.Context, row db.RefereeBranchGamma) error {
+	start := time.Now()
+	err := m.inner.UpsertRefereeBranchGamma(ctx, row)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) ListRefereeBranchGammas(ctx context.Context) ([]db.RefereeBranchGamma, error) {
+	start := time.Now()
+	v, err := m.inner.ListRefereeBranchGammas(ctx)
+	m.observe(start, err)
+	return v, err
+}
+
+func (m *metricsDB) DeleteRefereeBranchGammas(ctx context.Context, matchID string) error {
+	start := time.Now()
+	err := m.inner.DeleteRefereeBranchGammas(ctx, matchID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) UpsertRefereePresign(ctx context.Context, row db.RefereePresign) error {
+	start := time.Now()
+	err := m.inner.UpsertRefereePresign(ctx, row)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) ListRefereePresigns(ctx context.Context) ([]db.RefereePresign, error) {
+	start := time.Now()
+	v, err := m.inner.ListRefereePresigns(ctx)
+	m.observe(start, err)
+	return v, err
+}
+
+func (m *metricsDB) DeleteRefereePresigns(ctx context.Context, matchID string) error {
+	start := time.Now()
+	err := m.inner.DeleteRefereePresigns(ctx, matchID)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) UpsertPendingSettlement(ctx context.Context, row db.PendingSettlement) error {
+	start := time.Now()
+	err := m.inner.UpsertPendingSettlement(ctx, row)
+	m.observe(start, err)
+	return err
+}
+
+func (m *metricsDB) ListPendingSettlements(ctx context.Context) ([]db.PendingSettlement, error) {
+	start := time.Now()
+	v, err := m.inner.ListPendingSettlements(ctx)
+	m.observe(start, err)
+	return v, err
+}
+
+func (m *metricsDB) DeletePendingSettlement(ctx context.Context, matchID string) error {
+	start := time.Now()
+	err := m.inner.DeletePendingSettlement(ctx, matchID)
+	m.observe(start, err)
+	return err
+}
+
 func (m *metricsDB) UpsertTable(ctx context.Context, t *poker.TableConfig) error {
 	start := time.Now()
 	err := m.inner.UpsertTable(ctx, t)
