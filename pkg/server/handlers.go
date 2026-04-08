@@ -187,7 +187,7 @@ func (nh *NotificationHandler) handleGameEnded(event *GameEvent) {
 		isWinner := playerID == pl.WinnerID
 		amountAtoms := -buyInAtoms
 		if isWinner && entrants > 1 {
-			amountAtoms = buyInAtoms * int64(entrants-1)
+			amountAtoms = buyInAtoms * int64(entrants)
 		} else if isWinner {
 			amountAtoms = 0
 		}
