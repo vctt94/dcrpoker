@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fixnum/fixnum.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,18 @@ import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/screens/home.dart';
 import 'package:pokerui/theme/poker_theme.dart';
+
+class _EscrowRefreshTestModel extends PokerModel {
+  _EscrowRefreshTestModel({required super.playerId})
+      : super(dataDir: '/tmp/pokerui-test');
+
+  List<Map<String, dynamic>> cachedEscrows = const [];
+
+  @override
+  Future<List<Map<String, dynamic>>> listCachedEscrows() async => cachedEscrows
+      .map((escrow) => Map<String, dynamic>.from(escrow))
+      .toList(growable: false);
+}
 
 void main() {
   UiTable table({
@@ -227,5 +241,510 @@ void main() {
     expect(find.text('Bind Escrow'), findsOneWidget);
     expect(find.text('Bind escrow'), findsNothing);
     expect(find.text('Waiting for confirmations'), findsNothing);
+  });
+
+  testWidgets('success banner can be dismissed manually', (tester) async {
+    final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.successMessage = 'Escrow bound to River Room';
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Escrow bound to River Room'), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Escrow bound to River Room'), findsNothing);
+  });
+
+  testWidgets('game end clears stale success banner', (tester) async {
+    final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 100000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.successMessage = 'Escrow bound to River Room';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Escrow bound to River Room'), findsOneWidget);
+
+    model.applyNotificationForTest(
+      pr.Notification(
+        type: pr.NotificationType.GAME_ENDED,
+        tableId: 'table-live',
+        message: 'Game ended',
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Escrow bound to River Room'), findsNothing);
+  });
+
+  testWidgets(
+      'bind escrow dialog refreshes when owner escrow confirmations arrive',
+      (tester) async {
+    final model = _EscrowRefreshTestModel(playerId: 'hero');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.updateAuthedPayoutAddress('DsTestPayoutAddr');
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-1',
+        'funding_txid': 'd32bbacf12345678',
+        'funding_vout': 0,
+        'funded_amount': 10000000,
+        'confs': 0,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_CONFIRMING',
+      },
+    ];
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 10000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bind Escrow'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'One escrow is still waiting for confirmations and cannot be selected yet.',
+      ),
+      findsOneWidget,
+    );
+
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-1',
+        'funding_txid': 'd32bbacf12345678',
+        'funding_vout': 0,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.applyNotificationForTest(
+      pr.Notification(
+        type: pr.NotificationType.ESCROW_FUNDING,
+        playerId: 'hero',
+        message: jsonEncode({
+          'type': 'escrow_funding',
+          'player_id': 'hero',
+          'escrow_id': 'escrow-1',
+          'funding_state': 'ESCROW_STATE_READY',
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'One escrow is still waiting for confirmations and cannot be selected yet.',
+      ),
+      findsNothing,
+    );
+    expect(find.text('d32bbacf:0 - 0.1000 DCR'), findsOneWidget);
+  });
+
+  testWidgets(
+      'bind escrow dialog tolerates escrow refresh while dropdown is open',
+      (tester) async {
+    final model = _EscrowRefreshTestModel(playerId: 'hero');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.updateAuthedPayoutAddress('DsTestPayoutAddr');
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-1',
+        'funding_txid': 'd32bbacf12345678',
+        'funding_vout': 0,
+        'funded_amount': 10000000,
+        'confs': 0,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_CONFIRMING',
+      },
+      {
+        'escrow_id': 'escrow-2',
+        'funding_txid': 'aabbccdd12345678',
+        'funding_vout': 1,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 10000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bind Escrow'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-1',
+        'funding_txid': 'd32bbacf12345678',
+        'funding_vout': 0,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+      {
+        'escrow_id': 'escrow-2',
+        'funding_txid': 'aabbccdd12345678',
+        'funding_vout': 1,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.applyNotificationForTest(
+      pr.Notification(
+        type: pr.NotificationType.ESCROW_FUNDING,
+        playerId: 'hero',
+        message: jsonEncode({
+          'type': 'escrow_funding',
+          'player_id': 'hero',
+          'escrow_id': 'escrow-1',
+          'funding_state': 'ESCROW_STATE_READY',
+        }),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'bind escrow dialog closes the dropdown when escrow status changes',
+      (tester) async {
+    final model = _EscrowRefreshTestModel(playerId: 'hero');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.updateAuthedPayoutAddress('DsTestPayoutAddr');
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-1',
+        'funding_txid': 'd32bbacf12345678',
+        'funding_vout': 0,
+        'funded_amount': 10000000,
+        'confs': 0,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_CONFIRMING',
+      },
+      {
+        'escrow_id': 'escrow-2',
+        'funding_txid': 'aabbccdd12345678',
+        'funding_vout': 1,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 10000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bind Escrow'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Waiting for confirmations'), findsOneWidget);
+
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-1',
+        'funding_txid': 'd32bbacf12345678',
+        'funding_vout': 0,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+      {
+        'escrow_id': 'escrow-2',
+        'funding_txid': 'aabbccdd12345678',
+        'funding_vout': 1,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.applyNotificationForTest(
+      pr.Notification(
+        type: pr.NotificationType.ESCROW_FUNDING,
+        playerId: 'hero',
+        message: jsonEncode({
+          'type': 'escrow_funding',
+          'player_id': 'hero',
+          'escrow_id': 'escrow-1',
+          'funding_state': 'ESCROW_STATE_READY',
+        }),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Waiting for confirmations'), findsNothing);
+    expect(find.text('Advanced options'), findsOneWidget);
+  });
+
+  testWidgets('bind escrow dialog only shows escrows matching table buy-in',
+      (tester) async {
+    final model = _EscrowRefreshTestModel(playerId: 'hero');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.updateAuthedPayoutAddress('DsTestPayoutAddr');
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-small',
+        'funding_txid': '1111bbacf1234567',
+        'funding_vout': 0,
+        'funded_amount': 1000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+      {
+        'escrow_id': 'escrow-large',
+        'funding_txid': '2222bbacf1234567',
+        'funding_vout': 1,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 1000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bind Escrow'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1111bbac:0 - 0.0100 DCR'), findsOneWidget);
+    expect(find.text('2222bbac:1 - 0.1000 DCR'), findsNothing);
+  });
+
+  testWidgets(
+      'bind escrow dialog without matching escrows hides advanced options and routes to open escrow',
+      (tester) async {
+    final model = _EscrowRefreshTestModel(playerId: 'hero');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.updateAuthedPayoutAddress('DsTestPayoutAddr');
+    model.cachedEscrows = [
+      {
+        'escrow_id': 'escrow-large',
+        'funding_txid': '2222bbacf1234567',
+        'funding_vout': 1,
+        'funded_amount': 10000000,
+        'confs': 1,
+        'required_confirmations': 1,
+        'funding_state': 'ESCROW_STATE_READY',
+      },
+    ];
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 1000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          routes: {
+            '/open-escrow': (_) =>
+                const Scaffold(body: Text('Open Escrow Screen')),
+          },
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Bind Escrow'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Advanced options'), findsNothing);
+    expect(find.text('Bind'), findsNothing);
+    expect(find.text('Open Escrow'), findsOneWidget);
+
+    await tester.tap(find.text('Open Escrow'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Open Escrow Screen'), findsOneWidget);
   });
 }

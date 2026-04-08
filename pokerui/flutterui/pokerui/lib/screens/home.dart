@@ -91,7 +91,10 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
 
                 // Success banner
                 if (pokerModel.successMessage.isNotEmpty)
-                  _SuccessBanner(message: pokerModel.successMessage),
+                  _SuccessBanner(
+                    message: pokerModel.successMessage,
+                    onDismiss: pokerModel.clearSuccess,
+                  ),
 
                 // Main content
                 Padding(
@@ -162,8 +165,12 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 class _SuccessBanner extends StatelessWidget {
-  const _SuccessBanner({required this.message});
+  const _SuccessBanner({
+    required this.message,
+    required this.onDismiss,
+  });
   final String message;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -194,6 +201,13 @@ class _SuccessBanner extends StatelessWidget {
               style: PokerTypography.bodySmall
                   .copyWith(color: PokerColors.success),
             ),
+          ),
+          const SizedBox(width: PokerSpacing.xs),
+          IconButton(
+            icon: const Icon(Icons.close, color: PokerColors.success, size: 16),
+            onPressed: onDismiss,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
           ),
         ],
       ),
