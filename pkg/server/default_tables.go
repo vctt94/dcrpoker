@@ -455,24 +455,34 @@ func normalizeTableConfig(cfg *poker.TableConfig) {
 }
 
 func defaultTableName(cfg poker.TableConfig) string {
-	if cfg.BuyIn == 0 {
-		if cfg.MaxPlayers > 0 {
-			return fmt.Sprintf("Free Table %d Players", cfg.MaxPlayers)
-		}
-		return "Free Table"
+	name := tableStakeLabel(cfg.BuyIn)
+	format := tableFormatLabel(cfg.MaxPlayers)
+	if format != "" {
+		name = strings.TrimSpace(name + " " + format)
 	}
-
-	if cfg.MaxPlayers > 0 {
-		return fmt.Sprintf(
-			"%.2f DCR Table %d Players",
-			dcrutil.Amount(cfg.BuyIn).ToCoin(),
-			cfg.MaxPlayers,
-		)
+	if name != "" {
+		return name
 	}
-
 	if strings.TrimSpace(cfg.ID) == "" {
 		return "Table"
 	}
-
 	return fmt.Sprintf("Table %s", cfg.ID[:8])
+}
+
+func tableStakeLabel(buyIn int64) string {
+	if buyIn == 0 {
+		return "Free Play"
+	}
+	return fmt.Sprintf("%.2f DCR", dcrutil.Amount(buyIn).ToCoin())
+}
+
+func tableFormatLabel(maxPlayers int) string {
+	switch {
+	case maxPlayers == 2:
+		return "Heads-Up"
+	case maxPlayers > 0:
+		return fmt.Sprintf("%d-Max", maxPlayers)
+	default:
+		return ""
+	}
 }

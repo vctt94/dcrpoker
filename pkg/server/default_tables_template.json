@@ -1,121 +1,121 @@
 {
   "tables": [
     {
-      "name": "Free Table 2 Players",
+      "name": "Free Play Heads-Up",
       "buy_in_dcr": "0.00",
       "min_players": 2,
       "max_players": 2
     },
     {
-      "name": "Free Table 3 Players",
+      "name": "Free Play 3-Max",
       "buy_in_dcr": "0.00",
       "min_players": 2,
       "max_players": 3
     },
     {
-      "name": "Free Table 4 Players",
+      "name": "Free Play 4-Max",
       "buy_in_dcr": "0.00",
       "min_players": 2,
       "max_players": 4
     },
     {
-      "name": "Free Table 5 Players",
+      "name": "Free Play 5-Max",
       "buy_in_dcr": "0.00",
       "min_players": 2,
       "max_players": 5
     },
     {
-      "name": "Free Table 6 Players",
+      "name": "Free Play 6-Max",
       "buy_in_dcr": "0.00",
       "min_players": 2,
       "max_players": 6
     },
     {
-      "name": "Micro Table 2 Players",
+      "name": "0.01 DCR Heads-Up",
       "buy_in_dcr": "0.01",
       "min_players": 2,
       "max_players": 2
     },
     {
-      "name": "Micro Table 3 Players",
+      "name": "0.01 DCR 3-Max",
       "buy_in_dcr": "0.01",
       "min_players": 2,
       "max_players": 3
     },
     {
-      "name": "Micro Table 4 Players",
+      "name": "0.01 DCR 4-Max",
       "buy_in_dcr": "0.01",
       "min_players": 2,
       "max_players": 4
     },
     {
-      "name": "Micro Table 5 Players",
+      "name": "0.01 DCR 5-Max",
       "buy_in_dcr": "0.01",
       "min_players": 2,
       "max_players": 5
     },
     {
-      "name": "Micro Table 6 Players",
+      "name": "0.01 DCR 6-Max",
       "buy_in_dcr": "0.01",
       "min_players": 2,
       "max_players": 6
     },
     {
-      "name": "Medium Table 2 Players",
+      "name": "0.10 DCR Heads-Up",
       "buy_in_dcr": "0.1",
       "min_players": 2,
       "max_players": 2
     },
     {
-      "name": "Medium Table 3 Players",
+      "name": "0.10 DCR 3-Max",
       "buy_in_dcr": "0.1",
       "min_players": 2,
       "max_players": 3
     },
     {
-      "name": "Medium Table 4 Players",
+      "name": "0.10 DCR 4-Max",
       "buy_in_dcr": "0.1",
       "min_players": 2,
       "max_players": 4
     },
     {
-      "name": "Medium Table 5 Players",
+      "name": "0.10 DCR 5-Max",
       "buy_in_dcr": "0.1",
       "min_players": 2,
       "max_players": 5
     },
     {
-      "name": "Medium Table 6 Players",
+      "name": "0.10 DCR 6-Max",
       "buy_in_dcr": "0.1",
       "min_players": 2,
       "max_players": 6
     },
     {
-      "name": "Big Table 2 Players",
+      "name": "1.00 DCR Heads-Up",
       "buy_in_dcr": "1",
       "min_players": 2,
       "max_players": 2
     },
     {
-      "name": "Big Table 3 Players",
+      "name": "1.00 DCR 3-Max",
       "buy_in_dcr": "1",
       "min_players": 2,
       "max_players": 3
     },
     {
-      "name": "Big Table 4 Players",
+      "name": "1.00 DCR 4-Max",
       "buy_in_dcr": "1",
       "min_players": 2,
       "max_players": 4
     },
     {
-      "name": "Big Table 5 Players",
+      "name": "1.00 DCR 5-Max",
       "buy_in_dcr": "1",
       "min_players": 2,
       "max_players": 5
     },
     {
-      "name": "Big Table 6 Players",
+      "name": "1.00 DCR 6-Max",
       "buy_in_dcr": "1",
       "min_players": 2,
       "max_players": 6

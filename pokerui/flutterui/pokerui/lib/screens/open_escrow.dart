@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'package:pokerui/components/shared_layout.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/spacing.dart';
+import 'package:pokerui/theme/typography.dart';
 
 class OpenEscrowScreen extends StatefulWidget {
   const OpenEscrowScreen({super.key});
@@ -22,6 +25,8 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
   bool _needsPayoutAddress = false;
   String? _payoutAddress;
   Map<String, dynamic>? _result;
+  bool _showSessionPrivateKey = false;
+  final Set<String> _revealedEscrowFields = <String>{};
 
   @override
   void initState() {
@@ -113,6 +118,8 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
       _error = null;
       _needsPayoutAddress = false;
       _result = null;
+      _showSessionPrivateKey = false;
+      _revealedEscrowFields.clear();
     });
 
     try {
@@ -154,6 +161,7 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
       );
       setState(() {
         _result = res;
+        _revealedEscrowFields.clear();
       });
     } catch (e) {
       setState(() {
@@ -174,206 +182,244 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
     }
   }
 
-  Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(
-          text,
-          style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold),
-        ),
-      );
+  void debugSetSessionKeyForTest({
+    required String publicKey,
+    required String privateKey,
+    required String keyIndex,
+  }) {
+    setState(() {
+      _compPubController.text = publicKey;
+      _compPrivController.text = privateKey;
+      _keyIndex = keyIndex;
+      _showSessionPrivateKey = false;
+    });
+  }
+
+  void debugSetEscrowResultForTest(Map<String, dynamic> result) {
+    setState(() {
+      _result = Map<String, dynamic>.from(result);
+      _revealedEscrowFields.clear();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return SharedLayout(
       title: 'Open Escrow',
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Fund an escrow before joining a table. Verify payout address on the Sign Address screen first. A session key will be automatically generated when opening an escrow.',
-                style: TextStyle(color: Colors.white, fontSize: 15),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(PokerSpacing.xl),
+            child: Container(
+              padding: const EdgeInsets.all(PokerSpacing.xl),
+              decoration: BoxDecoration(
+                color: PokerColors.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: PokerColors.borderSubtle),
               ),
-              const SizedBox(height: 16),
-              _label('Bet Amount (DCR)'),
-              TextField(
-                controller: _betDcrController,
-                decoration: const InputDecoration(
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                  hintText: '0.10',
-                ),
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 12),
-              _label('CSV Blocks (default 64)'),
-              TextField(
-                controller: _csvBlocksController,
-                decoration: const InputDecoration(
-                  filled: true,
-                  fillColor: Colors.white,
-                  border: OutlineInputBorder(),
-                ),
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 16),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SelectableText(
-                    _error!,
-                    style: const TextStyle(color: Colors.redAccent),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Fund escrow',
+                    style: PokerTypography.headlineMedium,
                   ),
-                ),
-              if (_needsPayoutAddress)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.redAccent.withOpacity(0.4)),
+                  const SizedBox(height: PokerSpacing.sm),
+                  Text(
+                    'Create a funded escrow before joining a table. A session key is generated automatically when the escrow is opened.',
+                    style: PokerTypography.bodyMedium
+                        .copyWith(color: PokerColors.textSecondary),
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  if ((_payoutAddress ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: PokerSpacing.md),
+                    Text(
+                      'Verified payout address: $_payoutAddress',
+                      style: PokerTypography.bodySmall
+                          .copyWith(color: PokerColors.success),
+                    ),
+                  ],
+                  const SizedBox(height: PokerSpacing.xl),
+                  Text(
+                    'Bet Amount (DCR)',
+                    style: PokerTypography.titleSmall,
+                  ),
+                  const SizedBox(height: PokerSpacing.sm),
+                  TextField(
+                    controller: _betDcrController,
+                    decoration: const InputDecoration(
+                      hintText: '0.10',
+                    ),
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    style: PokerTypography.bodyMedium,
+                  ),
+                  const SizedBox(height: PokerSpacing.lg),
+                  Row(
                     children: [
-                      const Icon(Icons.warning_amber_rounded,
-                          color: Colors.redAccent),
-                      const SizedBox(width: 10),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Set a payout address first',
-                              style: TextStyle(
-                                  color: Colors.redAccent,
-                                  fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Open Sign Address to verify a payout address before funding an escrow.',
-                              style: TextStyle(color: Colors.white70),
-                            ),
-                            const SizedBox(height: 8),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.redAccent,
-                              ),
-                              onPressed: () {
-                                Navigator.of(context).pushNamed('/sign-address');
-                              },
-                              child: const Text('Go to Sign Address'),
-                            ),
-                          ],
+                        child: Text(
+                          'CSV Blocks',
+                          style: PokerTypography.titleSmall,
                         ),
+                      ),
+                      const _EscrowInfoTooltip(
+                        message:
+                            'CSV blocks define the relative lock time used for escrow recovery. The default of 64 is suitable for normal play.',
                       ),
                     ],
                   ),
-                ),
-              if (_result != null)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B1E2C),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blueAccent.withOpacity(.4)),
+                  const SizedBox(height: PokerSpacing.sm),
+                  TextField(
+                    controller: _csvBlocksController,
+                    decoration: const InputDecoration(
+                      hintText: '64',
+                    ),
+                    keyboardType: TextInputType.number,
+                    style: PokerTypography.bodyMedium,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Escrow Created',
-                          style: TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      ..._result!.entries.map((e) => Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            child: Row(
+                  const SizedBox(height: PokerSpacing.xl),
+                  if (_error != null) ...[
+                    _EscrowStatusCard(
+                      icon: Icons.error_outline,
+                      color: PokerColors.danger,
+                      message: _error!,
+                    ),
+                    const SizedBox(height: PokerSpacing.lg),
+                  ],
+                  if (_needsPayoutAddress) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(PokerSpacing.lg),
+                      decoration: BoxDecoration(
+                        color: PokerColors.danger.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: PokerColors.danger.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.warning_amber_rounded,
+                            color: PokerColors.danger,
+                          ),
+                          const SizedBox(width: PokerSpacing.md),
+                          Expanded(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                SizedBox(
-                                  width: 140,
-                                  child: Text(
-                                    e.key,
-                                    style: const TextStyle(color: Colors.white70),
+                                Text(
+                                  'Verify a payout address first',
+                                  style: PokerTypography.titleSmall
+                                      .copyWith(color: PokerColors.danger),
+                                ),
+                                const SizedBox(height: PokerSpacing.xs),
+                                Text(
+                                  'Open Sign Address to verify the address that will receive escrow settlements.',
+                                  style: PokerTypography.bodySmall.copyWith(
+                                    color: PokerColors.textSecondary,
                                   ),
                                 ),
-                                Expanded(
-                                  child: SelectableText(
-                                    '${e.value}',
-                                    style: const TextStyle(color: Colors.white),
+                                const SizedBox(height: PokerSpacing.md),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: ElevatedButton(
+                                    onPressed: () {
+                                      Navigator.of(context)
+                                          .pushNamed('/sign-address');
+                                    },
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: PokerColors.danger,
+                                    ),
+                                    child: const Text('Open Sign Address'),
                                   ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.copy, color: Colors.white70),
-                                  onPressed: () => Clipboard.setData(
-                                      ClipboardData(text: '${e.value}')),
                                 ),
                               ],
                             ),
-                          )),
-                    ],
-                  ),
-                ),
-              ElevatedButton(
-                onPressed: _isOpening ? null : _openEscrow,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  backgroundColor: Colors.blueAccent,
-                ),
-                child: _isOpening
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text('Open Escrow'),
-              ),
-              const SizedBox(height: 16),
-              if (_compPubController.text.trim().isNotEmpty ||
-                  _compPrivController.text.trim().isNotEmpty ||
-                  (_keyIndex ?? '').isNotEmpty)
-                Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(top: 8),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B1E2C),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blueAccent.withOpacity(.4)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Session Key',
-                          style: TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      _keyValueRow('Compressed Pubkey', _compPubController.text.trim()),
-                      _keyValueRow('Session Private Key', _compPrivController.text.trim()),
-                      if ((_keyIndex ?? '').isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 6),
-                          child: Text(
-                            'Key index: $_keyIndex (store with escrow for recovery)',
-                            style: const TextStyle(color: Colors.white70),
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: PokerSpacing.lg),
+                  ],
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 220,
+                      child: ElevatedButton(
+                        onPressed: _isOpening ? null : _openEscrow,
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
                         ),
-                    ],
+                        child: _isOpening
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Text('Open Escrow'),
+                      ),
+                    ),
                   ),
-                ),
-            ],
+                  if (_result != null) ...[
+                    const SizedBox(height: PokerSpacing.xl),
+                    _EscrowSurfaceCard(
+                      title: 'Escrow Created',
+                      child: Column(
+                        children: _result!.entries
+                            .map(
+                              (e) => _escrowResultRow(e.key, '${e.value}'),
+                            )
+                            .toList(),
+                      ),
+                    ),
+                  ],
+                  if (_compPubController.text.trim().isNotEmpty ||
+                      _compPrivController.text.trim().isNotEmpty ||
+                      (_keyIndex ?? '').isNotEmpty) ...[
+                    const SizedBox(height: PokerSpacing.lg),
+                    _EscrowSurfaceCard(
+                      title: 'Session Key',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _keyValueRow(
+                            'Compressed Pubkey',
+                            _compPubController.text.trim(),
+                          ),
+                          _sensitiveKeyValueRow(
+                            'Session Private Key',
+                            _compPrivController.text.trim(),
+                            revealed: _showSessionPrivateKey,
+                            onToggle: () {
+                              setState(() {
+                                _showSessionPrivateKey =
+                                    !_showSessionPrivateKey;
+                              });
+                            },
+                          ),
+                          if ((_keyIndex ?? '').isNotEmpty)
+                            Padding(
+                              padding:
+                                  const EdgeInsets.only(top: PokerSpacing.sm),
+                              child: Text(
+                                'Key index: $_keyIndex. Keep this with the escrow details for recovery.',
+                                style: PokerTypography.bodySmall.copyWith(
+                                  color: PokerColors.textSecondary,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
@@ -383,25 +429,304 @@ class _OpenEscrowScreenState extends State<OpenEscrowScreen> {
   Widget _keyValueRow(String label, String value) {
     if (value.isEmpty) return const SizedBox.shrink();
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.symmetric(vertical: PokerSpacing.xs),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 150,
-            child: Text(label, style: const TextStyle(color: Colors.white70)),
+            child: Text(label, style: PokerTypography.bodySmall),
           ),
           Expanded(
             child: SelectableText(
               value,
-              style: const TextStyle(color: Colors.white),
+              style: PokerTypography.bodyMedium,
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.copy, color: Colors.white70),
+            icon: const Icon(Icons.copy),
+            color: PokerColors.textSecondary,
             onPressed: () => Clipboard.setData(ClipboardData(text: value)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _escrowResultRow(String label, String value) {
+    if (_isSensitiveEscrowField(label)) {
+      final revealed = _revealedEscrowFields.contains(label);
+      return _sensitiveEscrowResultRow(
+        label,
+        value,
+        revealed: revealed,
+        onToggle: () {
+          setState(() {
+            if (revealed) {
+              _revealedEscrowFields.remove(label);
+            } else {
+              _revealedEscrowFields.add(label);
+            }
+          });
+        },
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+        vertical: PokerSpacing.xs,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(
+              label,
+              style: PokerTypography.bodySmall,
+            ),
+          ),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: PokerTypography.bodyMedium,
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.copy),
+            color: PokerColors.textSecondary,
+            onPressed: () => Clipboard.setData(
+              ClipboardData(text: value),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sensitiveEscrowResultRow(
+    String label,
+    String value, {
+    required bool revealed,
+    required VoidCallback onToggle,
+  }) {
+    final displayValue = revealed ? value : _maskedValue(value);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: PokerSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 140,
+            child: Text(label, style: PokerTypography.bodySmall),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(
+                  displayValue,
+                  style: PokerTypography.bodyMedium.copyWith(
+                    color: revealed
+                        ? PokerColors.textPrimary
+                        : PokerColors.textSecondary,
+                    fontFamily: revealed ? null : 'monospace',
+                  ),
+                ),
+                const SizedBox(height: PokerSpacing.xs),
+                TextButton.icon(
+                  onPressed: onToggle,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(
+                    revealed ? Icons.visibility_off_outlined : Icons.visibility,
+                    size: 16,
+                  ),
+                  label: Text(revealed ? 'Hide' : 'Show'),
+                ),
+              ],
+            ),
+          ),
+          if (revealed)
+            IconButton(
+              icon: const Icon(Icons.copy),
+              color: PokerColors.textSecondary,
+              onPressed: () => Clipboard.setData(
+                ClipboardData(text: value),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  bool _isSensitiveEscrowField(String label) {
+    return label.endsWith('_hex');
+  }
+
+  Widget _sensitiveKeyValueRow(
+    String label,
+    String value, {
+    required bool revealed,
+    required VoidCallback onToggle,
+  }) {
+    if (value.isEmpty) return const SizedBox.shrink();
+    final displayValue = revealed ? value : _maskedValue(value);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: PokerSpacing.xs),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 150,
+            child: Text(label, style: PokerTypography.bodySmall),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SelectableText(
+                  displayValue,
+                  style: PokerTypography.bodyMedium.copyWith(
+                    color: revealed
+                        ? PokerColors.textPrimary
+                        : PokerColors.textSecondary,
+                    fontFamily: revealed ? null : 'monospace',
+                  ),
+                ),
+                const SizedBox(height: PokerSpacing.xs),
+                TextButton.icon(
+                  onPressed: onToggle,
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(
+                    revealed ? Icons.visibility_off_outlined : Icons.visibility,
+                    size: 16,
+                  ),
+                  label: Text(revealed ? 'Hide' : 'Show'),
+                ),
+              ],
+            ),
+          ),
+          if (revealed)
+            IconButton(
+              icon: const Icon(Icons.copy),
+              color: PokerColors.textSecondary,
+              onPressed: () => Clipboard.setData(ClipboardData(text: value)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _maskedValue(String value) {
+    if (value.length <= 12) {
+      return '••••••••';
+    }
+    return '${value.substring(0, 6)}••••••${value.substring(value.length - 6)}';
+  }
+}
+
+class _EscrowSurfaceCard extends StatelessWidget {
+  const _EscrowSurfaceCard({
+    required this.title,
+    required this.child,
+  });
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(PokerSpacing.lg),
+      decoration: BoxDecoration(
+        color: PokerColors.surfaceDim,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: PokerColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: PokerTypography.titleSmall),
+          const SizedBox(height: PokerSpacing.md),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _EscrowStatusCard extends StatelessWidget {
+  const _EscrowStatusCard({
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(PokerSpacing.lg),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: PokerSpacing.md),
+          Expanded(
+            child: SelectableText(
+              message,
+              style: PokerTypography.bodyMedium.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EscrowInfoTooltip extends StatelessWidget {
+  const _EscrowInfoTooltip({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: message,
+      preferBelow: false,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: PokerColors.surfaceBright,
+          shape: BoxShape.circle,
+          border: Border.all(color: PokerColors.borderSubtle),
+        ),
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.info_outline,
+          size: 18,
+          color: PokerColors.textSecondary,
+        ),
       ),
     );
   }

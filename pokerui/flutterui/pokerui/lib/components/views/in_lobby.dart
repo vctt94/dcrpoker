@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
@@ -6,24 +7,35 @@ import 'package:pokerui/theme/typography.dart';
 import 'package:pokerui/theme/spacing.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 
+String _shortEscrowText(String s, [int n = 8]) =>
+    s.isEmpty ? '' : (s.length <= n ? s : s.substring(0, n));
+
+int _escrowAsInt(dynamic v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  if (v is String) return int.tryParse(v) ?? 0;
+  return 0;
+}
+
+bool _escrowHasRequiredConfirmations(Map<String, dynamic> escrow) {
+  final confs = _escrowAsInt(escrow['confs']);
+  final required = _escrowAsInt(escrow['required_confirmations']);
+  return confs >= (required == 0 ? 1 : required);
+}
+
+bool _escrowMatchesBuyIn(Map<String, dynamic> escrow, int buyInAtoms) =>
+    _escrowAsInt(escrow['funded_amount']) == buyInAtoms;
+
 class InLobbyView extends StatelessWidget {
   const InLobbyView({super.key, required this.model});
   final PokerModel model;
 
-  String _short(String s, [int n = 8]) =>
-      s.isEmpty ? '' : (s.length <= n ? s : s.substring(0, n));
-
-  int _asInt(dynamic v) {
-    if (v is int) return v;
-    if (v is num) return v.toInt();
-    if (v is String) return int.tryParse(v) ?? 0;
-    return 0;
-  }
-
-  bool _escrowHasRequiredConfirmations(Map<String, dynamic> escrow) {
-    final confs = _asInt(escrow['confs']);
-    final required = _asInt(escrow['required_confirmations']);
-    return confs >= (required == 0 ? 1 : required);
+  String _tableTitle(UiTable table) {
+    final name = table.name.trim();
+    if (name.isNotEmpty) {
+      return name;
+    }
+    return 'Table ${_shortEscrowText(table.id)}';
   }
 
   Future<void> _showLeaveTableDialog(BuildContext ctx) async {
@@ -77,25 +89,7 @@ class InLobbyView extends StatelessWidget {
       );
       return;
     }
-    final escrows = await model.listCachedEscrows();
-    final escrowOptions = escrows.where((e) {
-      final fundingState = (e['funding_state'] ?? '').toString().toUpperCase();
-      return fundingState != 'ESCROW_STATE_INVALID';
-    }).map((e) {
-      final txid = (e['funding_txid'] ?? '').toString();
-      final vout = _asInt(e['funding_vout']);
-      final amountRaw = e['funded_amount'];
-      final amount = amountRaw is num
-          ? amountRaw.toDouble()
-          : double.tryParse(amountRaw.toString()) ?? 0;
-      return {
-        'outpoint': '$txid:$vout',
-        'label':
-            '${_short(txid)}:$vout - ${(amount / 1e8).toStringAsFixed(4)} DCR',
-        'confirmed': _escrowHasRequiredConfirmations(e),
-      };
-    }).toList();
-
+    final escrows = await model.refreshBindableEscrows();
     if (escrows.isEmpty) {
       if (!ctx.mounted) return;
       await showDialog(
@@ -120,79 +114,13 @@ class InLobbyView extends StatelessWidget {
       return;
     }
 
-    final escrowCtrl = TextEditingController();
-    String? selectedOutpoint;
-    for (final opt in escrowOptions) {
-      if (opt['confirmed'] == true) {
-        selectedOutpoint = opt['outpoint'] as String;
-        break;
-      }
-    }
-    final formKey = GlobalKey<FormState>();
+    if (!ctx.mounted) return;
     await showDialog(
       context: ctx,
-      builder: (dctx) => AlertDialog(
-        title: const Text('Bind Escrow'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
-                  style: PokerTypography.bodySmall),
-              const SizedBox(height: PokerSpacing.md),
-              if (escrows.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  value: selectedOutpoint,
-                  decoration:
-                      const InputDecoration(labelText: 'Funding outpoint'),
-                  items: escrowOptions
-                      .map((opt) => DropdownMenuItem<String>(
-                            value: opt['outpoint'] as String,
-                            enabled: opt['confirmed'] == true,
-                            child: Text(opt['label'] as String,
-                                style: TextStyle(
-                                  color: opt['confirmed'] == true
-                                      ? null
-                                      : PokerColors.textMuted,
-                                )),
-                          ))
-                      .toList(),
-                  onChanged: (v) => selectedOutpoint = v,
-                ),
-              TextFormField(
-                controller: escrowCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Override outpoint'),
-                validator: (v) {
-                  final chosen = (selectedOutpoint ?? '').trim().isNotEmpty
-                      ? selectedOutpoint
-                      : v?.trim();
-                  return (chosen == null || chosen.isEmpty) ? 'Required' : null;
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              Navigator.pop(dctx);
-              await model.bindEscrow(
-                tableId: t.id,
-                outpoint: (escrowCtrl.text.trim().isNotEmpty
-                        ? escrowCtrl.text.trim()
-                        : selectedOutpoint) ??
-                    '',
-              );
-            },
-            child: const Text('Bind'),
-          ),
-        ],
+      builder: (dctx) => _BindEscrowDialog(
+        model: model,
+        table: t,
+        initialEscrows: escrows,
       ),
     );
   }
@@ -222,10 +150,12 @@ class InLobbyView extends StatelessWidget {
     final displayedPlayers =
         gamePlayers.isNotEmpty ? gamePlayers : lobbyPlayers;
     final watchingOnly = !model.isSeated && model.isWatching;
+    final mePlayer =
+        displayedPlayers.firstWhereOrNull((p) => p.id == model.playerId);
 
     // Compute progress steps
-    final hasEscrow = model.cachedEscrowId.isNotEmpty;
-    final escrowReady = model.cachedEscrowReady;
+    final hasEscrow = (mePlayer?.escrowId ?? '').isNotEmpty;
+    final escrowReady = mePlayer?.escrowReady ?? false;
     final presignDone = model.presignCompleted;
     final allReady = displayedPlayers.every((p) => p.isReady);
     final allEscrows =
@@ -256,7 +186,7 @@ class InLobbyView extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            'Table ${_short(table.id)}',
+                            _tableTitle(table),
                             style: PokerTypography.titleLarge,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -322,8 +252,10 @@ class InLobbyView extends StatelessWidget {
                     _Step(
                       label: 'Fund',
                       detail: hasEscrow
-                          ? (escrowReady ? 'Escrow funded' : 'Confirming...')
-                          : 'Bind escrow',
+                          ? (escrowReady
+                              ? 'Escrow funded'
+                              : 'Waiting for confirmations')
+                          : 'Escrow required',
                       done: hasEscrow && escrowReady,
                       active: !hasEscrow || !escrowReady,
                       action: (!hasEscrow || !escrowReady)
@@ -452,6 +384,267 @@ class InLobbyView extends StatelessWidget {
   }
 }
 
+class _BindEscrowDialog extends StatefulWidget {
+  const _BindEscrowDialog({
+    required this.model,
+    required this.table,
+    required this.initialEscrows,
+  });
+
+  final PokerModel model;
+  final UiTable table;
+  final List<Map<String, dynamic>> initialEscrows;
+
+  @override
+  State<_BindEscrowDialog> createState() => _BindEscrowDialogState();
+}
+
+class _BindEscrowDialogState extends State<_BindEscrowDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _escrowCtrl = TextEditingController();
+  bool _showAdvancedOptions = false;
+  String? _selectedOutpoint;
+  List<_BindableEscrowOption> _escrowOptions = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _applyEscrows(widget.initialEscrows);
+    widget.model.bindableEscrowsListenable.addListener(_handleEscrowsChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.model.bindableEscrowsListenable
+        .removeListener(_handleEscrowsChanged);
+    _escrowCtrl.dispose();
+    super.dispose();
+  }
+
+  void _handleEscrowsChanged() {
+    if (!mounted) return;
+    final hasTransientRouteAboveDialog =
+        !(ModalRoute.of(context)?.isCurrent ?? true);
+    _applyEscrows(widget.model.bindableEscrows);
+    if (hasTransientRouteAboveDialog) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!(ModalRoute.of(context)?.isCurrent ?? true)) {
+          Navigator.of(context).maybePop();
+        }
+      });
+    }
+  }
+
+  void _applyEscrows(List<Map<String, dynamic>> escrows) {
+    final options = escrows.where((e) {
+      final fundingState = (e['funding_state'] ?? '').toString().toUpperCase();
+      return fundingState != 'ESCROW_STATE_INVALID' &&
+          _escrowMatchesBuyIn(e, widget.table.buyInAtoms);
+    }).map((e) {
+      final txid = (e['funding_txid'] ?? '').toString();
+      final vout = _escrowAsInt(e['funding_vout']);
+      final amountRaw = e['funded_amount'];
+      final amount = amountRaw is num
+          ? amountRaw.toDouble()
+          : double.tryParse(amountRaw.toString()) ?? 0;
+      return _BindableEscrowOption(
+        outpoint: '$txid:$vout',
+        label:
+            '${_shortEscrowText(txid)}:$vout - ${(amount / 1e8).toStringAsFixed(4)} DCR',
+        confirmed: _escrowHasRequiredConfirmations(e),
+      );
+    }).toList(growable: false);
+
+    var nextSelectedOutpoint = _selectedOutpoint;
+    final selectedStillConfirmed = options.any(
+      (opt) => opt.outpoint == nextSelectedOutpoint && opt.confirmed,
+    );
+    if (!selectedStillConfirmed) {
+      nextSelectedOutpoint = null;
+      for (final option in options) {
+        if (option.confirmed) {
+          nextSelectedOutpoint = option.outpoint;
+          break;
+        }
+      }
+    }
+
+    setState(() {
+      _escrowOptions = options;
+      _selectedOutpoint = nextSelectedOutpoint;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pendingCount = _escrowOptions.where((opt) => !opt.confirmed).length;
+    final hasMatchingEscrows = _escrowOptions.isNotEmpty;
+
+    return AlertDialog(
+      title: const Text('Bind Escrow'),
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Buy-in ${(widget.table.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
+              style: PokerTypography.bodySmall,
+            ),
+            const SizedBox(height: PokerSpacing.md),
+            if (!hasMatchingEscrows)
+              Text(
+                'No escrows match this table buy-in right now. Open and fund an escrow for ${(widget.table.buyInAtoms / 1e8).toStringAsFixed(4)} DCR first.',
+                style: PokerTypography.bodySmall,
+              )
+            else
+              DropdownButtonFormField<String>(
+                value: _selectedOutpoint,
+                isExpanded: true,
+                decoration:
+                    const InputDecoration(labelText: 'Funding outpoint'),
+                validator: (_) {
+                  final chosen = _escrowCtrl.text.trim().isNotEmpty
+                      ? _escrowCtrl.text.trim()
+                      : (_selectedOutpoint ?? '').trim();
+                  return chosen.isEmpty ? 'Required' : null;
+                },
+                selectedItemBuilder: (context) => _escrowOptions
+                    .map(
+                      (opt) => Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          opt.label,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    )
+                    .toList(growable: false),
+                items: _escrowOptions
+                    .map((opt) => DropdownMenuItem<String>(
+                          value: opt.outpoint,
+                          enabled: opt.confirmed,
+                          child: Text(
+                            opt.confirmed
+                                ? opt.label
+                                : '${opt.label} • Waiting for confirmations',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                                  opt.confirmed ? null : PokerColors.textMuted,
+                            ),
+                          ),
+                        ))
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedOutpoint = value;
+                  });
+                },
+              ),
+            if (pendingCount > 0) ...[
+              const SizedBox(height: PokerSpacing.sm),
+              Text(
+                pendingCount == 1
+                    ? 'One escrow is still waiting for confirmations and cannot be selected yet.'
+                    : '$pendingCount escrows are still waiting for confirmations and cannot be selected yet.',
+                style: PokerTypography.bodySmall
+                    .copyWith(color: PokerColors.textMuted),
+              ),
+            ],
+            if (hasMatchingEscrows) ...[
+              const SizedBox(height: PokerSpacing.sm),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _showAdvancedOptions = !_showAdvancedOptions;
+                    });
+                  },
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  icon: Icon(
+                    _showAdvancedOptions
+                        ? Icons.expand_less
+                        : Icons.expand_more,
+                    size: 18,
+                  ),
+                  label: const Text('Advanced options'),
+                ),
+              ),
+              if (_showAdvancedOptions) ...[
+                const SizedBox(height: PokerSpacing.sm),
+                TextFormField(
+                  controller: _escrowCtrl,
+                  decoration: const InputDecoration(
+                    labelText: 'Override outpoint',
+                    hintText: 'Paste a manual txid:vout outpoint',
+                  ),
+                  validator: (_) {
+                    final chosen = _escrowCtrl.text.trim().isNotEmpty
+                        ? _escrowCtrl.text.trim()
+                        : (_selectedOutpoint ?? '').trim();
+                    return chosen.isEmpty ? 'Required' : null;
+                  },
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            if (!hasMatchingEscrows) {
+              Navigator.pop(context);
+              await Navigator.of(context).pushNamed('/open-escrow');
+              return;
+            }
+            final chosenOutpoint = _escrowCtrl.text.trim().isNotEmpty
+                ? _escrowCtrl.text.trim()
+                : (_selectedOutpoint ?? '').trim();
+            if (chosenOutpoint.isEmpty) {
+              setState(() {
+                _showAdvancedOptions = true;
+              });
+              return;
+            }
+            if (!(_formKey.currentState?.validate() ?? false)) return;
+            Navigator.pop(context);
+            await widget.model.bindEscrow(
+              tableId: widget.table.id,
+              outpoint: chosenOutpoint,
+            );
+          },
+          child: Text(hasMatchingEscrows ? 'Bind' : 'Open Escrow'),
+        ),
+      ],
+    );
+  }
+}
+
+class _BindableEscrowOption {
+  const _BindableEscrowOption({
+    required this.outpoint,
+    required this.label,
+    required this.confirmed,
+  });
+
+  final String outpoint;
+  final String label;
+  final bool confirmed;
+}
+
 // ── Progress Stepper ──
 
 class _Step {
@@ -553,15 +746,25 @@ class _StepTile extends StatelessWidget {
         ),
         if (step.action != null && step.actionLabel != null) ...[
           const SizedBox(height: PokerSpacing.sm),
-          OutlinedButton(
-            onPressed: step.action,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: step.action,
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                minimumSize: const Size.fromHeight(36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                side: BorderSide(color: color.withOpacity(0.7)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              child: Text(
+                step.actionLabel!,
+                style: PokerTypography.labelSmall.copyWith(color: color),
+              ),
             ),
-            child:
-                Text(step.actionLabel!, style: const TextStyle(fontSize: 11)),
           ),
         ],
       ],

@@ -4,6 +4,9 @@ import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/definitions.dart';
 import 'package:pokerui/components/shared_layout.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/theme/colors.dart';
+import 'package:pokerui/theme/spacing.dart';
+import 'package:pokerui/theme/typography.dart';
 import 'package:provider/provider.dart';
 import 'package:pokerui/config.dart';
 import 'package:path/path.dart' as p;
@@ -118,7 +121,8 @@ class _SignAddressScreenState extends State<SignAddressScreen> {
         return;
       }
       // Update authed payout address in the model so escrow checks use server-bound value.
-      final model = mounted ? Provider.of<PokerModel?>(context, listen: false) : null;
+      final model =
+          mounted ? Provider.of<PokerModel?>(context, listen: false) : null;
       model?.updateAuthedPayoutAddress(resp.address);
       setState(() {
         _success = 'Address verified and saved: ${resp.address}';
@@ -136,150 +140,272 @@ class _SignAddressScreenState extends State<SignAddressScreen> {
     }
   }
 
+  Future<void> _copyCode() async {
+    final code = _code;
+    if (code == null || code.isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: code));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Verification code copied')));
+  }
+
   @override
   Widget build(BuildContext context) {
+    final hasCode = (_code ?? '').isNotEmpty;
+    final verifiedAddress = (_addressHint ?? '').trim();
+
     return SharedLayout(
       title: 'Sign Address',
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Prove control of your Decred address for payouts.',
-                style: TextStyle(color: Colors.white, fontSize: 16),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 860),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(PokerSpacing.xl),
+            child: Container(
+              padding: const EdgeInsets.all(PokerSpacing.xl),
+              decoration: BoxDecoration(
+                color: PokerColors.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: PokerColors.borderSubtle),
               ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _isRequesting ? null : _requestCode,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.teal,
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
-                child: _isRequesting
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      )
-                    : const Text('Request Code'),
-              ),
-              if (_code != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1B1E2C),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blueAccent.withOpacity(.4)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Verify payout address',
+                    style: PokerTypography.headlineMedium,
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: PokerSpacing.sm),
+                  Text(
+                    'This address is used for settlements and payouts. Sign the verification code with the same wallet to confirm the address belongs to you.',
+                    style: PokerTypography.bodyMedium
+                        .copyWith(color: PokerColors.textSecondary),
+                  ),
+                  if (verifiedAddress.isNotEmpty) ...[
+                    const SizedBox(height: PokerSpacing.md),
+                    Text(
+                      'Current verified address: $verifiedAddress',
+                      style: PokerTypography.bodySmall
+                          .copyWith(color: PokerColors.success),
+                    ),
+                  ],
+                  const SizedBox(height: PokerSpacing.xl),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text('Code',
-                              style: TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.bold)),
-                          IconButton(
-                            icon: const Icon(Icons.copy, color: Colors.white70),
-                            onPressed: () => Clipboard.setData(ClipboardData(text: _code!)),
-                          )
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      SelectableText(
-                        _code!,
-                        style:
-                            const TextStyle(color: Colors.white, fontFamily: 'monospace'),
-                      ),
-                      if (_ttlSec != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Expires in ~$_ttlSec sec',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
+                      Expanded(
+                        child: Text(
+                          'Settlement Address',
+                          style: PokerTypography.titleSmall,
                         ),
-                      if (_addressHint != null && _addressHint!.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'Last verified: $_addressHint',
-                            style: const TextStyle(color: Colors.white70),
-                          ),
-                        ),
+                      ),
+                      const _InfoTooltip(
+                        message:
+                            'This is the address the server will use when settling your balance. Signing the verification code proves the address is yours.',
+                      ),
                     ],
                   ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              TextField(
-                controller: _addressController,
-                decoration: const InputDecoration(
-                  labelText: 'Payout Address',
-                  hintText: 'Paste the address you will receive payouts to',
-                  border: OutlineInputBorder(),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                style: const TextStyle(color: Colors.black),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _signatureController,
-                decoration: const InputDecoration(
-                  labelText: 'Wallet Signature',
-                  hintText: 'Sign the code above using your Decred wallet (base64)',
-                  border: OutlineInputBorder(),
-                  filled: true,
-                  fillColor: Colors.white,
-                ),
-                style: const TextStyle(color: Colors.black),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 16),
-              if (_error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SelectableText(
-                    _error!,
-                    style: const TextStyle(color: Colors.redAccent),
+                  const SizedBox(height: PokerSpacing.sm),
+                  TextField(
+                    controller: _addressController,
+                    decoration: const InputDecoration(
+                      hintText: 'Paste your Decred payout address',
+                    ),
+                    style: PokerTypography.bodyMedium,
                   ),
-                ),
-              if (_success != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: SelectableText(
-                    _success!,
-                    style: const TextStyle(color: Colors.greenAccent),
-                  ),
-                ),
-              ElevatedButton(
-                onPressed: _isSubmitting ? null : _submit,
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  backgroundColor: Colors.blueAccent,
-                ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  const SizedBox(height: PokerSpacing.lg),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Verification Code',
+                          style: PokerTypography.titleSmall,
                         ),
-                      )
-                    : const Text('Verify & Save'),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: _isRequesting ? null : _requestCode,
+                        icon: _isRequesting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.verified_user_outlined,
+                                size: 18),
+                        label: Text(hasCode ? 'Refresh Code' : 'Request Code'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: PokerSpacing.sm),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(PokerSpacing.lg),
+                    decoration: BoxDecoration(
+                      color: PokerColors.surfaceDim,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: PokerColors.borderSubtle),
+                    ),
+                    child: hasCode
+                        ? Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    SelectableText(
+                                      _code!,
+                                      style: PokerTypography.bodyLarge.copyWith(
+                                        fontFamily: 'monospace',
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                    if (_ttlSec != null) ...[
+                                      const SizedBox(height: PokerSpacing.xs),
+                                      Text(
+                                        'Expires in ~$_ttlSec sec',
+                                        style: PokerTypography.bodySmall,
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Copy code',
+                                onPressed: _copyCode,
+                                icon: const Icon(Icons.copy_rounded),
+                                color: PokerColors.textSecondary,
+                              ),
+                            ],
+                          )
+                        : Text(
+                            'Request a code, sign it in your wallet, then paste the signature below.',
+                            style: PokerTypography.bodySmall
+                                .copyWith(color: PokerColors.textSecondary),
+                          ),
+                  ),
+                  const SizedBox(height: PokerSpacing.lg),
+                  Text(
+                    'Wallet Signature',
+                    style: PokerTypography.titleSmall,
+                  ),
+                  const SizedBox(height: PokerSpacing.sm),
+                  TextField(
+                    controller: _signatureController,
+                    maxLines: 4,
+                    decoration: const InputDecoration(
+                      hintText: 'Paste the base64 signature for the code above',
+                    ),
+                    style: PokerTypography.bodyMedium,
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: PokerSpacing.lg),
+                    _StatusCard(
+                      icon: Icons.error_outline,
+                      color: PokerColors.danger,
+                      message: _error!,
+                    ),
+                  ],
+                  if (_success != null) ...[
+                    const SizedBox(height: PokerSpacing.lg),
+                    _StatusCard(
+                      icon: Icons.check_circle_outline,
+                      color: PokerColors.success,
+                      message: _success!,
+                    ),
+                  ],
+                  const SizedBox(height: PokerSpacing.xl),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox(
+                      width: 220,
+                      child: ElevatedButton(
+                        onPressed: _isSubmitting ? null : _submit,
+                        style: ElevatedButton.styleFrom(
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                        child: _isSubmitting
+                            ? const SizedBox(
+                                height: 18,
+                                width: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Verify & Save'),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({
+    required this.icon,
+    required this.color,
+    required this.message,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(PokerSpacing.lg),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: PokerSpacing.md),
+          Expanded(
+            child: SelectableText(
+              message,
+              style: PokerTypography.bodyMedium.copyWith(color: color),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoTooltip extends StatelessWidget {
+  const _InfoTooltip({required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: message,
+      preferBelow: false,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: PokerColors.surfaceBright,
+          shape: BoxShape.circle,
+          border: Border.all(color: PokerColors.borderSubtle),
+        ),
+        alignment: Alignment.center,
+        child: const Icon(
+          Icons.info_outline,
+          size: 18,
+          color: PokerColors.textSecondary,
         ),
       ),
     );

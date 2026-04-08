@@ -275,8 +275,10 @@ func handleClientCmd(handle uint32, cc *clientCtx, cmd *cmd) (interface{}, error
 			}
 			escrows, err := cc.c.GetBindableEscrows(cc.ctx, cc.Token)
 			if err != nil {
+				cc.log.Warnf("CTGetBindableEscrows: failed: %v", err)
 				return nil, err
 			}
+			cc.log.Infof("CTGetBindableEscrows: returning %d escrows", len(escrows))
 			return escrows, nil
 		}
 

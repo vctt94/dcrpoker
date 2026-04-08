@@ -227,7 +227,20 @@ func TestNormalizeTableConfigUsesPlayerCountInDefaultName(t *testing.T) {
 
 	normalizeTableConfig(&cfg)
 
-	require.Equal(t, "0.10 DCR Table 6 Players", cfg.Name)
+	require.Equal(t, "0.10 DCR 6-Max", cfg.Name)
+}
+
+func TestDefaultTableNameUsesHeadsUpLabel(t *testing.T) {
+	cfg := poker.TableConfig{
+		ID:         "1234567890abcdef",
+		BuyIn:      100_000_000,
+		MinPlayers: 2,
+		MaxPlayers: 2,
+	}
+
+	normalizeTableConfig(&cfg)
+
+	require.Equal(t, "1.00 DCR Heads-Up", cfg.Name)
 }
 
 func testDefaultTableProfile(count int) DefaultTableProfile {

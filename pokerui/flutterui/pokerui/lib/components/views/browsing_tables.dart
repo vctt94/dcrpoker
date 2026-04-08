@@ -151,13 +151,7 @@ class _BrowsingTablesViewState extends State<BrowsingTablesView> {
     if (name.isNotEmpty) {
       return name;
     }
-
-    final seatLabel = table.maxPlayers > 0 ? '${table.maxPlayers}-Seat ' : '';
-    if (table.buyInAtoms == 0) {
-      return '${seatLabel}Free Table'.trim();
-    }
-
-    return '${_toDcr(table.buyInAtoms).toStringAsFixed(2)} DCR Table';
+    return 'Table ${_shortId(table.id)}';
   }
 
   String _shortId(String id, [int length = 8]) {
@@ -985,8 +979,7 @@ class _TableCard extends StatelessWidget {
     final full =
         table.currentPlayers >= table.maxPlayers && table.maxPlayers > 0;
     final started = table.gameStarted;
-    final alreadyAtTable = model.currentTableId == table.id ||
-        table.players.any((player) => player.id == model.playerId);
+    final alreadyAtTable = model.currentTableId == table.id;
     final hasOtherActiveTable =
         model.currentTableId != null && model.currentTableId != table.id;
     final canWatch = !hasOtherActiveTable && !alreadyAtTable;

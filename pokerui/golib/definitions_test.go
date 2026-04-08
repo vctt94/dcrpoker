@@ -37,6 +37,23 @@ func TestTableFromProtoIncludesPlayers(t *testing.T) {
 	require.Equal(t, "Bob", dto.Players[1].Name)
 }
 
+func TestTableFromProtoForNotificationIncludesName(t *testing.T) {
+	t.Helper()
+
+	dto := tableFromProtoForNtfn(&pokerrpc.Table{
+		Id:   "table-1",
+		Name: "River Room",
+		Players: []*pokerrpc.Player{
+			{Id: "p1", Name: "Alice", TableSeat: 0},
+		},
+	})
+
+	require.NotNil(t, dto)
+	require.Equal(t, "River Room", dto.Name)
+	require.Len(t, dto.Players, 1)
+	require.Equal(t, "Alice", dto.Players[0].Name)
+}
+
 // This test reproduces the cache-spam scenario: invalid escrow funding
 // updates (wrong amount) for multiple escrows that all reference the same
 // funding outpoint are cached individually, leading to duplicate dropdown

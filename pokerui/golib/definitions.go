@@ -459,6 +459,7 @@ func tableFromProto(t *pokerrpc.Table) *pokerTable {
 // notificationTableDTO represents a table in a notification, including players
 type ntfnTableDTO struct {
 	ID                       string       `json:"id"`
+	Name                     string       `json:"name"`
 	SmallBlind               int64        `json:"small_blind"`
 	BigBlind                 int64        `json:"big_blind"`
 	MaxPlayers               int32        `json:"max_players"`
@@ -482,6 +483,7 @@ func tableFromProtoForNtfn(t *pokerrpc.Table) *ntfnTableDTO {
 	}
 	return &ntfnTableDTO{
 		ID:                       t.Id,
+		Name:                     t.Name,
 		SmallBlind:               t.SmallBlind,
 		BigBlind:                 t.BigBlind,
 		MaxPlayers:               t.MaxPlayers,

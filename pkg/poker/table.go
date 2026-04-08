@@ -71,6 +71,7 @@ type GameEndedPayload struct {
 	WinnerSeat int32  // Seat index of the winner (for settlement branch)
 	MatchID    string // Match ID for referee settlement (table_id)
 	TotalPot   int64  // Total pot won (in chips)
+	Entrants   int    // Number of players who started the tournament
 }
 
 // TableStateFn represents a table state function following Rob Pike's pattern
@@ -566,12 +567,18 @@ func (t *Table) handleGameOver(winnerID string) {
 	t.log.Infof("Game ended - winner: %s, seat: %d, matchID: %s, totalPot: %d",
 		winnerID, winnerSeat, matchID, totalPot)
 
+	entrants := len(users)
+	if game != nil && game.config.NumPlayers > 0 {
+		entrants = game.config.NumPlayers
+	}
+
 	// Publish GAME_ENDED event with settlement info
 	t.PublishEvent(pokerrpc.NotificationType_GAME_ENDED, tableID, GameEndedPayload{
 		WinnerID:   winnerID,
 		WinnerSeat: winnerSeat,
 		MatchID:    matchID,
 		TotalPot:   totalPot,
+		Entrants:   entrants,
 	})
 
 	// Transition table FSM to GAME_ENDED terminal state.

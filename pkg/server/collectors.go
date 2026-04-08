@@ -179,6 +179,7 @@ func (s *Server) buildGameEvent(
 				WinnerSeat: p.WinnerSeat,
 				MatchID:    p.MatchID,
 				TotalPot:   p.TotalPot,
+				Entrants:   p.Entrants,
 			}
 		case poker.PlayerLostPayload:
 			serverPayload = PlayerLostPayload{PlayerID: p.PlayerID}

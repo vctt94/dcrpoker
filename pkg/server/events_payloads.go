@@ -134,6 +134,7 @@ type GameEndedPayload struct {
 	WinnerSeat int32  // Seat index of the winner (for settlement branch)
 	MatchID    string // table_id|session_id for referee settlement
 	TotalPot   int64  // Total pot won (in chips)
+	Entrants   int    // Number of players who started the tournament
 }
 
 func (GameEndedPayload) Kind() pokerrpc.NotificationType {

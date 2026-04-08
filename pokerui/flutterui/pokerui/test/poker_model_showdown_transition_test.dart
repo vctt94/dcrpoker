@@ -117,6 +117,7 @@ pr.Player _player({
   required String id,
   required String name,
   int balance = 1000,
+  int currentBet = 0,
   bool folded = false,
   bool isAllIn = false,
   bool isDealer = false,
@@ -131,7 +132,7 @@ pr.Player _player({
     name: name,
     balance: Int64(balance),
     hand: hand,
-    currentBet: Int64(0),
+    currentBet: Int64(currentBet),
     folded: folded,
     isTurn: false,
     isAllIn: isAllIn,
@@ -313,6 +314,92 @@ void main() {
     expect(model.game!.players.any((p) => p.id == bustedId), isFalse);
     expect(model.me!.folded, isFalse);
     expect(model.autoAdvanceAllIn, isFalse);
+  });
+
+  test(
+      'auto-advance hides actions when hero is sole active player against matched all-ins',
+      () {
+    const tableId = 'table-1';
+    const heroId = 'hero';
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.PRE_FLOP,
+      currentPlayer: heroId,
+      players: [
+        _player(
+          id: heroId,
+          name: 'Hero',
+          balance: 1000,
+          currentBet: 20,
+          isBigBlind: true,
+          tableSeat: 0,
+        ),
+        _player(
+          id: 'short-1',
+          name: 'Short 1',
+          balance: 0,
+          currentBet: 10,
+          isAllIn: true,
+          isDealer: true,
+          isSmallBlind: true,
+          tableSeat: 1,
+        ),
+        _player(
+          id: 'short-2',
+          name: 'Short 2',
+          balance: 0,
+          currentBet: 10,
+          isAllIn: true,
+          tableSeat: 2,
+        ),
+      ],
+    ));
+
+    expect(model.isMyTurn, isTrue);
+    expect(model.autoAdvanceAllIn, isTrue);
+    expect(model.canAct, isFalse);
+  });
+
+  test('auto-advance does not hide actions when hero still owes chips', () {
+    const tableId = 'table-1';
+    const heroId = 'hero';
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.PRE_FLOP,
+      currentPlayer: heroId,
+      players: [
+        _player(
+          id: heroId,
+          name: 'Hero',
+          balance: 910,
+          currentBet: 10,
+          isBigBlind: true,
+          tableSeat: 0,
+        ),
+        _player(
+          id: 'villain',
+          name: 'Villain',
+          balance: 0,
+          currentBet: 20,
+          isAllIn: true,
+          isDealer: true,
+          isSmallBlind: true,
+          tableSeat: 1,
+        ),
+      ],
+    ));
+
+    expect(model.isMyTurn, isTrue);
+    expect(model.autoAdvanceAllIn, isFalse);
+    expect(model.canAct, isTrue);
   });
 
   test('game end remains on showdown until continue is clicked', () {
@@ -1210,5 +1297,36 @@ void main() {
     expect(model.isWatching, isTrue);
     expect(model.game, isNotNull);
     expect(model.game!.communityCards, hasLength(3));
+  });
+
+  test('game end keeps watcher result neutral', () {
+    const tableId = 'table-watch';
+    const heroId = 'hero';
+    const winnerId = 'villain';
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.SHOWDOWN,
+      players: [
+        _player(id: winnerId, name: 'Villain', tableSeat: 0),
+        _player(id: 'p2', name: 'Player 2', tableSeat: 1),
+      ],
+      currentPlayer: '',
+    ));
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.GAME_ENDED,
+      tableId: tableId,
+      winnerId: winnerId,
+      isWinner: false,
+      amount: Int64(-100000000),
+      message: 'Game ended',
+    ));
+
+    expect(model.isViewingCurrentTableAsSpectator, isTrue);
+    expect(model.didWinGame, isNull);
+    expect(model.gameEndAmountAtoms, -100000000);
   });
 }

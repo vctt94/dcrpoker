@@ -178,6 +178,7 @@ func TestHandleGameEndedUsesWinnerDisplayNameForLosers(t *testing.T) {
 		ID:         "tid",
 		Log:        slog.Disabled,
 		GameLog:    slog.Disabled,
+		BuyIn:      100_000_000,
 		MinPlayers: 2,
 		MaxPlayers: 2,
 		SmallBlind: 10,
@@ -205,13 +206,86 @@ func TestHandleGameEndedUsesWinnerDisplayNameForLosers(t *testing.T) {
 	require.Len(t, loserStream.sent, 1)
 	loserNtfn := loserStream.sent[0]
 	loserStream.mu.RUnlock()
-	require.Equal(t, "Game over. Alice won with 1980 chips.", loserNtfn.Message)
+	require.Equal(t, "Game ended", loserNtfn.Message)
+	require.EqualValues(t, -cfg.BuyIn, loserNtfn.Amount)
+	require.False(t, loserNtfn.IsWinner)
 
 	winnerStream.mu.RLock()
 	require.Len(t, winnerStream.sent, 1)
 	winnerNtfn := winnerStream.sent[0]
 	winnerStream.mu.RUnlock()
-	require.Equal(t, "Congratulations! You won the game with 1980 chips!", winnerNtfn.Message)
+	require.Equal(t, "Game ended", winnerNtfn.Message)
+	require.EqualValues(t, cfg.BuyIn*2, winnerNtfn.Amount)
+	require.True(t, winnerNtfn.IsWinner)
+}
+
+func TestHandleGameEndedPublishesWinnerTakeAllAmount(t *testing.T) {
+	db := NewInMemoryDB()
+	defer db.Close()
+
+	logBackend := createTestLogBackend()
+	defer logBackend.Close()
+
+	s, err := NewTestServer(db, logBackend)
+	require.NoError(t, err)
+	s.eventProcessor = NewEventProcessor(s, 16, 1)
+	s.eventProcessor.Start()
+	defer s.Stop()
+
+	winnerStream := &mockNotificationStream{}
+	loserStream := &mockNotificationStream{}
+	s.notificationStreams.Store("winner-id", &NotificationStream{
+		playerID: "winner-id",
+		stream:   winnerStream,
+		done:     make(chan struct{}),
+	})
+	s.notificationStreams.Store("loser-id", &NotificationStream{
+		playerID: "loser-id",
+		stream:   loserStream,
+		done:     make(chan struct{}),
+	})
+
+	cfg := poker.TableConfig{
+		ID:         "tid",
+		Log:        slog.Disabled,
+		GameLog:    slog.Disabled,
+		BuyIn:      100_000_000,
+		MinPlayers: 2,
+		MaxPlayers: 4,
+		SmallBlind: 10,
+		BigBlind:   20,
+	}
+	table := poker.NewTable(cfg)
+	_, err = table.AddNewUser("winner-id", &poker.AddUserOptions{DisplayName: "Alice", Seat: 0})
+	require.NoError(t, err)
+	_, err = table.AddNewUser("loser-id", &poker.AddUserOptions{DisplayName: "Bob", Seat: 1})
+	require.NoError(t, err)
+	s.tables.Store(cfg.ID, table)
+
+	nh := NewNotificationHandler(s)
+	nh.handleGameEnded(&GameEvent{
+		Type:      pokerrpc.NotificationType_GAME_ENDED,
+		TableID:   cfg.ID,
+		PlayerIDs: []string{"winner-id", "loser-id"},
+		Payload: GameEndedPayload{
+			WinnerID: "winner-id",
+			Entrants: 4,
+		},
+	})
+
+	loserStream.mu.RLock()
+	require.Len(t, loserStream.sent, 1)
+	loserNtfn := loserStream.sent[0]
+	loserStream.mu.RUnlock()
+	require.EqualValues(t, -cfg.BuyIn, loserNtfn.Amount)
+	require.False(t, loserNtfn.IsWinner)
+
+	winnerStream.mu.RLock()
+	require.Len(t, winnerStream.sent, 1)
+	winnerNtfn := winnerStream.sent[0]
+	winnerStream.mu.RUnlock()
+	require.EqualValues(t, cfg.BuyIn*4, winnerNtfn.Amount)
+	require.True(t, winnerNtfn.IsWinner)
 }
 
 func TestLeaveTablePublishesPlayerLeft(t *testing.T) {
