@@ -26,6 +26,14 @@ class InLobbyView extends StatelessWidget {
     return confs >= (required == 0 ? 1 : required);
   }
 
+  String _tableTitle(UiTable table) {
+    final name = table.name.trim();
+    if (name.isNotEmpty) {
+      return name;
+    }
+    return 'Table ${_short(table.id)}';
+  }
+
   Future<void> _showLeaveTableDialog(BuildContext ctx) async {
     final actionLabel = model.isSeated ? 'Leave Table' : 'Stop Watching';
     final actionMessage = model.isSeated
@@ -129,70 +137,124 @@ class InLobbyView extends StatelessWidget {
       }
     }
     final formKey = GlobalKey<FormState>();
+    var showAdvancedOptions = false;
+    final pendingCount =
+        escrowOptions.where((opt) => opt['confirmed'] != true).length;
     await showDialog(
       context: ctx,
-      builder: (dctx) => AlertDialog(
-        title: const Text('Bind Escrow'),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
-                  style: PokerTypography.bodySmall),
-              const SizedBox(height: PokerSpacing.md),
-              if (escrows.isNotEmpty)
-                DropdownButtonFormField<String>(
-                  value: selectedOutpoint,
-                  decoration:
-                      const InputDecoration(labelText: 'Funding outpoint'),
-                  items: escrowOptions
-                      .map((opt) => DropdownMenuItem<String>(
-                            value: opt['outpoint'] as String,
-                            enabled: opt['confirmed'] == true,
-                            child: Text(opt['label'] as String,
+      builder: (dctx) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Bind Escrow'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text('Buy-in ${(t.buyInAtoms / 1e8).toStringAsFixed(4)} DCR',
+                    style: PokerTypography.bodySmall),
+                const SizedBox(height: PokerSpacing.md),
+                if (escrows.isNotEmpty)
+                  DropdownButtonFormField<String>(
+                    value: selectedOutpoint,
+                    decoration:
+                        const InputDecoration(labelText: 'Funding outpoint'),
+                    items: escrowOptions
+                        .map((opt) => DropdownMenuItem<String>(
+                              value: opt['outpoint'] as String,
+                              enabled: opt['confirmed'] == true,
+                              child: Text(
+                                opt['confirmed'] == true
+                                    ? opt['label'] as String
+                                    : '${opt['label']} • Waiting for confirmations',
                                 style: TextStyle(
                                   color: opt['confirmed'] == true
                                       ? null
                                       : PokerColors.textMuted,
-                                )),
-                          ))
-                      .toList(),
-                  onChanged: (v) => selectedOutpoint = v,
+                                ),
+                              ),
+                            ))
+                        .toList(),
+                    onChanged: (v) {
+                      setDialogState(() {
+                        selectedOutpoint = v;
+                      });
+                    },
+                  ),
+                if (pendingCount > 0) ...[
+                  const SizedBox(height: PokerSpacing.sm),
+                  Text(
+                    pendingCount == 1
+                        ? 'One escrow is still waiting for confirmations and cannot be selected yet.'
+                        : '$pendingCount escrows are still waiting for confirmations and cannot be selected yet.',
+                    style: PokerTypography.bodySmall
+                        .copyWith(color: PokerColors.textMuted),
+                  ),
+                ],
+                const SizedBox(height: PokerSpacing.sm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () {
+                      setDialogState(() {
+                        showAdvancedOptions = !showAdvancedOptions;
+                      });
+                    },
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    icon: Icon(
+                      showAdvancedOptions
+                          ? Icons.expand_less
+                          : Icons.expand_more,
+                      size: 18,
+                    ),
+                    label: const Text('Advanced options'),
+                  ),
                 ),
-              TextFormField(
-                controller: escrowCtrl,
-                decoration:
-                    const InputDecoration(labelText: 'Override outpoint'),
-                validator: (v) {
-                  final chosen = (selectedOutpoint ?? '').trim().isNotEmpty
-                      ? selectedOutpoint
-                      : v?.trim();
-                  return (chosen == null || chosen.isEmpty) ? 'Required' : null;
-                },
-              ),
-            ],
+                if (showAdvancedOptions) ...[
+                  const SizedBox(height: PokerSpacing.sm),
+                  TextFormField(
+                    controller: escrowCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Override outpoint',
+                      hintText: 'Paste a manual txid:vout outpoint',
+                    ),
+                    validator: (v) {
+                      final chosen = (selectedOutpoint ?? '').trim().isNotEmpty
+                          ? selectedOutpoint
+                          : v?.trim();
+                      return (chosen == null || chosen.isEmpty)
+                          ? 'Required'
+                          : null;
+                    },
+                  ),
+                ],
+              ],
+            ),
           ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(dctx),
+                child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                if (!(formKey.currentState?.validate() ?? false)) return;
+                Navigator.pop(dctx);
+                await model.bindEscrow(
+                  tableId: t.id,
+                  outpoint: (escrowCtrl.text.trim().isNotEmpty
+                          ? escrowCtrl.text.trim()
+                          : selectedOutpoint) ??
+                      '',
+                );
+              },
+              child: const Text('Bind'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(dctx),
-              child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              if (!(formKey.currentState?.validate() ?? false)) return;
-              Navigator.pop(dctx);
-              await model.bindEscrow(
-                tableId: t.id,
-                outpoint: (escrowCtrl.text.trim().isNotEmpty
-                        ? escrowCtrl.text.trim()
-                        : selectedOutpoint) ??
-                    '',
-              );
-            },
-            child: const Text('Bind'),
-          ),
-        ],
       ),
     );
   }
@@ -256,7 +318,7 @@ class InLobbyView extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            'Table ${_short(table.id)}',
+                            _tableTitle(table),
                             style: PokerTypography.titleLarge,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -322,8 +384,10 @@ class InLobbyView extends StatelessWidget {
                     _Step(
                       label: 'Fund',
                       detail: hasEscrow
-                          ? (escrowReady ? 'Escrow funded' : 'Confirming...')
-                          : 'Bind escrow',
+                          ? (escrowReady
+                              ? 'Escrow funded'
+                              : 'Waiting for confirmations')
+                          : 'Escrow required',
                       done: hasEscrow && escrowReady,
                       active: !hasEscrow || !escrowReady,
                       action: (!hasEscrow || !escrowReady)
@@ -553,15 +617,25 @@ class _StepTile extends StatelessWidget {
         ),
         if (step.action != null && step.actionLabel != null) ...[
           const SizedBox(height: PokerSpacing.sm),
-          OutlinedButton(
-            onPressed: step.action,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton(
+              onPressed: step.action,
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                minimumSize: const Size.fromHeight(36),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                side: BorderSide(color: color.withOpacity(0.7)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              child: Text(
+                step.actionLabel!,
+                style: PokerTypography.labelSmall.copyWith(color: color),
+              ),
             ),
-            child:
-                Text(step.actionLabel!, style: const TextStyle(fontSize: 11)),
           ),
         ],
       ],

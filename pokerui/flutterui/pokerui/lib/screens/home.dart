@@ -65,6 +65,8 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
     return SharedLayout(
       title: "Poker",
       child: Consumer<PokerModel>(builder: (context, pokerModel, _) {
+        final showGlobalErrorBanner = pokerModel.errorMessage.isNotEmpty &&
+            !(pokerModel.showTableView && pokerModel.currentTableId != null);
         return RefreshIndicator(
           onRefresh: pokerModel.refreshTables,
           child: SingleChildScrollView(
@@ -74,7 +76,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // Error banner
-                if (pokerModel.errorMessage.isNotEmpty)
+                if (showGlobalErrorBanner)
                   _ErrorBanner(
                     message: pokerModel.errorMessage,
                     onCopy: () async {

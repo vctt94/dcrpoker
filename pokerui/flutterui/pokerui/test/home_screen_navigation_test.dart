@@ -73,6 +73,31 @@ void main() {
     );
   }
 
+  pr.GameUpdate lobbyState({
+    required String tableId,
+    required List<pr.Player> players,
+  }) {
+    return pr.GameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.WAITING,
+      players: players,
+      communityCards: const [],
+      pot: Int64(0),
+      currentBet: Int64(0),
+      currentPlayer: '',
+      minRaise: Int64(20),
+      maxRaise: Int64(1000),
+      gameStarted: false,
+      playersRequired: 2,
+      playersJoined: players.length,
+      phaseName: 'Waiting',
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: Int64(0),
+      smallBlind: Int64(10),
+      bigBlind: Int64(20),
+    );
+  }
+
   testWidgets('showHomeView switches an active table back to browsing tables',
       (tester) async {
     final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
@@ -116,5 +141,91 @@ void main() {
 
     expect(find.text('Create Table'), findsOneWidget);
     expect(find.text('Browse Target'), findsOneWidget);
+  });
+
+  testWidgets(
+      'table view keeps only the inline error banner and shows table name',
+      (tester) async {
+    final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 100000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.errorMessage = 'Set ready failed: escrow required for this table';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('River Room'), findsOneWidget);
+    expect(find.text('Table table-li'), findsNothing);
+    expect(find.text('Set ready failed: escrow required for this table'),
+        findsOneWidget);
+  });
+
+  testWidgets('lobby fund step shows one bind escrow action with clearer copy',
+      (tester) async {
+    final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.tables = [
+      table(
+        id: 'table-live',
+        name: 'River Room',
+        buyInAtoms: 100000000,
+      ),
+    ];
+    model.currentTableId = 'table-live';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-live',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Escrow required'), findsOneWidget);
+    expect(find.text('Bind Escrow'), findsOneWidget);
+    expect(find.text('Bind escrow'), findsNothing);
+    expect(find.text('Waiting for confirmations'), findsNothing);
   });
 }
