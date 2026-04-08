@@ -675,6 +675,49 @@ void main() {
     expect(find.text('Sorry, you lost 1.0000 DCR.'), findsOneWidget);
   });
 
+  testWidgets('game ended keeps watcher messaging neutral',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.currentTableId = 'table-1';
+    model.setShowdownDataForTest(
+      players: [
+        _player(id: 'villain', name: 'Villain'),
+        _player(id: 'p2', name: 'Player 2'),
+      ],
+      communityCards: const [],
+      pot: 180,
+      winners: const [
+        UiWinner(
+          playerId: 'villain',
+          handRank: pr.HandRank.PAIR,
+          bestHand: [],
+          winnings: 180,
+        ),
+      ],
+    );
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.GAME_ENDED,
+      tableId: 'table-1',
+      winnerId: 'villain',
+      isWinner: false,
+      amount: Int64(-100000000),
+      message: 'Game ended',
+    ));
+
+    await tester.pumpWidget(
+      _wrap(
+        child: GameEndedView(model: model),
+        size: const Size(430, 900),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Table Finished'), findsOneWidget);
+    expect(find.text('Winner: Villain'), findsOneWidget);
+    expect(find.text('Sorry, you lost 1.0000 DCR.'), findsNothing);
+    expect(find.text('You Lost'), findsNothing);
+  });
+
   testWidgets('game ended does not render stale last-showdown preview',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');

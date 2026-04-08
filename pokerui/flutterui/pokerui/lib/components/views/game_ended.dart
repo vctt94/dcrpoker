@@ -34,7 +34,8 @@ class GameEndedView extends StatelessWidget {
     return pid.length > 8 ? '${pid.substring(0, 8)}...' : pid;
   }
 
-  String _headline(bool isWin, bool isDraw) {
+  String _headline(bool isWin, bool isDraw, bool isSpectator) {
+    if (isSpectator) return 'Table Finished';
     if (isWin) return 'You Won';
     if (isDraw) return 'Table Finished';
     return 'You Lost';
@@ -45,7 +46,17 @@ class GameEndedView extends StatelessWidget {
 
   String _formatDcr(int atoms) => '${(atoms / 1e8).toStringAsFixed(4)} DCR';
 
-  String _summary(bool isWin, bool isDraw) {
+  String _summary(bool isWin, bool isDraw, bool isSpectator) {
+    if (isSpectator) {
+      final names =
+          model.showdownWinners.map(_winnerLabel).toList(growable: false);
+      if (names.length == 1) {
+        return 'Winner: ${names.first}';
+      }
+      if (names.length > 1) {
+        return 'Winners: ${names.join(', ')}';
+      }
+    }
     final amountAtoms = _gameEndAmountAtoms();
     if (amountAtoms != null && amountAtoms != 0) {
       final displayAtoms = amountAtoms.abs();
@@ -73,18 +84,22 @@ class GameEndedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final explicitResult = _explicitGameResult();
+    final isSpectator = model.isViewingCurrentTableAsSpectator;
+    final explicitResult = isSpectator ? null : _explicitGameResult();
     final hasWinners = model.showdownWinners.isNotEmpty;
-    final iWon = model.showdownWinners.any((w) => w.playerId == model.playerId);
-    final isDraw = explicitResult == null && model.showdownWinners.length > 1;
+    final iWon = !isSpectator &&
+        model.showdownWinners.any((w) => w.playerId == model.playerId);
+    final isDraw = !isSpectator &&
+        explicitResult == null &&
+        model.showdownWinners.length > 1;
     final isWin = explicitResult ?? (hasWinners && iWon);
-    final title = _headline(isWin, isDraw);
-    final message = _summary(isWin, isDraw);
+    final title = _headline(isWin, isDraw, isSpectator);
+    final message = _summary(isWin, isDraw, isSpectator);
     final hasShowdown = model.hasShowdown;
 
     final accentColor = isWin
         ? PokerColors.success
-        : isDraw
+        : (isDraw || isSpectator)
             ? PokerColors.warning
             : PokerColors.danger;
 
@@ -117,7 +132,7 @@ class GameEndedView extends StatelessWidget {
                   Icon(
                     isWin
                         ? Icons.emoji_events
-                        : isDraw
+                        : (isDraw || isSpectator)
                             ? Icons.handshake
                             : Icons.sports_tennis,
                     size: constraints.maxWidth < 360 ? 56 : 80,

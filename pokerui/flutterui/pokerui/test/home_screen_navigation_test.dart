@@ -158,6 +158,68 @@ void main() {
   });
 
   testWidgets(
+      'eliminated player sees watch instead of open for stale table roster entry',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1400, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
+    final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
+    model.tables = [
+      UiTable(
+        id: 'table-live',
+        name: 'Final Table',
+        players: const [
+          UiPlayer(
+            id: 'hero',
+            name: 'Hero',
+            balance: 0,
+            hand: [],
+            currentBet: 0,
+            folded: false,
+            isTurn: false,
+            isAllIn: false,
+            isDealer: false,
+            isSmallBlind: false,
+            isBigBlind: false,
+            isReady: false,
+            isDisconnected: false,
+            handDesc: '',
+            tableSeat: 0,
+          ),
+        ],
+        smallBlind: 10,
+        bigBlind: 20,
+        maxPlayers: 6,
+        minPlayers: 2,
+        currentPlayers: 2,
+        buyInAtoms: 0,
+        phase: pr.GamePhase.SHOWDOWN,
+        gameStarted: true,
+        allReady: true,
+      ),
+    ];
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider<PokerModel>.value(value: model),
+          ChangeNotifierProvider<ConfigNotifier>.value(value: configNotifier),
+          Provider<Future<void> Function()?>.value(value: () async {}),
+        ],
+        child: MaterialApp(
+          theme: buildPokerTheme(),
+          home: const PokerHomeScreen(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(OutlinedButton, 'Watch'), findsOneWidget);
+    expect(find.widgetWithText(ElevatedButton, 'Open'), findsNothing);
+  });
+
+  testWidgets(
       'table view keeps only the inline error banner and shows table name',
       (tester) async {
     final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');

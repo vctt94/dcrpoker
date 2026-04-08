@@ -979,8 +979,7 @@ class _TableCard extends StatelessWidget {
     final full =
         table.currentPlayers >= table.maxPlayers && table.maxPlayers > 0;
     final started = table.gameStarted;
-    final alreadyAtTable = model.currentTableId == table.id ||
-        table.players.any((player) => player.id == model.playerId);
+    final alreadyAtTable = model.currentTableId == table.id;
     final hasOtherActiveTable =
         model.currentTableId != null && model.currentTableId != table.id;
     final canWatch = !hasOtherActiveTable && !alreadyAtTable;

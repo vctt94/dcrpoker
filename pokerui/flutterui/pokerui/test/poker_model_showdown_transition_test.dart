@@ -1298,4 +1298,35 @@ void main() {
     expect(model.game, isNotNull);
     expect(model.game!.communityCards, hasLength(3));
   });
+
+  test('game end keeps watcher result neutral', () {
+    const tableId = 'table-watch';
+    const heroId = 'hero';
+    const winnerId = 'villain';
+
+    final model = _TestPokerModel(playerId: heroId);
+    model.currentTableId = tableId;
+    model.applyGameUpdateForTest(_gameUpdate(
+      tableId: tableId,
+      phase: pr.GamePhase.SHOWDOWN,
+      players: [
+        _player(id: winnerId, name: 'Villain', tableSeat: 0),
+        _player(id: 'p2', name: 'Player 2', tableSeat: 1),
+      ],
+      currentPlayer: '',
+    ));
+
+    model.applyNotificationForTest(pr.Notification(
+      type: pr.NotificationType.GAME_ENDED,
+      tableId: tableId,
+      winnerId: winnerId,
+      isWinner: false,
+      amount: Int64(-100000000),
+      message: 'Game ended',
+    ));
+
+    expect(model.isViewingCurrentTableAsSpectator, isTrue);
+    expect(model.didWinGame, isNull);
+    expect(model.gameEndAmountAtoms, -100000000);
+  });
 }

@@ -708,13 +708,8 @@ class PokerModel extends ChangeNotifier {
       case pr.NotificationType.GAME_ENDED:
         if (n.tableId == currentTableId) {
           final msg = n.message.isNotEmpty ? n.message : 'Game ended';
-          if (n.isWinner) {
-            _didWinGame = true;
-          } else if (n.winnerId.isNotEmpty) {
-            _didWinGame = n.winnerId == playerId;
-          } else {
-            _didWinGame = null;
-          }
+          final isParticipant = _hasCurrentTableParticipant(playerId);
+          _didWinGame = isParticipant ? _didCurrentUserWinGame(n) : null;
           _gameEndAmountAtoms = n.hasAmount() ? n.amount.toInt() : null;
           // Always queue game end so we can finish showing the last showdown
           _queueGameEnd(msg);
@@ -986,6 +981,29 @@ class PokerModel extends ChangeNotifier {
     final amSeatedAtTable = g.players.any((player) => player.id == playerId);
     _seated = amSeatedAtTable;
     _watching = !amSeatedAtTable;
+  }
+
+  bool _hasCurrentTableParticipant(String id) {
+    final gamePlayers = game?.players ?? const <UiPlayer>[];
+    if (gamePlayers.any((player) => player.id == id)) {
+      return true;
+    }
+    final showdownPlayers = _showdown?.players ?? const <UiPlayer>[];
+    if (showdownPlayers.any((player) => player.id == id)) {
+      return true;
+    }
+    final lastShowdownPlayers = _lastShowdown?.players ?? const <UiPlayer>[];
+    return lastShowdownPlayers.any((player) => player.id == id);
+  }
+
+  bool? _didCurrentUserWinGame(pr.Notification notification) {
+    if (notification.isWinner) {
+      return true;
+    }
+    if (notification.winnerId.isNotEmpty) {
+      return notification.winnerId == playerId;
+    }
+    return null;
   }
 
   /// Queue game end and complete it once the model has actually reached showdown.
@@ -2308,6 +2326,10 @@ class PokerModel extends ChangeNotifier {
   bool get iAmReady => _iAmReady;
   bool get isSeated => _seated;
   bool get isWatching => _watching;
+  bool get isViewingCurrentTableAsSpectator =>
+      !_seated &&
+      currentTableId != null &&
+      !_hasCurrentTableParticipant(playerId);
   bool get hasTableContext => currentTableId != null;
   bool get isCurrentTableInteractive => _seated;
   String get tableRoleLabel =>
