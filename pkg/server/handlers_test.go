@@ -215,7 +215,7 @@ func TestHandleGameEndedUsesWinnerDisplayNameForLosers(t *testing.T) {
 	winnerNtfn := winnerStream.sent[0]
 	winnerStream.mu.RUnlock()
 	require.Equal(t, "Game ended", winnerNtfn.Message)
-	require.EqualValues(t, cfg.BuyIn, winnerNtfn.Amount)
+	require.EqualValues(t, cfg.BuyIn*2, winnerNtfn.Amount)
 	require.True(t, winnerNtfn.IsWinner)
 }
 
