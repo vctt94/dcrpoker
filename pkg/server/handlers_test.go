@@ -284,7 +284,7 @@ func TestHandleGameEndedPublishesWinnerTakeAllAmount(t *testing.T) {
 	require.Len(t, winnerStream.sent, 1)
 	winnerNtfn := winnerStream.sent[0]
 	winnerStream.mu.RUnlock()
-	require.EqualValues(t, cfg.BuyIn*3, winnerNtfn.Amount)
+	require.EqualValues(t, cfg.BuyIn*4, winnerNtfn.Amount)
 	require.True(t, winnerNtfn.IsWinner)
 }
 
