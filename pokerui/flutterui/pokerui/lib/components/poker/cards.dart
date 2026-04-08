@@ -172,8 +172,10 @@ bool _isFaceCard(String value) {
   return v == 'J' || v == 'Q' || v == 'K';
 }
 
-bool _isPhoneViewport(BuildContext context) {
-  return MediaQuery.sizeOf(context).shortestSide < 600;
+const double _compactCardWidthThreshold = 46.0;
+
+bool _useSimplifiedCardFace(double width) {
+  return width < _compactCardWidthThreshold;
 }
 
 Size _measureCornerIndex(
@@ -189,6 +191,7 @@ Size _measureCornerIndex(
       text: rank,
       style: TextStyle(
         color: color,
+        fontSize: isWideRank ? rankSize * 0.86 : rankSize,
         fontWeight: FontWeight.w900,
         height: 1.0,
         letterSpacing: isWideRank ? -0.6 : 0.0,
@@ -202,6 +205,7 @@ Size _measureCornerIndex(
       text: suit,
       style: TextStyle(
         color: color,
+        fontSize: suitSize,
         fontWeight: FontWeight.w700,
         height: 1.0,
       ),
@@ -333,6 +337,18 @@ double _cornerIndexScale(double width, String value,
   return 1.0;
 }
 
+double _simplifiedRankFontSize(double cardWidth, {required bool compact}) {
+  return math.max(12.0, cardWidth * (compact ? 0.34 : 0.40));
+}
+
+double _simplifiedSuitFontSize(double cardWidth, {required bool compact}) {
+  return math.max(10.0, cardWidth * (compact ? 0.24 : 0.30));
+}
+
+double _simplifiedSoloSuitFontSize(double cardWidth, {required bool compact}) {
+  return math.max(14.0, cardWidth * (compact ? 0.40 : 0.50));
+}
+
 bool _shouldShowCenterContent(
   String value,
   double width, {
@@ -356,112 +372,18 @@ class CardFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final value = _card?.value ?? '';
-    final suit = _card?.suit ?? '';
-    final suitSymbol = suitSym(suit);
-    final tint = suitColor(suit, cardTheme: cardTheme);
-
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, c) {
           final w = c.maxWidth.clamp(20.0, double.infinity);
           final h = c.maxHeight.clamp(28.0, double.infinity);
-          final simplifiedMode = _isPhoneViewport(context);
-          final showCenterContent = _shouldShowCenterContent(
-            value,
-            w,
-            simplifiedMode: simplifiedMode,
-          );
-          final cornerScale =
-              _cornerIndexScale(w, value, simplifiedMode: simplifiedMode);
-          final rankFs = math.max(10.0, w * cornerScale);
-          final suitFs = math.max(10.0, w  * cornerScale);
-          final isRedSuit = suitSymbol == '♥' || suitSymbol == '♦';
-          final cornerSuitSize = suitFs * (isRedSuit ? 1.2 : 1.12);
-          final cornerSize = _measureCornerIndex(
-            value,
-            suitSymbol,
-            tint,
-            rankFs,
-            cornerSuitSize,
-          );
-          final layout = _computeCardFaceLayout(w, h, cornerSize);
-
-          return Container(
-            decoration: BoxDecoration(
-              color: PokerColors.cardFace,
-              borderRadius: BorderRadius.circular((w * 0.1).clamp(4.0, 10.0)),
-              border: Border.all(color: const Color(0xFFD0D0D0), width: 1),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x40000000),
-                  blurRadius: 6,
-                  spreadRadius: 0.5,
-                  offset: Offset(0, 2),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular((w * 0.1).clamp(4.0, 10.0)),
-              child: Stack(
-                children: [
-                  // Corner index: top-left
-                  Positioned.fromRect(
-                    rect: layout.topLeftCorner,
-                    child: SizedBox.fromSize(
-                      size: layout.topLeftCorner.size,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.topLeft,
-                        child: _CornerIndex(
-                          rank: value,
-                          suit: suitSymbol,
-                          color: tint,
-                          rankSize: rankFs,
-                          suitSize: cornerSuitSize,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Corner index: bottom-right (rotated 180)
-                  Positioned.fromRect(
-                    rect: layout.bottomRightCorner,
-                    child: SizedBox.fromSize(
-                      size: layout.bottomRightCorner.size,
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.bottomRight,
-                        child: Transform.rotate(
-                          angle: math.pi,
-                          child: _CornerIndex(
-                            rank: value,
-                            suit: suitSymbol,
-                            color: tint,
-                            rankSize: rankFs,
-                            suitSize: cornerSuitSize,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  // Center content
-                  if (showCenterContent && !layout.pipRect.isEmpty)
-                    Positioned.fromRect(
-                      rect: layout.pipRect,
-                      child: ClipRect(
-                        key: const ValueKey('card_center_content'),
-                        child: _CardCenter(
-                          value: value,
-                          suit: suitSymbol,
-                          color: tint,
-                          cardWidth: w,
-                          width: layout.pipRect.width,
-                          height: layout.pipRect.height,
-                          simplifiedMode: simplifiedMode,
-                        ),
-                      ),
-                    ),
-                ],
+          return SizedBox(
+            width: w,
+            height: h,
+            child: CustomPaint(
+              painter: _CardFacePainter(
+                card: _card,
+                cardTheme: cardTheme,
               ),
             ),
           );
@@ -471,201 +393,423 @@ class CardFace extends StatelessWidget {
   }
 }
 
-class _CornerIndex extends StatelessWidget {
-  const _CornerIndex({
-    required this.rank,
-    required this.suit,
-    required this.color,
-    required this.rankSize,
-    required this.suitSize,
+class _CardFacePainter extends CustomPainter {
+  const _CardFacePainter({
+    required this.card,
+    required this.cardTheme,
   });
-  final String rank, suit;
-  final Color color;
-  final double rankSize, suitSize;
+
+  final pr.Card? card;
+  final CardColorTheme? cardTheme;
 
   @override
-  Widget build(BuildContext context) {
-    final isWideRank = rank.length > 1;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(rank,
-            style: TextStyle(
-              color: color,
-              fontSize: isWideRank ? rankSize * 0.86 : rankSize,
-              fontWeight: FontWeight.w900,
-              height: 1.0,
-              letterSpacing: isWideRank ? -0.6 : 0.0,
-            )),
-        SizedBox(height: suitSize * 0.02),
-        Text(suit,
-            style: TextStyle(
-              color: color,
-              fontSize: suitSize,
-              fontWeight: FontWeight.w700,
-              height: 1.0,
-            )),
-      ],
+  void paint(Canvas canvas, Size size) {
+    _paintCardFace(
+      canvas,
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      card,
+      cardTheme: cardTheme,
     );
+  }
+
+  @override
+  bool shouldRepaint(covariant _CardFacePainter oldDelegate) {
+    return oldDelegate.card != card || oldDelegate.cardTheme != cardTheme;
   }
 }
 
-class _CardCenter extends StatelessWidget {
-  const _CardCenter({
-    required this.value,
-    required this.suit,
-    required this.color,
-    required this.cardWidth,
-    required this.width,
-    required this.height,
-    required this.simplifiedMode,
-  });
-  final String value, suit;
-  final Color color;
-  final double cardWidth;
-  final double width, height;
-  final bool simplifiedMode;
+TextPainter _layoutText(String text, TextStyle style) {
+  return TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+  )..layout();
+}
 
-  @override
-  Widget build(BuildContext context) {
-    final pipCount = _rankToCount(value);
+void _paintCornerIndex(
+  Canvas canvas,
+  Rect rect, {
+  required String rank,
+  required String suit,
+  required Color color,
+  required double rankSize,
+  required double suitSize,
+  bool rotated = false,
+}) {
+  final isWideRank = rank.length > 1;
+  final rankPainter = _layoutText(
+    rank,
+    TextStyle(
+      color: color,
+      fontSize: isWideRank ? rankSize * 0.86 : rankSize,
+      fontWeight: FontWeight.w900,
+      height: 1.0,
+      letterSpacing: isWideRank ? -0.6 : 0.0,
+    ),
+  );
+  final suitPainter = _layoutText(
+    suit,
+    TextStyle(
+      color: color,
+      fontSize: suitSize,
+      fontWeight: FontWeight.w700,
+      height: 1.0,
+    ),
+  );
+  final gap = suitSize * 0.02;
+  final contentWidth = math.max(rankPainter.width, suitPainter.width);
+  final contentHeight = rankPainter.height + gap + suitPainter.height;
+  final scale = math.min(
+    1.0,
+    math.min(
+      rect.width / math.max(contentWidth, 1.0),
+      rect.height / math.max(contentHeight, 1.0),
+    ),
+  );
 
-    if (value.toUpperCase() == 'A') {
-      final compactAce = simplifiedMode && cardWidth < 52;
-      return Center(
-        child: Text(suit,
-            style: TextStyle(
-              color: color,
-              fontWeight: FontWeight.w600,
-            )),
+  void paintColumn(Rect targetRect) {
+    canvas.save();
+    canvas.translate(
+      targetRect.left + targetRect.width / 2,
+      targetRect.top + targetRect.height / 2,
+    );
+    canvas.scale(scale, scale);
+    rankPainter.paint(
+      canvas,
+      Offset(-rankPainter.width / 2, -contentHeight / 2),
+    );
+    suitPainter.paint(
+      canvas,
+      Offset(
+        -suitPainter.width / 2,
+        -contentHeight / 2 + rankPainter.height + gap,
+      ),
+    );
+    canvas.restore();
+  }
+
+  if (!rotated) {
+    paintColumn(rect);
+    return;
+  }
+
+  canvas.save();
+  canvas.translate(rect.right, rect.bottom);
+  canvas.rotate(math.pi);
+  paintColumn(Rect.fromLTWH(0, 0, rect.width, rect.height));
+  canvas.restore();
+}
+
+void _paintCenteredGlyph(
+  Canvas canvas,
+  Rect rect, {
+  required String text,
+  required Color color,
+  required double fontSize,
+  required FontWeight fontWeight,
+}) {
+  final painter = _layoutText(
+    text,
+    TextStyle(
+      color: color,
+      fontSize: fontSize,
+      fontWeight: fontWeight,
+      height: 1.0,
+    ),
+  );
+  painter.paint(
+    canvas,
+    Offset(
+      rect.left + (rect.width - painter.width) / 2,
+      rect.top + (rect.height - painter.height) / 2,
+    ),
+  );
+}
+
+void _paintCenteredRankSuit(
+  Canvas canvas,
+  Rect rect, {
+  required String rank,
+  required String suit,
+  required Color color,
+  required double rankFontSize,
+  required double suitFontSize,
+  required bool compact,
+}) {
+  final rankPainter = _layoutText(
+    rank,
+    TextStyle(
+      color: color,
+      fontSize: rankFontSize,
+      fontWeight: FontWeight.w800,
+      height: 1.0,
+    ),
+  );
+  final suitPainter = _layoutText(
+    suit,
+    TextStyle(
+      color: color,
+      fontSize: suitFontSize,
+      fontWeight: FontWeight.w600,
+      height: 1.0,
+    ),
+  );
+  final gap = rect.height * (compact ? 0.01 : 0.015);
+  final contentWidth = math.max(rankPainter.width, suitPainter.width);
+  final contentHeight = rankPainter.height + gap + suitPainter.height;
+  final scale = math.min(
+    1.0,
+    math.min(
+      rect.width / math.max(contentWidth, 1.0),
+      rect.height / math.max(contentHeight, 1.0),
+    ),
+  );
+
+  canvas.save();
+  canvas.translate(rect.center.dx, rect.center.dy);
+  canvas.scale(scale, scale);
+  rankPainter.paint(
+    canvas,
+    Offset(-rankPainter.width / 2, -contentHeight / 2),
+  );
+  suitPainter.paint(
+    canvas,
+    Offset(
+      -suitPainter.width / 2,
+      -contentHeight / 2 + rankPainter.height + gap,
+    ),
+  );
+  canvas.restore();
+}
+
+void _paintPipLayout(
+  Canvas canvas,
+  Rect rect, {
+  required int pipCount,
+  required String suit,
+  required Color color,
+}) {
+  final positions = _pipLayouts[pipCount] ?? const <_PipPos>[];
+  if (positions.isEmpty || rect.width <= 0 || rect.height <= 0) {
+    return;
+  }
+  final cellSize = _maxPipCellSize(positions, rect.width, rect.height);
+  if (cellSize <= 0) {
+    return;
+  }
+  final maxLeft = math.max(0.0, rect.width - cellSize);
+  final maxTop = math.max(0.0, rect.height - cellSize);
+  final pipScale = _centerPipScale(suit);
+  final pipFs = math.min(cellSize * 0.92 * pipScale, cellSize * 1.2);
+  final painter = _layoutText(
+    suit,
+    TextStyle(
+      color: color,
+      fontSize: pipFs,
+      height: 1.0,
+    ),
+  );
+
+  for (final p in positions) {
+    final left =
+        rect.left + (p.x * rect.width - cellSize / 2).clamp(0.0, maxLeft);
+    final top =
+        rect.top + (p.y * rect.height - cellSize / 2).clamp(0.0, maxTop);
+    if (p.inverted) {
+      canvas.save();
+      canvas.translate(left + cellSize / 2, top + cellSize / 2);
+      canvas.rotate(math.pi);
+      painter.paint(
+        canvas,
+        Offset(-painter.width / 2, -painter.height / 2),
       );
-    }
-
-    if (_isFaceCard(value)) {
-      final compactFace = simplifiedMode && cardWidth < 52;
-      return Center(
-        child: SizedBox(
-          width: width,
-          height: height,
-          child: FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(value,
-                    style: TextStyle(
-                      color: color,
-                      fontWeight: FontWeight.w800,
-                    )),
-                SizedBox(height: height * (compactFace ? 0.01 : 0.015)),
-                Text(suit,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: math.max(7.0,
-                          math.min(width, height) * (compactFace ? 0.17 : 0.22)),
-                      fontWeight: FontWeight.w600,
-                    )),
-              ],
-            ),
-          ),
+      canvas.restore();
+    } else {
+      painter.paint(
+        canvas,
+        Offset(
+          left + (cellSize - painter.width) / 2,
+          top + (cellSize - painter.height) / 2,
         ),
       );
     }
+  }
+}
 
-    if (pipCount != null) {
-      if (simplifiedMode) {
-        // Phone / narrow UI: rank + suit in the center instead of multi-pip layout.
-        final compact = cardWidth < 52;
-        return Center(
-          child: SizedBox(
-            width: width,
-            height: height,
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(value,
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.w800,
-                      )),
-                  SizedBox(height: height * (compact ? 0.01 : 0.015)),
-                  Text(suit,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: math.max(7.0,
-                            math.min(width, height) * (compact ? 0.17 : 0.22)),
-                        fontWeight: FontWeight.w600,
-                      )),
-                ],
-              ),
-            ),
-          ),
-        );
-      }
+void _paintCenterContent(
+  Canvas canvas,
+  Rect rect, {
+  required String value,
+  required String suit,
+  required Color color,
+  required double cardWidth,
+  required bool simplifiedMode,
+}) {
+  final pipCount = _rankToCount(value);
 
-      final positions = _pipLayouts[pipCount] ?? const <_PipPos>[];
-      if (positions.isEmpty) {
-        return const SizedBox.shrink();
-      }
-      final pipScale = _centerPipScale(suit);
+  if (value.toUpperCase() == 'A') {
+    final compact = simplifiedMode && cardWidth < 52;
+    _paintCenteredGlyph(
+      canvas,
+      rect,
+      text: suit,
+      color: color,
+      fontSize: _simplifiedSoloSuitFontSize(cardWidth, compact: compact),
+      fontWeight: FontWeight.w600,
+    );
+    return;
+  }
 
-      return LayoutBuilder(builder: (context, c) {
-        final areaW = c.maxWidth;
-        final areaH = c.maxHeight;
-        if (areaW <= 0 || areaH <= 0) {
-          return const SizedBox.shrink();
-        }
-        final cellSize = _maxPipCellSize(positions, areaW, areaH);
-        if (cellSize <= 0) {
-          return const SizedBox.shrink();
-        }
-        final maxLeft = math.max(0.0, areaW - cellSize);
-        final maxTop = math.max(0.0, areaH - cellSize);
-        final pipFs = math.min(cellSize * 0.92 * pipScale, cellSize * 1.2);
+  if (_isFaceCard(value)) {
+    final compact = simplifiedMode && cardWidth < 52;
+    _paintCenteredRankSuit(
+      canvas,
+      rect,
+      rank: value,
+      suit: suit,
+      color: color,
+      rankFontSize: _simplifiedRankFontSize(cardWidth, compact: compact),
+      suitFontSize: _simplifiedSuitFontSize(cardWidth, compact: compact),
+      compact: compact,
+    );
+    return;
+  }
 
-        return Stack(
-          clipBehavior: Clip.none,
-          children: positions.map((p) {
-            final x = p.x * areaW - cellSize / 2;
-            final y = p.y * areaH - cellSize / 2;
-            Widget pip = ClipRect(
-              child: SizedBox(
-                width: cellSize,
-                height: cellSize,
-                child: Center(
-                  child: Text(suit,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: pipFs,
-                        height: 1.0,
-                      )),
-                ),
-              ),
-            );
-            if (p.inverted) {
-              pip = Transform.rotate(angle: math.pi, child: pip);
-            }
-            return Positioned(
-              left: x.clamp(0.0, maxLeft),
-              top: y.clamp(0.0, maxTop),
-              child: pip,
-            );
-          }).toList(),
-        );
-      });
+  if (pipCount != null) {
+    if (simplifiedMode) {
+      final compact = cardWidth < 52;
+      _paintCenteredRankSuit(
+        canvas,
+        rect,
+        rank: value,
+        suit: suit,
+        color: color,
+        rankFontSize: _simplifiedRankFontSize(cardWidth, compact: compact),
+        suitFontSize: _simplifiedSuitFontSize(cardWidth, compact: compact),
+        compact: compact,
+      );
+      return;
     }
 
-    // Fallback: centered suit
-    return Center(
-      child: Text(suit,
-          style: TextStyle(
-            color: color,
-            fontWeight: FontWeight.w600,
-          )),
+    _paintPipLayout(
+      canvas,
+      rect,
+      pipCount: pipCount,
+      suit: suit,
+      color: color,
     );
+    return;
+  }
+
+  _paintCenteredGlyph(
+    canvas,
+    rect,
+    text: suit,
+    color: color,
+    fontSize: _simplifiedSoloSuitFontSize(cardWidth, compact: false),
+    fontWeight: FontWeight.w600,
+  );
+}
+
+void _paintCardFace(
+  Canvas canvas,
+  Rect rect,
+  pr.Card? card, {
+  CardColorTheme? cardTheme,
+}) {
+  final width = rect.width;
+  final height = rect.height;
+  final radius = (width * 0.1).clamp(4.0, 10.0);
+  final cardRect = RRect.fromRectAndRadius(rect, Radius.circular(radius));
+
+  canvas.drawRRect(
+    cardRect.shift(const Offset(0, 2)),
+    Paint()
+      ..color = const Color(0x40000000)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+  );
+  canvas.drawRRect(cardRect, Paint()..color = PokerColors.cardFace);
+  canvas.drawRRect(
+    cardRect,
+    Paint()
+      ..color = const Color(0xFFD0D0D0)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1,
+  );
+
+  final value = card?.value ?? '';
+  final suit = card?.suit ?? '';
+  final suitSymbol = suitSym(suit);
+  final tint = suitColor(suit, cardTheme: cardTheme);
+  final simplifiedMode = _useSimplifiedCardFace(width);
+  final showCenterContent = _shouldShowCenterContent(
+    value,
+    width,
+    simplifiedMode: simplifiedMode,
+  );
+  final cornerScale =
+      _cornerIndexScale(width, value, simplifiedMode: simplifiedMode);
+  final rankFs = math.max(10.0, width * cornerScale);
+  final suitFs = math.max(10.0, width * cornerScale);
+  final isRedSuit = suitSymbol == '♥' || suitSymbol == '♦';
+  final cornerSuitSize = suitFs * (isRedSuit ? 1.2 : 1.12);
+  final cornerSize = _measureCornerIndex(
+    value,
+    suitSymbol,
+    tint,
+    rankFs,
+    cornerSuitSize,
+  );
+  final layout = _computeCardFaceLayout(width, height, cornerSize);
+
+  _paintCornerIndex(
+    canvas,
+    Rect.fromLTWH(
+      rect.left + layout.topLeftCorner.left,
+      rect.top + layout.topLeftCorner.top,
+      layout.topLeftCorner.width,
+      layout.topLeftCorner.height,
+    ),
+    rank: value,
+    suit: suitSymbol,
+    color: tint,
+    rankSize: rankFs,
+    suitSize: cornerSuitSize,
+  );
+  _paintCornerIndex(
+    canvas,
+    Rect.fromLTWH(
+      rect.left + layout.bottomRightCorner.left,
+      rect.top + layout.bottomRightCorner.top,
+      layout.bottomRightCorner.width,
+      layout.bottomRightCorner.height,
+    ),
+    rank: value,
+    suit: suitSymbol,
+    color: tint,
+    rankSize: rankFs,
+    suitSize: cornerSuitSize,
+    rotated: true,
+  );
+
+  if (showCenterContent && !layout.pipRect.isEmpty) {
+    final pipRect = Rect.fromLTWH(
+      rect.left + layout.pipRect.left,
+      rect.top + layout.pipRect.top,
+      layout.pipRect.width,
+      layout.pipRect.height,
+    );
+    canvas.save();
+    canvas.clipRect(pipRect);
+    _paintCenterContent(
+      canvas,
+      pipRect,
+      value: value,
+      suit: suitSymbol,
+      color: tint,
+      cardWidth: width,
+      simplifiedMode: simplifiedMode,
+    );
+    canvas.restore();
   }
 }
 
@@ -846,62 +990,11 @@ Color getSuitColor(String suit, {CardColorTheme? cardTheme}) =>
 void drawCardFace(Canvas canvas, double x, double y, double width,
     double height, pr.Card card,
     {CardColorTheme? cardTheme}) {
-  final cardRect = RRect.fromRectAndRadius(
-    Rect.fromLTWH(x, y, width, height),
-    Radius.circular(width * 0.08),
-  );
-  // White card surface
-  canvas.drawRRect(cardRect, Paint()..color = PokerColors.cardFace);
-  // Subtle border
-  canvas.drawRRect(
-      cardRect,
-      Paint()
-        ..color = const Color(0xFFCCCCCC)
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 0.8);
-  // Shadow
-  canvas.drawRRect(
-    cardRect.shift(const Offset(0, 1)),
-    Paint()
-      ..color = const Color(0x30000000)
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3),
-  );
-
-  final tint = getSuitColor(card.suit, cardTheme: cardTheme);
-  final suitSym = getSuitSymbol(card.suit);
-  final isWideRank = card.value.length > 1;
-  final left = x + width * 0.08;
-  final top = y + height * 0.06;
-
-  final rankPainter = TextPainter(
-    text: TextSpan(
-      text: card.value,
-      style: TextStyle(
-        color: tint,
-        fontWeight: FontWeight.w900,
-        height: 1.0,
-        letterSpacing: isWideRank ? -0.5 : 0.0,
-      ),
-    ),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  rankPainter.paint(canvas, Offset(left, top));
-
-  final suitPainter = TextPainter(
-    text: TextSpan(
-      text: suitSym,
-      style: TextStyle(
-        color: tint,
-        fontWeight: FontWeight.w700,
-        height: 1.0,
-      ),
-    ),
-    textDirection: TextDirection.ltr,
-  )..layout();
-  suitPainter.paint(
+  _paintCardFace(
     canvas,
-    Offset(left + (rankPainter.width - suitPainter.width) / 2,
-        top + rankPainter.height - height * 0.01),
+    Rect.fromLTWH(x, y, width, height),
+    card,
+    cardTheme: cardTheme,
   );
 }
 
