@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
@@ -149,10 +150,12 @@ class InLobbyView extends StatelessWidget {
     final displayedPlayers =
         gamePlayers.isNotEmpty ? gamePlayers : lobbyPlayers;
     final watchingOnly = !model.isSeated && model.isWatching;
+    final mePlayer =
+        displayedPlayers.firstWhereOrNull((p) => p.id == model.playerId);
 
     // Compute progress steps
-    final hasEscrow = model.cachedEscrowId.isNotEmpty;
-    final escrowReady = model.cachedEscrowReady;
+    final hasEscrow = (mePlayer?.escrowId ?? '').isNotEmpty;
+    final escrowReady = mePlayer?.escrowReady ?? false;
     final presignDone = model.presignCompleted;
     final allReady = displayedPlayers.every((p) => p.isReady);
     final allEscrows =

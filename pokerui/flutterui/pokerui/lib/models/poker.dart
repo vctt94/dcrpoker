@@ -491,9 +491,6 @@ class PokerModel extends ChangeNotifier {
   final Set<String> _invalidEscrowOutpoints = {};
   final ValueNotifier<List<Map<String, dynamic>>> _bindableEscrows =
       ValueNotifier<List<Map<String, dynamic>>>(const []);
-  String? _lastBoundEscrowId;
-  bool _lastBoundEscrowReady = false;
-  String _lastBoundEscrowState = '';
 
   List<pr.Card> get heroShowdownHand =>
       showdownPlayers.firstWhereOrNull((p) => p.id == playerId)?.hand ??
@@ -882,10 +879,7 @@ class PokerModel extends ChangeNotifier {
                 : p)
             .toList();
         game = game!.copyWith(players: List.unmodifiable(updatedPlayers));
-        if (pid == playerId && escrowId.isNotEmpty) {
-          _lastBoundEscrowId = escrowId;
-          _lastBoundEscrowReady = ready;
-          _lastBoundEscrowState = fundingState;
+        if (pid == playerId) {
           unawaited(_refreshBindableEscrowsSilently());
         }
         notifyListeners();
@@ -1178,11 +1172,6 @@ class PokerModel extends ChangeNotifier {
       game = nextGame;
     }
     _syncTableRoleFromCurrentGame();
-    final mePlayer = me;
-    if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
-      _lastBoundEscrowId = mePlayer.escrowId;
-      _lastBoundEscrowReady = mePlayer.escrowReady;
-    }
     // Update UI state based on game phase
     final phase = gameUpdate.phase;
     if (phase == pr.GamePhase.SHOWDOWN) {
@@ -1485,6 +1474,7 @@ class PokerModel extends ChangeNotifier {
       }
 
       currentTableId = tableId;
+      game = null;
       _iAmReady = false;
       _seated = true;
       _watching = false;
@@ -1525,6 +1515,7 @@ class PokerModel extends ChangeNotifier {
       }
 
       currentTableId = tableId;
+      game = null;
       _iAmReady = false;
       _seated = false;
       _watching = true;
@@ -1577,10 +1568,6 @@ class PokerModel extends ChangeNotifier {
                 : p)
             .toList();
         game = game!.copyWith(players: List.unmodifiable(updatedPlayers));
-      }
-      if (boundEscrowId.isNotEmpty) {
-        _lastBoundEscrowId = boundEscrowId;
-        _lastBoundEscrowReady = boundEscrowReady;
       }
       unawaited(_refreshBindableEscrowsSilently());
       await refreshGameState();
@@ -1797,8 +1784,6 @@ class PokerModel extends ChangeNotifier {
       _seated = false;
       _watching = false;
       _showTableView = false;
-      _lastBoundEscrowId = null;
-      _lastBoundEscrowReady = false;
       _resetPresignState();
       _clearShowdownState();
       _state = PokerState.browsingTables;
@@ -1883,6 +1868,7 @@ class PokerModel extends ChangeNotifier {
       currentTableId = tid;
       _showTableView = true;
       if (switchingTables) {
+        game = null;
         _iAmReady = false;
         _clearShowdownState();
         successMessage = '';
@@ -1948,14 +1934,6 @@ class PokerModel extends ChangeNotifier {
     // Don't start if game already started
     if (table.gameStarted) return;
 
-    // Check escrow status
-    final escrowId = cachedEscrowId;
-    final escrowReady = cachedEscrowReady;
-    if (escrowId.isEmpty || !escrowReady) return;
-
-    // Don't re-presign if already in progress
-    if (_presignInProgress) return;
-
     // Get players from game state (server returns players even before game starts)
     final g = game;
     if (g == null || g.players.isEmpty) return;
@@ -1964,6 +1942,11 @@ class PokerModel extends ChangeNotifier {
     // Find my player
     final mePlayer = players.firstWhereOrNull((p) => p.id == playerId);
     if (mePlayer == null || mePlayer.tableSeat < 0) return;
+    final escrowId = mePlayer.escrowId;
+    if (mePlayer.escrowId.isEmpty || !mePlayer.escrowReady) return;
+
+    // Don't re-presign if already in progress
+    if (_presignInProgress) return;
 
     // Don't re-presign if already complete (server state)
     if (mePlayer.presignComplete) return;
@@ -2133,11 +2116,6 @@ class PokerModel extends ChangeNotifier {
         game = nextGame;
       }
       _syncTableRoleFromCurrentGame();
-      final mePlayer = me;
-      if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
-        _lastBoundEscrowId = mePlayer.escrowId;
-        _lastBoundEscrowReady = mePlayer.escrowReady;
-      }
       // Keep coarse UI state in sync even when attaching mid-hand.
       // This mirrors the logic in _onGameUpdate so that the UI shows
       // the table (and hole cards) immediately on reconnect/restore.
@@ -2294,29 +2272,13 @@ class PokerModel extends ChangeNotifier {
   }
 
   // -------- Helpers ----------
-  UiPlayer? get me => game?.players.firstWhereOrNull((p) => p.id == playerId);
-  String get cachedEscrowId {
-    final mePlayer = me;
-    if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
-      return mePlayer.escrowId;
+  UiPlayer? get me {
+    final currentGame = game;
+    final tid = currentTableId;
+    if (currentGame == null || tid == null || currentGame.tableId != tid) {
+      return null;
     }
-    return _lastBoundEscrowId ?? '';
-  }
-
-  bool get cachedEscrowReady {
-    final mePlayer = me;
-    if (mePlayer != null && mePlayer.escrowId.isNotEmpty) {
-      return mePlayer.escrowReady;
-    }
-    return _lastBoundEscrowReady;
-  }
-
-  String get cachedEscrowState {
-    final mePlayer = me;
-    if (mePlayer != null && mePlayer.escrowState.isNotEmpty) {
-      return mePlayer.escrowState;
-    }
-    return _lastBoundEscrowState;
+    return currentGame.players.firstWhereOrNull((p) => p.id == playerId);
   }
 
   ValueListenable<List<Map<String, dynamic>>> get bindableEscrowsListenable =>

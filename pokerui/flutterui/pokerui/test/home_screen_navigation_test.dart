@@ -49,6 +49,8 @@ void main() {
     required String id,
     required String name,
     required int tableSeat,
+    String escrowId = '',
+    bool escrowReady = false,
   }) {
     return pr.Player(
       id: id,
@@ -58,6 +60,8 @@ void main() {
       isReady: true,
       playerState: pr.PlayerState.PLAYER_STATE_IN_GAME,
       tableSeat: tableSeat,
+      escrowId: escrowId,
+      escrowReady: escrowReady,
     );
   }
 
@@ -303,6 +307,45 @@ void main() {
     expect(find.text('Bind Escrow'), findsOneWidget);
     expect(find.text('Bind escrow'), findsNothing);
     expect(find.text('Waiting for confirmations'), findsNothing);
+  });
+
+  test('cached escrow state does not leak across table switches', () {
+    final model = PokerModel(playerId: 'hero', dataDir: '/tmp/pokerui-test');
+    model.tables = [
+      table(id: 'table-old', name: 'Old Table', buyInAtoms: 100000000),
+      table(id: 'table-new', name: 'New Table', buyInAtoms: 100000000),
+    ];
+
+    model.currentTableId = 'table-old';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-old',
+        players: [
+          player(
+            id: 'hero',
+            name: 'Hero',
+            tableSeat: 0,
+            escrowId: 'escrow-old',
+            escrowReady: true,
+          ),
+        ],
+      ),
+    );
+    expect(model.me?.escrowId, 'escrow-old');
+    expect(model.me?.escrowReady, isTrue);
+
+    model.currentTableId = 'table-new';
+    model.applyGameUpdateForTest(
+      lobbyState(
+        tableId: 'table-new',
+        players: [
+          player(id: 'hero', name: 'Hero', tableSeat: 0),
+        ],
+      ),
+    );
+
+    expect(model.me?.escrowId ?? '', isEmpty);
+    expect(model.me?.escrowReady ?? false, isFalse);
   });
 
   testWidgets('success banner can be dismissed manually', (tester) async {
