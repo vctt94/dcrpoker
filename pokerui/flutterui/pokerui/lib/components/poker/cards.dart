@@ -229,8 +229,8 @@ _CardFaceLayout _computeCardFaceLayout(
   final cornerInsetY = height * 0.04;
   final availableWidth = math.max(0.0, width - (cornerInsetX * 2));
   final availableHeight = math.max(0.0, height - (cornerInsetY * 2));
-  final maxCornerWidth = availableWidth * 0.34;
-  final maxCornerHeight = availableHeight * 0.24;
+  final maxCornerWidth = availableWidth * 0.40;
+  final maxCornerHeight = availableHeight * 0.30;
   final cornerWidthScale = cornerSize.width <= 0
       ? 1.0
       : math.min(1.0, maxCornerWidth / cornerSize.width);
