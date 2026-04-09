@@ -119,6 +119,7 @@ func newTestServerWithState(t *testing.T) *Server {
 	srv.referee.presigns = make(map[string]map[int32]map[string]*refereePreSignCtx)
 	srv.referee.branchGamma = make(map[string]map[int32]string)
 	srv.referee.matchEscrows = make(map[string]map[uint32]string)
+	srv.referee.settlementEscrows = make(map[string]map[uint32]string)
 	srv.referee.escrows = make(map[string]*refereeEscrowSession)
 	return srv
 }
@@ -226,6 +227,55 @@ func TestGetFinalizeBundleSuccessThreePlayers(t *testing.T) {
 	// Verify that the returned branch corresponds to seat 2.
 	require.Equal(t, branchIndex, resp.Branch)
 	require.Equal(t, "cafebabe", resp.GammaHex, "Should return gamma for the branch that pays seat 2")
+}
+
+// TestGetFinalizeBundleUsesFrozenSettlementRoster ensures settlement still
+// finalizes against the original presigned field even if the live table roster
+// shrinks after a bust-out.
+func TestGetFinalizeBundleUsesFrozenSettlementRoster(t *testing.T) {
+	const matchID = "table1|sess3-frozen"
+	const amount = uint64(1_000_000)
+	srv := newTestServerWithState(t)
+	srv.chainParams = selectChainParams("testnet")
+
+	ctx1, esc1 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000011", "tok11", "aaaa", 0, amount)
+	ctx2, esc2 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000012", "tok12", "bbbb", 1, amount)
+	ctx3, esc3 := seedEscrow(t, srv, "0000000000000000000000000000000000000000000000000000000000000013", "tok13", "cccc", 2, amount)
+
+	srv.referee.matchEscrows[matchID] = map[uint32]string{0: esc1, 1: esc2, 2: esc3}
+	srv.referee.escrows[esc1].SeatIndex = 0
+	srv.referee.escrows[esc2].SeatIndex = 1
+	srv.referee.escrows[esc3].SeatIndex = 2
+	srv.freezeSettlementEscrows(matchID, []*refereeEscrowSession{
+		srv.referee.escrows[esc1],
+		srv.referee.escrows[esc2],
+		srv.referee.escrows[esc3],
+	})
+
+	expectedBranch, err := srv.seatToBranchIndex(matchID, 2)
+	require.NoError(t, err)
+
+	srv.referee.presigns[matchID] = map[int32]map[string]*refereePreSignCtx{
+		0: {ctx1.InputID: ctx1, ctx2.InputID: ctx2, ctx3.InputID: ctx3},
+		1: {ctx1.InputID: ctx1, ctx2.InputID: ctx2, ctx3.InputID: ctx3},
+		2: {ctx1.InputID: ctx1, ctx2.InputID: ctx2, ctx3.InputID: ctx3},
+	}
+	srv.referee.branchGamma[matchID] = map[int32]string{
+		0: "gamma0",
+		1: "gamma1",
+		2: "gamma2",
+	}
+
+	// Simulate the live table pruning the busted player before settlement.
+	srv.referee.matchEscrows[matchID] = map[uint32]string{1: esc2, 2: esc3}
+
+	resp, err := srv.GetFinalizeBundle(context.Background(), &pokerrpc.GetFinalizeBundleRequest{
+		MatchId:    matchID,
+		WinnerSeat: 2,
+	})
+	require.NoError(t, err)
+	require.Equal(t, expectedBranch, resp.Branch)
+	require.Len(t, resp.Inputs, 3)
 }
 
 // TestGetFinalizeBundleErrors covers common failure cases.

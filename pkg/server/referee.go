@@ -223,6 +223,7 @@ type schnorrRefereeState struct {
 	mu                 sync.RWMutex
 	escrows            map[string]*refereeEscrowSession                   // escrowID -> session
 	matchEscrows       map[string]map[uint32]string                       // matchKey -> seat -> escrowID
+	settlementEscrows  map[string]map[uint32]string                       // matchKey -> frozen seat -> escrowID captured when presigning starts
 	presigns           map[string]map[int32]map[string]*refereePreSignCtx // matchKey -> branch -> inputID -> ctx
 	branchGamma        map[string]map[int32]string                        // matchKey -> branch -> gammaHex
 	presignComplete    map[string]map[uint32]bool                         // matchKey -> seat -> completed
@@ -236,6 +237,7 @@ func newSchnorrRefereeState(cfg ServerConfig) *schnorrRefereeState {
 		feeAtoms:           DefaultSettlementFeeAtoms,
 		escrows:            make(map[string]*refereeEscrowSession),
 		matchEscrows:       make(map[string]map[uint32]string),
+		settlementEscrows:  make(map[string]map[uint32]string),
 		presigns:           make(map[string]map[int32]map[string]*refereePreSignCtx),
 		branchGamma:        make(map[string]map[int32]string),
 		presignComplete:    make(map[string]map[uint32]bool),
@@ -901,6 +903,7 @@ func (s *Server) SettlementStream(stream pokerrpc.PokerReferee_SettlementStreamS
 	if err != nil {
 		return status.Errorf(codes.FailedPrecondition, "match not ready for presign: %v", err)
 	}
+	s.freezeSettlementEscrows(matchID, allEscrows)
 
 	// Build drafts per possible winner and request presigs.
 	branchDrafts, err := s.buildWTADrafts(matchID, allEscrows)
@@ -1283,7 +1286,7 @@ func (s *Server) GetFinalizeBundle(ctx context.Context, req *pokerrpc.GetFinaliz
 	}
 
 	// Ensure match is fully bound/funded
-	escrows, err := s.readyMatchEscrows(matchID)
+	escrows, err := s.readySettlementEscrows(matchID)
 	if err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "match not ready: %v", err)
 	}
@@ -1482,6 +1485,7 @@ func (s *Server) cleanupMatchState(matchID string) {
 		}
 	}
 	delete(s.referee.matchEscrows, matchID)
+	delete(s.referee.settlementEscrows, matchID)
 	delete(s.referee.presigns, matchID)
 	delete(s.referee.branchGamma, matchID)
 	delete(s.referee.presignComplete, matchID)
@@ -1714,6 +1718,7 @@ func (s *Server) clearMatchPreparationState(matchID string) {
 	}
 
 	s.referee.mu.Lock()
+	delete(s.referee.settlementEscrows, matchID)
 	delete(s.referee.presigns, matchID)
 	delete(s.referee.branchGamma, matchID)
 	delete(s.referee.presignComplete, matchID)
@@ -1735,6 +1740,9 @@ func (s *Server) tableHasRefereeState(tableID string) bool {
 	if len(s.referee.matchEscrows[tableID]) > 0 {
 		return true
 	}
+	if len(s.referee.settlementEscrows[tableID]) > 0 {
+		return true
+	}
 	if len(s.referee.presigns[tableID]) > 0 {
 		return true
 	}
@@ -1747,16 +1755,39 @@ func (s *Server) tableHasRefereeState(tableID string) bool {
 	return s.referee.pendingSettlements[tableID]
 }
 
-// readyMatchEscrows returns all escrows for a match, ensuring 2-6 entries and
-// that each has a bound UTXO and session pubkey.
-func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, error) {
-	s.referee.mu.RLock()
-	seatsMap := s.referee.matchEscrows[matchID]
-	seats := make(map[uint32]string, len(seatsMap))
-	for k, v := range seatsMap {
-		seats[k] = v
+func copyMatchEscrows(src map[uint32]string) map[uint32]string {
+	dst := make(map[uint32]string, len(src))
+	for k, v := range src {
+		dst[k] = v
 	}
-	s.referee.mu.RUnlock()
+	return dst
+}
+
+func (s *Server) matchEscrowsSnapshot(matchID string, frozen bool) map[uint32]string {
+	s.referee.mu.RLock()
+	defer s.referee.mu.RUnlock()
+
+	if frozen {
+		if seats := s.referee.settlementEscrows[matchID]; len(seats) > 0 {
+			return copyMatchEscrows(seats)
+		}
+	}
+	return copyMatchEscrows(s.referee.matchEscrows[matchID])
+}
+
+// readyMatchEscrows returns all current escrows for a match, ensuring 2-6
+// entries and that each has a bound UTXO and session pubkey.
+func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, error) {
+	return s.readyEscrowsForSeats(s.matchEscrowsSnapshot(matchID, false))
+}
+
+// readySettlementEscrows returns the frozen settlement roster for a match when
+// available, falling back to the live match roster before presigning exists.
+func (s *Server) readySettlementEscrows(matchID string) ([]*refereeEscrowSession, error) {
+	return s.readyEscrowsForSeats(s.matchEscrowsSnapshot(matchID, true))
+}
+
+func (s *Server) readyEscrowsForSeats(seats map[uint32]string) ([]*refereeEscrowSession, error) {
 	if len(seats) < 2 || len(seats) > 6 {
 		return nil, fmt.Errorf("match seats not filled (have %d, need 2-6)", len(seats))
 	}
@@ -1793,6 +1824,33 @@ func (s *Server) readyMatchEscrows(matchID string) ([]*refereeEscrowSession, err
 	return escrows, nil
 }
 
+func (s *Server) freezeSettlementEscrows(matchID string, escrows []*refereeEscrowSession) {
+	if s.referee == nil || matchID == "" || len(escrows) == 0 {
+		return
+	}
+
+	seats := make(map[uint32]string, len(escrows))
+	for _, es := range escrows {
+		if es == nil {
+			continue
+		}
+		es.mu.RLock()
+		seat := es.SeatIndex
+		escrowID := es.EscrowID
+		es.mu.RUnlock()
+		if escrowID != "" {
+			seats[seat] = escrowID
+		}
+	}
+	if len(seats) == 0 {
+		return
+	}
+
+	s.referee.mu.Lock()
+	s.referee.settlementEscrows[matchID] = seats
+	s.referee.mu.Unlock()
+}
+
 // seatToBranchIndex maps a table seat index to the corresponding branch index.
 // Branches are indexed by the sorted UTXO order (PkScriptHex, Txid, Vout), not seat order.
 // This function replicates the same sorting logic used in buildWTADrafts to find the correct branch.
@@ -1801,8 +1859,9 @@ func (s *Server) seatToBranchIndex(matchID string, tableSeat int32) (int32, erro
 		return -1, fmt.Errorf("invalid table seat: %d", tableSeat)
 	}
 
-	// Get all escrows for the match
-	escrows, err := s.readyMatchEscrows(matchID)
+	// Use the frozen settlement roster once presigning has started so branch
+	// numbering remains stable even if eliminated players are pruned later.
+	escrows, err := s.readySettlementEscrows(matchID)
 	if err != nil {
 		return -1, fmt.Errorf("get escrows: %w", err)
 	}
