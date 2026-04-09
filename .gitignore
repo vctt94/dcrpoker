@@ -11,3 +11,4 @@ grpc/generated
 releases/
 .DS_Store
 golib.dll
+golib.so
