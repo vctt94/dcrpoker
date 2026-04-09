@@ -12,3 +12,4 @@ releases/
 .DS_Store
 golib.dll
 golib.so
+golib.dylib
