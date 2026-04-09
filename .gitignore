@@ -10,3 +10,4 @@ grpc/generated
 .cache
 releases/
 .DS_Store
+golib.dll
