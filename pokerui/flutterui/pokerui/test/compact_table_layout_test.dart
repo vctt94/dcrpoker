@@ -18,6 +18,17 @@ import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 class _MockPokerModel extends PokerModel {
   _MockPokerModel({required super.playerId}) : super(dataDir: '/tmp/test');
 
+  void pushGame(UiGameState nextGame) {
+    game = nextGame;
+    notifyListeners();
+  }
+
+  @override
+  PokerState get state => PokerState.handInProgress;
+
+  @override
+  bool get canAct => true;
+
   @override
   Future<void> init() async {}
 
@@ -63,6 +74,7 @@ final _defaultConfig = Config(
 UiPlayer _player({
   required String id,
   required String name,
+  int balance = 1000,
   bool isDealer = false,
   bool isSmallBlind = false,
   bool isBigBlind = false,
@@ -72,7 +84,7 @@ UiPlayer _player({
   return UiPlayer(
     id: id,
     name: name,
-    balance: 1000,
+    balance: balance,
     hand: hand,
     currentBet: currentBet,
     folded: false,
@@ -120,6 +132,66 @@ UiGameState _gameState(pr.GamePhase phase) {
     maxRaise: 1000,
     smallBlind: 10,
     bigBlind: 20,
+    gameStarted: true,
+    playersRequired: 2,
+    playersJoined: 2,
+    timeBankSeconds: 30,
+    turnDeadlineUnixMs: 0,
+  );
+}
+
+UiGameState _actionGameState({
+  required pr.GamePhase phase,
+  required int currentBet,
+  required int minRaise,
+  required int bigBlind,
+  required int heroBet,
+  required int villainBet,
+  int pot = 120,
+  int maxRaise = 1000,
+  int heroBalance = 1000,
+  int villainBalance = 1000,
+}) {
+  return UiGameState(
+    tableId: 'table-1',
+    phase: phase,
+    phaseName: switch (phase) {
+      pr.GamePhase.PRE_FLOP => 'Pre-Flop',
+      pr.GamePhase.FLOP => 'Flop',
+      pr.GamePhase.TURN => 'Turn',
+      pr.GamePhase.RIVER => 'River',
+      _ => phase.name,
+    },
+    players: [
+      _player(
+        id: 'hero',
+        name: 'Hero',
+        balance: heroBalance,
+        currentBet: heroBet,
+        hand: [
+          pr.Card()
+            ..value = 'A'
+            ..suit = 'spades',
+          pr.Card()
+            ..value = 'K'
+            ..suit = 'hearts',
+        ],
+      ),
+      _player(
+        id: 'villain',
+        name: 'Villain',
+        balance: villainBalance,
+        currentBet: villainBet,
+      ),
+    ],
+    communityCards: const [],
+    pot: pot,
+    currentBet: currentBet,
+    currentPlayerId: 'hero',
+    minRaise: minRaise,
+    maxRaise: maxRaise,
+    smallBlind: bigBlind ~/ 2,
+    bigBlind: bigBlind,
     gameStarted: true,
     playersRequired: 2,
     playersJoined: 2,
@@ -1296,5 +1368,226 @@ void main() {
 
     expect(textFocusNode.hasFocus, isTrue);
     expect(gameFocusNode.hasFocus, isFalse);
+  });
+
+  testWidgets('bet input resets to the minimum bet on the next round',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+      pot: 300,
+    );
+
+    Future<void> pumpTableSession() async {
+      await tester.pumpWidget(_wrap(
+        size: const Size(1024, 768),
+        child: TableSessionView(model: model),
+      ));
+      await tester.pump();
+    }
+
+    await pumpTableSession();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pump();
+
+    expect(find.byKey(const Key('bet-amount-slider')), findsOneWidget);
+    final slider =
+        tester.widget<Slider>(find.byKey(const Key('bet-amount-slider')));
+    slider.onChanged?.call(300);
+    await tester.pump();
+
+    model.pushGame(_actionGameState(
+      phase: pr.GamePhase.FLOP,
+      currentBet: 0,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 0,
+    ));
+    await pumpTableSession();
+
+    final updatedSlider =
+        tester.widget<Slider>(find.byKey(const Key('bet-amount-slider')));
+    expect(updatedSlider.value, 20);
+  });
+
+  testWidgets('bet slider responds to drag gestures',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(1366, 900),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    final sliderFinder = find.byKey(const Key('bet-amount-slider'));
+    expect(sliderFinder, findsOneWidget);
+
+    final before = tester.widget<Slider>(sliderFinder).value;
+    await tester.drag(sliderFinder, const Offset(120, 0));
+    await tester.pumpAndSettle();
+    final after = tester.widget<Slider>(sliderFinder).value;
+
+    expect(after, greaterThan(before));
+  });
+
+  testWidgets('bet input uses simplified min labels',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(1366, 900),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pump();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Legal min 40'), findsNothing);
+    expect(find.text('Min 40'), findsOneWidget);
+  });
+
+  testWidgets(
+      'short all-in only raise reseeds the editor and labels it correctly',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+      maxRaise: 1000,
+      heroBalance: 1000,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(1366, 900),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), '260');
+    await tester.pumpAndSettle();
+
+    model.pushGame(_actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 100,
+      minRaise: 300,
+      bigBlind: 100,
+      heroBet: 0,
+      villainBet: 100,
+      maxRaise: 160,
+      heroBalance: 160,
+      villainBalance: 1000,
+    ));
+    await tester.pumpWidget(_wrap(
+      size: const Size(1366, 900),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('All-in 160'), findsOneWidget);
+    expect(find.text('Min 400'), findsNothing);
+
+    final slider =
+        tester.widget<Slider>(find.byKey(const Key('bet-amount-slider')));
+    expect(slider.min, 0);
+    expect(slider.max, 1);
+    expect(slider.value, 1);
+
+    final textField = tester.widget<TextField>(find.byType(TextField));
+    expect(textField.controller?.text, '160');
+    expect(textField.readOnly, isTrue);
+  });
+
+  testWidgets('bet input shows 3x preset for raise and unopened spots',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(1366, 900),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('raise-3x-button')), findsOneWidget);
+    expect(find.text('Raise 3x'), findsOneWidget);
+    expect(find.text('3x BB'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('raise-3x-button')));
+    await tester.pumpAndSettle();
+
+    final slider =
+        tester.widget<Slider>(find.byKey(const Key('bet-amount-slider')));
+    expect(slider.value, 60);
+
+    model.pushGame(_actionGameState(
+      phase: pr.GamePhase.FLOP,
+      currentBet: 0,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 0,
+    ));
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(1366, 900),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('raise-3x-button')), findsOneWidget);
+    expect(find.text('Raise 3x'), findsNothing);
+    expect(find.text('3x BB'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('raise-3x-button')));
+    await tester.pumpAndSettle();
+
+    final unopenedSlider =
+        tester.widget<Slider>(find.byKey(const Key('bet-amount-slider')));
+    expect(unopenedSlider.value, 60);
   });
 }

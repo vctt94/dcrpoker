@@ -490,6 +490,11 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		}
 	}
 
+	var maxRaise int64
+	if requester, ok := userSnapshots[requestingPlayerID]; ok && requester != nil {
+		maxRaise = requester.HasBet + requester.Balance
+	}
+
 	gPlayers := tableSnapshot.GameSnapshot.Players
 	if len(gPlayers) == 0 {
 		gPlayers = make([]poker.PlayerSnapshot, 0, len(tableSnapshot.Players))
@@ -637,6 +642,8 @@ func (gsh *GameStateHandler) buildGameUpdateFromTableSnapshot(tableSnapshot *Tab
 		Pot:                     tableSnapshot.GameSnapshot.Pot,
 		CurrentBet:              tableSnapshot.GameSnapshot.CurrentBet,
 		CurrentPlayer:           tableSnapshot.GameSnapshot.CurrentPlayer,
+		MinRaise:                tableSnapshot.GameSnapshot.LastRaiseAmount,
+		MaxRaise:                maxRaise,
 		GameStarted:             tableSnapshot.State.GameStarted,
 		PlayersRequired:         int32(tableSnapshot.Config.MinPlayers),
 		PlayersJoined:           int32(len(players)),

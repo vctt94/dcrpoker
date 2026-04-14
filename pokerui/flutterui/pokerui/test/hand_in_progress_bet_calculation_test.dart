@@ -74,4 +74,146 @@ void main() {
       isTrue,
     );
   });
+
+  test('Minimum raise target follows live blind size when facing the big blind',
+      () {
+    final minTotal = legalMinimumBetOrRaiseTotal(
+      currentBet: 40,
+      minRaise: 40,
+      bigBlind: 40,
+    );
+
+    expect(minTotal, equals(80));
+    expect(
+      suggestedBetOrRaiseTotal(
+        currentBet: 40,
+        minRaise: 40,
+        maxRaise: 1000,
+        bigBlind: 40,
+      ),
+      equals(120),
+    );
+    expect(
+      initialBetOrRaiseTotal(
+        currentBet: 40,
+        minRaise: 40,
+        maxRaise: 1000,
+        bigBlind: 40,
+      ),
+      equals(80),
+    );
+    expect(
+      raiseThreeXTotal(
+        currentBet: 40,
+        minRaise: 40,
+        maxRaise: 1000,
+        bigBlind: 40,
+      ),
+      equals(120),
+    );
+  });
+
+  test('Recommended target falls back to big blind when minRaise is missing',
+      () {
+    expect(
+      legalMinimumBetOrRaiseTotal(
+        currentBet: 40,
+        minRaise: 0,
+        bigBlind: 40,
+      ),
+      equals(80),
+    );
+  });
+
+  test('Raise validation rejects totals between call and legal minimum raise',
+      () {
+    expect(
+      validateBetOrRaiseTarget(
+        totalTarget: 60,
+        currentBet: 40,
+        myBet: 0,
+        myBalance: 1000,
+        minRaise: 40,
+        bigBlind: 40,
+      ),
+      equals('Minimum raise to 80'),
+    );
+  });
+
+  test('Suggested target falls back to short all-in max when below legal min',
+      () {
+    expect(
+      hasShortAllInOnlyBetOrRaiseOption(
+        currentBet: 100,
+        minRaise: 100,
+        maxRaise: 150,
+        bigBlind: 50,
+      ),
+      isTrue,
+    );
+    expect(
+      suggestedBetOrRaiseTotal(
+        currentBet: 100,
+        minRaise: 100,
+        maxRaise: 150,
+        bigBlind: 50,
+      ),
+      equals(150),
+    );
+    expect(
+      initialBetOrRaiseTotal(
+        currentBet: 100,
+        minRaise: 100,
+        maxRaise: 150,
+        bigBlind: 50,
+      ),
+      equals(150),
+    );
+  });
+
+  test('Slider targets snap to betting step from the current bet anchor', () {
+    expect(
+      snapBetTargetToStep(
+        target: 95,
+        currentBet: 40,
+        minRaise: 40,
+        maxRaise: 400,
+        bigBlind: 40,
+      ),
+      equals(80),
+    );
+    expect(
+      snapBetTargetToStep(
+        target: 119,
+        currentBet: 40,
+        minRaise: 40,
+        maxRaise: 400,
+        bigBlind: 40,
+      ),
+      equals(120),
+    );
+  });
+
+  test('Slider can reach short all-in when no full raise step remains', () {
+    expect(
+      snapBetTargetToStep(
+        target: 220,
+        currentBet: 100,
+        minRaise: 100,
+        maxRaise: 230,
+        bigBlind: 100,
+      ),
+      equals(230),
+    );
+    expect(
+      snapBetTargetToStep(
+        target: 205,
+        currentBet: 100,
+        minRaise: 100,
+        maxRaise: 230,
+        bigBlind: 100,
+      ),
+      equals(200),
+    );
+  });
 }

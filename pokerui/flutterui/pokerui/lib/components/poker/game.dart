@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
+import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
@@ -429,6 +430,9 @@ class PokerGame {
         case 'B':
           final g = pokerModel.game;
           final currentBet = g?.currentBet ?? 0;
+          final minRaise = g?.minRaise ?? 0;
+          // 2000 fallback
+          final maxRaise = g?.maxRaise ?? 2000;
           final tid = pokerModel.currentTableId;
           final table = tid == null
               ? null
@@ -437,8 +441,12 @@ class PokerGame {
                   .cast<UiTable?>()
                   .firstWhere((t) => t != null, orElse: () => null);
           final bb = g?.bigBlind ?? table?.bigBlind ?? 0;
-          final threeBB = bb * 3;
-          final targetTotal = currentBet > threeBB ? (currentBet * 3) : threeBB;
+          final targetTotal = suggestedBetOrRaiseTotal(
+            currentBet: currentBet,
+            minRaise: minRaise,
+            maxRaise: maxRaise,
+            bigBlind: bb,
+          );
           if (targetTotal > 0) await pokerModel.makeBet(targetTotal);
           break;
         default:

@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:pokerui/components/poker/bet_amounts.dart';
 import 'package:pokerui/components/poker/cards.dart';
@@ -153,8 +154,9 @@ class BottomActionDock extends StatelessWidget {
           final tightDesktopHeight = constraints.maxHeight <= 124;
           final headerGap =
               tightDesktopHeight ? PokerSpacing.xs : PokerSpacing.sm;
-          final sectionTopMargin =
-              tightDesktopHeight ? PokerSpacing.sm : PokerSpacing.xl;
+          final sectionTopMargin = showBetInput
+              ? 0.0
+              : (tightDesktopHeight ? PokerSpacing.sm : PokerSpacing.xl);
           final actionControls = _actionControls;
           final actions = Visibility(
             visible: showActions,
@@ -165,6 +167,9 @@ class BottomActionDock extends StatelessWidget {
               alignment: Alignment.centerRight,
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
+                physics: showBetInput
+                    ? const NeverScrollableScrollPhysics()
+                    : const ClampingScrollPhysics(),
                 child: showActions && canAct
                     ? _ActionButtons(
                         model: model,
@@ -212,23 +217,29 @@ class BottomActionDock extends StatelessWidget {
             ],
           );
 
-          return Column(
-            mainAxisSize: MainAxisSize.max,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (hasCards)
-                Align(
-                  alignment: Alignment.topRight,
-                  child: headerPanel,
-                ),
-              if (hasBottomSection)
-                Padding(
-                  padding: EdgeInsets.only(
-                    top: hasCards ? sectionTopMargin : sectionTopMargin + 2,
-                  ),
-                  child: bottomSection,
-                ),
-            ],
+          return SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Column(
+                mainAxisSize: MainAxisSize.max,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (hasCards)
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: headerPanel,
+                    ),
+                  if (hasBottomSection)
+                    Padding(
+                      padding: EdgeInsets.only(
+                        top: hasCards ? sectionTopMargin : sectionTopMargin + 2,
+                      ),
+                      child: bottomSection,
+                    ),
+                ],
+              ),
+            ),
           );
         },
       ),
@@ -255,7 +266,7 @@ class MobileHeroActionPanel extends StatelessWidget {
         ),
         showActions = true;
 
-  MobileHeroActionPanel.passive({
+  const MobileHeroActionPanel.passive({
     super.key,
     required this.model,
     this.hasLastShowdown = false,
@@ -376,8 +387,8 @@ class MobileHeroActionPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (showActions || reserveActionSpace)
-              SizedBox(
-                height: actionRowHeight,
+              ConstrainedBox(
+                constraints: BoxConstraints(minHeight: actionRowHeight),
                 child: Visibility(
                   visible: showActions,
                   maintainState: reserveActionSpace,
@@ -387,6 +398,9 @@ class MobileHeroActionPanel extends StatelessWidget {
                     alignment: Alignment.centerLeft,
                     child: SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
+                      physics: showBetInput
+                          ? const NeverScrollableScrollPhysics()
+                          : const ClampingScrollPhysics(),
                       child: showActions && canAct
                           ? _ActionButtons(
                               model: model,
@@ -716,18 +730,28 @@ class _ActionButtons extends StatelessWidget {
     final g = model.game;
     final me = model.me;
     final currentBet = g?.currentBet ?? 0;
+    final minRaise = g?.minRaise ?? 0;
+    final maxRaise = g?.maxRaise ?? 0;
     final myBet = me?.currentBet ?? 0;
+    final myBalance = me?.balance ?? 0;
     final canCheck = myBet >= currentBet;
     final toCall = (currentBet - myBet) > 0 ? (currentBet - myBet) : 0;
     final isRaise = currentBet > 0 && myBet < currentBet;
-    final myBalance = me?.balance ?? 0;
     final wouldBeAllIn = myBalance > 0 && myBalance <= (currentBet - myBet);
+    final allInOnly = hasShortAllInOnlyBetOrRaiseOption(
+      currentBet: currentBet,
+      minRaise: minRaise,
+      maxRaise: maxRaise,
+      bigBlind: bb,
+    );
 
     if (showBetInput) {
       return _BetInputRow(
         model: model,
         betCtrl: betCtrl,
         currentBet: currentBet,
+        minRaise: minRaise,
+        maxRaise: maxRaise,
         myBet: myBet,
         bb: bb,
         isRaise: isRaise,
@@ -761,10 +785,18 @@ class _ActionButtons extends StatelessWidget {
           ),
         const SizedBox(width: PokerSpacing.sm),
         _ActionButton(
-          label: isRaise ? (wouldBeAllIn ? 'All-in' : 'Raise') : 'Bet',
+          label: (allInOnly || wouldBeAllIn)
+              ? 'All-in'
+              : (isRaise ? 'Raise' : 'Bet'),
           icon: Icons.arrow_upward,
           onPressed: () {
-            if (betCtrl.text.isEmpty) _seedDefault(betCtrl, bb, currentBet);
+            _seedDefault(
+              betCtrl,
+              currentBet: currentBet,
+              minRaise: minRaise,
+              maxRaise: maxRaise,
+              bigBlind: bb,
+            );
             onToggleBetInput();
           },
           color: PokerColors.betBtn,
@@ -773,11 +805,20 @@ class _ActionButtons extends StatelessWidget {
     );
   }
 
-  static void _seedDefault(TextEditingController ctrl, int bb, int currentBet) {
-    final threeBB = bb * 3;
-    final target =
-        (bb > 0 && currentBet >= threeBB) ? (currentBet * 3) : threeBB;
-    ctrl.text = target.toString();
+  static void _seedDefault(
+    TextEditingController ctrl, {
+    required int currentBet,
+    required int minRaise,
+    required int maxRaise,
+    required int bigBlind,
+  }) {
+    final target = initialBetOrRaiseTotal(
+      currentBet: currentBet,
+      minRaise: minRaise,
+      maxRaise: maxRaise,
+      bigBlind: bigBlind,
+    );
+    ctrl.text = target > 0 ? target.toString() : '';
   }
 }
 
@@ -786,6 +827,8 @@ class _BetInputRow extends StatelessWidget {
     required this.model,
     required this.betCtrl,
     required this.currentBet,
+    required this.minRaise,
+    required this.maxRaise,
     required this.myBet,
     required this.bb,
     required this.isRaise,
@@ -794,13 +837,64 @@ class _BetInputRow extends StatelessWidget {
 
   final PokerModel model;
   final TextEditingController betCtrl;
-  final int currentBet, myBet, bb;
+  final int currentBet, minRaise, maxRaise, myBet, bb;
   final bool isRaise;
   final VoidCallback onClose;
 
-  Future<void> _submitBet(BuildContext context) async {
+  int _initialTarget() {
+    return initialBetOrRaiseTotal(
+      currentBet: currentBet,
+      minRaise: minRaise,
+      maxRaise: maxRaise,
+      bigBlind: bb,
+    );
+  }
+
+  int? _enteredTarget() {
     final raw = betCtrl.text.trim();
-    final entered = int.tryParse(raw) ?? 0;
+    if (raw.isEmpty) return null;
+    return int.tryParse(raw);
+  }
+
+  int _currentTarget({bool clampToMax = true}) {
+    final entered = _enteredTarget();
+    if (entered != null && entered > 0) {
+      if (clampToMax && maxRaise > 0) {
+        return math.min(entered, maxRaise);
+      }
+      return entered;
+    }
+    return _initialTarget();
+  }
+
+  int _sliderTarget() {
+    final entered = int.tryParse(betCtrl.text.trim()) ?? 0;
+    if (entered > 0) {
+      return clampBetTargetToLegalRange(
+        target: entered,
+        currentBet: currentBet,
+        minRaise: minRaise,
+        maxRaise: maxRaise,
+        bigBlind: bb,
+      );
+    }
+    return _initialTarget();
+  }
+
+  void _syncLockedTarget(TextEditingValue value, int target) {
+    final text = target > 0 ? target.toString() : '';
+    if (value.text == text) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (betCtrl.text == text) return;
+      betCtrl.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    });
+  }
+
+  Future<void> _submitBet(BuildContext context) async {
+    final entered = _currentTarget();
     if (entered <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Enter a valid bet amount')),
@@ -821,12 +915,18 @@ class _BetInputRow extends StatelessWidget {
       currentBet: currentBet,
     );
 
-    if (currentBet > 0 && totalAmt < currentBet && !shortAllIn) {
-      final minRaise = currentBet - myBet;
+    final validationError = validateBetOrRaiseTarget(
+      totalTarget: totalAmt,
+      currentBet: currentBet,
+      myBet: myBet,
+      myBalance: myBalance,
+      minRaise: minRaise,
+      bigBlind: bb,
+    );
+
+    if (validationError != null && !shortAllIn) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                'Must add at least $minRaise to call ($currentBet total)')),
+        SnackBar(content: Text(validationError)),
       );
       return;
     }
@@ -844,81 +944,304 @@ class _BetInputRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final scale = buttonScale(bp);
-    final threeBB = bb * 3;
-    final presetLabel = (bb > 0 && currentBet >= threeBB) ? '3x Bet' : '3x BB';
+    final legalMin = legalMinimumBetOrRaiseTotal(
+      currentBet: currentBet,
+      minRaise: minRaise,
+      bigBlind: bb,
+    );
+    final shortAllInOnly = hasShortAllInOnlyBetOrRaiseOption(
+      currentBet: currentBet,
+      minRaise: minRaise,
+      maxRaise: maxRaise,
+      bigBlind: bb,
+    );
+    final sliderMin = shortAllInOnly ? maxRaise : legalMin;
+    final presetTarget = suggestedBetOrRaiseTotal(
+      currentBet: currentBet,
+      minRaise: minRaise,
+      maxRaise: maxRaise,
+      bigBlind: bb,
+    );
+    final showPresetButton = !shortAllInOnly && presetTarget > 0;
+    final suggestedActionLabel = currentBet > 0 ? '3x' : '3xBB';
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 110 * scale,
-          child: TextField(
-            controller: betCtrl,
-            keyboardType: TextInputType.number,
-            style: PokerTypography.bodyMedium,
-            decoration: InputDecoration(
-              labelText: isRaise ? 'Raise to' : 'Bet',
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            ),
-            onSubmitted: (_) => _submitBet(context),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compactHeight =
+            constraints.maxHeight.isFinite && constraints.maxHeight <= 56;
+        final compactWidth =
+            constraints.maxWidth.isFinite && constraints.maxWidth < 320 * scale;
+        final compactLayout = compactHeight || compactWidth;
+        final desiredWidth = 340 * scale;
+        final editorWidth = constraints.maxWidth.isFinite
+            ? math.min(desiredWidth, constraints.maxWidth)
+            : desiredWidth;
+
+        return SizedBox(
+          width: editorWidth,
+          child: ValueListenableBuilder<TextEditingValue>(
+            valueListenable: betCtrl,
+            builder: (context, value, _) {
+              if (shortAllInOnly) {
+                _syncLockedTarget(value, maxRaise);
+              }
+              final target = _currentTarget(clampToMax: false);
+              final sliderTarget = _sliderTarget();
+              final meBal = model.me?.balance ?? 0;
+              final myTotal = meBal + myBet;
+              final normalizedTarget = normalizeBetInputToTotal(
+                entered: target,
+                myBet: myBet,
+                myBalance: meBal,
+              );
+              final isAllIn = normalizedTarget >= myTotal && myTotal > 0;
+              final label = (shortAllInOnly || isAllIn)
+                  ? 'All-in'
+                  : (isRaise ? 'Raise' : 'Bet');
+              final displayTarget = shortAllInOnly ? maxRaise : target;
+              final sliderDisplayMin =
+                  shortAllInOnly ? 0.0 : sliderMin.toDouble();
+              final sliderDisplayMax = shortAllInOnly
+                  ? 1.0
+                  : (maxRaise > 0 ? maxRaise : sliderMin).toDouble();
+              final sliderDisplayValue =
+                  shortAllInOnly ? 1.0 : sliderTarget.toDouble();
+              final sliderEnabled =
+                  !shortAllInOnly && sliderDisplayMax > sliderDisplayMin;
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: PokerSpacing.sm),
+                          decoration: BoxDecoration(
+                            color: PokerColors.overlayLight,
+                            borderRadius: BorderRadius.circular(
+                              compactLayout ? 12 : 14,
+                            ),
+                            border: Border.all(color: PokerColors.borderSubtle),
+                          ),
+                          child: TextField(
+                            controller: betCtrl,
+                            readOnly: shortAllInOnly,
+                            keyboardType: TextInputType.number,
+                            textInputAction: TextInputAction.done,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                            ],
+                            onSubmitted: (_) => _submitBet(context),
+                            style: compactLayout
+                                ? PokerTypography.labelLarge
+                                    .copyWith(fontSize: 12)
+                                : PokerTypography.titleMedium,
+                            decoration: InputDecoration(
+                              isDense: true,
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: compactLayout ? 8 : 10,
+                              ),
+                              hintText: _initialTarget().toString(),
+                              hintStyle: (compactLayout
+                                      ? PokerTypography.labelLarge
+                                          .copyWith(fontSize: 12)
+                                      : PokerTypography.titleMedium)
+                                  .copyWith(
+                                color: PokerColors.textMuted,
+                              ),
+                              prefixText: shortAllInOnly
+                                  ? 'All-in '
+                                  : (isRaise ? 'Raise to ' : 'Bet '),
+                              prefixStyle: (compactLayout
+                                      ? PokerTypography.labelLarge
+                                          .copyWith(fontSize: 12)
+                                      : PokerTypography.titleMedium)
+                                  .copyWith(
+                                color: PokerColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: PokerSpacing.sm),
+                      _ActionButton(
+                        label: label,
+                        onPressed: () => _submitBet(context),
+                        color: PokerColors.betBtn,
+                      ),
+                      const SizedBox(width: PokerSpacing.xs),
+                      compactLayout
+                          ? Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: onClose,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: PokerColors.overlayLight,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: PokerColors.borderSubtle,
+                                    ),
+                                  ),
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    size: 16,
+                                    color: PokerColors.textSecondary,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : TextButton(
+                              onPressed: onClose,
+                              child: const Text(
+                                'Cancel',
+                                style: PokerTypography.labelSmall,
+                              ),
+                            ),
+                    ],
+                  ),
+                  const SizedBox(height: PokerSpacing.xs),
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      activeTrackColor: PokerColors.betBtn,
+                      inactiveTrackColor:
+                          PokerColors.surfaceBright.withValues(alpha: 0.9),
+                      thumbColor: PokerColors.betBtn,
+                      disabledActiveTrackColor:
+                          PokerColors.betBtn.withValues(alpha: 0.5),
+                      disabledInactiveTrackColor:
+                          PokerColors.surfaceBright.withValues(alpha: 0.65),
+                      overlayColor: PokerColors.betBtn.withValues(alpha: 0.16),
+                      trackHeight: compactLayout ? 5 : 6,
+                    ),
+                    child: Slider(
+                      key: const Key('bet-amount-slider'),
+                      allowedInteraction: SliderInteraction.tapAndSlide,
+                      value: sliderDisplayValue.clamp(
+                        sliderDisplayMin,
+                        sliderDisplayMax,
+                      ),
+                      min: sliderDisplayMin,
+                      max: sliderDisplayMax,
+                      label: shortAllInOnly
+                          ? 'All-in $maxRaise'
+                          : '$displayTarget',
+                      onChanged: sliderEnabled
+                          ? (raw) {
+                              final snapped = snapBetTargetToStep(
+                                target: raw.round(),
+                                currentBet: currentBet,
+                                minRaise: minRaise,
+                                maxRaise: maxRaise,
+                                bigBlind: bb,
+                              );
+                              betCtrl.text = snapped.toString();
+                            }
+                          : null,
+                    ),
+                  ),
+                  _SliderLegend(
+                    minLabel:
+                        shortAllInOnly ? 'All-in $maxRaise' : 'Min $legalMin',
+                    presetLabel: showPresetButton ? suggestedActionLabel : null,
+                    maxLabel: shortAllInOnly
+                        ? ''
+                        : (maxRaise > 0 ? 'Max $maxRaise' : 'Open size'),
+                    compact: compactLayout,
+                    onPresetPressed: showPresetButton
+                        ? () {
+                            betCtrl.text = snapBetTargetToStep(
+                              target: presetTarget,
+                              currentBet: currentBet,
+                              minRaise: minRaise,
+                              maxRaise: maxRaise,
+                              bigBlind: bb,
+                            ).toString();
+                          }
+                        : null,
+                  ),
+                ],
+              );
+            },
           ),
-        ),
-        const SizedBox(width: PokerSpacing.sm),
-        // Quick-bet presets
-        _QuickBetChip(
-          label: presetLabel,
-          onTap: bb > 0
-              ? () {
-                  final target = (bb > 0 && currentBet >= threeBB)
-                      ? (currentBet * 3)
-                      : threeBB;
-                  betCtrl.text = target.toString();
-                }
-              : null,
-        ),
-        const SizedBox(width: PokerSpacing.xs),
-        _QuickBetChip(
-          label: 'Pot',
-          onTap: () {
-            final pot = model.game?.pot ?? 0;
-            if (pot > 0) betCtrl.text = pot.toString();
-          },
-        ),
-        const SizedBox(width: PokerSpacing.sm),
-        Builder(builder: (context) {
-          final meBal = model.me?.balance ?? 0;
-          final entered = int.tryParse(betCtrl.text.trim()) ?? 0;
-          final target = entered > 0
-              ? normalizeBetInputToTotal(
-                  entered: entered,
-                  myBet: myBet,
-                  myBalance: meBal,
-                )
-              : currentBet;
-          final myTotal = meBal + myBet;
-          final isAllIn = target >= myTotal && myTotal > 0;
-          final label = isAllIn ? 'All-in' : (isRaise ? 'Raise' : 'Bet');
-          return _ActionButton(
-            label: label,
-            onPressed: () => _submitBet(context),
-            color: PokerColors.betBtn,
-          );
-        }),
-        const SizedBox(width: PokerSpacing.xs),
-        TextButton(
-          onPressed: onClose,
-          child: const Text('Cancel', style: PokerTypography.labelSmall),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
-class _QuickBetChip extends StatelessWidget {
-  const _QuickBetChip({required this.label, this.onTap});
+class _SliderLegend extends StatelessWidget {
+  const _SliderLegend({
+    required this.minLabel,
+    required this.presetLabel,
+    required this.maxLabel,
+    required this.compact,
+    required this.onPresetPressed,
+  });
+
+  final String minLabel;
+  final String? presetLabel;
+  final String maxLabel;
+  final bool compact;
+  final VoidCallback? onPresetPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = PokerTypography.labelSmall.copyWith(
+      color: PokerColors.textSecondary,
+      fontSize: compact ? 10.5 : 11,
+    );
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              minLabel,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+          if (presetLabel != null) ...[
+            SizedBox(width: compact ? 6 : 10),
+            _SliderPresetChip(
+              label: presetLabel!,
+              compact: compact,
+              onTap: onPresetPressed,
+            ),
+            SizedBox(width: compact ? 6 : 10),
+          ],
+          Expanded(
+            child: Text(
+              maxLabel,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SliderPresetChip extends StatelessWidget {
+  const _SliderPresetChip({
+    required this.label,
+    required this.compact,
+    required this.onTap,
+  });
+
   final String label;
+  final bool compact;
   final VoidCallback? onTap;
 
   @override
@@ -926,21 +1249,27 @@ class _QuickBetChip extends StatelessWidget {
     return Material(
       color: Colors.transparent,
       child: InkWell(
+        key: const Key('raise-3x-button'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: PokerSpacing.sm,
-            vertical: PokerSpacing.xs,
+        borderRadius: BorderRadius.circular(999),
+        child: Ink(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 10,
+            vertical: compact ? 5 : 6,
           ),
           decoration: BoxDecoration(
-            color: PokerColors.overlayLight,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: PokerColors.borderSubtle),
+            color: PokerColors.betBtn.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: PokerColors.betBtn.withValues(alpha: 0.45),
+            ),
           ),
           child: Text(
             label,
-            style: PokerTypography.labelSmall,
+            style: PokerTypography.labelSmall.copyWith(
+              color: PokerColors.betBtn,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
       ),

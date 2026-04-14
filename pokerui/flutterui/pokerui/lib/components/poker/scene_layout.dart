@@ -200,12 +200,12 @@ class PokerSceneLayout {
     switch (mode) {
       case PokerLayoutMode.compactPortrait:
         topBandHeight = (contentRect.height * 0.12).clamp(72.0, 98.0);
-        heroDockHeight = (contentRect.height * 0.2).clamp(156.0, 188.0);
+        heroDockHeight = (contentRect.height * 0.215).clamp(168.0, 198.0);
         railWidth = 0;
         break;
       case PokerLayoutMode.compactLandscape:
         topBandHeight = (contentRect.height * 0.18).clamp(90.0, 124.0);
-        heroDockHeight = (contentRect.height * 0.21).clamp(136.0, 176.0);
+        heroDockHeight = (contentRect.height * 0.225).clamp(152.0, 188.0);
         railWidth = 0;
         break;
       case PokerLayoutMode.standard:

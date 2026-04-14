@@ -41,6 +41,7 @@ class _TableSessionViewState extends State<TableSessionView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
   bool _showSidebar = false;
+  String? _betInputSeedKey;
 
   bool get _isShowdown => widget.model.state == PokerState.showdown;
   bool get _hasLastShowdown => widget.model.hasLastShowdown;
@@ -63,6 +64,40 @@ class _TableSessionViewState extends State<TableSessionView> {
   void _closeSidebar() {
     if (!mounted) return;
     setState(() => _showSidebar = false);
+  }
+
+  void _syncBetInputSeed(UiGameState gameState) {
+    if (!_showBetInput) {
+      _betInputSeedKey = null;
+      return;
+    }
+
+    final me = widget.model.me;
+    final seedKey = [
+      gameState.phase.value,
+      gameState.currentBet,
+      gameState.minRaise,
+      gameState.maxRaise,
+      gameState.bigBlind,
+      me?.currentBet ?? 0,
+    ].join(':');
+
+    if (_betInputSeedKey == seedKey) return;
+
+    final target = initialBetOrRaiseTotal(
+      currentBet: gameState.currentBet,
+      minRaise: gameState.minRaise,
+      maxRaise: gameState.maxRaise,
+      bigBlind: gameState.bigBlind,
+    );
+    final text = target > 0 ? target.toString() : '';
+    if (_betCtrl.text != text) {
+      _betCtrl.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+    _betInputSeedKey = seedKey;
   }
 
   @override
@@ -96,6 +131,8 @@ class _TableSessionViewState extends State<TableSessionView> {
           timeBankSeconds: 0,
           turnDeadlineUnixMs: 0,
         );
+
+    _syncBetInputSeed(gameState);
 
     final isReady = model.iAmReady;
     final isWaiting = gameState.phase == pr.GamePhase.WAITING;
