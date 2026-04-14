@@ -11,9 +11,14 @@ plugins {
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file("key.properties")
 def hasReleaseSigning = keystorePropertiesFile.exists()
+def releaseStoreFile = null
 
 if (hasReleaseSigning) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    def configuredStoreFile = keystoreProperties["storeFile"]
+    if (configuredStoreFile) {
+        releaseStoreFile = new File(keystorePropertiesFile.parentFile, configuredStoreFile).canonicalFile
+    }
 }
 
 android {
@@ -46,7 +51,7 @@ android {
             if (hasReleaseSigning) {
                 keyAlias = keystoreProperties["keyAlias"]
                 keyPassword = keystoreProperties["keyPassword"]
-                storeFile = file(keystoreProperties["storeFile"])
+                storeFile = releaseStoreFile
                 storePassword = keystoreProperties["storePassword"]
             }
         }

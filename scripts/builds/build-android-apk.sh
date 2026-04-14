@@ -18,6 +18,7 @@ PLAT="android-apk"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 POKERUI_DIR="$ROOT/pokerui"
 FLUTTER_APP_DIR="$POKERUI_DIR/flutterui/pokerui"
+PLUGIN_AAR="$POKERUI_DIR/flutterui/plugin/android/golib/libs/golib.aar"
 
 APK_SRC="$FLUTTER_APP_DIR/build/app/outputs/flutter-apk/app-release.apk"
 OUT_DIR="$ROOT/releases"
@@ -29,8 +30,10 @@ OUT_APK="$OUT_DIR/$NAME.apk"
 echo "Generating golib.aar for Android"
 (
   cd "$POKERUI_DIR"
-  go generate ./golibbuilder
+  GOOS=android GOARCH=arm64 go generate ./golibbuilder
 )
+
+[[ -f "$PLUGIN_AAR" ]] || { echo "AAR not found after generation: $PLUGIN_AAR" >&2; exit 1; }
 
 echo "Building Android release APK"
 (
