@@ -128,7 +128,9 @@ class PokerGame {
       {PokerSceneLayout? scene,
       double aspectRatio = 16 / 9,
       VoidCallback? onReadyHotkey,
-      bool showHeroSeatCards = true}) {
+      bool showHeroSeatCards = true,
+      bool heroCardsRevealed = false,
+      VoidCallback? onToggleHeroCards}) {
     Widget buildTableScene(PokerSceneLayout resolvedScene) {
       final tableLayout = TableLayout.fromScene(resolvedScene);
       final resolvedPot = gameState.phase == pr.GamePhase.SHOWDOWN
@@ -175,6 +177,8 @@ class PokerGame {
                 theme: theme,
                 heroCardsCache: pokerModel.heroShowdownHand,
                 showHeroCardsInSeat: showHeroSeatCards,
+                heroCardsRevealed: heroCardsRevealed,
+                onToggleHeroCards: onToggleHeroCards,
                 showdownWinners: gameState.phase == pr.GamePhase.SHOWDOWN
                     ? pokerModel.showdownWinners
                     : const [],

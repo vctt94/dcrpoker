@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fixnum/fixnum.dart';
 import 'package:provider/provider.dart';
@@ -27,7 +28,27 @@ class _MockPokerModel extends PokerModel {
   PokerState get state => PokerState.handInProgress;
 
   @override
-  bool get canAct => true;
+  UiPlayer? get me {
+    final currentGame = game;
+    if (currentGame == null) return null;
+    for (final player in currentGame.players) {
+      if (player.id == playerId) return player;
+    }
+    return null;
+  }
+
+  @override
+  bool get canAct {
+    final currentGame = game;
+    final hero = me;
+    if (currentGame == null || hero == null) return false;
+    if (hero.folded || hero.isAllIn) return false;
+    final actionablePhase = currentGame.phase == pr.GamePhase.PRE_FLOP ||
+        currentGame.phase == pr.GamePhase.FLOP ||
+        currentGame.phase == pr.GamePhase.TURN ||
+        currentGame.phase == pr.GamePhase.RIVER;
+    return actionablePhase && currentGame.currentPlayerId == playerId;
+  }
 
   @override
   Future<void> init() async {}
@@ -52,6 +73,30 @@ class _MockPokerModel extends PokerModel {
 
   @override
   Future<bool> makeBet(int amountChips) async => false;
+
+  @override
+  Future<void> showCards() async {
+    if (game == null) return;
+    final updatedPlayers = game!.players
+        .map((player) => player.id == playerId
+            ? player.copyWith(cardsRevealed: true)
+            : player)
+        .toList(growable: false);
+    game = game!.copyWith(players: List.unmodifiable(updatedPlayers));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> hideCards() async {
+    if (game == null) return;
+    final updatedPlayers = game!.players
+        .map((player) => player.id == playerId
+            ? player.copyWith(cardsRevealed: false)
+            : player)
+        .toList(growable: false);
+    game = game!.copyWith(players: List.unmodifiable(updatedPlayers));
+    notifyListeners();
+  }
 }
 
 final _defaultConfig = Config(
@@ -406,13 +451,14 @@ void main() {
     expect(find.byKey(const Key('poker-hero-dock')), findsOneWidget);
     expect(find.byKey(const Key('desktop-bet-summary')), findsNothing);
     expect(find.byKey(const ValueKey('seat_bet_villain')), findsOneWidget);
-    expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
+    expect(
+        find.byKey(const Key('poker-show-cards-affordance')), findsOneWidget);
     final potRect = tester.getRect(find.text('Pot: 30'));
     final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
     final betRect =
         tester.getRect(find.byKey(const ValueKey('seat_bet_villain')));
     final toggleRect =
-        tester.getRect(find.byKey(const Key('poker-show-cards-toggle')));
+        tester.getRect(find.byKey(const Key('poker-show-cards-affordance')));
     expect(dockRect.top, greaterThan(potRect.bottom));
     expect(toggleRect.bottom, lessThan(dockRect.bottom));
     expect(betRect.bottom, lessThan(dockRect.top));
@@ -442,7 +488,8 @@ void main() {
     expect(find.byType(BottomActionDock), findsOneWidget);
     expect(find.byKey(const Key('poker-right-rail')), findsNothing);
     expect(find.byKey(const Key('poker-hero-dock')), findsOneWidget);
-    expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
+    expect(
+        find.byKey(const Key('poker-show-cards-affordance')), findsOneWidget);
     final hiddenSidebarRect =
         tester.getRect(find.byKey(const Key('showdown-sidebar')));
     expect(hiddenSidebarRect.right, lessThanOrEqualTo(0));
@@ -937,11 +984,12 @@ void main() {
     final betRect =
         tester.getRect(find.byKey(const ValueKey('seat_bet_villain')));
     final toggleRect =
-        tester.getRect(find.byKey(const Key('poker-show-cards-toggle')));
+        tester.getRect(find.byKey(const Key('poker-show-cards-affordance')));
 
     expect(find.byKey(const Key('desktop-bet-summary')), findsNothing);
     expect(find.byKey(const ValueKey('seat_bet_villain')), findsOneWidget);
-    expect(find.byKey(const Key('poker-show-cards-toggle')), findsOneWidget);
+    expect(
+        find.byKey(const Key('poker-show-cards-affordance')), findsOneWidget);
     expect(dockRect.top, greaterThan(potRect.bottom));
     expect(potRect.bottom, lessThan(heroCardRect.top));
     expect(heroCardRect.width, greaterThan(50));
@@ -1449,6 +1497,234 @@ void main() {
     expect(after, greaterThan(before));
   });
 
+  testWidgets('bet input stays modest width on desktop landscape layouts',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(780, 560),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    expect(sliderRect.width, greaterThan(260));
+    expect(sliderRect.width, lessThan(380));
+  });
+
+  testWidgets(
+      'phone bet input uses full dock width and keeps the 3x chip inline',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(390, 844),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    expect(sliderRect.width, greaterThan(300));
+
+    final minRect = tester.getRect(find.text('Min 40'));
+    final presetRect = tester.getRect(find.byKey(const Key('raise-3x-button')));
+    final maxRect = tester.getRect(find.text('Max 1000'));
+
+    expect(
+      (presetRect.center.dy - minRect.center.dy).abs(),
+      lessThan(10),
+    );
+    expect(
+      (presetRect.center.dy - maxRect.center.dy).abs(),
+      lessThan(10),
+    );
+  });
+
+  testWidgets('phone hero cards expand again when action times out',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    Future<void> pumpTable() async {
+      await tester.pumpWidget(_wrap(
+        size: const Size(390, 844),
+        child: TableSessionView(model: model),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    await pumpTable();
+
+    final fullCardsRect =
+        tester.getRect(find.byKey(const Key('poker-hero-cards-cluster')));
+
+    await tester.tap(find.text('Raise'));
+    await tester.pumpAndSettle();
+
+    final clippedCardsRect =
+        tester.getRect(find.byKey(const Key('poker-hero-cards-cluster')));
+    expect(clippedCardsRect.height, lessThan(fullCardsRect.height));
+
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          balance: 1000,
+          currentBet: 0,
+          hand: [
+            pr.Card()
+              ..value = 'A'
+              ..suit = 'spades',
+            pr.Card()
+              ..value = 'K'
+              ..suit = 'hearts',
+          ],
+        ),
+        _player(
+          id: 'villain',
+          name: 'Villain',
+          balance: 1000,
+          currentBet: 20,
+        ),
+      ],
+      communityCards: const [],
+      pot: 120,
+      currentBet: 20,
+      currentPlayerId: 'villain',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+    await pumpTable();
+
+    expect(find.text('Waiting...'), findsOneWidget);
+    final waitingCardsRect =
+        tester.getRect(find.byKey(const Key('poker-hero-cards-cluster')));
+    expect(waitingCardsRect.height, closeTo(fullCardsRect.height, 0.01));
+  });
+
+  testWidgets('tapping the eye toggles hero card visibility',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+
+    await tester.pumpWidget(_wrap(
+      child: TableSessionView(model: model),
+      size: const Size(800, 600),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('poker-show-cards-affordance')), findsOneWidget);
+    expect(
+      model.game?.players
+          .firstWhere((player) => player.id == 'hero')
+          .cardsRevealed,
+      isFalse,
+    );
+
+    tester
+        .widget<GestureDetector>(
+            find.byKey(const Key('poker-show-cards-affordance')))
+        .onTap!
+        .call();
+    await tester.pumpAndSettle();
+
+    expect(
+      model.game?.players
+          .firstWhere((player) => player.id == 'hero')
+          .cardsRevealed,
+      isTrue,
+    );
+
+    tester
+        .widget<GestureDetector>(
+            find.byKey(const Key('poker-show-cards-affordance')))
+        .onTap!
+        .call();
+    await tester.pumpAndSettle();
+
+    expect(
+      model.game?.players
+          .firstWhere((player) => player.id == 'hero')
+          .cardsRevealed,
+      isFalse,
+    );
+  });
+
+  testWidgets('hovering the eye center shows the hero card action',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _gameState(pr.GamePhase.PRE_FLOP);
+
+    await tester.pumpWidget(_wrap(
+      child: TableSessionView(model: model),
+      size: const Size(800, 600),
+    ));
+    await tester.pumpAndSettle();
+
+    final seatWidgetFinder = find.byKey(const ValueKey('seat_widget_hero'));
+    final railFinder = find.byKey(const ValueKey('seat_cards_hero'));
+    final affordanceFinder =
+        find.byKey(const Key('poker-show-cards-affordance'));
+    final seatRect = tester.getRect(seatWidgetFinder);
+    final railRect = tester.getRect(railFinder);
+    final affordanceRect = tester.getRect(affordanceFinder);
+
+    expect(railRect.left, greaterThanOrEqualTo(seatRect.left));
+    expect(railRect.right, lessThanOrEqualTo(seatRect.right));
+    expect(affordanceRect.right, greaterThan(seatRect.right));
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer();
+
+    await mouse.moveTo(tester.getCenter(affordanceFinder));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Show Cards'), findsOneWidget);
+  });
+
   testWidgets('bet input uses simplified min labels',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');
@@ -1472,6 +1748,13 @@ void main() {
 
     expect(find.text('Legal min 40'), findsNothing);
     expect(find.text('Min 40'), findsOneWidget);
+
+    final textField = tester.widget<TextField>(find.byType(TextField));
+    expect(textField.decoration?.filled, isFalse);
+    expect(textField.decoration?.fillColor, Colors.transparent);
+    expect(textField.decoration?.enabledBorder, same(InputBorder.none));
+    expect(textField.decoration?.focusedBorder, same(InputBorder.none));
+    expect(textField.decoration?.disabledBorder, same(InputBorder.none));
   });
 
   testWidgets(
@@ -1554,8 +1837,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('raise-3x-button')), findsOneWidget);
-    expect(find.text('Raise 3x'), findsOneWidget);
-    expect(find.text('3x BB'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('raise-3x-button')),
+        matching: find.text('3x'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('3xBB'), findsNothing);
 
     await tester.tap(find.byKey(const Key('raise-3x-button')));
     await tester.pumpAndSettle();
@@ -1580,8 +1869,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('raise-3x-button')), findsOneWidget);
-    expect(find.text('Raise 3x'), findsNothing);
-    expect(find.text('3x BB'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('raise-3x-button')),
+        matching: find.text('3x'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('raise-3x-button')),
+        matching: find.text('3xBB'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const Key('raise-3x-button')));
     await tester.pumpAndSettle();

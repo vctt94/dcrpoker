@@ -68,6 +68,14 @@ class _SeatCardMetrics {
   final double railWidth;
 }
 
+double _heroCardsAffordanceSizeFor(_SeatCardMetrics metrics) {
+  return (metrics.width * 0.4).clamp(24.0, 28.0).toDouble();
+}
+
+double _heroCardsOverlayWidthFor(_SeatCardMetrics metrics) {
+  return metrics.railWidth + 8.0 + _heroCardsAffordanceSizeFor(metrics);
+}
+
 enum _SeatRailPlacement {
   top,
   left,
@@ -611,6 +619,8 @@ class PlayerSeatsOverlay extends StatelessWidget {
     required this.theme,
     this.heroCardsCache = const [],
     this.showHeroCardsInSeat = false,
+    this.heroCardsRevealed = false,
+    this.onToggleHeroCards,
     this.showdownWinners = const [],
     this.aspectRatio = 16 / 9,
   });
@@ -621,6 +631,8 @@ class PlayerSeatsOverlay extends StatelessWidget {
   final PokerThemeConfig theme;
   final List<pr.Card> heroCardsCache;
   final bool showHeroCardsInSeat;
+  final bool heroCardsRevealed;
+  final VoidCallback? onToggleHeroCards;
   final List<UiWinner> showdownWinners;
   final double aspectRatio;
 
@@ -672,6 +684,25 @@ class PlayerSeatsOverlay extends StatelessWidget {
             layout: seatLayout,
           ),
         ));
+
+        final heroOverlay = seatLayout.isHero &&
+                seatLayout.showRailCards &&
+                seatLayout.cards.isNotEmpty &&
+                seatLayout.railMetrics != null &&
+                onToggleHeroCards != null
+            ? Positioned(
+                left: seatLayout.left + seatLayout.cardLeft,
+                top: seatLayout.top + seatLayout.cardTop,
+                child: _HeroSeatCardsOverlay(
+                  metrics: seatLayout.railMetrics!,
+                  heroCardsRevealed: heroCardsRevealed,
+                  onToggleHeroCards: onToggleHeroCards!,
+                ),
+              )
+            : null;
+        if (heroOverlay != null) {
+          children.add(heroOverlay);
+        }
 
         if (seatLayout.betAnchor != null) {
           children.add(Positioned(
@@ -876,6 +907,177 @@ class _SeatCardsRail extends StatelessWidget {
               child: _buildCard(1),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroSeatCardsOverlay extends StatefulWidget {
+  const _HeroSeatCardsOverlay({
+    required this.metrics,
+    required this.heroCardsRevealed,
+    required this.onToggleHeroCards,
+  });
+
+  final _SeatCardMetrics metrics;
+  final bool heroCardsRevealed;
+  final VoidCallback onToggleHeroCards;
+
+  @override
+  State<_HeroSeatCardsOverlay> createState() => _HeroSeatCardsOverlayState();
+}
+
+class _HeroSeatCardsOverlayState extends State<_HeroSeatCardsOverlay> {
+  bool _hovering = false;
+
+  void _setHovering(bool value) {
+    if (!mounted || _hovering == value) return;
+    setState(() => _hovering = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final affordanceSize = _heroCardsAffordanceSizeFor(widget.metrics);
+    final affordanceGap = 8.0;
+    final actionLabel = widget.heroCardsRevealed ? 'Hide Cards' : 'Show Cards';
+    final actionAccent = widget.heroCardsRevealed
+        ? PokerColors.warning
+        : PokerColors.textPrimary;
+
+    return SizedBox(
+      key: const Key('poker-hero-cards-cluster'),
+      width: _heroCardsOverlayWidthFor(widget.metrics),
+      height: widget.metrics.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          if (_hovering)
+            Positioned(
+              right: 0,
+              top: -38,
+              child: _HeroCardsInfoPill(
+                label: actionLabel,
+                accent: actionAccent,
+              ),
+            ),
+          Positioned(
+            left: widget.metrics.railWidth,
+            top: (widget.metrics.height - affordanceSize) / 2,
+            child: _HeroCardsAffordance(
+              showing: widget.heroCardsRevealed,
+              size: affordanceSize,
+              hitWidth: affordanceSize + affordanceGap,
+              onEnter: () => _setHovering(true),
+              onExit: () => _setHovering(false),
+              onTap: widget.onToggleHeroCards,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroCardsAffordance extends StatelessWidget {
+  const _HeroCardsAffordance({
+    required this.showing,
+    required this.onTap,
+    required this.size,
+    required this.hitWidth,
+    required this.onEnter,
+    required this.onExit,
+  });
+
+  final bool showing;
+  final VoidCallback onTap;
+  final double size;
+  final double hitWidth;
+  final VoidCallback onEnter;
+  final VoidCallback onExit;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = showing ? PokerColors.warning : PokerColors.textPrimary;
+
+    return MouseRegion(
+      onEnter: (_) => onEnter(),
+      onExit: (_) => onExit(),
+      child: GestureDetector(
+        key: const Key('poker-show-cards-affordance'),
+        behavior: HitTestBehavior.translucent,
+        onTap: onTap,
+        child: SizedBox(
+          width: hitWidth,
+          height: size,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: PokerColors.overlayLight,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color:
+                      showing ? PokerColors.warning : PokerColors.borderSubtle,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                showing ? Icons.visibility_off : Icons.visibility,
+                size: size * 0.54,
+                color: accent,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroCardsInfoPill extends StatelessWidget {
+  const _HeroCardsInfoPill({
+    required this.label,
+    required this.accent,
+  });
+
+  final String label;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: PokerColors.overlayMedium,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: accent.withValues(alpha: 0.55)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: PokerTypography.labelSmall.copyWith(
+              color: accent,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ),
       ),
     );

@@ -100,9 +100,17 @@ class _TableSessionViewState extends State<TableSessionView> {
     _betInputSeedKey = seedKey;
   }
 
+  void _syncBetInputVisibility() {
+    if (_showBetInput && !widget.model.canAct) {
+      _showBetInput = false;
+      _betInputSeedKey = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final model = widget.model;
+    _syncBetInputVisibility();
 
     if (_isShowdown && model.game == null) {
       return const Center(child: Text('No game data available'));
@@ -136,6 +144,12 @@ class _TableSessionViewState extends State<TableSessionView> {
 
     final isReady = model.iAmReady;
     final isWaiting = gameState.phase == pr.GamePhase.WAITING;
+    final heroPlayerIndex =
+        gameState.players.indexWhere((player) => player.id == model.playerId);
+    final heroCardsRevealed =
+        heroPlayerIndex >= 0 && heroPlayerIndex < gameState.players.length
+            ? gameState.players[heroPlayerIndex].cardsRevealed
+            : false;
 
     final showdown = model.showdown;
     final lastShowdown = model.lastShowdown;
@@ -253,6 +267,23 @@ class _TableSessionViewState extends State<TableSessionView> {
               _gameFocusNode,
               scene: scene,
               showHeroSeatCards: showTableHeroCards,
+              heroCardsRevealed: heroCardsRevealed,
+              onToggleHeroCards: () {
+                final currentGame = model.game;
+                final currentHeroIndex = currentGame?.players
+                        .indexWhere((player) => player.id == model.playerId) ??
+                    -1;
+                final currentlyRevealed = currentGame != null &&
+                        currentHeroIndex >= 0 &&
+                        currentHeroIndex < currentGame.players.length
+                    ? currentGame.players[currentHeroIndex].cardsRevealed
+                    : false;
+                if (currentlyRevealed) {
+                  model.hideCards();
+                } else {
+                  model.showCards();
+                }
+              },
               onReadyHotkey:
                   !_isShowdown && isWaiting ? () => model.setReady() : null,
             ),

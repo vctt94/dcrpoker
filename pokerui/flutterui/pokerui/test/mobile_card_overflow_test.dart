@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:pokerui/components/poker/bottom_action_dock.dart';
+import 'package:pokerui/components/poker/cards.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
@@ -20,12 +21,20 @@ class _MockPokerModel extends PokerModel {
 
   @override
   Future<void> leaveTable() async {}
+
+  @override
+  UiPlayer? get me =>
+      game?.players.where((player) => player.id == playerId).firstOrNull;
+
+  @override
+  bool get canAct => true;
 }
 
 Config _configWithCardSize(String cardSize) {
   return Config(
     serverAddr: '127.0.0.1:50051',
     grpcCertPath: '',
+    nickname: 'hero',
     payoutAddress: '',
     debugLevel: 'info',
     soundsEnabled: false,
@@ -76,6 +85,7 @@ Widget _wrap({
   required double panelWidth,
   double? panelHeight,
   bool showActions = false,
+  bool showBetInput = false,
   bool hasLastShowdown = true,
   TextEditingController? betCtrl,
 }) {
@@ -92,7 +102,7 @@ Widget _wrap({
             child: showActions
                 ? MobileHeroActionPanel(
                     model: model,
-                    showBetInput: false,
+                    showBetInput: showBetInput,
                     betCtrl: betCtrl!,
                     onToggleBetInput: () {},
                     onCloseBetInput: () {},
@@ -211,6 +221,133 @@ void main() {
     await tester.pump();
 
     expect(find.byType(MobileHeroActionPanel), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile bet input keeps more of the hero cards visible',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        UiPlayer(
+          id: 'hero',
+          name: 'Hero',
+          balance: 1000,
+          hand: [_card('A', 'spades'), _card('K', 'hearts')],
+          currentBet: 0,
+          folded: false,
+          isTurn: true,
+          isAllIn: false,
+          isDealer: true,
+          isSmallBlind: false,
+          isBigBlind: false,
+          isReady: true,
+          isDisconnected: false,
+          handDesc: '',
+        ),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 20,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    final betCtrl = TextEditingController(text: '40');
+    addTearDown(betCtrl.dispose);
+
+    await tester.pumpWidget(_wrap(
+      model: model,
+      config: _configWithCardSize('medium'),
+      size: const Size(390, 844),
+      panelWidth: 390,
+      panelHeight: 176,
+      showActions: true,
+      showBetInput: true,
+      hasLastShowdown: false,
+      betCtrl: betCtrl,
+    ));
+    await tester.pump();
+
+    final clusterRect =
+        tester.getRect(find.byKey(const Key('poker-hero-cards-cluster')));
+    final cardRect = tester.getRect(find.byType(CardFace).first);
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    final panelRect =
+        tester.getRect(find.byKey(const Key('mobile-hero-action-panel')));
+
+    expect(clusterRect.height, closeTo(cardRect.height * 0.5, 0.1));
+    expect(sliderRect.top, greaterThanOrEqualTo(clusterRect.bottom + 12));
+    expect(sliderRect.bottom, lessThanOrEqualTo(panelRect.bottom));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile bet input uses the full dock width on wider bottom docks',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [_card('A', 'spades'), _card('K', 'hearts')],
+        ),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 0,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    final betCtrl = TextEditingController(text: '40');
+    addTearDown(betCtrl.dispose);
+
+    await tester.pumpWidget(_wrap(
+      model: model,
+      config: _configWithCardSize('medium'),
+      size: const Size(700, 1000),
+      panelWidth: 700,
+      panelHeight: 188,
+      showActions: true,
+      showBetInput: true,
+      hasLastShowdown: false,
+      betCtrl: betCtrl,
+    ));
+    await tester.pump();
+
+    final panelRect =
+        tester.getRect(find.byKey(const Key('mobile-hero-action-panel')));
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+
+    expect(sliderRect.width, greaterThan(520));
+    expect(sliderRect.width, closeTo(panelRect.width, 32));
     expect(tester.takeException(), isNull);
   });
 

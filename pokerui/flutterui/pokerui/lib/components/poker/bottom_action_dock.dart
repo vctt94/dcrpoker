@@ -128,8 +128,6 @@ class BottomActionDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final canAct = model.canAct;
-    final cards = _dockCardsForModel(model);
-    final hasCards = cards.isNotEmpty;
 
     return Container(
       padding: EdgeInsets.only(
@@ -152,12 +150,23 @@ class BottomActionDock extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final tightDesktopHeight = constraints.maxHeight <= 124;
-          final headerGap =
-              tightDesktopHeight ? PokerSpacing.xs : PokerSpacing.sm;
           final sectionTopMargin = showBetInput
               ? 0.0
               : (tightDesktopHeight ? PokerSpacing.sm : PokerSpacing.xl);
           final actionControls = _actionControls;
+          final actionChild = showActions && canAct
+              ? _ActionButtons(
+                  model: model,
+                  showBetInput: showBetInput,
+                  betCtrl: actionControls!.betCtrl,
+                  onToggleBetInput: actionControls.onToggleBetInput,
+                  onCloseBetInput: actionControls.onCloseBetInput,
+                  bb: _resolveBigBlind(),
+                  availableWidth: showBetInput ? constraints.maxWidth : null,
+                )
+              : showActions
+                  ? _WaitingIndicator(model: model)
+                  : const SizedBox.shrink();
           final actions = Visibility(
             visible: showActions,
             maintainState: reserveActionSpace,
@@ -165,42 +174,20 @@ class BottomActionDock extends StatelessWidget {
             maintainSize: reserveActionSpace,
             child: Align(
               alignment: Alignment.centerRight,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: showBetInput
-                    ? const NeverScrollableScrollPhysics()
-                    : const ClampingScrollPhysics(),
-                child: showActions && canAct
-                    ? _ActionButtons(
-                        model: model,
-                        showBetInput: showBetInput,
-                        betCtrl: actionControls!.betCtrl,
-                        onToggleBetInput: actionControls.onToggleBetInput,
-                        onCloseBetInput: actionControls.onCloseBetInput,
-                        bb: _resolveBigBlind(),
-                      )
-                    : showActions
-                        ? _WaitingIndicator(model: model)
-                        : const SizedBox.shrink(),
-              ),
+              child: showBetInput
+                  ? SizedBox(
+                      width: constraints.maxWidth,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: actionChild,
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      physics: const ClampingScrollPhysics(),
+                      child: actionChild,
+                    ),
             ),
-          );
-          final headerPanel = Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (hasCards) ...[
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: _ShowCardsDockToggle(
-                    model: model,
-                    compact: true,
-                  ),
-                ),
-                if (showActions || reserveActionSpace)
-                  SizedBox(height: headerGap),
-              ],
-            ],
           );
           final hasBottomSection =
               showActions || reserveActionSpace || footer != null;
@@ -225,16 +212,9 @@ class BottomActionDock extends StatelessWidget {
                 mainAxisSize: MainAxisSize.max,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (hasCards)
-                    Align(
-                      alignment: Alignment.topRight,
-                      child: headerPanel,
-                    ),
                   if (hasBottomSection)
                     Padding(
-                      padding: EdgeInsets.only(
-                        top: hasCards ? sectionTopMargin : sectionTopMargin + 2,
-                      ),
+                      padding: EdgeInsets.only(top: sectionTopMargin + 2),
                       child: bottomSection,
                     ),
                 ],
@@ -302,54 +282,64 @@ class MobileHeroActionPanel extends StatelessWidget {
     final actionRowHeight = (48 * buttonScale(bp)).floorToDouble();
     final cards = _dockCardsForModel(model);
     final hasCards = cards.isNotEmpty;
+    final heroCardsVisibleHeightFactor = showBetInput ? 0.5 : 1.0;
 
     return LayoutBuilder(
       builder: (context, panelConstraints) {
         final availableHeight = panelConstraints.maxHeight;
+        final panelW = panelConstraints.maxWidth;
+        final betInputAvailableWidth = showBetInput ? panelW : null;
         final tightVertical =
             availableHeight.isFinite && availableHeight <= 152.0;
         final sectionGap = tightVertical ? 6.0 : PokerSpacing.sm;
+        final cardsToActionsGap = showBetInput
+            ? (tightVertical ? PokerSpacing.md : PokerSpacing.lg)
+            : (tightVertical ? 10.0 : PokerSpacing.md);
         final trailingGap = tightVertical ? 4.0 : 6.0;
         final trailingSectionGap = tightVertical ? 6.0 : PokerSpacing.sm;
         final topPadding = tightVertical ? 6.0 : PokerSpacing.sm;
+        final actionChild = showActions && canAct
+            ? _ActionButtons(
+                model: model,
+                showBetInput: showBetInput,
+                betCtrl: actionControls!.betCtrl,
+                onToggleBetInput: actionControls.onToggleBetInput,
+                onCloseBetInput: actionControls.onCloseBetInput,
+                bb: _resolveBigBlind(),
+                availableWidth: betInputAvailableWidth,
+                preferFullWidthBetInput: true,
+              )
+            : showActions
+                ? _WaitingIndicator(model: model)
+                : const SizedBox.shrink();
         final headerSection = LayoutBuilder(
           builder: (context, constraints) {
             final hasLastHandButton = hasLastShowdown && onShowLastHand != null;
-            final uiSpec = PokerUiSpec.fromContext(context);
-            final cardWidth = uiSpec.heroDockCardSize.width;
-            final cardGap = (cardWidth * 0.14).clamp(4.0, 8.0).toDouble();
-            final cardsWidth = (cardWidth * 2) + cardGap;
-            var trailingWidth = 0.0;
-            if (hasCards && trailingWidth < 116.0) trailingWidth = 116.0;
-            final lastHandWidth = hasLastHandButton ? 92.0 : 0.0;
-            if (lastHandWidth > trailingWidth) {
-              trailingWidth = lastHandWidth;
-            }
+            final cardMetrics = _CompactHeroCardsMetrics.fromContext(
+              context,
+              visibleHeightFactor: heroCardsVisibleHeightFactor,
+            );
+            final cardsClusterWidth = hasCards ? cardMetrics.totalWidth : 0.0;
+            final trailingWidth = hasLastHandButton ? 92.0 : 0.0;
             final stackedHeader =
-                constraints.maxWidth < cardsWidth + trailingWidth + 36.0;
+                constraints.maxWidth < cardsClusterWidth + trailingWidth + 36.0;
             final cardsRow = hasCards
-                ? _CompactHeroCards(cards: cards)
+                ? _CompactHeroCards(
+                    cards: cards,
+                    model: model,
+                    visibleHeightFactor: heroCardsVisibleHeightFactor,
+                  )
                 : const SizedBox.shrink();
-            final hasTrailingControls = hasCards || hasLastHandButton;
+            final hasTrailingControls = hasLastHandButton;
             final trailingControls = hasTrailingControls
                 ? Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (hasCards)
-                        _ShowCardsDockToggle(
-                          model: model,
-                          compact: true,
-                        ),
-                      if (hasCards && hasLastHandButton)
-                        SizedBox(height: trailingGap),
-                      if (hasLastHandButton) ...[
-                        if (hasCards) SizedBox(height: trailingSectionGap),
-                        PokerLastHandButton(
-                          onTap: onShowLastHand!,
-                          compact: true,
-                        ),
-                      ],
+                      PokerLastHandButton(
+                        onTap: onShowLastHand!,
+                        compact: true,
+                      ),
                     ],
                   )
                 : const SizedBox.shrink();
@@ -395,25 +385,20 @@ class MobileHeroActionPanel extends StatelessWidget {
                   maintainAnimation: reserveActionSpace,
                   maintainSize: reserveActionSpace,
                   child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      physics: showBetInput
-                          ? const NeverScrollableScrollPhysics()
-                          : const ClampingScrollPhysics(),
-                      child: showActions && canAct
-                          ? _ActionButtons(
-                              model: model,
-                              showBetInput: showBetInput,
-                              betCtrl: actionControls!.betCtrl,
-                              onToggleBetInput: actionControls.onToggleBetInput,
-                              onCloseBetInput: actionControls.onCloseBetInput,
-                              bb: _resolveBigBlind(),
-                            )
-                          : showActions
-                              ? _WaitingIndicator(model: model)
-                              : const SizedBox.shrink(),
-                    ),
+                    alignment: Alignment.center,
+                    child: showBetInput
+                        ? SizedBox(
+                            width: panelW,
+                            child: Align(
+                              alignment: Alignment.center,
+                              child: actionChild,
+                            ),
+                          )
+                        : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const ClampingScrollPhysics(),
+                            child: actionChild,
+                          ),
                   ),
                 ),
               ),
@@ -425,6 +410,7 @@ class MobileHeroActionPanel extends StatelessWidget {
           ],
         );
         return Container(
+          key: const Key('mobile-hero-action-panel'),
           constraints: BoxConstraints(minHeight: mobileHeroPanelMinHeight(bp)),
           padding: EdgeInsets.only(
             left: PokerSpacing.sm,
@@ -448,7 +434,7 @@ class MobileHeroActionPanel extends StatelessWidget {
                   headerSection,
                   if (hasBottomSection)
                     Padding(
-                      padding: EdgeInsets.only(top: sectionGap),
+                      padding: EdgeInsets.only(top: cardsToActionsGap),
                       child: bottomSection,
                     ),
                 ],
@@ -490,97 +476,260 @@ class MobileHeroActionPanel extends StatelessWidget {
   }
 }
 
-class _CompactHeroCards extends StatelessWidget {
-  const _CompactHeroCards({required this.cards});
+class _CompactHeroCardsMetrics {
+  const _CompactHeroCardsMetrics({
+    required this.cardWidth,
+    required this.cardHeight,
+    required this.visibleHeight,
+    required this.visibleHeightFactor,
+    required this.gap,
+    required this.cardsWidth,
+    required this.affordanceSize,
+    required this.affordanceGap,
+  });
+
+  factory _CompactHeroCardsMetrics.fromContext(
+    BuildContext context, {
+    double visibleHeightFactor = 1.0,
+  }) {
+    final uiSpec = PokerUiSpec.fromContext(context);
+    final cardWidth = uiSpec.heroDockCardSize.width;
+    final cardHeight = uiSpec.heroDockCardSize.height;
+    final clampedVisibleHeightFactor = visibleHeightFactor.clamp(0.0, 1.0);
+    final visibleHeight = cardHeight * clampedVisibleHeightFactor;
+    final gap = (cardWidth * 0.14).clamp(4.0, 8.0).toDouble();
+    final cardsWidth = (cardWidth * 2) + gap;
+    final baseAffordanceSize = (cardWidth * 0.42).clamp(24.0, 28.0).toDouble();
+    final affordanceSize = math.min(
+      baseAffordanceSize,
+      math.max(18.0, visibleHeight - 2.0),
+    );
+
+    return _CompactHeroCardsMetrics(
+      cardWidth: cardWidth,
+      cardHeight: cardHeight,
+      visibleHeight: visibleHeight,
+      visibleHeightFactor: clampedVisibleHeightFactor.toDouble(),
+      gap: gap,
+      cardsWidth: cardsWidth,
+      affordanceSize: affordanceSize,
+      affordanceGap: 8.0,
+    );
+  }
+
+  final double cardWidth;
+  final double cardHeight;
+  final double visibleHeight;
+  final double visibleHeightFactor;
+  final double gap;
+  final double cardsWidth;
+  final double affordanceSize;
+  final double affordanceGap;
+
+  double get totalWidth => cardsWidth + affordanceGap + affordanceSize;
+}
+
+class _CompactHeroCards extends StatefulWidget {
+  const _CompactHeroCards({
+    required this.cards,
+    required this.model,
+    this.visibleHeightFactor = 1.0,
+  });
   final List<pr.Card> cards;
+  final PokerModel model;
+  final double visibleHeightFactor;
+
+  @override
+  State<_CompactHeroCards> createState() => _CompactHeroCardsState();
+}
+
+class _CompactHeroCardsState extends State<_CompactHeroCards> {
+  bool _hovering = false;
+
+  void _setHovering(bool value) {
+    if (!mounted || _hovering == value) return;
+    setState(() => _hovering = value);
+  }
 
   @override
   Widget build(BuildContext context) {
     final uiSpec = PokerUiSpec.fromContext(context);
+    final metrics = _CompactHeroCardsMetrics.fromContext(
+      context,
+      visibleHeightFactor: widget.visibleHeightFactor,
+    );
     final theme = PokerThemeConfig.fromSpec(uiSpec);
-    final cw = uiSpec.heroDockCardSize.width;
-    final ch = uiSpec.heroDockCardSize.height;
-    final gap = (cw * 0.14).clamp(4.0, 8.0).toDouble();
 
     Widget buildCard(int index) {
-      if (cards.length > index) {
-        return CardFace(card: cards[index], cardTheme: theme.cardTheme);
+      if (widget.cards.length > index) {
+        return CardFace(card: widget.cards[index], cardTheme: theme.cardTheme);
       }
       return const CardBack();
     }
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(width: cw, height: ch, child: buildCard(0)),
-        SizedBox(width: gap),
-        SizedBox(width: cw, height: ch, child: buildCard(1)),
-      ],
+    final actionLabel =
+        widget.model.me?.cardsRevealed ?? false ? 'Hide Cards' : 'Show Cards';
+
+    return SizedBox(
+      key: const Key('poker-hero-cards-cluster'),
+      width: metrics.totalWidth,
+      height: metrics.visibleHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Positioned(
+            left: 0,
+            top: 0,
+            child: ClipRect(
+              child: Align(
+                alignment: Alignment.topLeft,
+                heightFactor: metrics.visibleHeightFactor,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: metrics.cardWidth,
+                      height: metrics.cardHeight,
+                      child: buildCard(0),
+                    ),
+                    SizedBox(width: metrics.gap),
+                    SizedBox(
+                      width: metrics.cardWidth,
+                      height: metrics.cardHeight,
+                      child: buildCard(1),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (_hovering)
+            Positioned(
+              right: metrics.affordanceSize + metrics.affordanceGap + 4,
+              top: math.max(0.0, (metrics.visibleHeight - 30) / 2),
+              child: _ShowCardsInfoPill(label: actionLabel),
+            ),
+          Positioned(
+            left: metrics.cardsWidth,
+            top: math.max(
+              0.0,
+              (metrics.visibleHeight - metrics.affordanceSize) / 2,
+            ),
+            child: _ShowCardsAffordance(
+              showing: widget.model.me?.cardsRevealed ?? false,
+              size: metrics.affordanceSize,
+              hitWidth: metrics.affordanceSize + metrics.affordanceGap,
+              onEnter: () => _setHovering(true),
+              onExit: () => _setHovering(false),
+              onTap: () {
+                if (widget.model.me?.cardsRevealed ?? false) {
+                  widget.model.hideCards();
+                } else {
+                  widget.model.showCards();
+                }
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class _ShowCardsDockToggle extends StatelessWidget {
-  const _ShowCardsDockToggle({
-    required this.model,
-    this.compact = false,
+class _ShowCardsAffordance extends StatelessWidget {
+  const _ShowCardsAffordance({
+    required this.showing,
+    required this.size,
+    required this.hitWidth,
+    required this.onEnter,
+    required this.onExit,
+    required this.onTap,
   });
 
-  final PokerModel model;
-  final bool compact;
+  final bool showing;
+  final double size;
+  final double hitWidth;
+  final VoidCallback onEnter;
+  final VoidCallback onExit;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final hasCards = _dockCardsForModel(model).isNotEmpty;
-    if (!hasCards) return const SizedBox.shrink();
-
-    final showing = model.me?.cardsRevealed ?? false;
     final accent = showing ? PokerColors.warning : PokerColors.textPrimary;
-    final label = showing ? 'Hide Cards' : 'Show Cards';
 
-    return Tooltip(
-      message: label,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          key: const Key('poker-show-cards-toggle'),
-          onTap: () {
-            if (showing) {
-              model.hideCards();
-            } else {
-              model.showCards();
-            }
-          },
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 10 : 12,
-              vertical: compact ? 7 : 8,
-            ),
-            decoration: BoxDecoration(
-              color: PokerColors.overlayLight,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: showing ? PokerColors.warning : PokerColors.borderSubtle,
+    return MouseRegion(
+      onEnter: (_) => onEnter(),
+      onExit: (_) => onExit(),
+      child: GestureDetector(
+        key: const Key('poker-show-cards-affordance'),
+        behavior: HitTestBehavior.translucent,
+        onTap: onTap,
+        child: SizedBox(
+          width: hitWidth,
+          height: size,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: Container(
+              width: size,
+              height: size,
+              decoration: BoxDecoration(
+                color: PokerColors.overlayLight,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color:
+                      showing ? PokerColors.warning : PokerColors.borderSubtle,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.18),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                showing ? Icons.visibility_off : Icons.visibility,
+                size: size * 0.54,
+                color: accent,
               ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  showing ? Icons.visibility_off : Icons.visibility,
-                  size: compact ? 14 : 16,
-                  color: accent,
-                ),
-                SizedBox(width: compact ? 5 : 6),
-                Text(
-                  label,
-                  style: PokerTypography.labelSmall.copyWith(
-                    color: accent,
-                    fontSize: compact ? 10.5 : 11,
-                  ),
-                ),
-              ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShowCardsInfoPill extends StatelessWidget {
+  const _ShowCardsInfoPill({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: IgnorePointer(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: PokerColors.overlayMedium,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: PokerColors.borderSubtle.withValues(alpha: 0.75),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 10,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            label,
+            style: PokerTypography.labelSmall.copyWith(
+              color: PokerColors.textPrimary,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
@@ -716,6 +865,8 @@ class _ActionButtons extends StatelessWidget {
     required this.onToggleBetInput,
     required this.onCloseBetInput,
     required this.bb,
+    this.availableWidth,
+    this.preferFullWidthBetInput = false,
   });
 
   final PokerModel model;
@@ -724,6 +875,8 @@ class _ActionButtons extends StatelessWidget {
   final VoidCallback onToggleBetInput;
   final VoidCallback onCloseBetInput;
   final int bb;
+  final double? availableWidth;
+  final bool preferFullWidthBetInput;
 
   @override
   Widget build(BuildContext context) {
@@ -756,6 +909,8 @@ class _ActionButtons extends StatelessWidget {
         bb: bb,
         isRaise: isRaise,
         onClose: onCloseBetInput,
+        availableWidth: availableWidth,
+        preferFullWidth: preferFullWidthBetInput,
       );
     }
 
@@ -833,6 +988,8 @@ class _BetInputRow extends StatelessWidget {
     required this.bb,
     required this.isRaise,
     required this.onClose,
+    this.availableWidth,
+    this.preferFullWidth = false,
   });
 
   final PokerModel model;
@@ -840,6 +997,8 @@ class _BetInputRow extends StatelessWidget {
   final int currentBet, minRaise, maxRaise, myBet, bb;
   final bool isRaise;
   final VoidCallback onClose;
+  final double? availableWidth;
+  final bool preferFullWidth;
 
   int _initialTarget() {
     return initialBetOrRaiseTotal(
@@ -967,15 +1126,30 @@ class _BetInputRow extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
+        final layoutWidth =
+            availableWidth?.isFinite == true && availableWidth! > 0
+                ? availableWidth!
+                : constraints.maxWidth;
         final compactHeight =
             constraints.maxHeight.isFinite && constraints.maxHeight <= 56;
+        final compactWidthThreshold = bp.isNarrow ? 340 * scale : 410 * scale;
         final compactWidth =
-            constraints.maxWidth.isFinite && constraints.maxWidth < 320 * scale;
+            layoutWidth.isFinite && layoutWidth < compactWidthThreshold;
         final compactLayout = compactHeight || compactWidth;
-        final desiredWidth = 340 * scale;
-        final editorWidth = constraints.maxWidth.isFinite
-            ? math.min(desiredWidth, constraints.maxWidth)
-            : desiredWidth;
+        final desktopBetChrome =
+            !preferFullWidth && !compactLayout && (bp.isExpanded || bp.isWide);
+        final fullWidthEditor = preferFullWidth || bp.isNarrow;
+        final maxEditorWidth = compactLayout
+            ? (fullWidthEditor ? layoutWidth : 400 * scale)
+            : (fullWidthEditor
+                ? layoutWidth
+                : (desktopBetChrome ? 320 * scale : 470 * scale));
+        final fallbackWidth = compactLayout
+            ? 360 * scale
+            : (desktopBetChrome ? 300 * scale : 420 * scale);
+        final editorWidth = layoutWidth.isFinite
+            ? math.min(maxEditorWidth, layoutWidth)
+            : fallbackWidth;
 
         return SizedBox(
           width: editorWidth,
@@ -1009,12 +1183,23 @@ class _BetInputRow extends StatelessWidget {
               final sliderEnabled =
                   !shortAllInOnly && sliderDisplayMax > sliderDisplayMin;
 
+              final fieldStyle = compactLayout
+                  ? PokerTypography.labelLarge.copyWith(fontSize: 12)
+                  : (desktopBetChrome
+                      ? PokerTypography.titleSmall
+                      : PokerTypography.titleMedium);
+              final fieldHintPrefixStyle = compactLayout
+                  ? PokerTypography.labelLarge.copyWith(fontSize: 12)
+                  : (desktopBetChrome
+                      ? PokerTypography.titleSmall
+                      : PokerTypography.titleMedium);
+
               return Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisSize: MainAxisSize.max,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
                       Expanded(
@@ -1024,7 +1209,7 @@ class _BetInputRow extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: PokerColors.overlayLight,
                             borderRadius: BorderRadius.circular(
-                              compactLayout ? 12 : 14,
+                              compactLayout ? 12 : (desktopBetChrome ? 12 : 14),
                             ),
                             border: Border.all(color: PokerColors.borderSubtle),
                           ),
@@ -1037,32 +1222,30 @@ class _BetInputRow extends StatelessWidget {
                               FilteringTextInputFormatter.digitsOnly,
                             ],
                             onSubmitted: (_) => _submitBet(context),
-                            style: compactLayout
-                                ? PokerTypography.labelLarge
-                                    .copyWith(fontSize: 12)
-                                : PokerTypography.titleMedium,
+                            style: fieldStyle,
                             decoration: InputDecoration(
                               isDense: true,
+                              filled: false,
+                              fillColor: Colors.transparent,
                               border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              errorBorder: InputBorder.none,
+                              focusedErrorBorder: InputBorder.none,
                               contentPadding: EdgeInsets.symmetric(
-                                vertical: compactLayout ? 8 : 10,
+                                vertical: compactLayout
+                                    ? 8
+                                    : (desktopBetChrome ? 8 : 10),
                               ),
                               hintText: _initialTarget().toString(),
-                              hintStyle: (compactLayout
-                                      ? PokerTypography.labelLarge
-                                          .copyWith(fontSize: 12)
-                                      : PokerTypography.titleMedium)
-                                  .copyWith(
+                              hintStyle: fieldHintPrefixStyle.copyWith(
                                 color: PokerColors.textMuted,
                               ),
                               prefixText: shortAllInOnly
                                   ? 'All-in '
                                   : (isRaise ? 'Raise to ' : 'Bet '),
-                              prefixStyle: (compactLayout
-                                      ? PokerTypography.labelLarge
-                                          .copyWith(fontSize: 12)
-                                      : PokerTypography.titleMedium)
-                                  .copyWith(
+                              prefixStyle: fieldHintPrefixStyle.copyWith(
                                 color: PokerColors.textSecondary,
                               ),
                             ),
@@ -1108,7 +1291,7 @@ class _BetInputRow extends StatelessWidget {
                             ),
                     ],
                   ),
-                  const SizedBox(height: PokerSpacing.xs),
+                  SizedBox(height: compactLayout ? 6 : PokerSpacing.xs),
                   SliderTheme(
                     data: SliderTheme.of(context).copyWith(
                       activeTrackColor: PokerColors.betBtn,
@@ -1199,36 +1382,83 @@ class _SliderLegend extends StatelessWidget {
       color: PokerColors.textSecondary,
       fontSize: compact ? 10.5 : 11,
     );
-    return Padding(
-      padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 12),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              minLabel,
-              overflow: TextOverflow.ellipsis,
-              style: style,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Keep min/preset/max on one row whenever the legend has enough real width,
+        // including phone layouts where the editor can now span the dock.
+        final stacked = constraints.maxWidth < (compact ? 280 : 300);
+        final labelsRow = Row(
+          children: [
+            Expanded(
+              child: Text(
+                minLabel,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              ),
             ),
-          ),
-          if (presetLabel != null) ...[
-            SizedBox(width: compact ? 6 : 10),
-            _SliderPresetChip(
-              label: presetLabel!,
-              compact: compact,
-              onTap: onPresetPressed,
+            SizedBox(width: compact ? 8 : 12),
+            Expanded(
+              child: Text(
+                maxLabel,
+                textAlign: TextAlign.right,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              ),
             ),
-            SizedBox(width: compact ? 6 : 10),
           ],
-          Expanded(
-            child: Text(
-              maxLabel,
-              textAlign: TextAlign.right,
-              overflow: TextOverflow.ellipsis,
-              style: style,
-            ),
-          ),
-        ],
-      ),
+        );
+
+        return Padding(
+          padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 12),
+          child: stacked
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    labelsRow,
+                    if (presetLabel != null) ...[
+                      SizedBox(height: compact ? 6 : 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: _SliderPresetChip(
+                          label: presetLabel!,
+                          compact: compact,
+                          onTap: onPresetPressed,
+                        ),
+                      ),
+                    ],
+                  ],
+                )
+              : Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        minLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: style,
+                      ),
+                    ),
+                    if (presetLabel != null) ...[
+                      const SizedBox(width: 10),
+                      _SliderPresetChip(
+                        label: presetLabel!,
+                        compact: compact,
+                        onTap: onPresetPressed,
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Text(
+                        maxLabel,
+                        textAlign: TextAlign.right,
+                        overflow: TextOverflow.ellipsis,
+                        style: style,
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 }
