@@ -1520,8 +1520,11 @@ void main() {
 
     final sliderRect =
         tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    final amountRect =
+        tester.getRect(find.byKey(const Key('bet-amount-input-shell')));
     expect(sliderRect.width, greaterThan(260));
     expect(sliderRect.width, lessThan(380));
+    expect(amountRect.width, greaterThan(120));
   });
 
   testWidgets(
@@ -1562,6 +1565,43 @@ void main() {
       (presetRect.center.dy - maxRect.center.dy).abs(),
       lessThan(10),
     );
+  });
+
+  testWidgets('narrow phone keeps the 3x chip centered inline',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(320, 844),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    final raiseFinder = find.text('Raise').last;
+    await tester.ensureVisible(raiseFinder);
+    await tester.tap(raiseFinder, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    final minRect = tester.getRect(find.text('Min 40'));
+    final presetRect = tester.getRect(find.byKey(const Key('raise-3x-button')));
+    final maxRect = tester.getRect(find.text('Max 1000'));
+
+    expect(sliderRect.width, greaterThan(250));
+    expect((presetRect.center.dy - minRect.center.dy).abs(), lessThan(10));
+    expect((presetRect.center.dy - maxRect.center.dy).abs(), lessThan(10));
+    expect(presetRect.center.dx, greaterThan(minRect.center.dx));
+    expect(presetRect.center.dx, lessThan(maxRect.center.dx));
+    expect((presetRect.center.dx - sliderRect.center.dx).abs(), lessThan(16));
   });
 
   testWidgets('phone hero cards expand again when action times out',

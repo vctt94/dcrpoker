@@ -36,43 +36,53 @@ class _ActionButton extends StatelessWidget {
     required this.onPressed,
     required this.color,
     this.icon,
+    this.dense = false,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final Color color;
   final IconData? icon;
+  final bool dense;
 
   @override
   Widget build(BuildContext context) {
     final bp = PokerBreakpointQuery.of(context);
     final scale = buttonScale(bp);
+    final densityScale = dense ? 0.82 : 1.0;
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
         foregroundColor: Colors.white,
         padding: EdgeInsets.symmetric(
-          horizontal: 20 * scale,
-          vertical: 12 * scale,
+          horizontal: 20 * scale * densityScale,
+          vertical: 12 * scale * densityScale,
         ),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12 * scale),
+          borderRadius: BorderRadius.circular(12 * scale * densityScale),
         ),
         elevation: 2,
         shadowColor: color.withValues(alpha: 0.3),
+        minimumSize: dense ? Size(0, 32 * scale) : null,
+        tapTargetSize: dense
+            ? MaterialTapTargetSize.shrinkWrap
+            : MaterialTapTargetSize.padded,
+        visualDensity: dense
+            ? const VisualDensity(horizontal: -2, vertical: -2)
+            : VisualDensity.standard,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 16 * scale),
-            SizedBox(width: 6 * scale),
+            Icon(icon, size: 16 * scale * densityScale),
+            SizedBox(width: 6 * scale * densityScale),
           ],
           Text(
             label,
             style: TextStyle(
-              fontSize: 14 * scale,
+              fontSize: 14 * scale * densityScale,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.3,
             ),
@@ -293,7 +303,7 @@ class MobileHeroActionPanel extends StatelessWidget {
             availableHeight.isFinite && availableHeight <= 152.0;
         final sectionGap = tightVertical ? 6.0 : PokerSpacing.sm;
         final cardsToActionsGap = showBetInput
-            ? (tightVertical ? PokerSpacing.md : PokerSpacing.lg)
+            ? (tightVertical ? PokerSpacing.md : 14.0)
             : (tightVertical ? 10.0 : PokerSpacing.md);
         final trailingGap = tightVertical ? 4.0 : 6.0;
         final trailingSectionGap = tightVertical ? 6.0 : PokerSpacing.sm;
@@ -1183,175 +1193,242 @@ class _BetInputRow extends StatelessWidget {
               final sliderEnabled =
                   !shortAllInOnly && sliderDisplayMax > sliderDisplayMin;
 
-              final fieldStyle = compactLayout
-                  ? PokerTypography.labelLarge.copyWith(fontSize: 12)
-                  : (desktopBetChrome
-                      ? PokerTypography.titleSmall
-                      : PokerTypography.titleMedium);
-              final fieldHintPrefixStyle = compactLayout
-                  ? PokerTypography.labelLarge.copyWith(fontSize: 12)
-                  : (desktopBetChrome
-                      ? PokerTypography.titleSmall
-                      : PokerTypography.titleMedium);
+              final composerLabel =
+                  shortAllInOnly ? 'All-in' : (isRaise ? 'Raise to' : 'Bet');
+              final panelRadius = compactLayout ? 13.0 : 15.0;
+              final amountRadius = compactLayout ? 11.0 : 13.0;
+              final amountFieldStyle = (compactLayout
+                      ? PokerTypography.titleLarge
+                      : PokerTypography.headlineMedium)
+                  .copyWith(
+                fontSize: compactLayout ? 16 : (desktopBetChrome ? 19 : 20),
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.2,
+                color: shortAllInOnly
+                    ? PokerColors.warning
+                    : PokerColors.textPrimary,
+              );
+              final amountHintStyle = amountFieldStyle.copyWith(
+                color: PokerColors.textMuted,
+              );
+              final composerLabelStyle = PokerTypography.labelSmall.copyWith(
+                color: shortAllInOnly
+                    ? PokerColors.warning.withValues(alpha: 0.92)
+                    : PokerColors.textSecondary,
+                fontSize: compactLayout ? 9.5 : 10.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              );
+              final panelDecoration = BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    PokerColors.surface.withValues(alpha: 0.96),
+                    PokerColors.surfaceDim.withValues(alpha: 0.98),
+                  ],
+                ),
+                borderRadius: BorderRadius.circular(panelRadius),
+                border: Border.all(
+                  color: shortAllInOnly
+                      ? PokerColors.warning.withValues(alpha: 0.38)
+                      : PokerColors.borderMedium,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.22),
+                    blurRadius: compactLayout ? 12 : 16,
+                    offset: Offset(0, compactLayout ? 4 : 6),
+                  ),
+                ],
+              );
 
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.max,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: PokerSpacing.sm),
-                          decoration: BoxDecoration(
-                            color: PokerColors.overlayLight,
-                            borderRadius: BorderRadius.circular(
-                              compactLayout ? 12 : (desktopBetChrome ? 12 : 14),
+              return Container(
+                key: const Key('bet-composer-panel'),
+                decoration: panelDecoration,
+                padding: EdgeInsets.fromLTRB(
+                  compactLayout ? 9 : 11,
+                  compactLayout ? 5 : 7,
+                  compactLayout ? 9 : 11,
+                  compactLayout ? 6 : 8,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      composerLabel.toUpperCase(),
+                      style: composerLabelStyle,
+                    ),
+                    SizedBox(height: compactLayout ? 3 : 4),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Container(
+                            key: const Key('bet-amount-input-shell'),
+                            padding: EdgeInsets.symmetric(
+                              horizontal: compactLayout ? 10 : 10,
                             ),
-                            border: Border.all(color: PokerColors.borderSubtle),
-                          ),
-                          child: TextField(
-                            controller: betCtrl,
-                            readOnly: shortAllInOnly,
-                            keyboardType: TextInputType.number,
-                            textInputAction: TextInputAction.done,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                            ],
-                            onSubmitted: (_) => _submitBet(context),
-                            style: fieldStyle,
-                            decoration: InputDecoration(
-                              isDense: true,
-                              filled: false,
-                              fillColor: Colors.transparent,
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              disabledBorder: InputBorder.none,
-                              errorBorder: InputBorder.none,
-                              focusedErrorBorder: InputBorder.none,
-                              contentPadding: EdgeInsets.symmetric(
-                                vertical: compactLayout
-                                    ? 8
-                                    : (desktopBetChrome ? 8 : 10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.18),
+                              borderRadius: BorderRadius.circular(amountRadius),
+                              border: Border.all(
+                                color: shortAllInOnly
+                                    ? PokerColors.warning.withValues(alpha: 0.4)
+                                    : PokerColors.borderSubtle,
                               ),
-                              hintText: _initialTarget().toString(),
-                              hintStyle: fieldHintPrefixStyle.copyWith(
-                                color: PokerColors.textMuted,
-                              ),
-                              prefixText: shortAllInOnly
-                                  ? 'All-in '
-                                  : (isRaise ? 'Raise to ' : 'Bet '),
-                              prefixStyle: fieldHintPrefixStyle.copyWith(
-                                color: PokerColors.textSecondary,
+                            ),
+                            child: TextField(
+                              controller: betCtrl,
+                              readOnly: shortAllInOnly,
+                              keyboardType: TextInputType.number,
+                              textInputAction: TextInputAction.done,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
+                              onSubmitted: (_) => _submitBet(context),
+                              style: amountFieldStyle,
+                              decoration: InputDecoration(
+                                isDense: true,
+                                filled: false,
+                                fillColor: Colors.transparent,
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                disabledBorder: InputBorder.none,
+                                errorBorder: InputBorder.none,
+                                focusedErrorBorder: InputBorder.none,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: compactLayout ? 5 : 6,
+                                ),
+                                hintText: _initialTarget().toString(),
+                                hintStyle: amountHintStyle,
                               ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: PokerSpacing.sm),
-                      _ActionButton(
-                        label: label,
-                        onPressed: () => _submitBet(context),
-                        color: PokerColors.betBtn,
-                      ),
-                      const SizedBox(width: PokerSpacing.xs),
-                      compactLayout
-                          ? Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: onClose,
-                                borderRadius: BorderRadius.circular(10),
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: PokerColors.overlayLight,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
-                                      color: PokerColors.borderSubtle,
+                        const SizedBox(width: PokerSpacing.sm),
+                        _ActionButton(
+                          label: label,
+                          onPressed: () => _submitBet(context),
+                          color: PokerColors.primary,
+                          dense: compactLayout || desktopBetChrome,
+                        ),
+                        const SizedBox(width: PokerSpacing.xs),
+                        (compactLayout || desktopBetChrome)
+                            ? Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: onClose,
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(7),
+                                    decoration: BoxDecoration(
+                                      color: PokerColors.overlayLight,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: PokerColors.borderSubtle,
+                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.close_rounded,
+                                      size: 15,
+                                      color: PokerColors.textSecondary,
                                     ),
                                   ),
-                                  child: const Icon(
-                                    Icons.close_rounded,
-                                    size: 16,
-                                    color: PokerColors.textSecondary,
-                                  ),
+                                ),
+                              )
+                            : TextButton(
+                                onPressed: onClose,
+                                child: const Text(
+                                  'Cancel',
+                                  style: PokerTypography.labelSmall,
                                 ),
                               ),
-                            )
-                          : TextButton(
-                              onPressed: onClose,
-                              child: const Text(
-                                'Cancel',
-                                style: PokerTypography.labelSmall,
-                              ),
-                            ),
-                    ],
-                  ),
-                  SizedBox(height: compactLayout ? 6 : PokerSpacing.xs),
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      activeTrackColor: PokerColors.betBtn,
-                      inactiveTrackColor:
-                          PokerColors.surfaceBright.withValues(alpha: 0.9),
-                      thumbColor: PokerColors.betBtn,
-                      disabledActiveTrackColor:
-                          PokerColors.betBtn.withValues(alpha: 0.5),
-                      disabledInactiveTrackColor:
-                          PokerColors.surfaceBright.withValues(alpha: 0.65),
-                      overlayColor: PokerColors.betBtn.withValues(alpha: 0.16),
-                      trackHeight: compactLayout ? 5 : 6,
+                      ],
                     ),
-                    child: Slider(
-                      key: const Key('bet-amount-slider'),
-                      allowedInteraction: SliderInteraction.tapAndSlide,
-                      value: sliderDisplayValue.clamp(
-                        sliderDisplayMin,
-                        sliderDisplayMax,
+                    SizedBox(height: compactLayout ? 3 : 4),
+                    SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        activeTrackColor:
+                            PokerColors.accent.withValues(alpha: 0.95),
+                        inactiveTrackColor:
+                            PokerColors.borderMedium.withValues(alpha: 0.88),
+                        thumbColor: PokerColors.accent,
+                        disabledThumbColor:
+                            PokerColors.accent.withValues(alpha: 0.5),
+                        disabledActiveTrackColor:
+                            PokerColors.accent.withValues(alpha: 0.5),
+                        disabledInactiveTrackColor:
+                            PokerColors.borderMedium.withValues(alpha: 0.5),
+                        overlayColor:
+                            PokerColors.accent.withValues(alpha: 0.12),
+                        valueIndicatorColor: PokerColors.surfaceBright,
+                        valueIndicatorTextStyle:
+                            PokerTypography.labelSmall.copyWith(
+                          color: PokerColors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        trackHeight: compactLayout ? 5 : 6,
+                        padding: EdgeInsets.zero,
+                        thumbShape: RoundSliderThumbShape(
+                          enabledThumbRadius: compactLayout ? 7 : 8,
+                          disabledThumbRadius: compactLayout ? 6 : 7,
+                        ),
+                        overlayShape: RoundSliderOverlayShape(
+                          overlayRadius: compactLayout ? 12 : 14,
+                        ),
                       ),
-                      min: sliderDisplayMin,
-                      max: sliderDisplayMax,
-                      label: shortAllInOnly
-                          ? 'All-in $maxRaise'
-                          : '$displayTarget',
-                      onChanged: sliderEnabled
-                          ? (raw) {
-                              final snapped = snapBetTargetToStep(
-                                target: raw.round(),
+                      child: Slider(
+                        key: const Key('bet-amount-slider'),
+                        allowedInteraction: SliderInteraction.tapAndSlide,
+                        value: sliderDisplayValue.clamp(
+                          sliderDisplayMin,
+                          sliderDisplayMax,
+                        ),
+                        min: sliderDisplayMin,
+                        max: sliderDisplayMax,
+                        label: shortAllInOnly
+                            ? 'All-in $maxRaise'
+                            : '$displayTarget',
+                        onChanged: sliderEnabled
+                            ? (raw) {
+                                final snapped = snapBetTargetToStep(
+                                  target: raw.round(),
+                                  currentBet: currentBet,
+                                  minRaise: minRaise,
+                                  maxRaise: maxRaise,
+                                  bigBlind: bb,
+                                );
+                                betCtrl.text = snapped.toString();
+                              }
+                            : null,
+                      ),
+                    ),
+                    _SliderLegend(
+                      minLabel:
+                          shortAllInOnly ? 'All-in $maxRaise' : 'Min $legalMin',
+                      presetLabel:
+                          showPresetButton ? suggestedActionLabel : null,
+                      maxLabel: shortAllInOnly
+                          ? ''
+                          : (maxRaise > 0 ? 'Max $maxRaise' : 'Open size'),
+                      compact: compactLayout,
+                      onPresetPressed: showPresetButton
+                          ? () {
+                              betCtrl.text = snapBetTargetToStep(
+                                target: presetTarget,
                                 currentBet: currentBet,
                                 minRaise: minRaise,
                                 maxRaise: maxRaise,
                                 bigBlind: bb,
-                              );
-                              betCtrl.text = snapped.toString();
+                              ).toString();
                             }
                           : null,
                     ),
-                  ),
-                  _SliderLegend(
-                    minLabel:
-                        shortAllInOnly ? 'All-in $maxRaise' : 'Min $legalMin',
-                    presetLabel: showPresetButton ? suggestedActionLabel : null,
-                    maxLabel: shortAllInOnly
-                        ? ''
-                        : (maxRaise > 0 ? 'Max $maxRaise' : 'Open size'),
-                    compact: compactLayout,
-                    onPresetPressed: showPresetButton
-                        ? () {
-                            betCtrl.text = snapBetTargetToStep(
-                              target: presetTarget,
-                              currentBet: currentBet,
-                              minRaise: minRaise,
-                              maxRaise: maxRaise,
-                              bigBlind: bb,
-                            ).toString();
-                          }
-                        : null,
-                  ),
-                ],
+                  ],
+                ),
               );
             },
           ),
@@ -1380,85 +1457,38 @@ class _SliderLegend extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = PokerTypography.labelSmall.copyWith(
       color: PokerColors.textSecondary,
-      fontSize: compact ? 10.5 : 11,
+      fontSize: compact ? 9.5 : 11,
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Keep min/preset/max on one row whenever the legend has enough real width,
-        // including phone layouts where the editor can now span the dock.
-        final stacked = constraints.maxWidth < (compact ? 280 : 300);
-        final labelsRow = Row(
-          children: [
-            Expanded(
-              child: Text(
-                minLabel,
-                overflow: TextOverflow.ellipsis,
-                style: style,
-              ),
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 2 : 12),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              minLabel,
+              overflow: TextOverflow.ellipsis,
+              style: style,
             ),
-            SizedBox(width: compact ? 8 : 12),
-            Expanded(
-              child: Text(
-                maxLabel,
-                textAlign: TextAlign.right,
-                overflow: TextOverflow.ellipsis,
-                style: style,
-              ),
+          ),
+          if (presetLabel != null) ...[
+            SizedBox(width: compact ? 6 : 10),
+            _SliderPresetChip(
+              label: presetLabel!,
+              compact: compact,
+              onTap: onPresetPressed,
             ),
+            SizedBox(width: compact ? 6 : 10),
           ],
-        );
-
-        return Padding(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 4 : 12),
-          child: stacked
-              ? Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    labelsRow,
-                    if (presetLabel != null) ...[
-                      SizedBox(height: compact ? 6 : 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: _SliderPresetChip(
-                          label: presetLabel!,
-                          compact: compact,
-                          onTap: onPresetPressed,
-                        ),
-                      ),
-                    ],
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        minLabel,
-                        overflow: TextOverflow.ellipsis,
-                        style: style,
-                      ),
-                    ),
-                    if (presetLabel != null) ...[
-                      const SizedBox(width: 10),
-                      _SliderPresetChip(
-                        label: presetLabel!,
-                        compact: compact,
-                        onTap: onPresetPressed,
-                      ),
-                      const SizedBox(width: 10),
-                    ],
-                    Expanded(
-                      child: Text(
-                        maxLabel,
-                        textAlign: TextAlign.right,
-                        overflow: TextOverflow.ellipsis,
-                        style: style,
-                      ),
-                    ),
-                  ],
-                ),
-        );
-      },
+          Expanded(
+            child: Text(
+              maxLabel,
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1484,20 +1514,21 @@ class _SliderPresetChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         child: Ink(
           padding: EdgeInsets.symmetric(
-            horizontal: compact ? 8 : 10,
-            vertical: compact ? 5 : 6,
+            horizontal: compact ? 6 : 10,
+            vertical: compact ? 4 : 6,
           ),
           decoration: BoxDecoration(
-            color: PokerColors.betBtn.withValues(alpha: 0.14),
+            color: PokerColors.accent.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(999),
             border: Border.all(
-              color: PokerColors.betBtn.withValues(alpha: 0.45),
+              color: PokerColors.accent.withValues(alpha: 0.45),
             ),
           ),
           child: Text(
             label,
             style: PokerTypography.labelSmall.copyWith(
-              color: PokerColors.betBtn,
+              fontSize: compact ? 9.5 : 11,
+              color: PokerColors.accent,
               fontWeight: FontWeight.w700,
             ),
           ),

@@ -343,12 +343,68 @@ void main() {
 
     final panelRect =
         tester.getRect(find.byKey(const Key('mobile-hero-action-panel')));
+    final composerRect =
+        tester.getRect(find.byKey(const Key('bet-composer-panel')));
     final sliderRect =
         tester.getRect(find.byKey(const Key('bet-amount-slider')));
 
     expect(sliderRect.width, greaterThan(520));
-    expect(sliderRect.width, closeTo(panelRect.width, 32));
+    expect(composerRect.width, closeTo(panelRect.width - 16, 2));
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mobile bet input keeps the 3x preset inline on narrow phones',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = UiGameState(
+      tableId: 'table-1',
+      phase: pr.GamePhase.PRE_FLOP,
+      phaseName: 'Pre-Flop',
+      players: [
+        _player(
+          id: 'hero',
+          name: 'Hero',
+          hand: [_card('A', 'spades'), _card('K', 'hearts')],
+        ),
+        _player(id: 'villain', name: 'Villain'),
+      ],
+      communityCards: const [],
+      pot: 0,
+      currentBet: 20,
+      currentPlayerId: 'hero',
+      minRaise: 20,
+      maxRaise: 1000,
+      smallBlind: 10,
+      bigBlind: 20,
+      gameStarted: true,
+      playersRequired: 2,
+      playersJoined: 2,
+      timeBankSeconds: 30,
+      turnDeadlineUnixMs: 0,
+    );
+
+    final betCtrl = TextEditingController(text: '40');
+    addTearDown(betCtrl.dispose);
+
+    await tester.pumpWidget(_wrap(
+      model: model,
+      config: _configWithCardSize('medium'),
+      size: const Size(320, 844),
+      panelWidth: 288,
+      panelHeight: 176,
+      showActions: true,
+      showBetInput: true,
+      hasLastShowdown: false,
+      betCtrl: betCtrl,
+    ));
+    await tester.pump();
+
+    final minRect = tester.getRect(find.text('Min 40'));
+    final presetRect = tester.getRect(find.byKey(const Key('raise-3x-button')));
+    final maxRect = tester.getRect(find.text('Max 1000'));
+
+    expect((presetRect.center.dy - minRect.center.dy).abs(), lessThan(10));
+    expect((presetRect.center.dy - maxRect.center.dy).abs(), lessThan(10));
   });
 
   testWidgets('mobile action buttons stay pinned when bet summary appears',
