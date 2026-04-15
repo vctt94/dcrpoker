@@ -788,7 +788,7 @@ void main() {
   });
 
   testWidgets(
-      'bind escrow dialog without matching escrows hides advanced options and routes to open escrow',
+      'bind escrow action without matching escrows opens the open escrow dialog directly',
       (tester) async {
     final model = _EscrowRefreshTestModel(playerId: 'hero');
     final configNotifier = ConfigNotifier()..updateConfig(Config.empty());
@@ -830,10 +830,6 @@ void main() {
         ],
         child: MaterialApp(
           theme: buildPokerTheme(),
-          routes: {
-            '/open-escrow': (_) =>
-                const Scaffold(body: Text('Open Escrow Screen')),
-          },
           home: const PokerHomeScreen(),
         ),
       ),
@@ -843,13 +839,9 @@ void main() {
     await tester.tap(find.text('Bind Escrow'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Open Escrow'), findsNWidgets(2));
+    expect(find.text('Table Buy-in (DCR)'), findsOneWidget);
+    expect(find.text('Funding outpoint'), findsNothing);
     expect(find.text('Advanced options'), findsNothing);
-    expect(find.text('Bind'), findsNothing);
-    expect(find.text('Open Escrow'), findsOneWidget);
-
-    await tester.tap(find.text('Open Escrow'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Open Escrow Screen'), findsOneWidget);
   });
 }

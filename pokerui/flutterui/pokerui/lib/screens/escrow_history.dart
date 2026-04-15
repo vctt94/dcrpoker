@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:pokerui/components/shared_layout.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/util.dart';
 
 class EscrowHistoryScreen extends StatefulWidget {
   const EscrowHistoryScreen({super.key});
@@ -161,7 +162,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
           // Older escrows may no longer be known by the referee after
           // restarts or pruning. Treat "escrow not found" as a benign
           // condition instead of surfacing a noisy RPC error.
-          if (msg.contains('escrow not found') || msg.contains('code = NotFound')) {
+          if (msg.contains('escrow not found') ||
+              msg.contains('code = NotFound')) {
             entry.statusError = null;
           } else {
             entry.statusError = msg;
@@ -173,7 +175,7 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
 
   String _stateLabel(_EscrowEntry e) {
     final live = e.liveStatus;
-    
+
     if (live != null) {
       // Check server-provided state first (most authoritative)
       final fState = (live.fundingState ?? '').toLowerCase();
@@ -197,13 +199,15 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
       }
       // Check server-provided matureForCsv flag
       if (live.matureForCsv) return 'Expired';
-      
+
       // Fall back to derived state from live data
-      if (live.utxoCount == 0 || (live.fundingTxid ?? '').isEmpty) return 'Not funded';
+      if (live.utxoCount == 0 || (live.fundingTxid ?? '').isEmpty)
+        return 'Not funded';
       if (live.utxoCount > 1) return 'Invalid funding';
       if (live.confs == 0) return 'Seen in mempool';
       final required = live.requiredConfs ?? 0;
-      if (required > 0 && live.confs < required) return 'Waiting for confirmations';
+      if (required > 0 && live.confs < required)
+        return 'Waiting for confirmations';
       return 'Locked';
     }
 
@@ -219,7 +223,7 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
 
   Color _stateColor(_EscrowEntry e) {
     final live = e.liveStatus;
-    
+
     if (live != null) {
       // Check server-provided state first (most authoritative)
       final fState = (live.fundingState ?? '').toLowerCase();
@@ -238,10 +242,10 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
             return Colors.orangeAccent;
         }
       }
-      
+
       // Check server-provided matureForCsv flag
       if (live.matureForCsv) return Colors.redAccent;
-      
+
       // Check if escrow is confirmed/ready based on confirmations
       if (live.utxoCount == 1 && live.confs > 0) {
         final required = live.requiredConfs ?? 0;
@@ -261,13 +265,13 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
 
   bool _isRefundable(_EscrowEntry e) {
     final live = e.liveStatus;
-    
+
     // Prefer server-provided matureForCsv flag
     if (live != null && live.matureForCsv) return true;
-    
+
     // Fall back to client-side calculation if no live status
     if (live == null && _csvExpired(e)) return true;
-    
+
     // Also check using confirmations
     final csv = e.csvBlocks ?? live?.csvBlocks ?? 0;
     if (csv <= 0) return false;
@@ -359,8 +363,7 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
               ),
               textInputAction: TextInputAction.done,
               onSubmitted: (_) {
-                final ok =
-                    _deleteConfirmCtrl.text.trim().toLowerCase() == 'ok';
+                final ok = _deleteConfirmCtrl.text.trim().toLowerCase() == 'ok';
                 Navigator.of(dialogContext).pop(ok);
               },
             ),
@@ -373,8 +376,7 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
           ),
           TextButton(
             onPressed: () {
-              final ok =
-                  _deleteConfirmCtrl.text.trim().toLowerCase() == 'ok';
+              final ok = _deleteConfirmCtrl.text.trim().toLowerCase() == 'ok';
               Navigator.of(dialogContext).pop(ok);
             },
             child: const Text('Delete'),
@@ -461,7 +463,9 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
     final updated = (live?.updatedAt ?? e.archivedAt);
     final updatedAt = updated == null
         ? ''
-        : DateTime.fromMillisecondsSinceEpoch(updated * 1000).toLocal().toString();
+        : DateTime.fromMillisecondsSinceEpoch(updated * 1000)
+            .toLocal()
+            .toString();
     final openedAt = e.archivedAt == null
         ? ''
         : DateTime.fromMillisecondsSinceEpoch(e.archivedAt! * 1000)
@@ -508,8 +512,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
               IconButton(
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: e.escrowId));
-                  ScaffoldMessenger.of(context)
-                      .showSnackBar(const SnackBar(content: Text('Escrow ID copied')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Escrow ID copied')));
                 },
                 icon: const Icon(Icons.copy, color: Colors.white70),
               ),
@@ -519,7 +523,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                 decoration: BoxDecoration(
                   color: _stateColor(e).withOpacity(.15),
                   borderRadius: BorderRadius.circular(8),
@@ -527,7 +532,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
                 ),
                 child: Text(
                   _stateLabel(e),
-                  style: TextStyle(color: _stateColor(e), fontWeight: FontWeight.bold),
+                  style: TextStyle(
+                      color: _stateColor(e), fontWeight: FontWeight.bold),
                 ),
               ),
               const SizedBox(width: 12),
@@ -540,7 +546,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
           ),
           const SizedBox(height: 8),
           _infoRow('Amount', '${amountDcr.toStringAsFixed(4)} DCR'),
-          if (e.csvBlocks != null) _infoRow('CSV blocks', e.csvBlocks.toString()),
+          if (e.csvBlocks != null)
+            _infoRow('CSV blocks', e.csvBlocks.toString()),
           if (live?.confs != null) _infoRow('Confs', live!.confs.toString()),
           if (live?.requiredConfs != null)
             _infoRow('Required confs', live!.requiredConfs.toString()),
@@ -622,7 +629,8 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
             width: 140,
             child: Text(
               label,
-              style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+              style: const TextStyle(
+                  color: Colors.white70, fontWeight: FontWeight.w600),
             ),
           ),
           Expanded(
@@ -753,7 +761,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
     );
     final storedAmount = _toInt(_escrow['funded_amount']);
     _utxoValueCtrl = TextEditingController(
-      text: storedAmount > 0 ? storedAmount.toString() : '',
+      text: storedAmount > 0 ? formatDcrFromAtoms(storedAmount) : '',
     );
 
     // Auto-populate destination with configured payout address if available.
@@ -782,6 +790,14 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
   }
 
   String get _escrowId => _escrow['escrow_id']?.toString() ?? '';
+
+  int? _atomsFromDcr(String value) {
+    final cleaned = value.trim();
+    if (cleaned.isEmpty) return null;
+    final parsed = double.tryParse(cleaned);
+    if (parsed == null) return null;
+    return (parsed * 1e8).round();
+  }
 
   Future<void> _handleFundingUpdate() async {
     final currentTxid = _escrow['funding_txid']?.toString() ?? '';
@@ -904,7 +920,14 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
 
     final utxoValueInput = _utxoValueCtrl.text.trim();
     final utxoValue =
-        utxoValueInput.isNotEmpty ? int.tryParse(utxoValueInput) : null;
+        utxoValueInput.isNotEmpty ? _atomsFromDcr(utxoValueInput) : null;
+    if (utxoValueInput.isNotEmpty && utxoValue == null) {
+      setState(() {
+        _statusMessage = 'UTXO value must be a valid DCR amount.';
+        _statusIsError = true;
+      });
+      return;
+    }
 
     setState(() {
       _isBuilding = true;
@@ -938,6 +961,8 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
           }
           if (result['utxo_value'] != null) {
             _escrow['funded_amount'] = result['utxo_value'];
+            _utxoValueCtrl.text =
+                formatDcrFromAtoms(_toInt(result['utxo_value']));
           }
           // Mark escrow as having a refund tx built (not broadcast).
           _escrow['status'] = 'tx built';
@@ -995,7 +1020,8 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
     await Clipboard.setData(ClipboardData(text: fundingTx));
     if (!mounted) return;
     messenger.showSnackBar(
-      const SnackBar(content: Text('Funding transaction ID copied to clipboard')),
+      const SnackBar(
+          content: Text('Funding transaction ID copied to clipboard')),
     );
   }
 
@@ -1010,7 +1036,6 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
     final fundingTx = _escrow['funding_txid']?.toString() ?? '';
     final fundingVout = _toInt(_escrow['funding_vout']);
     final amountAtoms = _toInt(_escrow['funded_amount']);
-    final amountDcr = amountAtoms / 100000000;
     final csvBlocks = _toInt(_escrow['csv_blocks']);
     final archivedAt = _toInt(_escrow['archived_at']);
     final archivedText = archivedAt > 0
@@ -1096,7 +1121,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
               _InfoRow(
                 label: 'Amount',
                 value: amountAtoms > 0
-                    ? '${amountDcr.toStringAsFixed(8)} DCR'
+                    ? '${formatDcrFromAtoms(amountAtoms)} DCR'
                     : 'Unknown',
               ),
               _InfoRow(
@@ -1130,10 +1155,12 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
               TextField(
                 controller: _utxoValueCtrl,
                 decoration: const InputDecoration(
-                  labelText: 'UTXO value (atoms)',
-                  helperText: 'Optional in case of wrong input',
+                  labelText: 'UTXO value (DCR)',
+                  helperText:
+                      'Optional in case of wrong input. Enter a DCR amount.',
                 ),
-                keyboardType: TextInputType.number,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
               ),
               const SizedBox(height: 20),
               Wrap(
@@ -1181,8 +1208,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                   message: _statusMessage!,
                   isError: _statusIsError,
                 ),
-              if (_refundResult != null &&
-                  _refundResult!['utxo_txid'] != null)
+              if (_refundResult != null && _refundResult!['utxo_txid'] != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: _InfoRow(
@@ -1262,8 +1288,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                             if (!mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                content:
-                                    Text('URL copied to clipboard: $url'),
+                                content: Text('URL copied to clipboard: $url'),
                               ),
                             );
                           }
