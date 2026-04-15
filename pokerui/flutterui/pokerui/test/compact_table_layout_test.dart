@@ -1555,6 +1555,78 @@ void main() {
     expect(amountRect.width, greaterThan(120));
   });
 
+  testWidgets('desktop notebook bet input fits inside the dock without scroll',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+    final betCtrl = TextEditingController(text: '40');
+    addTearDown(betCtrl.dispose);
+
+    Future<void> verifyForSize(Size size) async {
+      final scene = PokerSceneLayout.resolve(size);
+      await tester.pumpWidget(_wrap(
+        size: size,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            key: const Key('poker-hero-dock'),
+            width: scene.heroDockRect.width,
+            height: scene.heroDockRect.height,
+            child: BottomActionDock(
+              model: model,
+              showBetInput: true,
+              betCtrl: betCtrl,
+              onToggleBetInput: () {},
+              onCloseBetInput: () {},
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+      final composerRect =
+          tester.getRect(find.byKey(const Key('bet-composer-panel')));
+      final sliderRect =
+          tester.getRect(find.byKey(const Key('bet-amount-slider')));
+      final dockScrollables = find.descendant(
+        of: find.byKey(const Key('poker-hero-dock')),
+        matching: find.byType(Scrollable),
+      );
+      final verticalDockScrollable = dockScrollables
+          .evaluate()
+          .map((element) {
+            final widget = element.widget;
+            if (widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down) {
+              return element;
+            }
+            return null;
+          })
+          .whereType<Element>()
+          .single;
+      final scrollState =
+          tester.state<ScrollableState>(find.byElementPredicate((candidate) {
+        return candidate == verticalDockScrollable;
+      }));
+
+      expect(composerRect.top, greaterThanOrEqualTo(dockRect.top));
+      expect(composerRect.bottom, lessThanOrEqualTo(dockRect.bottom));
+      expect(sliderRect.bottom, lessThanOrEqualTo(dockRect.bottom));
+      expect(scrollState.position.maxScrollExtent, 0.0);
+    }
+
+    await verifyForSize(const Size(1366, 768));
+    await verifyForSize(const Size(1440, 900));
+  });
+
   testWidgets(
       'phone bet input uses full dock width and keeps the 3x chip inline',
       (WidgetTester tester) async {

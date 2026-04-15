@@ -18,6 +18,10 @@ List<pr.Card> _dockCardsForModel(PokerModel model) {
   return (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
 }
 
+// Below this height budget the desktop composer must collapse to its denser
+// variant or it will overflow the hero dock on notebook-class windows.
+const double _betComposerCompactHeightThreshold = 170.0;
+
 class _ActionControls {
   const _ActionControls({
     required this.betCtrl,
@@ -248,6 +252,7 @@ class BottomActionDock extends StatelessWidget {
                   onCloseBetInput: actionControls.onCloseBetInput,
                   bb: _resolveBigBlind(),
                   availableWidth: showBetInput ? constraints.maxWidth : null,
+                  availableHeight: showBetInput ? constraints.maxHeight : null,
                 )
               : showActions
                   ? _WaitingIndicator(model: model)
@@ -392,6 +397,7 @@ class MobileHeroActionPanel extends StatelessWidget {
                 onCloseBetInput: actionControls.onCloseBetInput,
                 bb: _resolveBigBlind(),
                 availableWidth: betInputAvailableWidth,
+                availableHeight: showBetInput ? availableHeight : null,
                 preferFullWidthBetInput: true,
               )
             : showActions
@@ -953,6 +959,7 @@ class _ActionButtons extends StatelessWidget {
     required this.onCloseBetInput,
     required this.bb,
     this.availableWidth,
+    this.availableHeight,
     this.preferFullWidthBetInput = false,
   });
 
@@ -963,6 +970,7 @@ class _ActionButtons extends StatelessWidget {
   final VoidCallback onCloseBetInput;
   final int bb;
   final double? availableWidth;
+  final double? availableHeight;
   final bool preferFullWidthBetInput;
 
   @override
@@ -997,6 +1005,7 @@ class _ActionButtons extends StatelessWidget {
         isRaise: isRaise,
         onClose: onCloseBetInput,
         availableWidth: availableWidth,
+        availableHeight: availableHeight,
         preferFullWidth: preferFullWidthBetInput,
       );
     }
@@ -1076,6 +1085,7 @@ class _BetInputRow extends StatelessWidget {
     required this.isRaise,
     required this.onClose,
     this.availableWidth,
+    this.availableHeight,
     this.preferFullWidth = false,
   });
 
@@ -1085,6 +1095,7 @@ class _BetInputRow extends StatelessWidget {
   final bool isRaise;
   final VoidCallback onClose;
   final double? availableWidth;
+  final double? availableHeight;
   final bool preferFullWidth;
 
   int _initialTarget() {
@@ -1217,8 +1228,12 @@ class _BetInputRow extends StatelessWidget {
             availableWidth?.isFinite == true && availableWidth! > 0
                 ? availableWidth!
                 : constraints.maxWidth;
-        final compactHeight =
-            constraints.maxHeight.isFinite && constraints.maxHeight <= 56;
+        final layoutHeight =
+            availableHeight?.isFinite == true && availableHeight! > 0
+                ? availableHeight!
+                : constraints.maxHeight;
+        final compactHeight = layoutHeight.isFinite &&
+            layoutHeight <= _betComposerCompactHeightThreshold;
         final compactWidthThreshold = bp.isNarrow ? 340 * scale : 410 * scale;
         final compactWidth =
             layoutWidth.isFinite && layoutWidth < compactWidthThreshold;
