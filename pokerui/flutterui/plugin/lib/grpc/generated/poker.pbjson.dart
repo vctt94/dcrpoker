@@ -566,6 +566,34 @@ final $typed_data.Uint8List joinTableResponseDescriptor = $convert.base64Decode(
     'ChFKb2luVGFibGVSZXNwb25zZRIYCgdzdWNjZXNzGAEgASgIUgdzdWNjZXNzEhgKB21lc3NhZ2'
     'UYAiABKAlSB21lc3NhZ2U=');
 
+@$core.Deprecated('Use watchTableRequestDescriptor instead')
+const WatchTableRequest$json = {
+  '1': 'WatchTableRequest',
+  '2': [
+    {'1': 'player_id', '3': 1, '4': 1, '5': 9, '10': 'playerId'},
+    {'1': 'table_id', '3': 2, '4': 1, '5': 9, '10': 'tableId'},
+  ],
+};
+
+/// Descriptor for `WatchTableRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchTableRequestDescriptor = $convert.base64Decode(
+    'ChFXYXRjaFRhYmxlUmVxdWVzdBIbCglwbGF5ZXJfaWQYASABKAlSCHBsYXllcklkEhkKCHRhYm'
+    'xlX2lkGAIgASgJUgd0YWJsZUlk');
+
+@$core.Deprecated('Use watchTableResponseDescriptor instead')
+const WatchTableResponse$json = {
+  '1': 'WatchTableResponse',
+  '2': [
+    {'1': 'success', '3': 1, '4': 1, '5': 8, '10': 'success'},
+    {'1': 'message', '3': 2, '4': 1, '5': 9, '10': 'message'},
+  ],
+};
+
+/// Descriptor for `WatchTableResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List watchTableResponseDescriptor = $convert.base64Decode(
+    'ChJXYXRjaFRhYmxlUmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2VzcxIYCgdtZXNzYW'
+    'dlGAIgASgJUgdtZXNzYWdl');
+
 @$core.Deprecated('Use leaveTableRequestDescriptor instead')
 const LeaveTableRequest$json = {
   '1': 'LeaveTableRequest',
@@ -593,6 +621,34 @@ const LeaveTableResponse$json = {
 final $typed_data.Uint8List leaveTableResponseDescriptor = $convert.base64Decode(
     'ChJMZWF2ZVRhYmxlUmVzcG9uc2USGAoHc3VjY2VzcxgBIAEoCFIHc3VjY2VzcxIYCgdtZXNzYW'
     'dlGAIgASgJUgdtZXNzYWdl');
+
+@$core.Deprecated('Use unwatchTableRequestDescriptor instead')
+const UnwatchTableRequest$json = {
+  '1': 'UnwatchTableRequest',
+  '2': [
+    {'1': 'player_id', '3': 1, '4': 1, '5': 9, '10': 'playerId'},
+    {'1': 'table_id', '3': 2, '4': 1, '5': 9, '10': 'tableId'},
+  ],
+};
+
+/// Descriptor for `UnwatchTableRequest`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List unwatchTableRequestDescriptor = $convert.base64Decode(
+    'ChNVbndhdGNoVGFibGVSZXF1ZXN0EhsKCXBsYXllcl9pZBgBIAEoCVIIcGxheWVySWQSGQoIdG'
+    'FibGVfaWQYAiABKAlSB3RhYmxlSWQ=');
+
+@$core.Deprecated('Use unwatchTableResponseDescriptor instead')
+const UnwatchTableResponse$json = {
+  '1': 'UnwatchTableResponse',
+  '2': [
+    {'1': 'success', '3': 1, '4': 1, '5': 8, '10': 'success'},
+    {'1': 'message', '3': 2, '4': 1, '5': 9, '10': 'message'},
+  ],
+};
+
+/// Descriptor for `UnwatchTableResponse`. Decode as a `google.protobuf.DescriptorProto`.
+final $typed_data.Uint8List unwatchTableResponseDescriptor = $convert.base64Decode(
+    'ChRVbndhdGNoVGFibGVSZXNwb25zZRIYCgdzdWNjZXNzGAEgASgIUgdzdWNjZXNzEhgKB21lc3'
+    'NhZ2UYAiABKAlSB21lc3NhZ2U=');
 
 @$core.Deprecated('Use getTablesRequestDescriptor instead')
 const GetTablesRequest$json = {
