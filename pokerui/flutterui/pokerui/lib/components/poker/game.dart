@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -133,6 +134,7 @@ class PokerGame {
       VoidCallback? onToggleHeroCards}) {
     Widget buildTableScene(PokerSceneLayout resolvedScene) {
       final tableLayout = TableLayout.fromScene(resolvedScene);
+      final isShowdown = gameState.phase == pr.GamePhase.SHOWDOWN;
       final resolvedPot = gameState.phase == pr.GamePhase.SHOWDOWN
           ? (pokerModel.showdown?.pot ?? gameState.pot)
           : gameState.pot;
@@ -141,6 +143,11 @@ class PokerGame {
         (sum, player) => sum + player.currentBet,
       );
       final collectedPot = (resolvedPot - liveStreetBets).clamp(0, 1 << 30);
+      final List<UiWinner> showdownWinners =
+          isShowdown ? pokerModel.showdownWinners : const [];
+      final payoutFxMs =
+          showdownWinners.isNotEmpty ? pokerModel.lastShowdownFxMs : 0;
+      final tableMessage = pokerModel.tableMessage;
 
       return SizedBox.expand(
         child: RepaintBoundary(
@@ -179,9 +186,7 @@ class PokerGame {
                 showHeroCardsInSeat: showHeroSeatCards,
                 heroCardsRevealed: heroCardsRevealed,
                 onToggleHeroCards: onToggleHeroCards,
-                showdownWinners: gameState.phase == pr.GamePhase.SHOWDOWN
-                    ? pokerModel.showdownWinners
-                    : const [],
+                showdownWinners: showdownWinners,
                 aspectRatio: aspectRatio,
               ),
               DisconnectedBadgesOverlay(
@@ -196,23 +201,10 @@ class PokerGame {
                   layout: tableLayout,
                   pot: collectedPot,
                   theme: theme,
-                  payoutFxMs: gameState.phase == pr.GamePhase.SHOWDOWN &&
-                          pokerModel.showdownWinners.isNotEmpty
-                      ? pokerModel.lastShowdownFxMs
-                      : 0,
+                  payoutFxMs: payoutFxMs,
                 ),
-              if (pokerModel.tableMessage.isNotEmpty)
-                Positioned(
-                  top: 4,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: _TableMessageBanner(
-                      message: pokerModel.tableMessage,
-                      uiScale: theme.uiSizeMultiplier,
-                    ),
-                  ),
-                ),
+              if (tableMessage.isNotEmpty)
+                _buildTableMessageOverlay(resolvedScene, tableMessage),
             ],
           ),
         ),
@@ -462,6 +454,41 @@ class PokerGame {
   }
 
   String get name => 'Poker';
+
+  Widget _buildTableMessageOverlay(
+    PokerSceneLayout scene,
+    String message,
+  ) {
+    final banner = _TableMessageBanner(
+      message: message,
+      uiScale: theme.uiSizeMultiplier,
+      maxWidth: scene.isPhonePortrait
+          ? math.min(
+              scene.contentRect.width - PokerSpacing.xl,
+              320.0,
+            )
+          : null,
+    );
+
+    if (!scene.isPhonePortrait) {
+      return Positioned(
+        top: 4,
+        left: 0,
+        right: 0,
+        child: Center(child: banner),
+      );
+    }
+
+    return Positioned(
+      top: scene.safeRect.top + PokerSpacing.md + 44.0 + PokerSpacing.sm,
+      left: scene.safeRect.left + PokerSpacing.md,
+      right: scene.screenRect.right - scene.safeRect.right + PokerSpacing.md,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: banner,
+      ),
+    );
+  }
 }
 
 /// Draws the themed table border over the default background.
@@ -488,28 +515,39 @@ class _TableMessageBanner extends StatelessWidget {
   const _TableMessageBanner({
     required this.message,
     this.uiScale = 1.0,
+    this.maxWidth,
   });
+
+  static const bannerKey = Key('table-message-banner');
 
   final String message;
   final double uiScale;
+  final double? maxWidth;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 16 * uiScale,
-        vertical: 6 * uiScale,
-      ),
-      decoration: BoxDecoration(
-        color: PokerColors.warning.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(8 * uiScale),
-      ),
-      child: Text(
-        message,
-        style: PokerTypography.bodySmall.copyWith(
-          color: Colors.black87,
-          fontWeight: FontWeight.w600,
-          fontSize: 12 * uiScale,
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth ?? double.infinity),
+      child: Container(
+        key: bannerKey,
+        padding: EdgeInsets.symmetric(
+          horizontal: 16 * uiScale,
+          vertical: 6 * uiScale,
+        ),
+        decoration: BoxDecoration(
+          color: PokerColors.warning.withOpacity(0.85),
+          borderRadius: BorderRadius.circular(8 * uiScale),
+        ),
+        child: Text(
+          message,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: PokerTypography.bodySmall.copyWith(
+            color: Colors.black87,
+            fontWeight: FontWeight.w600,
+            fontSize: 12 * uiScale,
+          ),
         ),
       ),
     );
