@@ -1722,6 +1722,138 @@ class JoinTableResponse extends $pb.GeneratedMessage {
   void clearMessage() => $_clearField(2);
 }
 
+class WatchTableRequest extends $pb.GeneratedMessage {
+  factory WatchTableRequest({
+    $core.String? playerId,
+    $core.String? tableId,
+  }) {
+    final result = create();
+    if (playerId != null) result.playerId = playerId;
+    if (tableId != null) result.tableId = tableId;
+    return result;
+  }
+
+  WatchTableRequest._();
+
+  factory WatchTableRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory WatchTableRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchTableRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'playerId')
+    ..aOS(2, _omitFieldNames ? '' : 'tableId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchTableRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchTableRequest copyWith(void Function(WatchTableRequest) updates) =>
+      super.copyWith((message) => updates(message as WatchTableRequest))
+          as WatchTableRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static WatchTableRequest create() => WatchTableRequest._();
+  @$core.override
+  WatchTableRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static WatchTableRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<WatchTableRequest>(create);
+  static WatchTableRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get playerId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set playerId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPlayerId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPlayerId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get tableId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set tableId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTableId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTableId() => $_clearField(2);
+}
+
+class WatchTableResponse extends $pb.GeneratedMessage {
+  factory WatchTableResponse({
+    $core.bool? success,
+    $core.String? message,
+  }) {
+    final result = create();
+    if (success != null) result.success = success;
+    if (message != null) result.message = message;
+    return result;
+  }
+
+  WatchTableResponse._();
+
+  factory WatchTableResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory WatchTableResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'WatchTableResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'success')
+    ..aOS(2, _omitFieldNames ? '' : 'message')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchTableResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  WatchTableResponse copyWith(void Function(WatchTableResponse) updates) =>
+      super.copyWith((message) => updates(message as WatchTableResponse))
+          as WatchTableResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static WatchTableResponse create() => WatchTableResponse._();
+  @$core.override
+  WatchTableResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static WatchTableResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<WatchTableResponse>(create);
+  static WatchTableResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get success => $_getBF(0);
+  @$pb.TagNumber(1)
+  set success($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSuccess() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSuccess() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get message => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set message($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMessage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMessage() => $_clearField(2);
+}
+
 class LeaveTableRequest extends $pb.GeneratedMessage {
   factory LeaveTableRequest({
     $core.String? playerId,
@@ -1834,6 +1966,138 @@ class LeaveTableResponse extends $pb.GeneratedMessage {
   static LeaveTableResponse getDefault() => _defaultInstance ??=
       $pb.GeneratedMessage.$_defaultFor<LeaveTableResponse>(create);
   static LeaveTableResponse? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.bool get success => $_getBF(0);
+  @$pb.TagNumber(1)
+  set success($core.bool value) => $_setBool(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasSuccess() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearSuccess() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get message => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set message($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasMessage() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearMessage() => $_clearField(2);
+}
+
+class UnwatchTableRequest extends $pb.GeneratedMessage {
+  factory UnwatchTableRequest({
+    $core.String? playerId,
+    $core.String? tableId,
+  }) {
+    final result = create();
+    if (playerId != null) result.playerId = playerId;
+    if (tableId != null) result.tableId = tableId;
+    return result;
+  }
+
+  UnwatchTableRequest._();
+
+  factory UnwatchTableRequest.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory UnwatchTableRequest.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UnwatchTableRequest',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOS(1, _omitFieldNames ? '' : 'playerId')
+    ..aOS(2, _omitFieldNames ? '' : 'tableId')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnwatchTableRequest clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnwatchTableRequest copyWith(void Function(UnwatchTableRequest) updates) =>
+      super.copyWith((message) => updates(message as UnwatchTableRequest))
+          as UnwatchTableRequest;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static UnwatchTableRequest create() => UnwatchTableRequest._();
+  @$core.override
+  UnwatchTableRequest createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static UnwatchTableRequest getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UnwatchTableRequest>(create);
+  static UnwatchTableRequest? _defaultInstance;
+
+  @$pb.TagNumber(1)
+  $core.String get playerId => $_getSZ(0);
+  @$pb.TagNumber(1)
+  set playerId($core.String value) => $_setString(0, value);
+  @$pb.TagNumber(1)
+  $core.bool hasPlayerId() => $_has(0);
+  @$pb.TagNumber(1)
+  void clearPlayerId() => $_clearField(1);
+
+  @$pb.TagNumber(2)
+  $core.String get tableId => $_getSZ(1);
+  @$pb.TagNumber(2)
+  set tableId($core.String value) => $_setString(1, value);
+  @$pb.TagNumber(2)
+  $core.bool hasTableId() => $_has(1);
+  @$pb.TagNumber(2)
+  void clearTableId() => $_clearField(2);
+}
+
+class UnwatchTableResponse extends $pb.GeneratedMessage {
+  factory UnwatchTableResponse({
+    $core.bool? success,
+    $core.String? message,
+  }) {
+    final result = create();
+    if (success != null) result.success = success;
+    if (message != null) result.message = message;
+    return result;
+  }
+
+  UnwatchTableResponse._();
+
+  factory UnwatchTableResponse.fromBuffer($core.List<$core.int> data,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromBuffer(data, registry);
+  factory UnwatchTableResponse.fromJson($core.String json,
+          [$pb.ExtensionRegistry registry = $pb.ExtensionRegistry.EMPTY]) =>
+      create()..mergeFromJson(json, registry);
+
+  static final $pb.BuilderInfo _i = $pb.BuilderInfo(
+      _omitMessageNames ? '' : 'UnwatchTableResponse',
+      package: const $pb.PackageName(_omitMessageNames ? '' : 'poker'),
+      createEmptyInstance: create)
+    ..aOB(1, _omitFieldNames ? '' : 'success')
+    ..aOS(2, _omitFieldNames ? '' : 'message')
+    ..hasRequiredFields = false;
+
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnwatchTableResponse clone() => deepCopy();
+  @$core.Deprecated('See https://github.com/google/protobuf.dart/issues/998.')
+  UnwatchTableResponse copyWith(void Function(UnwatchTableResponse) updates) =>
+      super.copyWith((message) => updates(message as UnwatchTableResponse))
+          as UnwatchTableResponse;
+
+  @$core.override
+  $pb.BuilderInfo get info_ => _i;
+
+  @$core.pragma('dart2js:noInline')
+  static UnwatchTableResponse create() => UnwatchTableResponse._();
+  @$core.override
+  UnwatchTableResponse createEmptyInstance() => create();
+  @$core.pragma('dart2js:noInline')
+  static UnwatchTableResponse getDefault() => _defaultInstance ??=
+      $pb.GeneratedMessage.$_defaultFor<UnwatchTableResponse>(create);
+  static UnwatchTableResponse? _defaultInstance;
 
   @$pb.TagNumber(1)
   $core.bool get success => $_getBF(0);

@@ -361,11 +361,25 @@ class LobbyServiceClient extends $grpc.Client {
     return $createUnaryCall(_$joinTable, request, options: options);
   }
 
+  $grpc.ResponseFuture<$0.WatchTableResponse> watchTable(
+    $0.WatchTableRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$watchTable, request, options: options);
+  }
+
   $grpc.ResponseFuture<$0.LeaveTableResponse> leaveTable(
     $0.LeaveTableRequest request, {
     $grpc.CallOptions? options,
   }) {
     return $createUnaryCall(_$leaveTable, request, options: options);
+  }
+
+  $grpc.ResponseFuture<$0.UnwatchTableResponse> unwatchTable(
+    $0.UnwatchTableRequest request, {
+    $grpc.CallOptions? options,
+  }) {
+    return $createUnaryCall(_$unwatchTable, request, options: options);
   }
 
   $grpc.ResponseFuture<$0.GetTablesResponse> getTables(
@@ -419,11 +433,21 @@ class LobbyServiceClient extends $grpc.Client {
           '/poker.LobbyService/JoinTable',
           ($0.JoinTableRequest value) => value.writeToBuffer(),
           $0.JoinTableResponse.fromBuffer);
+  static final _$watchTable =
+      $grpc.ClientMethod<$0.WatchTableRequest, $0.WatchTableResponse>(
+          '/poker.LobbyService/WatchTable',
+          ($0.WatchTableRequest value) => value.writeToBuffer(),
+          $0.WatchTableResponse.fromBuffer);
   static final _$leaveTable =
       $grpc.ClientMethod<$0.LeaveTableRequest, $0.LeaveTableResponse>(
           '/poker.LobbyService/LeaveTable',
           ($0.LeaveTableRequest value) => value.writeToBuffer(),
           $0.LeaveTableResponse.fromBuffer);
+  static final _$unwatchTable =
+      $grpc.ClientMethod<$0.UnwatchTableRequest, $0.UnwatchTableResponse>(
+          '/poker.LobbyService/UnwatchTable',
+          ($0.UnwatchTableRequest value) => value.writeToBuffer(),
+          $0.UnwatchTableResponse.fromBuffer);
   static final _$getTables =
       $grpc.ClientMethod<$0.GetTablesRequest, $0.GetTablesResponse>(
           '/poker.LobbyService/GetTables',
@@ -472,6 +496,13 @@ abstract class LobbyServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $0.JoinTableRequest.fromBuffer(value),
         ($0.JoinTableResponse value) => value.writeToBuffer()));
+    $addMethod($grpc.ServiceMethod<$0.WatchTableRequest, $0.WatchTableResponse>(
+        'WatchTable',
+        watchTable_Pre,
+        false,
+        false,
+        ($core.List<$core.int> value) => $0.WatchTableRequest.fromBuffer(value),
+        ($0.WatchTableResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.LeaveTableRequest, $0.LeaveTableResponse>(
         'LeaveTable',
         leaveTable_Pre,
@@ -479,6 +510,15 @@ abstract class LobbyServiceBase extends $grpc.Service {
         false,
         ($core.List<$core.int> value) => $0.LeaveTableRequest.fromBuffer(value),
         ($0.LeaveTableResponse value) => value.writeToBuffer()));
+    $addMethod(
+        $grpc.ServiceMethod<$0.UnwatchTableRequest, $0.UnwatchTableResponse>(
+            'UnwatchTable',
+            unwatchTable_Pre,
+            false,
+            false,
+            ($core.List<$core.int> value) =>
+                $0.UnwatchTableRequest.fromBuffer(value),
+            ($0.UnwatchTableResponse value) => value.writeToBuffer()));
     $addMethod($grpc.ServiceMethod<$0.GetTablesRequest, $0.GetTablesResponse>(
         'GetTables',
         getTables_Pre,
@@ -540,6 +580,14 @@ abstract class LobbyServiceBase extends $grpc.Service {
   $async.Future<$0.JoinTableResponse> joinTable(
       $grpc.ServiceCall call, $0.JoinTableRequest request);
 
+  $async.Future<$0.WatchTableResponse> watchTable_Pre($grpc.ServiceCall $call,
+      $async.Future<$0.WatchTableRequest> $request) async {
+    return watchTable($call, await $request);
+  }
+
+  $async.Future<$0.WatchTableResponse> watchTable(
+      $grpc.ServiceCall call, $0.WatchTableRequest request);
+
   $async.Future<$0.LeaveTableResponse> leaveTable_Pre($grpc.ServiceCall $call,
       $async.Future<$0.LeaveTableRequest> $request) async {
     return leaveTable($call, await $request);
@@ -547,6 +595,15 @@ abstract class LobbyServiceBase extends $grpc.Service {
 
   $async.Future<$0.LeaveTableResponse> leaveTable(
       $grpc.ServiceCall call, $0.LeaveTableRequest request);
+
+  $async.Future<$0.UnwatchTableResponse> unwatchTable_Pre(
+      $grpc.ServiceCall $call,
+      $async.Future<$0.UnwatchTableRequest> $request) async {
+    return unwatchTable($call, await $request);
+  }
+
+  $async.Future<$0.UnwatchTableResponse> unwatchTable(
+      $grpc.ServiceCall call, $0.UnwatchTableRequest request);
 
   $async.Future<$0.GetTablesResponse> getTables_Pre($grpc.ServiceCall $call,
       $async.Future<$0.GetTablesRequest> $request) async {
