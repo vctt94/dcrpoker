@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pokerui/models/poker.dart';
+import 'package:pokerui/screens/open_escrow.dart';
 import 'package:pokerui/theme/colors.dart';
 import 'package:pokerui/theme/typography.dart';
 import 'package:pokerui/theme/spacing.dart';
@@ -90,31 +91,22 @@ class InLobbyView extends StatelessWidget {
       return;
     }
     final escrows = await model.refreshBindableEscrows();
-    if (escrows.isEmpty) {
-      if (!ctx.mounted) return;
-      await showDialog(
+    if (!ctx.mounted) return;
+    final hasMatchingEscrow =
+        escrows.any((escrow) => _escrowMatchesBuyIn(escrow, t.buyInAtoms));
+    if (!hasMatchingEscrow) {
+      final tableName = t.name.trim().isNotEmpty
+          ? t.name.trim()
+          : 'Table ${_shortEscrowText(t.id)}';
+      await showDialog<bool>(
         context: ctx,
-        builder: (dctx) => AlertDialog(
-          title: const Text('No Escrows'),
-          content: const Text('Open and fund an escrow first.'),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(dctx),
-                child: const Text('Later')),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(dctx);
-                Navigator.pushNamed(ctx, '/open-escrow');
-              },
-              child: const Text('Open Escrow'),
-            ),
-          ],
+        builder: (dctx) => OpenEscrowDialog(
+          tableName: tableName,
+          buyInAtoms: t.buyInAtoms,
         ),
       );
       return;
     }
-
-    if (!ctx.mounted) return;
     await showDialog(
       context: ctx,
       builder: (dctx) => _BindEscrowDialog(
@@ -606,8 +598,29 @@ class _BindEscrowDialogState extends State<_BindEscrowDialog> {
         ElevatedButton(
           onPressed: () async {
             if (!hasMatchingEscrows) {
-              Navigator.pop(context);
-              await Navigator.of(context).pushNamed('/open-escrow');
+              final tableName = widget.table.name.trim().isNotEmpty
+                  ? widget.table.name.trim()
+                  : 'Table ${_shortEscrowText(widget.table.id)}';
+              final messenger = ScaffoldMessenger.maybeOf(context);
+              final navigator = Navigator.of(context);
+              final opened = await showDialog<bool>(
+                context: context,
+                builder: (dctx) => OpenEscrowDialog(
+                  tableName: tableName,
+                  buyInAtoms: widget.table.buyInAtoms,
+                ),
+              );
+              if (!mounted) return;
+              if (opened == true) {
+                messenger?.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Escrow opened for ${(widget.table.buyInAtoms / 1e8).toStringAsFixed(4)} DCR. Fund it, then bind it once it confirms.',
+                    ),
+                  ),
+                );
+                navigator.pop();
+              }
               return;
             }
             final chosenOutpoint = _escrowCtrl.text.trim().isNotEmpty
