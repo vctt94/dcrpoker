@@ -23,6 +23,15 @@ int normalizeBetInputToTotal({
   return entered;
 }
 
+bool isAllInTarget({
+  required int totalTarget,
+  required int myBet,
+  required int myBalance,
+}) {
+  final maxTotal = myBet + myBalance;
+  return maxTotal > 0 && totalTarget >= maxTotal;
+}
+
 bool isShortAllInTarget({
   required int totalTarget,
   required int myBet,
@@ -32,8 +41,11 @@ bool isShortAllInTarget({
   if (currentBet <= 0) return false;
   if (totalTarget >= currentBet) return false;
 
-  final maxTotal = myBet + myBalance;
-  return maxTotal > 0 && totalTarget >= maxTotal;
+  return isAllInTarget(
+    totalTarget: totalTarget,
+    myBet: myBet,
+    myBalance: myBalance,
+  );
 }
 
 int effectiveMinRaiseIncrement({
@@ -261,14 +273,13 @@ String? validateBetOrRaiseTarget({
   required int minRaise,
   required int bigBlind,
 }) {
-  final shortAllIn = isShortAllInTarget(
+  final allIn = isAllInTarget(
     totalTarget: totalTarget,
     myBet: myBet,
     myBalance: myBalance,
-    currentBet: currentBet,
   );
 
-  if (currentBet > 0 && totalTarget < currentBet && !shortAllIn) {
+  if (currentBet > 0 && totalTarget < currentBet && !allIn) {
     return 'Must call $currentBet total or go all-in for less';
   }
 
@@ -277,7 +288,7 @@ String? validateBetOrRaiseTarget({
     minRaise: minRaise,
     bigBlind: bigBlind,
   );
-  if (minTotal <= 0 || shortAllIn) return null;
+  if (minTotal <= 0 || allIn) return null;
 
   if (currentBet > 0 && totalTarget == currentBet) {
     return 'Use Call to match $currentBet. Minimum raise to $minTotal';
