@@ -875,6 +875,7 @@ class _SettingsMenuButton extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
+        mouseCursor: SystemMouseCursors.click,
         child: Container(
           padding: const EdgeInsets.symmetric(
             horizontal: PokerSpacing.lg,

@@ -743,6 +743,7 @@ class _ShowCardsAffordance extends StatelessWidget {
     final accent = showing ? PokerColors.warning : PokerColors.textPrimary;
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => onEnter(),
       onExit: (_) => onExit(),
       child: GestureDetector(
@@ -840,6 +841,7 @@ class PokerLastHandButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        mouseCursor: SystemMouseCursors.click,
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: EdgeInsets.symmetric(
@@ -1396,6 +1398,7 @@ class _BetInputRow extends StatelessWidget {
                                 color: Colors.transparent,
                                 child: InkWell(
                                   onTap: onClose,
+                                  mouseCursor: SystemMouseCursors.click,
                                   borderRadius: BorderRadius.circular(10),
                                   child: Container(
                                     padding: const EdgeInsets.all(7),
@@ -1589,6 +1592,8 @@ class _SliderPresetChip extends StatelessWidget {
       child: InkWell(
         key: const Key('raise-3x-button'),
         onTap: onTap,
+        mouseCursor:
+            onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
         borderRadius: BorderRadius.circular(999),
         child: Ink(
           padding: EdgeInsets.symmetric(

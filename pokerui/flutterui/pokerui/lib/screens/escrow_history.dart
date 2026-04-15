@@ -1293,6 +1293,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                             );
                           }
                         },
+                        mouseCursor: SystemMouseCursors.click,
                         child: Text(
                           'https://dcrdata.org/decodetx',
                           style: TextStyle(
