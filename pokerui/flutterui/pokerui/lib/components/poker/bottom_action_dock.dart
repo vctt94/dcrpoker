@@ -18,6 +18,10 @@ List<pr.Card> _dockCardsForModel(PokerModel model) {
   return (me?.hand.isNotEmpty ?? false) ? me!.hand : model.heroShowdownHand;
 }
 
+// Below this height budget the desktop composer must collapse to its denser
+// variant or it will overflow the hero dock on notebook-class windows.
+const double _betComposerCompactHeightThreshold = 170.0;
+
 class _ActionControls {
   const _ActionControls({
     required this.betCtrl,
@@ -89,6 +93,81 @@ class _ActionButton extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _BetSliderThumbShape extends SliderComponentShape {
+  const _BetSliderThumbShape({
+    required this.radius,
+    required this.haloRadius,
+    this.borderWidth = 2,
+  });
+
+  final double radius;
+  final double haloRadius;
+  final double borderWidth;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) {
+    final visualRadius = math.max(radius + borderWidth, haloRadius);
+    return Size.square(visualRadius * 2);
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final canvas = context.canvas;
+    final enabledColor = sliderTheme.thumbColor ?? PokerColors.accent;
+    final disabledColor = sliderTheme.disabledThumbColor ?? enabledColor;
+    final thumbColor =
+        Color.lerp(disabledColor, enabledColor, enableAnimation.value) ??
+            enabledColor;
+    final haloColor = thumbColor.withValues(
+      alpha: 0.12 + (0.12 * enableAnimation.value),
+    );
+    final borderColor = Color.lerp(
+          PokerColors.surfaceBright,
+          Colors.white,
+          0.55,
+        ) ??
+        Colors.white;
+
+    final thumbPath = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawShadow(
+      thumbPath,
+      Colors.black.withValues(alpha: 0.34),
+      4,
+      false,
+    );
+
+    canvas.drawCircle(center, haloRadius, Paint()..color = haloColor);
+    canvas.drawCircle(center, radius, Paint()..color = thumbColor);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = borderColor.withValues(alpha: 0.9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = borderWidth,
+    );
+    canvas.drawCircle(
+      Offset(center.dx - (radius * 0.32), center.dy - (radius * 0.38)),
+      radius * 0.24,
+      Paint()..color = Colors.white.withValues(alpha: 0.24),
     );
   }
 }
@@ -173,6 +252,7 @@ class BottomActionDock extends StatelessWidget {
                   onCloseBetInput: actionControls.onCloseBetInput,
                   bb: _resolveBigBlind(),
                   availableWidth: showBetInput ? constraints.maxWidth : null,
+                  availableHeight: showBetInput ? constraints.maxHeight : null,
                 )
               : showActions
                   ? _WaitingIndicator(model: model)
@@ -317,6 +397,7 @@ class MobileHeroActionPanel extends StatelessWidget {
                 onCloseBetInput: actionControls.onCloseBetInput,
                 bb: _resolveBigBlind(),
                 availableWidth: betInputAvailableWidth,
+                availableHeight: showBetInput ? availableHeight : null,
                 preferFullWidthBetInput: true,
               )
             : showActions
@@ -668,6 +749,7 @@ class _ShowCardsAffordance extends StatelessWidget {
     final accent = showing ? PokerColors.warning : PokerColors.textPrimary;
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => onEnter(),
       onExit: (_) => onExit(),
       child: GestureDetector(
@@ -765,6 +847,7 @@ class PokerLastHandButton extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        mouseCursor: SystemMouseCursors.click,
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: EdgeInsets.symmetric(
@@ -876,6 +959,7 @@ class _ActionButtons extends StatelessWidget {
     required this.onCloseBetInput,
     required this.bb,
     this.availableWidth,
+    this.availableHeight,
     this.preferFullWidthBetInput = false,
   });
 
@@ -886,6 +970,7 @@ class _ActionButtons extends StatelessWidget {
   final VoidCallback onCloseBetInput;
   final int bb;
   final double? availableWidth;
+  final double? availableHeight;
   final bool preferFullWidthBetInput;
 
   @override
@@ -920,6 +1005,7 @@ class _ActionButtons extends StatelessWidget {
         isRaise: isRaise,
         onClose: onCloseBetInput,
         availableWidth: availableWidth,
+        availableHeight: availableHeight,
         preferFullWidth: preferFullWidthBetInput,
       );
     }
@@ -999,6 +1085,7 @@ class _BetInputRow extends StatelessWidget {
     required this.isRaise,
     required this.onClose,
     this.availableWidth,
+    this.availableHeight,
     this.preferFullWidth = false,
   });
 
@@ -1008,6 +1095,7 @@ class _BetInputRow extends StatelessWidget {
   final bool isRaise;
   final VoidCallback onClose;
   final double? availableWidth;
+  final double? availableHeight;
   final bool preferFullWidth;
 
   int _initialTarget() {
@@ -1140,8 +1228,12 @@ class _BetInputRow extends StatelessWidget {
             availableWidth?.isFinite == true && availableWidth! > 0
                 ? availableWidth!
                 : constraints.maxWidth;
-        final compactHeight =
-            constraints.maxHeight.isFinite && constraints.maxHeight <= 56;
+        final layoutHeight =
+            availableHeight?.isFinite == true && availableHeight! > 0
+                ? availableHeight!
+                : constraints.maxHeight;
+        final compactHeight = layoutHeight.isFinite &&
+            layoutHeight <= _betComposerCompactHeightThreshold;
         final compactWidthThreshold = bp.isNarrow ? 340 * scale : 410 * scale;
         final compactWidth =
             layoutWidth.isFinite && layoutWidth < compactWidthThreshold;
@@ -1321,6 +1413,7 @@ class _BetInputRow extends StatelessWidget {
                                 color: Colors.transparent,
                                 child: InkWell(
                                   onTap: onClose,
+                                  mouseCursor: SystemMouseCursors.click,
                                   borderRadius: BorderRadius.circular(10),
                                   child: Container(
                                     padding: const EdgeInsets.all(7),
@@ -1349,61 +1442,69 @@ class _BetInputRow extends StatelessWidget {
                       ],
                     ),
                     SizedBox(height: compactLayout ? 3 : 4),
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor:
-                            PokerColors.accent.withValues(alpha: 0.95),
-                        inactiveTrackColor:
-                            PokerColors.borderMedium.withValues(alpha: 0.88),
-                        thumbColor: PokerColors.accent,
-                        disabledThumbColor:
-                            PokerColors.accent.withValues(alpha: 0.5),
-                        disabledActiveTrackColor:
-                            PokerColors.accent.withValues(alpha: 0.5),
-                        disabledInactiveTrackColor:
-                            PokerColors.borderMedium.withValues(alpha: 0.5),
-                        overlayColor:
-                            PokerColors.accent.withValues(alpha: 0.12),
-                        valueIndicatorColor: PokerColors.surfaceBright,
-                        valueIndicatorTextStyle:
-                            PokerTypography.labelSmall.copyWith(
-                          color: PokerColors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        trackHeight: compactLayout ? 5 : 6,
-                        padding: EdgeInsets.zero,
-                        thumbShape: RoundSliderThumbShape(
-                          enabledThumbRadius: compactLayout ? 7 : 8,
-                          disabledThumbRadius: compactLayout ? 6 : 7,
-                        ),
-                        overlayShape: RoundSliderOverlayShape(
-                          overlayRadius: compactLayout ? 12 : 14,
-                        ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: compactLayout ? 6 : 12,
                       ),
-                      child: Slider(
-                        key: const Key('bet-amount-slider'),
-                        allowedInteraction: SliderInteraction.tapAndSlide,
-                        value: sliderDisplayValue.clamp(
-                          sliderDisplayMin,
-                          sliderDisplayMax,
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor:
+                              PokerColors.accent.withValues(alpha: 0.95),
+                          inactiveTrackColor:
+                              PokerColors.borderMedium.withValues(alpha: 0.88),
+                          thumbColor: PokerColors.accent,
+                          disabledThumbColor:
+                              PokerColors.accent.withValues(alpha: 0.5),
+                          disabledActiveTrackColor:
+                              PokerColors.accent.withValues(alpha: 0.5),
+                          disabledInactiveTrackColor:
+                              PokerColors.borderMedium.withValues(alpha: 0.5),
+                          overlayColor:
+                              PokerColors.accent.withValues(alpha: 0.12),
+                          valueIndicatorColor: PokerColors.surfaceBright,
+                          valueIndicatorTextStyle:
+                              PokerTypography.labelSmall.copyWith(
+                            color: PokerColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          trackHeight: compactLayout ? 6 : 7,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: compactLayout ? 2 : 4,
+                            vertical: compactLayout ? 4 : 6,
+                          ),
+                          thumbShape: _BetSliderThumbShape(
+                            radius: compactLayout ? 10 : 11,
+                            haloRadius: compactLayout ? 14 : 15,
+                          ),
+                          overlayShape: RoundSliderOverlayShape(
+                            overlayRadius: compactLayout ? 18 : 20,
+                          ),
                         ),
-                        min: sliderDisplayMin,
-                        max: sliderDisplayMax,
-                        label: shortAllInOnly
-                            ? 'All-in $maxRaise'
-                            : '$displayTarget',
-                        onChanged: sliderEnabled
-                            ? (raw) {
-                                final snapped = snapBetTargetToStep(
-                                  target: raw.round(),
-                                  currentBet: currentBet,
-                                  minRaise: minRaise,
-                                  maxRaise: maxRaise,
-                                  bigBlind: bb,
-                                );
-                                betCtrl.text = snapped.toString();
-                              }
-                            : null,
+                        child: Slider(
+                          key: const Key('bet-amount-slider'),
+                          allowedInteraction: SliderInteraction.tapAndSlide,
+                          value: sliderDisplayValue.clamp(
+                            sliderDisplayMin,
+                            sliderDisplayMax,
+                          ),
+                          min: sliderDisplayMin,
+                          max: sliderDisplayMax,
+                          label: shortAllInOnly
+                              ? 'All-in $maxRaise'
+                              : '$displayTarget',
+                          onChanged: sliderEnabled
+                              ? (raw) {
+                                  final snapped = snapBetTargetToStep(
+                                    target: raw.round(),
+                                    currentBet: currentBet,
+                                    minRaise: minRaise,
+                                    maxRaise: maxRaise,
+                                    bigBlind: bb,
+                                  );
+                                  betCtrl.text = snapped.toString();
+                                }
+                              : null,
+                        ),
                       ),
                     ),
                     _SliderLegend(
@@ -1511,6 +1612,8 @@ class _SliderPresetChip extends StatelessWidget {
       child: InkWell(
         key: const Key('raise-3x-button'),
         onTap: onTap,
+        mouseCursor:
+            onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
         borderRadius: BorderRadius.circular(999),
         child: Ink(
           padding: EdgeInsets.symmetric(

@@ -1001,6 +1001,7 @@ class _HeroCardsAffordance extends StatelessWidget {
     final accent = showing ? PokerColors.warning : PokerColors.textPrimary;
 
     return MouseRegion(
+      cursor: SystemMouseCursors.click,
       onEnter: (_) => onEnter(),
       onExit: (_) => onExit(),
       child: GestureDetector(

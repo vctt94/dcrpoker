@@ -257,6 +257,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                                                 content: Text(
                                                     'Error copied to clipboard')));
                                       },
+                                      mouseCursor: SystemMouseCursors.click,
                                       borderRadius: BorderRadius.circular(20),
                                       child: const Padding(
                                         padding: EdgeInsets.all(8.0),
@@ -269,6 +270,7 @@ class _PokerHomeScreenState extends State<PokerHomeScreen> {
                                     color: Colors.transparent,
                                     child: InkWell(
                                       onTap: () => pokerModel.clearError(),
+                                      mouseCursor: SystemMouseCursors.click,
                                       borderRadius: BorderRadius.circular(20),
                                       child: const Padding(
                                         padding: EdgeInsets.all(8.0),

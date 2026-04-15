@@ -382,6 +382,16 @@ void main() {
     );
   });
 
+  test('wide desktop keeps the hero dock height aligned with standard desktop',
+      () {
+    final standardLayout = PokerSceneLayout.resolve(const Size(1366, 900));
+    final wideLayout = PokerSceneLayout.resolve(const Size(1440, 900));
+
+    expect(standardLayout.mode, PokerLayoutMode.standard);
+    expect(wideLayout.mode, PokerLayoutMode.wide);
+    expect(wideLayout.heroDockRect.height, standardLayout.heroDockRect.height);
+  });
+
   test('short desktop compact layout still caps the table footprint', () {
     final layout = PokerSceneLayout.resolve(const Size(1366, 695));
 
@@ -1497,6 +1507,34 @@ void main() {
     expect(after, greaterThan(before));
   });
 
+  testWidgets('bet slider keeps a comfortable touch target',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(390, 844),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    final raiseFinder = find.text('Raise').last;
+    await tester.ensureVisible(raiseFinder);
+    await tester.tap(raiseFinder, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    expect(sliderRect.height, greaterThanOrEqualTo(32));
+  });
+
   testWidgets('bet input stays modest width on desktop landscape layouts',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');
@@ -1523,8 +1561,80 @@ void main() {
     final amountRect =
         tester.getRect(find.byKey(const Key('bet-amount-input-shell')));
     expect(sliderRect.width, greaterThan(260));
-    expect(sliderRect.width, lessThan(380));
+    expect(sliderRect.width, lessThanOrEqualTo(380.1));
     expect(amountRect.width, greaterThan(120));
+  });
+
+  testWidgets('desktop notebook bet input fits inside the dock without scroll',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+    final betCtrl = TextEditingController(text: '40');
+    addTearDown(betCtrl.dispose);
+
+    Future<void> verifyForSize(Size size) async {
+      final scene = PokerSceneLayout.resolve(size);
+      await tester.pumpWidget(_wrap(
+        size: size,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            key: const Key('poker-hero-dock'),
+            width: scene.heroDockRect.width,
+            height: scene.heroDockRect.height,
+            child: BottomActionDock(
+              model: model,
+              showBetInput: true,
+              betCtrl: betCtrl,
+              onToggleBetInput: () {},
+              onCloseBetInput: () {},
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final dockRect = tester.getRect(find.byKey(const Key('poker-hero-dock')));
+      final composerRect =
+          tester.getRect(find.byKey(const Key('bet-composer-panel')));
+      final sliderRect =
+          tester.getRect(find.byKey(const Key('bet-amount-slider')));
+      final dockScrollables = find.descendant(
+        of: find.byKey(const Key('poker-hero-dock')),
+        matching: find.byType(Scrollable),
+      );
+      final verticalDockScrollable = dockScrollables
+          .evaluate()
+          .map((element) {
+            final widget = element.widget;
+            if (widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down) {
+              return element;
+            }
+            return null;
+          })
+          .whereType<Element>()
+          .single;
+      final scrollState =
+          tester.state<ScrollableState>(find.byElementPredicate((candidate) {
+        return candidate == verticalDockScrollable;
+      }));
+
+      expect(composerRect.top, greaterThanOrEqualTo(dockRect.top));
+      expect(composerRect.bottom, lessThanOrEqualTo(dockRect.bottom));
+      expect(sliderRect.bottom, lessThanOrEqualTo(dockRect.bottom));
+      expect(scrollState.position.maxScrollExtent, 0.0);
+    }
+
+    await verifyForSize(const Size(1366, 768));
+    await verifyForSize(const Size(1440, 900));
   });
 
   testWidgets(

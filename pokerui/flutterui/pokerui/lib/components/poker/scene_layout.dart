@@ -215,7 +215,7 @@ class PokerSceneLayout {
         break;
       case PokerLayoutMode.wide:
         topBandHeight = (contentRect.height * 0.16).clamp(108.0, 148.0);
-        heroDockHeight = (contentRect.height * 0.17).clamp(148.0, 196.0);
+        heroDockHeight = (contentRect.height * 0.26).clamp(184.0, 240.0);
         railWidth = (contentRect.width * 0.12).clamp(120.0, 220.0);
         break;
     }

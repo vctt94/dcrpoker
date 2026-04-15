@@ -7,6 +7,7 @@ import 'package:golib_plugin/golib_plugin.dart';
 import 'package:golib_plugin/grpc/generated/poker.pb.dart' as pr;
 import 'package:path/path.dart' as p;
 import 'package:provider/provider.dart';
+import 'package:pokerui/components/dialogs/delete_escrow.dart';
 import 'package:pokerui/components/shared_layout.dart';
 import 'package:pokerui/config.dart';
 import 'package:pokerui/models/poker.dart';
@@ -24,7 +25,6 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
   String? _error;
   List<_EscrowEntry> _entries = const [];
   StreamSubscription<pr.Notification>? _ntfnSub;
-  final TextEditingController _deleteConfirmCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -39,7 +39,6 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
   @override
   void dispose() {
     _ntfnSub?.cancel();
-    _deleteConfirmCtrl.dispose();
     super.dispose();
   }
 
@@ -340,51 +339,9 @@ class _EscrowHistoryScreenState extends State<EscrowHistoryScreen> {
 
   Future<void> _confirmDeleteEscrow(
       String escrowId, BuildContext? dialogContext) async {
-    _deleteConfirmCtrl.clear();
     final confirmContext = dialogContext ?? context;
-    final confirm = await showDialog<bool>(
-      context: confirmContext,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete escrow record?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Are you absolutely sure? Deleting this escrow entry removes the '
-              'local record used for refunds. If the refund has not been '
-              'recovered yet, the funds may be PERMANENTLY LOST.',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _deleteConfirmCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Type OK to confirm',
-              ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) {
-                final ok = _deleteConfirmCtrl.text.trim().toLowerCase() == 'ok';
-                Navigator.of(dialogContext).pop(ok);
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () {
-              final ok = _deleteConfirmCtrl.text.trim().toLowerCase() == 'ok';
-              Navigator.of(dialogContext).pop(ok);
-            },
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) {
+    final confirmed = await DeleteEscrowDialog.show(confirmContext);
+    if (!confirmed) {
       return;
     }
 
@@ -1293,6 +1250,7 @@ class _RefundEscrowDialogState extends State<RefundEscrowDialog> {
                             );
                           }
                         },
+                        mouseCursor: SystemMouseCursors.click,
                         child: Text(
                           'https://dcrdata.org/decodetx',
                           style: TextStyle(

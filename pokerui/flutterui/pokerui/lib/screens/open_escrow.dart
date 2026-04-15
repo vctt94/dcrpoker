@@ -36,7 +36,7 @@ class OpenEscrowScreen extends StatelessWidget {
                 key: contentKey,
                 title: 'Fund escrow',
                 description:
-                    'Create a funded escrow before joining a table. A session key is generated automatically when the escrow is opened.',
+                    'Open an escrow to get a deposit address, send your funds, and wait for confirmation before starting a game.',
               ),
             ),
           ),
@@ -95,7 +95,7 @@ class OpenEscrowDialog extends StatelessWidget {
                 title:
                     'Fund ${normalizedTableName == 'this table' ? normalizedTableName : 'for $normalizedTableName'}',
                 description:
-                    'Open an escrow without leaving the table view. The amount is locked to the table buy-in so the escrow matches this seat.',
+                    'Open an escrow for this table without leaving the table view. Fund it and bind it after the transaction confirms.',
                 betAmountLabel: 'Table Buy-in (DCR)',
                 initialBetDcrText: buyInText,
                 betHintText: buyInText,
@@ -508,8 +508,8 @@ class _OpenEscrowContentState extends State<_OpenEscrowContent> {
               children: [
                 Text(
                   betAmountText.isEmpty
-                      ? 'Send funds to the deposit address below. Once it confirms, return to the table and bind it.'
-                      : 'Send $betAmountText DCR to the deposit address below. Once it confirms, return to the table and bind it.',
+                      ? 'Send funds to the deposit address below. After the transaction confirms, return to the table and bind the escrow.'
+                      : 'Send $betAmountText DCR to the deposit address below. After the transaction confirms, return to the table and bind the escrow.',
                   style: PokerTypography.bodyMedium.copyWith(
                     color: PokerColors.textSecondary,
                   ),

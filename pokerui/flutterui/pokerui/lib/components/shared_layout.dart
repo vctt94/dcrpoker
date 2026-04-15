@@ -250,6 +250,7 @@ class _GameMenuButton extends StatelessWidget {
         shape: const CircleBorder(),
         child: InkWell(
           customBorder: const CircleBorder(),
+          mouseCursor: SystemMouseCursors.click,
           onTap: () => Scaffold.of(context).openDrawer(),
           child: const SizedBox(
             width: 44,
@@ -284,6 +285,7 @@ class _DrawerItem extends StatelessWidget {
     return ListTile(
       leading: Icon(icon, color: c, size: 22),
       title: Text(label, style: PokerTypography.bodyMedium.copyWith(color: c)),
+      mouseCursor: SystemMouseCursors.click,
       onTap: onTap,
       dense: true,
       contentPadding: const EdgeInsets.symmetric(
