@@ -41,6 +41,7 @@ class _TableSessionViewState extends State<TableSessionView> {
   final TextEditingController _betCtrl = TextEditingController();
   bool _showBetInput = false;
   bool _showSidebar = false;
+  String? _betInputSeedKey;
 
   bool get _isShowdown => widget.model.state == PokerState.showdown;
   bool get _hasLastShowdown => widget.model.hasLastShowdown;
@@ -65,9 +66,51 @@ class _TableSessionViewState extends State<TableSessionView> {
     setState(() => _showSidebar = false);
   }
 
+  void _syncBetInputSeed(UiGameState gameState) {
+    if (!_showBetInput) {
+      _betInputSeedKey = null;
+      return;
+    }
+
+    final me = widget.model.me;
+    final seedKey = [
+      gameState.phase.value,
+      gameState.currentBet,
+      gameState.minRaise,
+      gameState.maxRaise,
+      gameState.bigBlind,
+      me?.currentBet ?? 0,
+    ].join(':');
+
+    if (_betInputSeedKey == seedKey) return;
+
+    final target = initialBetOrRaiseTotal(
+      currentBet: gameState.currentBet,
+      minRaise: gameState.minRaise,
+      maxRaise: gameState.maxRaise,
+      bigBlind: gameState.bigBlind,
+    );
+    final text = target > 0 ? target.toString() : '';
+    if (_betCtrl.text != text) {
+      _betCtrl.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(offset: text.length),
+      );
+    }
+    _betInputSeedKey = seedKey;
+  }
+
+  void _syncBetInputVisibility() {
+    if (_showBetInput && !widget.model.canAct) {
+      _showBetInput = false;
+      _betInputSeedKey = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final model = widget.model;
+    _syncBetInputVisibility();
 
     if (_isShowdown && model.game == null) {
       return const Center(child: Text('No game data available'));
@@ -97,8 +140,16 @@ class _TableSessionViewState extends State<TableSessionView> {
           turnDeadlineUnixMs: 0,
         );
 
+    _syncBetInputSeed(gameState);
+
     final isReady = model.iAmReady;
     final isWaiting = gameState.phase == pr.GamePhase.WAITING;
+    final heroPlayerIndex =
+        gameState.players.indexWhere((player) => player.id == model.playerId);
+    final heroCardsRevealed =
+        heroPlayerIndex >= 0 && heroPlayerIndex < gameState.players.length
+            ? gameState.players[heroPlayerIndex].cardsRevealed
+            : false;
 
     final showdown = model.showdown;
     final lastShowdown = model.lastShowdown;
@@ -216,6 +267,23 @@ class _TableSessionViewState extends State<TableSessionView> {
               _gameFocusNode,
               scene: scene,
               showHeroSeatCards: showTableHeroCards,
+              heroCardsRevealed: heroCardsRevealed,
+              onToggleHeroCards: () {
+                final currentGame = model.game;
+                final currentHeroIndex = currentGame?.players
+                        .indexWhere((player) => player.id == model.playerId) ??
+                    -1;
+                final currentlyRevealed = currentGame != null &&
+                        currentHeroIndex >= 0 &&
+                        currentHeroIndex < currentGame.players.length
+                    ? currentGame.players[currentHeroIndex].cardsRevealed
+                    : false;
+                if (currentlyRevealed) {
+                  model.hideCards();
+                } else {
+                  model.showCards();
+                }
+              },
               onReadyHotkey:
                   !_isShowdown && isWaiting ? () => model.setReady() : null,
             ),

@@ -371,10 +371,11 @@ func TestGameStateHandlerBuildGameStates(t *testing.T) {
 	}
 
 	gsnap := &poker.GameStateSnapshot{
-		Phase:         pokerrpc.GamePhase_PRE_FLOP,
-		Pot:           0,
-		CurrentBet:    0,
-		CurrentPlayer: "p1",
+		Phase:           pokerrpc.GamePhase_PRE_FLOP,
+		Pot:             0,
+		CurrentBet:      0,
+		LastRaiseAmount: 20,
+		CurrentPlayer:   "p1",
 	}
 
 	tsnap := &TableSnapshot{
@@ -415,6 +416,8 @@ func TestGameStateHandlerBuildGameStates(t *testing.T) {
 	if p2HandVisible {
 		t.Errorf("p1 should NOT see p2 hand in preflop phase")
 	}
+	require.Equal(t, int64(20), up1.MinRaise)
+	require.Equal(t, int64(1000), up1.MaxRaise)
 }
 
 func TestGameStateHandlerBuildGameStatesForWatcher(t *testing.T) {
@@ -428,10 +431,11 @@ func TestGameStateHandlerBuildGameStatesForWatcher(t *testing.T) {
 			{ID: "p2", Balance: 1000, IsReady: true, Hand: []poker.Card{cardA, cardK}},
 		},
 		GameSnapshot: &poker.GameStateSnapshot{
-			Phase:         pokerrpc.GamePhase_PRE_FLOP,
-			Pot:           30,
-			CurrentBet:    20,
-			CurrentPlayer: "p1",
+			Phase:           pokerrpc.GamePhase_PRE_FLOP,
+			Pot:             30,
+			CurrentBet:      20,
+			LastRaiseAmount: 20,
+			CurrentPlayer:   "p1",
 		},
 		Config: poker.TableConfig{MinPlayers: 2},
 		State:  TableState{GameStarted: true, PlayerCount: 2},
@@ -444,9 +448,41 @@ func TestGameStateHandlerBuildGameStatesForWatcher(t *testing.T) {
 	upd := updates["watcher"]
 	require.NotNil(t, upd)
 	require.Len(t, upd.Players, 2)
+	require.Equal(t, int64(20), upd.MinRaise)
+	require.Zero(t, upd.MaxRaise)
 	for _, pl := range upd.Players {
 		require.Empty(t, pl.Hand, "watchers should not see unrevealed hole cards")
 	}
+}
+
+func TestGameStateHandlerBuildGameStatesMaxRaiseIncludesCommittedBet(t *testing.T) {
+	cardA := poker.NewCardFromSuitValue(poker.Spades, poker.Ace)
+	cardK := poker.NewCardFromSuitValue(poker.Hearts, poker.King)
+
+	tsnap := &TableSnapshot{
+		ID: "tid",
+		Players: []*PlayerSnapshot{
+			{ID: "p1", Balance: 960, HasBet: 40, IsReady: true, Hand: []poker.Card{cardA, cardK}},
+			{ID: "p2", Balance: 980, HasBet: 20, IsReady: true, Hand: []poker.Card{cardA, cardK}},
+		},
+		GameSnapshot: &poker.GameStateSnapshot{
+			Phase:           pokerrpc.GamePhase_PRE_FLOP,
+			Pot:             60,
+			CurrentBet:      40,
+			LastRaiseAmount: 20,
+			CurrentPlayer:   "p1",
+		},
+		Config: poker.TableConfig{MinPlayers: 2},
+		State:  TableState{GameStarted: true, PlayerCount: 2},
+	}
+
+	gsh := NewGameStateHandler(newBareServer())
+	updates := gsh.buildGameStatesFromSnapshot(tsnap, []string{"p1"})
+	require.Len(t, updates, 1)
+
+	upd := updates["p1"]
+	require.NotNil(t, upd)
+	require.Equal(t, int64(1000), upd.MaxRaise)
 }
 
 // TestGameStateHandlerShowsOwnCardsDuringNewHandDealing asserts that a player

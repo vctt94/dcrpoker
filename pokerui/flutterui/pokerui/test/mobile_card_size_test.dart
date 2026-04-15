@@ -21,12 +21,17 @@ class _MockPokerModel extends PokerModel {
 
   @override
   Future<void> leaveTable() async {}
+
+  @override
+  UiPlayer? get me =>
+      game?.players.where((player) => player.id == playerId).firstOrNull;
 }
 
 Config _configWithCardSize(String cardSize) {
   return Config(
     serverAddr: '127.0.0.1:50051',
     grpcCertPath: '',
+    nickname: 'hero',
     payoutAddress: '',
     debugLevel: 'info',
     soundsEnabled: false,
