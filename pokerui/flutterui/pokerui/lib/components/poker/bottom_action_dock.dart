@@ -93,6 +93,81 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
+class _BetSliderThumbShape extends SliderComponentShape {
+  const _BetSliderThumbShape({
+    required this.radius,
+    required this.haloRadius,
+    this.borderWidth = 2,
+  });
+
+  final double radius;
+  final double haloRadius;
+  final double borderWidth;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) {
+    final visualRadius = math.max(radius + borderWidth, haloRadius);
+    return Size.square(visualRadius * 2);
+  }
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final canvas = context.canvas;
+    final enabledColor = sliderTheme.thumbColor ?? PokerColors.accent;
+    final disabledColor = sliderTheme.disabledThumbColor ?? enabledColor;
+    final thumbColor =
+        Color.lerp(disabledColor, enabledColor, enableAnimation.value) ??
+            enabledColor;
+    final haloColor = thumbColor.withValues(
+      alpha: 0.12 + (0.12 * enableAnimation.value),
+    );
+    final borderColor = Color.lerp(
+          PokerColors.surfaceBright,
+          Colors.white,
+          0.55,
+        ) ??
+        Colors.white;
+
+    final thumbPath = Path()
+      ..addOval(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawShadow(
+      thumbPath,
+      Colors.black.withValues(alpha: 0.34),
+      4,
+      false,
+    );
+
+    canvas.drawCircle(center, haloRadius, Paint()..color = haloColor);
+    canvas.drawCircle(center, radius, Paint()..color = thumbColor);
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = borderColor.withValues(alpha: 0.9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = borderWidth,
+    );
+    canvas.drawCircle(
+      Offset(center.dx - (radius * 0.32), center.dy - (radius * 0.38)),
+      radius * 0.24,
+      Paint()..color = Colors.white.withValues(alpha: 0.24),
+    );
+  }
+}
+
 class BottomActionDock extends StatelessWidget {
   BottomActionDock({
     super.key,
@@ -1370,14 +1445,17 @@ class _BetInputRow extends StatelessWidget {
                           color: PokerColors.textPrimary,
                           fontWeight: FontWeight.w700,
                         ),
-                        trackHeight: compactLayout ? 5 : 6,
-                        padding: EdgeInsets.zero,
-                        thumbShape: RoundSliderThumbShape(
-                          enabledThumbRadius: compactLayout ? 7 : 8,
-                          disabledThumbRadius: compactLayout ? 6 : 7,
+                        trackHeight: compactLayout ? 6 : 7,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: compactLayout ? 2 : 4,
+                          vertical: compactLayout ? 4 : 6,
+                        ),
+                        thumbShape: _BetSliderThumbShape(
+                          radius: compactLayout ? 10 : 11,
+                          haloRadius: compactLayout ? 14 : 15,
                         ),
                         overlayShape: RoundSliderOverlayShape(
-                          overlayRadius: compactLayout ? 12 : 14,
+                          overlayRadius: compactLayout ? 18 : 20,
                         ),
                       ),
                       child: Slider(

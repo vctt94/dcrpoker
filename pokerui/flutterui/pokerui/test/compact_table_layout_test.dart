@@ -1497,6 +1497,34 @@ void main() {
     expect(after, greaterThan(before));
   });
 
+  testWidgets('bet slider keeps a comfortable touch target',
+      (WidgetTester tester) async {
+    final model = _MockPokerModel(playerId: 'hero');
+    model.game = _actionGameState(
+      phase: pr.GamePhase.PRE_FLOP,
+      currentBet: 20,
+      minRaise: 20,
+      bigBlind: 20,
+      heroBet: 0,
+      villainBet: 20,
+    );
+
+    await tester.pumpWidget(_wrap(
+      size: const Size(390, 844),
+      child: TableSessionView(model: model),
+    ));
+    await tester.pumpAndSettle();
+
+    final raiseFinder = find.text('Raise').last;
+    await tester.ensureVisible(raiseFinder);
+    await tester.tap(raiseFinder, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    final sliderRect =
+        tester.getRect(find.byKey(const Key('bet-amount-slider')));
+    expect(sliderRect.height, greaterThanOrEqualTo(32));
+  });
+
   testWidgets('bet input stays modest width on desktop landscape layouts',
       (WidgetTester tester) async {
     final model = _MockPokerModel(playerId: 'hero');
