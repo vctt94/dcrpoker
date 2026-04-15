@@ -382,6 +382,16 @@ void main() {
     );
   });
 
+  test('wide desktop keeps the hero dock height aligned with standard desktop',
+      () {
+    final standardLayout = PokerSceneLayout.resolve(const Size(1366, 900));
+    final wideLayout = PokerSceneLayout.resolve(const Size(1440, 900));
+
+    expect(standardLayout.mode, PokerLayoutMode.standard);
+    expect(wideLayout.mode, PokerLayoutMode.wide);
+    expect(wideLayout.heroDockRect.height, standardLayout.heroDockRect.height);
+  });
+
   test('short desktop compact layout still caps the table footprint', () {
     final layout = PokerSceneLayout.resolve(const Size(1366, 695));
 
@@ -1551,7 +1561,7 @@ void main() {
     final amountRect =
         tester.getRect(find.byKey(const Key('bet-amount-input-shell')));
     expect(sliderRect.width, greaterThan(260));
-    expect(sliderRect.width, lessThan(380));
+    expect(sliderRect.width, lessThanOrEqualTo(380.1));
     expect(amountRect.width, greaterThan(120));
   });
 

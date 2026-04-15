@@ -1442,64 +1442,69 @@ class _BetInputRow extends StatelessWidget {
                       ],
                     ),
                     SizedBox(height: compactLayout ? 3 : 4),
-                    SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor:
-                            PokerColors.accent.withValues(alpha: 0.95),
-                        inactiveTrackColor:
-                            PokerColors.borderMedium.withValues(alpha: 0.88),
-                        thumbColor: PokerColors.accent,
-                        disabledThumbColor:
-                            PokerColors.accent.withValues(alpha: 0.5),
-                        disabledActiveTrackColor:
-                            PokerColors.accent.withValues(alpha: 0.5),
-                        disabledInactiveTrackColor:
-                            PokerColors.borderMedium.withValues(alpha: 0.5),
-                        overlayColor:
-                            PokerColors.accent.withValues(alpha: 0.12),
-                        valueIndicatorColor: PokerColors.surfaceBright,
-                        valueIndicatorTextStyle:
-                            PokerTypography.labelSmall.copyWith(
-                          color: PokerColors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        trackHeight: compactLayout ? 6 : 7,
-                        padding: EdgeInsets.symmetric(
-                          horizontal: compactLayout ? 2 : 4,
-                          vertical: compactLayout ? 4 : 6,
-                        ),
-                        thumbShape: _BetSliderThumbShape(
-                          radius: compactLayout ? 10 : 11,
-                          haloRadius: compactLayout ? 14 : 15,
-                        ),
-                        overlayShape: RoundSliderOverlayShape(
-                          overlayRadius: compactLayout ? 18 : 20,
-                        ),
+                    Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: compactLayout ? 6 : 12,
                       ),
-                      child: Slider(
-                        key: const Key('bet-amount-slider'),
-                        allowedInteraction: SliderInteraction.tapAndSlide,
-                        value: sliderDisplayValue.clamp(
-                          sliderDisplayMin,
-                          sliderDisplayMax,
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor:
+                              PokerColors.accent.withValues(alpha: 0.95),
+                          inactiveTrackColor:
+                              PokerColors.borderMedium.withValues(alpha: 0.88),
+                          thumbColor: PokerColors.accent,
+                          disabledThumbColor:
+                              PokerColors.accent.withValues(alpha: 0.5),
+                          disabledActiveTrackColor:
+                              PokerColors.accent.withValues(alpha: 0.5),
+                          disabledInactiveTrackColor:
+                              PokerColors.borderMedium.withValues(alpha: 0.5),
+                          overlayColor:
+                              PokerColors.accent.withValues(alpha: 0.12),
+                          valueIndicatorColor: PokerColors.surfaceBright,
+                          valueIndicatorTextStyle:
+                              PokerTypography.labelSmall.copyWith(
+                            color: PokerColors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          trackHeight: compactLayout ? 6 : 7,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: compactLayout ? 2 : 4,
+                            vertical: compactLayout ? 4 : 6,
+                          ),
+                          thumbShape: _BetSliderThumbShape(
+                            radius: compactLayout ? 10 : 11,
+                            haloRadius: compactLayout ? 14 : 15,
+                          ),
+                          overlayShape: RoundSliderOverlayShape(
+                            overlayRadius: compactLayout ? 18 : 20,
+                          ),
                         ),
-                        min: sliderDisplayMin,
-                        max: sliderDisplayMax,
-                        label: shortAllInOnly
-                            ? 'All-in $maxRaise'
-                            : '$displayTarget',
-                        onChanged: sliderEnabled
-                            ? (raw) {
-                                final snapped = snapBetTargetToStep(
-                                  target: raw.round(),
-                                  currentBet: currentBet,
-                                  minRaise: minRaise,
-                                  maxRaise: maxRaise,
-                                  bigBlind: bb,
-                                );
-                                betCtrl.text = snapped.toString();
-                              }
-                            : null,
+                        child: Slider(
+                          key: const Key('bet-amount-slider'),
+                          allowedInteraction: SliderInteraction.tapAndSlide,
+                          value: sliderDisplayValue.clamp(
+                            sliderDisplayMin,
+                            sliderDisplayMax,
+                          ),
+                          min: sliderDisplayMin,
+                          max: sliderDisplayMax,
+                          label: shortAllInOnly
+                              ? 'All-in $maxRaise'
+                              : '$displayTarget',
+                          onChanged: sliderEnabled
+                              ? (raw) {
+                                  final snapped = snapBetTargetToStep(
+                                    target: raw.round(),
+                                    currentBet: currentBet,
+                                    minRaise: minRaise,
+                                    maxRaise: maxRaise,
+                                    bigBlind: bb,
+                                  );
+                                  betCtrl.text = snapped.toString();
+                                }
+                              : null,
+                        ),
                       ),
                     ),
                     _SliderLegend(
