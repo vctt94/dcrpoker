@@ -140,6 +140,62 @@ void main() {
     );
   });
 
+  test('Short all-in under the minimum raise stays valid after posting chips',
+      () {
+    const myBet = 100;
+    const myBalance = 105;
+    const currentBet = 200;
+
+    final totalBet = TableSessionView.calculateTotalBet(
+      myBalance,
+      currentBet,
+      myBet,
+      100,
+      myBalance: myBalance,
+    );
+
+    expect(totalBet, equals(205));
+    expect(
+      validateBetOrRaiseTarget(
+        totalTarget: totalBet,
+        currentBet: currentBet,
+        myBet: myBet,
+        myBalance: myBalance,
+        minRaise: 200,
+        bigBlind: 100,
+      ),
+      isNull,
+    );
+  });
+
+  test('Exact all-in call target is valid in raise mode', () {
+    expect(
+      validateBetOrRaiseTarget(
+        totalTarget: 200,
+        currentBet: 200,
+        myBet: 100,
+        myBalance: 100,
+        minRaise: 200,
+        bigBlind: 100,
+      ),
+      isNull,
+    );
+  });
+
+  test('Opening all-in below the minimum bet stays valid', () {
+    expect(
+      validateBetOrRaiseTarget(
+        totalTarget: 15,
+        currentBet: 0,
+        myBet: 0,
+        myBalance: 15,
+        minRaise: 0,
+        bigBlind: 20,
+      ),
+      isNull,
+    );
+  });
+
   test('Suggested target falls back to short all-in max when below legal min',
       () {
     expect(
