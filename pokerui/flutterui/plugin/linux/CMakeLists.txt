@@ -20,6 +20,6 @@ target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
 # List of absolute paths to libraries that should be bundled with the plugin
 set(golib_plugin_bundled_libraries
-  "${PROJECT_SOURCE_DIR}/../../../build/linux/amd64/golib.so"
+  "${CMAKE_CURRENT_SOURCE_DIR}/libs/golib.so"
   PARENT_SCOPE
 )

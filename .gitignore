@@ -9,3 +9,10 @@ grpc/generated
 .gomodcache
 .cache
 releases/
+.DS_Store
+golib.dll
+golib.so
+golib.dylib
+golib.aar
+upload-keystore.jks
+.codex
