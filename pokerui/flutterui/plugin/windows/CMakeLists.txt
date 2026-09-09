@@ -44,10 +44,12 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
   "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter flutter_wrapper_plugin)
 
+set(GOLIB_DLL_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libs/golib.dll")
+
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.
 set(golib_plugin_bundled_libraries
-  ""
+  "${GOLIB_DLL_PATH}"
   PARENT_SCOPE
 )

@@ -36,5 +36,15 @@ target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
+# flutter run launches directly from build/windows/.../runner/<Config>, so keep
+# golib.dll next to the executable in addition to the install-time bundle copy.
+set(GOLIB_DLL_PATH
+  "${CMAKE_CURRENT_SOURCE_DIR}/../flutter/ephemeral/.plugin_symlinks/golib_plugin/windows/libs/golib.dll")
+add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${GOLIB_DLL_PATH}"
+    "$<TARGET_FILE_DIR:${BINARY_NAME}>/golib.dll"
+)
+
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
